@@ -1,0 +1,151 @@
+"""The Task loop: assemble the prompt, run a Step, report a structured outcome.
+
+See ACTION_PLAN §二 (borrow agent's task.py, simplified). A Task builds the initial
+conversation (system prompt + user goal), owns the runtime and executor backend so
+cross-block state persists for the task's lifetime, drives one Step, and derives a
+TaskOutcome from the rounds (completed / refused / needs-info / failed / exhausted).
+
+The system prompt is a plain string in v1 (Jinja2 composition is deferred — YAGNI
+until there are variants to compose).
+"""
+
+from __future__ import annotations
+
+from typing import Literal
+
+from pydantic import BaseModel
+
+from .client import ModelClient
+from .executor import ExecutorBackend, RestrictedBackend, TrustedBackend
+from .models import GenerationParams, Message, Role
+from .runtime import Runtime
+from .step import RoundResult, Step, Termination
+
+Tier = Literal["trusted", "restricted"]
+
+
+def _backend_for_tier(tier: Tier) -> ExecutorBackend:
+    """Map a sandbox tier to its executor backend (B2). `restricted` is the default."""
+    if tier == "trusted":
+        return TrustedBackend()
+    return RestrictedBackend()
+
+DEFAULT_SYSTEM_PROMPT = """\
+This conversation is driven by ForgeAgent, a harness that completes tasks by running Python \
+programs on your behalf and feeding you their output. You keep your own identity; ForgeAgent \
+is just the name of this response format, not a persona to adopt. Complete tasks by writing \
+Python code and running it through the markup below — do not answer in plain prose, even for \
+simple tasks like arithmetic, since prose has no way to actually execute anything here.
+
+To run code, wrap it in a fenced code block marked with CodeBlockStart/CodeBlockEnd HTML \
+comments, then trigger it with a ToolCall comment naming the Exec tool. Example, for the task \
+"compute 10 + 20 + 30 and print the result":
+
+<!-- CodeBlockStart: {"name": "sum_block"} -->
+```python
+print(10 + 20 + 30)
+```
+<!-- CodeBlockEnd: {"name": "sum_block"} -->
+<!-- ToolCall: {"name": "Exec", "arguments": {"name": "sum_block"}} -->
+
+The Exec tool's `arguments.name` must match the CodeBlockStart/End `name`. You will receive the \
+program's stdout/stderr as feedback in the next turn; use it to decide the next step.
+
+To modify an existing block, use an Edit tool call instead of rewriting the whole block:
+<!-- ToolCall: {"name": "Edit", "arguments": {"name": "sum_block", "old": "10 + 20 + 30", \
+"new": "10 + 20 + 30 + 40"}} -->
+
+Use utils.set_state(key=value) / utils.get_state(key) inside your Python code to carry values \
+across blocks (state does not persist any other way).
+
+Once you can see (from feedback) that the task is fully done, send one final response that \
+starts with this YAML front matter as the very first thing, before anything else:
+---
+task_status:
+  completed: true
+  confidence: 0.9
+---
+"""
+
+
+class TaskStatus(BaseModel):
+    """Terminal status of a task run.
+
+    `completed` is a verified, model-declared completion. `solved` is broader: it also
+    covers an unverified prose answer (Termination.ANSWERED_IN_PROSE), so callers and
+    the golden evaluator can score "task solved, format irregular" apart from "task not
+    solved" without conflating either with "answer factually wrong" (which is judged
+    separately, on the answer content — not here).
+    """
+
+    completed: bool
+    # A Termination value (or "client_error:<kind>"); "no_rounds"/"unknown" as fallbacks.
+    reason: str
+    detail: str | None = None
+
+    @property
+    def solved(self) -> bool:
+        """The task reached a solved state — a verified completion or a prose answer."""
+        return self.reason in (Termination.COMPLETED, Termination.ANSWERED_IN_PROSE)
+
+
+class TaskOutcome(BaseModel):
+    """Everything a caller needs about a finished task run."""
+
+    status: TaskStatus
+    rounds: list[RoundResult]
+
+
+class Task:
+    """Runs a single user goal to completion (or a terminal non-completion)."""
+
+    def __init__(
+        self,
+        client: ModelClient,
+        *,
+        tier: Tier = "restricted",
+        backend: ExecutorBackend | None = None,
+        system_prompt: str = DEFAULT_SYSTEM_PROMPT,
+        max_rounds: int = 10,
+        params: GenerationParams | None = None,
+    ):
+        self._client = client
+        # Default tier is restricted (B2 / ACTION_PLAN). An explicit backend overrides
+        # the tier; otherwise the tier selects the backend.
+        self._backend = backend or _backend_for_tier(tier)
+        self._system_prompt = system_prompt
+        self._max_rounds = max_rounds
+        self._params = params
+        self.runtime = Runtime()
+
+    def run(self, goal: str) -> TaskOutcome:
+        """Run the task for `goal` and return its terminal outcome."""
+        messages = [
+            Message(role=Role.SYSTEM, content=self._system_prompt),
+            Message(role=Role.USER, content=goal),
+        ]
+        step = Step(
+            self._client,
+            self._backend,
+            self.runtime,
+            max_rounds=self._max_rounds,
+            params=self._params,
+        )
+        rounds = step.run(messages)
+        return TaskOutcome(status=self._derive_status(rounds), rounds=rounds)
+
+    def _derive_status(self, rounds: list[RoundResult]) -> TaskStatus:
+        if not rounds:
+            return TaskStatus(completed=False, reason="no_rounds")
+        last = rounds[-1]
+        reason = str(last.stopped_reason or "unknown")
+        completed = reason == Termination.COMPLETED
+        # For a prose answer the payload is the model's own words (front matter stripped);
+        # for other non-completions it's whatever the round carried (error/refusal text).
+        if reason == Termination.ANSWERED_IN_PROSE:
+            detail = last.body or None
+        elif completed:
+            detail = None
+        else:
+            detail = last.text or None
+        return TaskStatus(completed=completed, reason=reason, detail=detail)

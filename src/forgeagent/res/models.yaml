@@ -1,0 +1,89 @@
+# Built-in model capability registry. Ships with the package (see model_registry.py).
+#
+# Pure capability data: what each model can do, and its wire protocol (client_kind).
+# No connection info here (api_key/base_url/groups) — that lives in config.yaml,
+# kept separate so extending routing never means redeclaring a model's
+# capabilities, and vice versa (see docs/model-client-contract.md).
+#
+# model_id is the key, and the literal string sent to the API as the "model" field.
+# aliases are user-facing shortcuts that resolve to model_id; they never go on the
+# wire. A user can add or override entries via ~/.forgeagent/models.yaml.
+
+default_model: claude-sonnet-5
+
+models:
+  claude-sonnet-5:
+    client_kind: anthropic
+    context_window: 1000000
+    max_output_tokens: 128000
+    supports_thinking: true
+    thinking_always_on: false
+    supports_effort: true
+    aliases: [sonnet, claude-sonnet, sonnet-5]
+
+  claude-opus-4-8:
+    client_kind: anthropic
+    context_window: 1000000
+    max_output_tokens: 128000
+    supports_thinking: true
+    thinking_always_on: false
+    supports_effort: true
+    aliases: [opus, claude-opus, opus-4-8]
+
+  claude-haiku-4-5:
+    client_kind: anthropic
+    context_window: 200000
+    max_output_tokens: 64000
+    supports_thinking: false
+    thinking_always_on: false
+    supports_effort: false
+    aliases: [haiku, claude-haiku, haiku-4-5]
+
+  claude-fable-5:
+    client_kind: anthropic
+    context_window: 1000000
+    max_output_tokens: 128000
+    supports_thinking: true
+    thinking_always_on: true
+    supports_effort: true
+    aliases: [fable, claude-fable, fable-5]
+
+  gpt-5.5:
+    client_kind: openai_compatible
+    context_window: 1050000
+    max_output_tokens: 128000
+    supports_thinking: false
+    thinking_always_on: false
+    supports_effort: true
+    max_tokens_param: max_completion_tokens
+    aliases: [gpt55, gpt-5-5]
+
+  gpt-5.4-mini:
+    client_kind: openai_compatible
+    context_window: 400000
+    max_output_tokens: 128000
+    supports_thinking: false
+    thinking_always_on: false
+    supports_effort: true
+    max_tokens_param: max_completion_tokens
+    aliases: [gpt54mini, mini]
+
+  glm-5.2:
+    client_kind: openai_compatible
+    context_window: 1048576
+    max_output_tokens: 131072
+    supports_thinking: true
+    thinking_always_on: false
+    supports_effort: true
+    max_tokens_param: max_tokens
+    aliases: [glm]
+
+  deepseek-v4-flash:
+    client_kind: openai_compatible
+    context_window: 1000000
+    max_output_tokens: 384000
+    supports_thinking: true
+    thinking_always_on: false
+    supports_effort: true
+    max_tokens_param: max_tokens
+    aliases: [deepseek, deepseek-flash]

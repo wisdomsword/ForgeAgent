@@ -1,0 +1,20 @@
+# Editor / OS
+.DS_Store
+.idea/
+.obsidian/
+
+# CodeGraph index (regenerable, see CLAUDE.md — indexing is a local dev-tool choice)
+.codegraph/
+
+# Read-only reference project (see CLAUDE.md 项目使命 — borrowed from, never modified,
+# not part of ForgeAgent's own history)
+resource/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.coverage
+.venv/
+*.egg-info/

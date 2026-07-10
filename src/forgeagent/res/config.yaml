@@ -1,0 +1,36 @@
+# Built-in provider/routing registry. Ships with the package (see model_registry.py).
+#
+# Pure connection info: which group (provider) serves which models, and where its
+# credentials come from. No capability data here — that lives in models.yaml, kept
+# separate so a user extending routing never has to redeclare a model's capabilities,
+# and vice versa.
+#
+# Each group lists the model_ids (from models.yaml) it serves. A model_id must be
+# unique across all groups (enforced at load time) — this keeps routing unambiguous:
+# requesting a model always resolves to exactly one group's api_key/base_url,
+# regardless of which other providers' environment variables happen to be set (see
+# docs/model-client-contract.md's provider-routing note for the bug this replaced).
+#
+# api_key is never written here — only api_key_env (an environment variable NAME). A
+# user can override/extend this file with ~/.forgeagent/config.yaml, which may set a
+# literal api_key/base_url instead (see model_registry.py's load_registry docstring).
+
+groups:
+  anthropic:
+    api_key_env: ANTHROPIC_API_KEY
+    base_url_env: ANTHROPIC_BASE_URL
+    models: [claude-sonnet-5, claude-opus-4-8, claude-haiku-4-5, claude-fable-5]
+
+  openai:
+    api_key_env: OPENAI_API_KEY
+    base_url_env: OPENAI_BASE_URL
+    models: [gpt-5.5, gpt-5.4-mini]
+
+  # Generic OpenAI-compatible gateway slot (any Chat Completions-compatible
+  # reseller). Not tied to a named vendor on purpose — third-party gateways are
+  # user infrastructure, not a vendor this project bakes in by name (see
+  # docs/m6-openai-compatible-client.md).
+  llm:
+    api_key_env: LLM_API_KEY
+    base_url_env: LLM_BASE_URL
+    models: [glm-5.2, deepseek-v4-flash]
