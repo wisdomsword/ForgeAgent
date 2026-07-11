@@ -29,9 +29,10 @@ from .model_registry import (
     reload_registry,
     resolve_model,
 )
+from .models import TokenUsage
 from .openai_compatible_client import OpenAICompatibleClient
 from .protocol import MCPArgs, SurveyArgs
-from .step import Termination
+from .step import RoundResult, Termination
 from .task import Task, TaskOutcome
 from .tools import Asker, Confirmer, Tier
 
@@ -96,6 +97,25 @@ def render_outcome(outcome: TaskOutcome, console: Console) -> None:
             console.print(rnd.body)
 
 
+def _accumulate_usage(total: TokenUsage, rounds: list[RoundResult]) -> None:
+    """Fold each round's usage into `total` in place (session-scoped accumulator,
+    docs/m10-usage-observability-and-tools.md §3.2). Rounds with no usage (e.g.
+    ClientError rounds) are skipped."""
+    for rnd in rounds:
+        if rnd.usage is None:
+            continue
+        total.input_tokens += rnd.usage.input_tokens
+        total.output_tokens += rnd.usage.output_tokens
+        total.cached_tokens += rnd.usage.cached_tokens
+
+
+def _print_usage(total: TokenUsage, console: Console) -> None:
+    console.print(
+        f"[dim]usage: in={total.input_tokens} out={total.output_tokens} "
+        f"cached={total.cached_tokens} (session total)[/dim]"
+    )
+
+
 def make_console_asker(
     console: Console, read_line: Callable[[str], str] = input
 ) -> Asker:
@@ -149,14 +169,19 @@ def run_once(
     mcp: MCPManager | None = None,
     confirmer: Confirmer | None = None,
     container_image: str | None = None,
+    usage_total: TokenUsage | None = None,
 ) -> TaskOutcome:
     """Run a single goal and render its outcome. Returns the outcome for testing.
 
     `asker` handles Survey mid-task questions. Default (None) is headless — a Survey call
     ends the task with NEEDS_INFO. REPL wires a console asker; `run` leaves it None.
     `mcp`/`confirmer` wire the MCP tool + its confirmation gate when servers are configured.
+    `usage_total` is the session-scoped token accumulator (docs/m10 §3.2): the REPL passes
+    the same instance across tasks so it keeps growing; a bare `run_once` call with no
+    accumulator gets a fresh one, since the task itself is the whole session then.
     """
     console = console or Console()
+    usage_total = usage_total if usage_total is not None else TokenUsage()
     client = client_factory(model)
     task = Task(
         client, tier=tier, asker=asker, mcp=mcp, confirmer=confirmer,
@@ -167,6 +192,8 @@ def run_once(
     finally:
         task.close()
     render_outcome(outcome, console)
+    _accumulate_usage(usage_total, outcome.rounds)
+    _print_usage(usage_total, console)
     return outcome
 
 
@@ -214,6 +241,9 @@ def repl(
     asker = make_console_asker(console, read_line)
     confirmer = make_console_confirmer(console, read_line)
     mcp = build_mcp_manager(console)
+    # One accumulator for the whole REPL session — usage keeps growing across tasks,
+    # not reset per goal (docs/m10 §3.2).
+    usage_total = TokenUsage()
     try:
         while True:
             try:
@@ -243,6 +273,7 @@ def repl(
                 console=console, asker=asker, mcp=mcp,
                 confirmer=confirmer if mcp is not None else None,
                 container_image=container_image,
+                usage_total=usage_total,
             )
     finally:
         if mcp is not None:
