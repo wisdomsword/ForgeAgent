@@ -28,11 +28,18 @@ def _client(model_id: str, transport=None, **kw) -> AnthropicClient:
     )
 
 
-def _fake_reply(text="ok", stop_reason="end_turn", inp=3, out=5):
+def _fake_reply(
+    text="ok", stop_reason="end_turn", inp=3, out=5, cache_creation=0, cache_read=0
+):
     return SimpleNamespace(
         content=[SimpleNamespace(type="text", text=text)],
         stop_reason=stop_reason,
-        usage=SimpleNamespace(input_tokens=inp, output_tokens=out),
+        usage=SimpleNamespace(
+            input_tokens=inp,
+            output_tokens=out,
+            cache_creation_input_tokens=cache_creation,
+            cache_read_input_tokens=cache_read,
+        ),
     )
 
 
@@ -111,6 +118,16 @@ def test_parse_response_builds_assistant_message():
     assert msg.usage.input_tokens == 10
     assert msg.usage.output_tokens == 20
     assert msg.stop_reason == "end_turn"
+
+
+def test_parse_response_sums_cache_creation_and_read_into_cached_tokens():
+    msg = _parse_response(_fake_reply(cache_creation=7, cache_read=11))
+    assert msg.usage.cached_tokens == 18
+
+
+def test_parse_response_defaults_cached_tokens_to_zero():
+    msg = _parse_response(_fake_reply())
+    assert msg.usage.cached_tokens == 0
 
 
 def test_refusal_is_assistant_message_not_error():

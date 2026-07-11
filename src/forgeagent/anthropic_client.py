@@ -191,6 +191,10 @@ def _parse_response(raw: Any) -> AssistantMessage:
     token_usage = TokenUsage(
         input_tokens=getattr(usage, "input_tokens", 0) or 0,
         output_tokens=getattr(usage, "output_tokens", 0) or 0,
+        # Anthropic reports cache-write and cache-read tokens as two separate usage
+        # fields; sum them into the one cached_tokens field.
+        cached_tokens=(getattr(usage, "cache_creation_input_tokens", 0) or 0)
+        + (getattr(usage, "cache_read_input_tokens", 0) or 0),
     )
     return AssistantMessage(
         content="".join(text_parts),

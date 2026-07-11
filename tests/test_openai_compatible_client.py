@@ -22,12 +22,23 @@ def _client(model_id: str, transport=None, **kw) -> OpenAICompatibleClient:
     )
 
 
-def _fake_reply(text="ok", finish_reason="stop", inp=3, out=5, tool_calls=None):
+def _fake_reply(
+    text="ok",
+    finish_reason="stop",
+    inp=3,
+    out=5,
+    tool_calls=None,
+    prompt_tokens_details=None,
+):
     message = SimpleNamespace(content=text, tool_calls=tool_calls)
     choice = SimpleNamespace(message=message, finish_reason=finish_reason)
     return SimpleNamespace(
         choices=[choice],
-        usage=SimpleNamespace(prompt_tokens=inp, completion_tokens=out),
+        usage=SimpleNamespace(
+            prompt_tokens=inp,
+            completion_tokens=out,
+            prompt_tokens_details=prompt_tokens_details,
+        ),
     )
 
 
@@ -140,6 +151,18 @@ def test_null_content_becomes_empty_string():
     # native tool_calls replies can have content=None with tool_calls populated.
     msg = _parse_response(_fake_reply(text=None, finish_reason="tool_calls"))
     assert msg.content == ""
+
+
+def test_parse_response_reads_cached_tokens_from_prompt_tokens_details():
+    msg = _parse_response(
+        _fake_reply(prompt_tokens_details=SimpleNamespace(cached_tokens=6))
+    )
+    assert msg.usage.cached_tokens == 6
+
+
+def test_parse_response_defaults_cached_tokens_to_zero_when_details_absent():
+    msg = _parse_response(_fake_reply(prompt_tokens_details=None))
+    assert msg.usage.cached_tokens == 0
 
 
 # --- retry / error mapping ---------------------------------------------------

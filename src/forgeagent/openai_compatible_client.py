@@ -153,6 +153,12 @@ def _parse_response(raw: Any) -> AssistantMessage:
     token_usage = TokenUsage(
         input_tokens=getattr(usage, "prompt_tokens", 0) or 0,
         output_tokens=getattr(usage, "completion_tokens", 0) or 0,
+        # Nested under prompt_tokens_details, which may be absent entirely on
+        # providers that don't report prompt caching.
+        cached_tokens=getattr(
+            getattr(usage, "prompt_tokens_details", None), "cached_tokens", 0
+        )
+        or 0,
     )
     native_calls = [
         NativeToolCall(id=call.id, name=call.function.name, arguments=call.function.arguments)
