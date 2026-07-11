@@ -13,20 +13,45 @@ refactor is behaviour-preserving.
 
 from __future__ import annotations
 
+import hashlib
+import logging
+import os
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel
 
 from .executor import ExecResult, ExecutorBackend
 from .policy import CodeAnalyzer
-from .protocol import EditArgs, ExecArgs, MCPArgs, SurveyArgs
+from .protocol import (
+    EditArgs,
+    ExecArgs,
+    FileListArgs,
+    FileReadArgs,
+    FileWriteArgs,
+    MCPArgs,
+    SurveyArgs,
+    WebFetchArgs,
+)
 from .runtime import Runtime
+from .secret_policy import mask_secrets, sensitive_env_values
+from .ssrf_guard import SSRFGuardError, guarded_urlopen
 
 if TYPE_CHECKING:
     from .mcp_manager import MCPManager
+
+# WebFetch download/preview caps (docs/m10 §五 decision 6). The download cap bounds
+# memory for the response body; the preview cap keeps ToolOutcome.detail well under
+# the feedback tail-truncation limit so the full body never needs to ride in-context —
+# it is saved to disk instead (§3.4 hybrid return design).
+_MAX_FETCH_BYTES = 1_048_576
+_FETCH_PREVIEW_CHARS = 2048
+_EXT_BY_CONTENT_TYPE = {"text/html": ".html", "application/json": ".json", "text/plain": ".txt"}
+
+_logger = logging.getLogger(__name__)
 
 # Sandbox tier. Lives here (not task.py) so ToolContext.tier can reference it without
 # a circular import: task.py already imports from tools.py (see docs/m10 §3.7).
@@ -262,6 +287,142 @@ class MCPTool(Tool):
         )
 
 
+class WebFetchTool(Tool):
+    """GET a single http(s) URL through the SSRF guard; save the body to disk and
+    return a small preview (docs/m10-usage-observability-and-tools.md §3.3/§3.4).
+
+    Hybrid return: the full (possibly truncated) body is written under
+    `ctx.allowed_root` so the model can read/process it with Exec/FileRead in a later
+    round; `detail` carries only a preview so an untrusted page never rides fully into
+    the model's context. This is the only outbound network path under
+    restricted/container tiers (Exec cannot open sockets there), so the confirmer gate
+    here is a real security boundary, not just UX (see FileWriteTool for the contrast).
+    """
+
+    name = "WebFetch"
+    args_model = WebFetchArgs
+
+    def run(self, args: BaseModel, ctx: ToolContext) -> ToolOutcome:
+        assert isinstance(args, WebFetchArgs)
+        if ctx.tier in ("restricted", "container"):
+            if ctx.confirmer is None or not ctx.confirmer(args):
+                return ToolOutcome(
+                    tool="WebFetch", success=False,
+                    detail=f"WebFetch {args.url} was not approved by the user",
+                )
+        try:
+            response = guarded_urlopen(args.url)
+            with response:
+                content_type = response.headers.get_content_type()
+                raw = response.read(_MAX_FETCH_BYTES + 1)
+        except SSRFGuardError as exc:
+            return ToolOutcome(tool="WebFetch", success=False, detail=str(exc))
+        except OSError as exc:
+            return ToolOutcome(tool="WebFetch", success=False, detail=f"fetch failed: {exc}")
+        truncated = len(raw) > _MAX_FETCH_BYTES
+        if truncated:
+            raw = raw[:_MAX_FETCH_BYTES]
+        masked = mask_secrets(raw.decode("utf-8", errors="replace"), sensitive_env_values())
+        digest = hashlib.sha256(args.url.encode()).hexdigest()[:12]
+        ext = _EXT_BY_CONTENT_TYPE.get(content_type, ".fetch")
+        dest = Path(ctx.allowed_root) / f"webfetch_{digest}{ext}"
+        truncated_note = " (truncated at 1MB)" if truncated else ""
+        dest.write_text(masked, encoding="utf-8", errors="replace")
+        preview = masked[:_FETCH_PREVIEW_CHARS]
+        preview_note = " (preview truncated)" if len(masked) > _FETCH_PREVIEW_CHARS else ""
+        detail = (
+            f"saved to {dest.name} ({len(masked)} bytes, {content_type}){truncated_note}\n"
+            f"preview{preview_note}:\n{preview}"
+        )
+        return ToolOutcome(tool="WebFetch", success=True, detail=detail)
+
+
+def _validate_path(path: str, allowed_root: str) -> Path:
+    """Resolve `path` (relative to allowed_root if not absolute) and require the
+    realpath to be allowed_root itself or nested under it. Mirrors the predicate in
+    _sandbox_worker.py's audit hook; implemented independently here since File tools
+    run in the main process, not inside the sandboxed executor (docs/m10 §3.5)."""
+    base = os.path.realpath(allowed_root)
+    candidate = path if os.path.isabs(path) else os.path.join(allowed_root, path)
+    resolved = os.path.realpath(candidate)
+    if resolved != base and not resolved.startswith(base + os.sep):
+        raise PermissionError(f"path {path!r} escapes project root {allowed_root!r}")
+    return Path(resolved)
+
+
+class FileReadTool(Tool):
+    """Read a file under `ctx.allowed_root`, masking secrets before returning it.
+
+    No confirmer gate by default (read is lower-risk than write); when a confirmer is
+    configured (non-trusted tiers) this only logs the path being read, it never blocks.
+    """
+
+    name = "FileRead"
+    args_model = FileReadArgs
+
+    def run(self, args: BaseModel, ctx: ToolContext) -> ToolOutcome:
+        assert isinstance(args, FileReadArgs)
+        if ctx.confirmer is not None and ctx.tier != "trusted":
+            _logger.info("FileRead: %s", args.path)
+        try:
+            resolved = _validate_path(args.path, ctx.allowed_root)
+            content = resolved.read_text(encoding="utf-8", errors="replace")
+        except (PermissionError, OSError) as exc:
+            return ToolOutcome(tool="FileRead", success=False, detail=str(exc))
+        masked = mask_secrets(content, sensitive_env_values())
+        return ToolOutcome(tool="FileRead", success=True, detail=masked)
+
+
+class FileWriteTool(Tool):
+    """Create or overwrite a file under `ctx.allowed_root` with unmasked content.
+
+    SECURITY NOTE: this confirmer gate is UX-only, not a security boundary — model
+    code run via ExecTool can already write anywhere under allowed_root without ever
+    hitting this confirmer (Exec's writes are gated only by the executor backend's own
+    audit hook, which already permits writes anywhere inside allowed_root). Contrast
+    WebFetchTool, whose confirmer gate is a real boundary (see its docstring).
+    """
+
+    name = "FileWrite"
+    args_model = FileWriteArgs
+
+    def run(self, args: BaseModel, ctx: ToolContext) -> ToolOutcome:
+        assert isinstance(args, FileWriteArgs)
+        if ctx.tier in ("restricted", "container"):
+            if ctx.confirmer is None or not ctx.confirmer(args):
+                return ToolOutcome(
+                    tool="FileWrite", success=False,
+                    detail=f"FileWrite {args.path} was not approved by the user",
+                )
+        try:
+            resolved = _validate_path(args.path, ctx.allowed_root)
+            resolved.write_text(args.content, encoding="utf-8")
+        except (PermissionError, OSError) as exc:
+            return ToolOutcome(tool="FileWrite", success=False, detail=str(exc))
+        return ToolOutcome(tool="FileWrite", success=True, detail=f"wrote {args.path}")
+
+
+class FileListTool(Tool):
+    """List entries directly under a directory, as paths relative to allowed_root.
+
+    Returns relative paths only (never absolute) so the model is never told the host's
+    real directory structure (docs/m10 §五 decision 9).
+    """
+
+    name = "FileList"
+    args_model = FileListArgs
+
+    def run(self, args: BaseModel, ctx: ToolContext) -> ToolOutcome:
+        assert isinstance(args, FileListArgs)
+        try:
+            resolved = _validate_path(args.path, ctx.allowed_root)
+            base = os.path.realpath(ctx.allowed_root)
+            entries = sorted(p.relative_to(base).as_posix() for p in resolved.iterdir())
+        except (PermissionError, OSError) as exc:
+            return ToolOutcome(tool="FileList", success=False, detail=str(exc))
+        return ToolOutcome(tool="FileList", success=True, detail="\n".join(entries))
+
+
 class ToolRegistry:
     """Holds the registered tools; the single source of truth for both parsing
     (arg_schemas) and dispatch (get)."""
@@ -282,7 +443,8 @@ class ToolRegistry:
 
 
 def default_registry(*, with_mcp: bool = False) -> ToolRegistry:
-    """The built-in tool set: Exec + Edit + Survey, plus MCP when `with_mcp` is set.
+    """The built-in tool set: Exec + Edit + Survey + WebFetch + FileRead/Write/List,
+    plus MCP when `with_mcp` is set.
 
     Survey is always registered (so the model may always ask); it degrades gracefully
     to NEEDS_INFO when no asker is wired (headless). MCP is registered only when an
@@ -293,6 +455,10 @@ def default_registry(*, with_mcp: bool = False) -> ToolRegistry:
     registry.register(ExecTool())
     registry.register(EditTool())
     registry.register(SurveyTool())
+    registry.register(WebFetchTool())
+    registry.register(FileReadTool())
+    registry.register(FileWriteTool())
+    registry.register(FileListTool())
     if with_mcp:
         registry.register(MCPTool())
     return registry
