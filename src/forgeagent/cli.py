@@ -20,10 +20,20 @@ from rich.console import Console
 
 from .anthropic_client import AnthropicClient
 from .client import ModelClient
-from .model_registry import RegistryError, load_registry, resolve_model
+from .executor import ContainerRuntimeError
+from .mcp_manager import MCPManager, load_mcp_config
+from .model_registry import (
+    RegistryError,
+    list_models,
+    load_registry,
+    reload_registry,
+    resolve_model,
+)
 from .openai_compatible_client import OpenAICompatibleClient
+from .protocol import MCPArgs, SurveyArgs
 from .step import Termination
-from .task import Task, TaskOutcome, Tier
+from .task import Task, TaskOutcome
+from .tools import Asker, Confirmer, Tier
 
 DEFAULT_MODEL = "claude-sonnet-5"
 
@@ -86,6 +96,48 @@ def render_outcome(outcome: TaskOutcome, console: Console) -> None:
             console.print(rnd.body)
 
 
+def make_console_asker(
+    console: Console, read_line: Callable[[str], str] = input
+) -> Asker:
+    """Console-based `Asker` for the Survey tool: print the question (+ options if any)
+    and return the user's typed answer. Empty input / EOF returns None so Survey ends
+    the task with NEEDS_INFO cleanly (per docs/m7-tools-mcp-survey.md §3.5)."""
+
+    def _ask(args: SurveyArgs) -> str | None:
+        console.print(f"[bold cyan]?[/bold cyan] {args.question}")
+        if args.options:
+            for i, opt in enumerate(args.options, 1):
+                console.print(f"  {i}. {opt}")
+        try:
+            answer = read_line("answer> ").strip()
+        except EOFError:
+            return None
+        return answer or None
+
+    return _ask
+
+
+def make_console_confirmer(
+    console: Console, read_line: Callable[[str], str] = input
+) -> Confirmer:
+    """Console-based `Confirmer` for side-effecting MCP calls: show the pending call and
+    require an explicit y/n. Anything but 'y'/'yes' (incl. EOF) denies — a side-effecting
+    call outside a server's autoApprove list never runs without a clear yes (T8a)."""
+
+    def _confirm(args: MCPArgs) -> bool:
+        console.print(
+            f"[bold yellow]MCP call[/bold yellow] {args.server}:{args.tool} "
+            f"[dim]{args.arguments}[/dim]"
+        )
+        try:
+            answer = read_line("approve? [y/N] ").strip().lower()
+        except EOFError:
+            return False
+        return answer in {"y", "yes"}
+
+    return _confirm
+
+
 def run_once(
     goal: str,
     *,
@@ -93,13 +145,51 @@ def run_once(
     model: str,
     client_factory: ClientFactory,
     console: Console | None = None,
+    asker: Asker | None = None,
+    mcp: MCPManager | None = None,
+    confirmer: Confirmer | None = None,
+    container_image: str | None = None,
 ) -> TaskOutcome:
-    """Run a single goal and render its outcome. Returns the outcome for testing."""
+    """Run a single goal and render its outcome. Returns the outcome for testing.
+
+    `asker` handles Survey mid-task questions. Default (None) is headless — a Survey call
+    ends the task with NEEDS_INFO. REPL wires a console asker; `run` leaves it None.
+    `mcp`/`confirmer` wire the MCP tool + its confirmation gate when servers are configured.
+    """
     console = console or Console()
     client = client_factory(model)
-    outcome = Task(client, tier=tier).run(goal)
+    task = Task(
+        client, tier=tier, asker=asker, mcp=mcp, confirmer=confirmer,
+        container_image=container_image,
+    )
+    try:
+        outcome = task.run(goal)
+    finally:
+        task.close()
     render_outcome(outcome, console)
     return outcome
+
+
+def _handle_mcp_command(goal: str, mcp: MCPManager | None, console: Console) -> None:
+    """Handle the REPL `mcp status` / `mcp enable <server>` / `mcp disable <server>`
+    commands. No-op with a note when no MCP servers are configured."""
+    if mcp is None:
+        console.print("[dim]no MCP servers configured[/dim]")
+        return
+    parts = goal.split()
+    action = parts[1] if len(parts) > 1 else "status"
+    if action == "status":
+        for name, status in mcp.server_status().items():
+            console.print(f"  {name}: {status}")
+    elif action in {"enable", "disable"} and len(parts) > 2:
+        server = parts[2]
+        ok = mcp.enable(server) if action == "enable" else mcp.disable(server)
+        if ok:
+            console.print(f"[green]{action}d[/green] {server}: {mcp.server_status()[server]}")
+        else:
+            console.print(f"[red]unknown server[/red] {server!r}")
+    else:
+        console.print("[dim]usage: mcp status | mcp enable <server> | mcp disable <server>[/dim]")
 
 
 def repl(
@@ -109,6 +199,7 @@ def repl(
     client_factory: ClientFactory,
     console: Console | None = None,
     read_line: Callable[[str], str] = input,
+    container_image: str | None = None,
 ) -> None:
     """Interactive loop: read a goal, run it, repeat. Blank line or EOF/quit exits.
 
@@ -116,14 +207,46 @@ def repl(
     """
     console = console or Console()
     console.print("[bold]ForgeAgent[/bold] REPL — enter a goal, blank line or 'quit' to exit.")
-    while True:
-        try:
-            goal = read_line("forge> ").strip()
-        except EOFError:
-            break
-        if not goal or goal in {"quit", "exit"}:
-            break
-        run_once(goal, tier=tier, model=model, client_factory=client_factory, console=console)
+    console.print(
+        "[dim]commands: 'models', 'reload', 'mcp status|enable <s>|disable <s>', 'quit'[/dim]"
+    )
+    # REPL is interactive, so Survey questions and MCP confirmations use the same read_line.
+    asker = make_console_asker(console, read_line)
+    confirmer = make_console_confirmer(console, read_line)
+    mcp = build_mcp_manager(console)
+    try:
+        while True:
+            try:
+                goal = read_line("forge> ").strip()
+            except EOFError:
+                break
+            if not goal or goal in {"quit", "exit"}:
+                break
+            if goal == "models":
+                print_models(console)
+                continue
+            if goal == "reload":
+                # Re-read ~/.forgeagent/{models,config}.yaml now, so a broken edit is
+                # caught here rather than on the next `run`. Each run already reloads
+                # from disk, so this is a validate-and-report, not a cache refresh.
+                try:
+                    reloaded = reload_registry()
+                    console.print(f"[green]reloaded[/green]: {len(reloaded.models)} models")
+                except RegistryError as exc:
+                    console.print(f"[red]reload failed[/red]: {exc}")
+                continue
+            if goal.startswith("mcp"):
+                _handle_mcp_command(goal, mcp, console)
+                continue
+            run_once(
+                goal, tier=tier, model=model, client_factory=client_factory,
+                console=console, asker=asker, mcp=mcp,
+                confirmer=confirmer if mcp is not None else None,
+                container_image=container_image,
+            )
+    finally:
+        if mcp is not None:
+            mcp.close()
 
 
 # A tiny set of live goals for the smoke command — deterministic, self-contained,
@@ -172,17 +295,52 @@ def run_smoke(
     return all_ok
 
 
+def build_mcp_manager(console: Console) -> MCPManager | None:
+    """Load mcp.yaml and, if any servers are enabled, build + connect a manager.
+
+    Returns None when no servers are configured (the common case) so the MCP tool stays
+    off the menu. Connection failures for individual servers are isolated inside the
+    manager (reported via server_status), never raised here.
+    """
+    servers = load_mcp_config()
+    manager = MCPManager(servers)
+    if not manager.has_enabled_servers:
+        return None
+    manager.connect()
+    for name, status in manager.server_status().items():
+        colour = "green" if status == "available" else "yellow"
+        console.print(f"[{colour}]MCP[/{colour}] {name}: {status}")
+    return manager
+
+
+def print_models(console: Console) -> None:
+    """Print the registered models with their aliases and key capabilities."""
+    console.print("[bold]Available models[/bold] (canonical — aliases):")
+    for info in list_models():
+        aliases = ", ".join(info.aliases) if info.aliases else "—"
+        console.print(
+            f"  [cyan]{info.model_id}[/cyan] — {aliases}  "
+            f"[dim]({info.client_kind}, ctx {info.context_window})[/dim]"
+        )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="forgeagent", description="Lightweight code-as-action agent."
     )
-    parser.add_argument("--tier", choices=("trusted", "restricted"), default="restricted",
-                        help="sandbox tier (default: restricted)")
+    parser.add_argument("--tier", choices=("trusted", "restricted", "container"),
+                        default="restricted",
+                        help="sandbox tier (default: restricted; container requires docker)")
+    parser.add_argument("--container-image", default=None, metavar="IMAGE",
+                        help="container tier image (default: python:3.11-slim)")
     parser.add_argument("--model", default=DEFAULT_MODEL,
                         help=f"model id (default: {DEFAULT_MODEL})")
     sub = parser.add_subparsers(dest="command")
     run_p = sub.add_parser("run", help="run a single goal and exit")
     run_p.add_argument("goal", help="the task goal")
+    run_p.add_argument("--interactive", action="store_true",
+                       help="allow mid-task Survey questions (prompts on the terminal)")
+    sub.add_parser("models", help="list available models and their aliases")
     smoke_p = sub.add_parser("smoke", help="run a live smoke check against real models")
     smoke_p.add_argument("--include-fable", action="store_true",
                         help="also run claude-fable-5 (opt-in: extra cost + refusal risk)")
@@ -205,11 +363,23 @@ def main(
     args = build_parser().parse_args(argv)
     console = Console()
     try:
+        if args.command == "models":
+            print_models(console)
+            return 0
         if args.command == "run":
-            outcome = run_once(
-                args.goal, tier=args.tier, model=args.model, client_factory=client_factory,
-                console=console,
-            )
+            mcp = build_mcp_manager(console)
+            try:
+                outcome = run_once(
+                    args.goal, tier=args.tier, model=args.model, client_factory=client_factory,
+                    console=console,
+                    asker=make_console_asker(console) if args.interactive else None,
+                    mcp=mcp,
+                    confirmer=make_console_confirmer(console) if mcp is not None else None,
+                    container_image=args.container_image,
+                )
+            finally:
+                if mcp is not None:
+                    mcp.close()
             return 0 if outcome.status.solved else 1
         if args.command == "smoke":
             models = list(SMOKE_MODELS)
@@ -221,10 +391,14 @@ def main(
                 tier=args.tier, models=models, client_factory=client_factory, console=console
             )
             return 0 if ok else 1
-        repl(tier=args.tier, model=args.model, client_factory=client_factory, console=console)
+        repl(tier=args.tier, model=args.model, client_factory=client_factory, console=console,
+             container_image=args.container_image)
         return 0
     except RegistryError as exc:
         console.print(f"[red]config error[/red]: {exc}")
+        return 2
+    except ContainerRuntimeError as exc:
+        console.print(f"[red]container error[/red]: {exc}")
         return 2
 
 

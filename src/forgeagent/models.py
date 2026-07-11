@@ -14,7 +14,9 @@ from pydantic import BaseModel, Field
 
 
 class Role(StrEnum):
-    """Message roles. v1 is text-only; multimodal content is deferred (M8)."""
+    """Message roles. v1 is text-only; multimodal message content (ContentItem/TextItem/
+    ImageItem) is deferred to M9. M10 tracks multimodal *usage counters* only (e.g. an
+    image count reported by the provider's usage payload) without accepting image input."""
 
     SYSTEM = "system"
     USER = "user"
@@ -48,6 +50,9 @@ class TokenUsage(BaseModel):
 
     input_tokens: int = 0
     output_tokens: int = 0
+    # Cache-related input tokens (Anthropic: cache_creation + cache_read combined;
+    # OpenAI-compatible: prompt_tokens_details.cached_tokens). See docs/m10 §3.1.
+    cached_tokens: int = 0
 
 
 class NativeToolCall(BaseModel):

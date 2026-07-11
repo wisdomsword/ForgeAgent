@@ -11,24 +11,35 @@ until there are variants to compose).
 
 from __future__ import annotations
 
-from typing import Literal
+from pathlib import Path
 
 from pydantic import BaseModel
 
 from .client import ModelClient
-from .executor import ExecutorBackend, RestrictedBackend, TrustedBackend
+from .executor import ContainerBackend, ExecutorBackend, RestrictedBackend, TrustedBackend
+from .mcp_manager import MCPManager
 from .models import GenerationParams, Message, Role
 from .runtime import Runtime
 from .step import RoundResult, Step, Termination
+from .tools import Asker, Confirmer, Tier
 
-Tier = Literal["trusted", "restricted"]
 
+def _backend_for_tier(
+    tier: Tier, *, allowed_root: str | None = None, container_image: str | None = None
+) -> ExecutorBackend:
+    """Map a sandbox tier to its executor backend (B2). `restricted` is the default.
 
-def _backend_for_tier(tier: Tier) -> ExecutorBackend:
-    """Map a sandbox tier to its executor backend (B2). `restricted` is the default."""
+    `allowed_root=None` defers to each backend's own default (cwd, resolved) — callers
+    that need the exact resolved value (to also hand it to ToolContext, §3.7) should
+    resolve it themselves first and pass it through, as Task.__init__ does.
+    """
     if tier == "trusted":
         return TrustedBackend()
-    return RestrictedBackend()
+    if tier == "container":
+        return ContainerBackend(
+            allowed_root=allowed_root, image=container_image or "python:3.11-slim"
+        )
+    return RestrictedBackend(allowed_root=allowed_root)
 
 DEFAULT_SYSTEM_PROMPT = """\
 This conversation is driven by ForgeAgent, a harness that completes tasks by running Python \
@@ -105,23 +116,57 @@ class Task:
         *,
         tier: Tier = "restricted",
         backend: ExecutorBackend | None = None,
+        allowed_root: str | None = None,
         system_prompt: str = DEFAULT_SYSTEM_PROMPT,
         max_rounds: int = 10,
         params: GenerationParams | None = None,
+        asker: Asker | None = None,
+        mcp: MCPManager | None = None,
+        confirmer: Confirmer | None = None,
+        container_image: str | None = None,
     ):
         self._client = client
+        self._tier = tier
+        # Resolved once here so backend and ToolContext (File tools/WebFetch, §3.7) share
+        # the exact same root — mirrors RestrictedBackend/ContainerBackend's own default.
+        self._allowed_root = str(Path(allowed_root or Path.cwd()).resolve())
         # Default tier is restricted (B2 / ACTION_PLAN). An explicit backend overrides
         # the tier; otherwise the tier selects the backend.
-        self._backend = backend or _backend_for_tier(tier)
+        self._backend = backend or _backend_for_tier(
+            tier, allowed_root=self._allowed_root, container_image=container_image
+        )
         self._system_prompt = system_prompt
         self._max_rounds = max_rounds
         self._params = params
+        # How the Survey tool asks the user a question; None = headless (Survey → need_info).
+        self._asker = asker
+        # MCP server manager (already connected by the caller) + the confirmation gate for
+        # side-effecting MCP/WebFetch/FileWrite calls. None = no gated tool on the menu.
+        self._mcp = mcp
+        self._confirmer = confirmer
         self.runtime = Runtime()
+
+    def close(self) -> None:
+        """Release backend resources (e.g. ContainerBackend's temp worker skeleton).
+        Safe to call for backends without a close()."""
+        backend_close = getattr(self._backend, "close", None)
+        if callable(backend_close):
+            backend_close()
+
+    def _build_system_prompt(self) -> str:
+        """Base prompt plus, when MCP servers are connected, the MCP tools section — so
+        the model knows which servers/tools exist (eager discovery, docs/m7 §3.4)."""
+        if self._mcp is None:
+            return self._system_prompt
+        tools_section = self._mcp.tools_prompt()
+        if not tools_section:
+            return self._system_prompt
+        return f"{self._system_prompt}\n\n{tools_section}"
 
     def run(self, goal: str) -> TaskOutcome:
         """Run the task for `goal` and return its terminal outcome."""
         messages = [
-            Message(role=Role.SYSTEM, content=self._system_prompt),
+            Message(role=Role.SYSTEM, content=self._build_system_prompt()),
             Message(role=Role.USER, content=goal),
         ]
         step = Step(
@@ -130,6 +175,11 @@ class Task:
             self.runtime,
             max_rounds=self._max_rounds,
             params=self._params,
+            asker=self._asker,
+            mcp=self._mcp,
+            confirmer=self._confirmer,
+            tier=self._tier,
+            allowed_root=self._allowed_root,
         )
         rounds = step.run(messages)
         return TaskOutcome(status=self._derive_status(rounds), rounds=rounds)
@@ -141,11 +191,14 @@ class Task:
         reason = str(last.stopped_reason or "unknown")
         completed = reason == Termination.COMPLETED
         # For a prose answer the payload is the model's own words (front matter stripped);
-        # for other non-completions it's whatever the round carried (error/refusal text).
+        # for a tool-signalled terminal state (e.g. Survey → need_info) it's the tool's
+        # detail (the survey question); otherwise it's whatever text the round carried.
         if reason == Termination.ANSWERED_IN_PROSE:
             detail = last.body or None
         elif completed:
             detail = None
+        elif last.stopped_detail:
+            detail = last.stopped_detail
         else:
             detail = last.text or None
         return TaskStatus(completed=completed, reason=reason, detail=detail)

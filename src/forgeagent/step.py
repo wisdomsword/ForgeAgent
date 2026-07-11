@@ -17,22 +17,39 @@ from __future__ import annotations
 
 import json
 from enum import StrEnum
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
 from .client import ModelClient
-from .executor import ExecResult, ExecutorBackend
-from .models import AssistantMessage, ClientError, GenerationParams, Message, Role
+from .executor import ExecutorBackend
+from .models import AssistantMessage, ClientError, GenerationParams, Message, Role, TokenUsage
 from .policy import CodeAnalyzer
 from .protocol import (
-    EditArgs,
-    ExecArgs,
     ParseResult,
     TaskStatus,
     ToolCall,
     parse,
 )
 from .runtime import Runtime
+from .tools import (
+    Asker,
+    CodeBlockStore,
+    Confirmer,
+    Tier,
+    ToolContext,
+    ToolOutcome,
+    ToolRegistry,
+    _apply_edit,
+    default_registry,
+)
+
+if TYPE_CHECKING:
+    from .mcp_manager import MCPManager
+
+# Re-exported for callers/tests that import them from step (their historical home before
+# the M7 tools.py extraction): the Edit runtime matcher and the code-block store.
+__all__ = ["Step", "RoundResult", "Termination", "CodeBlockStore", "ToolOutcome", "_apply_edit"]
 
 
 class Termination(StrEnum):
@@ -49,7 +66,7 @@ class Termination(StrEnum):
     COMPLETED = "completed"  # model declared task_status.completed=true
     ANSWERED_IN_PROSE = "answered_in_prose"  # prose answer, no execution (soft success)
     REFUSED = "refused"  # stop_reason refusal/content_filter, or declared status=refused
-    NEEDS_INFO = "needs_info"  # model declared status=need_info
+    NEEDS_INFO = "needs_info"  # model declared status=need_info, or Survey w/o asker
     FAILED = "failed"  # model declared status=failed
     TRUNCATED = "truncated"  # response cut off at the token limit (partial answer)
     EMPTY_RESPONSE = "empty_response"  # no tool activity and no prose to accept
@@ -117,47 +134,6 @@ def _render_history_content(reply: AssistantMessage) -> str:
     return "\n".join(rendered)
 
 
-class StoredBlock(BaseModel):
-    """A named code block with version history (Edit bumps the version)."""
-
-    name: str
-    code: str
-    language: str = "python"
-    version: int = 1
-
-
-class CodeBlockStore:
-    """Holds the current version of each named block plus a flat history."""
-
-    def __init__(self) -> None:
-        self._blocks: dict[str, StoredBlock] = {}
-        self.history: list[StoredBlock] = []
-
-    def put(self, name: str, code: str, language: str = "python") -> StoredBlock:
-        """Create or update a block by name; updating bumps its version."""
-        existing = self._blocks.get(name)
-        version = existing.version + 1 if existing else 1
-        block = StoredBlock(name=name, code=code, language=language, version=version)
-        self._blocks[name] = block
-        self.history.append(block)
-        return block
-
-    def get(self, name: str) -> StoredBlock | None:
-        return self._blocks.get(name)
-
-
-class ToolOutcome(BaseModel):
-    """Result of one tool call, for feedback rendering."""
-
-    tool: str
-    block_name: str | None = None
-    success: bool
-    detail: str = ""
-    exec_result: ExecResult | None = None
-    # Static-analysis feedback for this block (advisory, does not block execution).
-    static_feedback: str = ""
-
-
 class RoundResult(BaseModel):
     """What happened in one round: the parsed response and per-tool outcomes."""
 
@@ -169,30 +145,20 @@ class RoundResult(BaseModel):
     # The provider's raw stop_reason for this round (needed to spot truncation, which
     # only becomes terminal when there is nothing to feed back).
     stop_reason: str = ""
+    # Token accounting for this round's call, straight from AssistantMessage.usage.
+    # None for rounds with no assistant reply to account for (e.g. ClientError rounds,
+    # which build a RoundResult without ever calling _handle_reply). See docs/m10 §3.2.
+    usage: TokenUsage | None = None
     parse_errors: list[str] = Field(default_factory=list)
     outcomes: list[ToolOutcome] = Field(default_factory=list)
     # True only for a model-declared completion (Termination.COMPLETED). A prose answer
     # is a soft success (Termination.ANSWERED_IN_PROSE) — solved, but not `completed`.
     completed: bool = False
     stopped_reason: str | None = None
-
-
-def _apply_edit(current_code: str, args: EditArgs) -> tuple[str | None, str | None]:
-    """Apply an Edit's old/new replacement. Returns (new_code, error).
-
-    Runtime matching rules (deferred from M2): old not found -> error; multiple
-    matches without replace_all -> error asking for replace_all or more context.
-    """
-    if args.old not in current_code:
-        return None, f"Edit failed: 'old' string not found in block {args.name!r}"
-    count = current_code.count(args.old)
-    if count > 1 and not args.replace_all:
-        return None, (
-            f"Edit failed: {count} matches for 'old' in block {args.name!r}; "
-            f"set replace_all=true or provide more specific context"
-        )
-    new_code = current_code.replace(args.old, args.new, -1 if args.replace_all else 1)
-    return new_code, None
+    # When a tool signals a terminal state (e.g. Survey w/o asker → NEEDS_INFO), the
+    # tool's user-facing detail (the survey question) lives here so Task's
+    # `_derive_status` can surface it instead of the model's raw text. Empty otherwise.
+    stopped_detail: str = ""
 
 
 class Step:
@@ -207,6 +173,12 @@ class Step:
         max_rounds: int = 10,
         params: GenerationParams | None = None,
         analyzer: CodeAnalyzer | None = None,
+        registry: ToolRegistry | None = None,
+        asker: Asker | None = None,
+        mcp: MCPManager | None = None,
+        confirmer: Confirmer | None = None,
+        tier: Tier = "restricted",
+        allowed_root: str = ".",
     ):
         self._client = client
         self._backend = backend
@@ -216,6 +188,21 @@ class Step:
         # Static AST layer: advisory feedback before execution (not a security boundary).
         self._analyzer = analyzer or CodeAnalyzer()
         self.blocks = CodeBlockStore()
+        # Tool set drives both parsing (which names are recognised) and dispatch. Default
+        # is the built-in Exec/Edit/Survey registry; with an MCPManager, MCP is added too.
+        self._registry = registry or default_registry(with_mcp=mcp is not None)
+        # One context shared across the task's tool dispatches (blocks/state persist).
+        self._ctx = ToolContext(
+            blocks=self.blocks,
+            backend=self._backend,
+            runtime=self._runtime,
+            analyzer=self._analyzer,
+            asker=asker,
+            mcp=mcp,
+            confirmer=confirmer,
+            tier=tier,
+            allowed_root=allowed_root,
+        )
         self.rounds: list[RoundResult] = []
 
     def run(self, messages: list[Message]) -> list[RoundResult]:
@@ -280,12 +267,18 @@ class Step:
                 text=reply.content,
                 stop_reason=reply.stop_reason,
                 stopped_reason=Termination.REFUSED,
+                usage=reply.usage,
             )
-        parsed: ParseResult = parse(reply.content, native_tool_calls=reply.tool_calls)
+        parsed: ParseResult = parse(
+            reply.content,
+            native_tool_calls=reply.tool_calls,
+            tool_schemas=self._registry.arg_schemas(),
+        )
         rr = RoundResult(
             text=reply.content,
             body=parsed.body,
             stop_reason=reply.stop_reason,
+            usage=reply.usage,
             parse_errors=[f"{e.error_type}: {e.message}" for e in parsed.errors],
         )
         # Register code blocks provided in this response before running tool calls.
@@ -294,6 +287,15 @@ class Step:
         for call in parsed.tool_calls:
             rr.outcomes.append(self._dispatch(call))
         self._apply_declared_status(rr, parsed.task_status)
+        # A tool may signal terminal NEEDS_INFO (Survey without an asker). Declared
+        # front-matter status wins if the model also declared one — the model's own
+        # signal is more reliable than a tool-side default.
+        if rr.stopped_reason is None:
+            for o in rr.outcomes:
+                if o.needs_info:
+                    rr.stopped_reason = Termination.NEEDS_INFO
+                    rr.stopped_detail = o.detail
+                    break
         return rr
 
     def _apply_declared_status(self, rr: RoundResult, status: TaskStatus | None) -> None:
@@ -315,49 +317,16 @@ class Step:
             rr.stopped_reason = declared
 
     def _dispatch(self, call: ToolCall) -> ToolOutcome:
-        # call.arguments: ExecArgs | EditArgs (protocol.ToolCall) — exhaustive, no
-        # "unknown tool" fallthrough is reachable.
-        if isinstance(call.arguments, ExecArgs):
-            return self._exec(call.arguments)
-        return self._edit(call.arguments)
-
-    def _exec(self, args: ExecArgs) -> ToolOutcome:
-        # Inline code creates/updates the named block; otherwise reuse an existing one.
-        if args.code is not None:
-            name = args.name or f"exec_{len(self.blocks.history)}"
-            self.blocks.put(name, args.code, args.language)
-        else:
-            name = args.name  # guaranteed present by the parser (name or code required)
-        block = self.blocks.get(name)
-        if block is None:
+        # The tool is looked up by name in the registry; the parser has already validated
+        # call.arguments against that tool's schema, so a missing tool here is impossible
+        # for text/native calls (both go through the same registered schema table).
+        tool = self._registry.get(call.name)
+        if tool is None:  # defensive: only reachable if a tool schema outlives its Tool.
             return ToolOutcome(
-                tool="Exec", block_name=name, success=False,
-                detail=f"block {name!r} not found and no code provided",
+                tool=call.name, success=False,
+                detail=f"no handler registered for tool {call.name!r}",
             )
-        # Static AST layer (advisory): analyze before execution, surface as feedback.
-        # This never blocks — real enforcement is the execution backend.
-        static_feedback = self._analyzer.feedback(self._analyzer.analyze(block.code))
-        result = self._backend.execute(block.code, self._runtime)
-        return ToolOutcome(
-            tool="Exec", block_name=name, success=result.success,
-            detail=result.error or "", exec_result=result, static_feedback=static_feedback,
-        )
-
-    def _edit(self, args: EditArgs) -> ToolOutcome:
-        block = self.blocks.get(args.name)
-        if block is None:
-            return ToolOutcome(
-                tool="Edit", block_name=args.name, success=False,
-                detail=f"Edit failed: block {args.name!r} does not exist",
-            )
-        new_code, error = _apply_edit(block.code, args)
-        if error:
-            return ToolOutcome(tool="Edit", block_name=args.name, success=False, detail=error)
-        updated = self.blocks.put(args.name, new_code, block.language)
-        return ToolOutcome(
-            tool="Edit", block_name=args.name, success=True,
-            detail=f"block updated to version {updated.version}",
-        )
+        return tool.run(call.arguments, self._ctx)
 
     def _render_feedback(self, rr: RoundResult) -> str:
         """Render parse errors and tool outcomes into a system feedback string.
