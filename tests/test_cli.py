@@ -94,7 +94,7 @@ def test_run_once_prints_usage_status_line():
         client_factory=_factory([_reply(_done(), usage=usage)]),
         console=console,
     )
-    assert "usage: in=1234 out=567 cached=89 (session total)" in console.export_text()
+    assert "usage: in=1234 out=567 cached=89 reasoning=0 (session total)" in console.export_text()
 
 
 def test_run_once_accumulates_usage_across_rounds_in_one_task():
@@ -109,7 +109,22 @@ def test_run_once_accumulates_usage_across_rounds_in_one_task():
         client_factory=_factory([round_one, round_two]),
         console=console,
     )
-    assert "usage: in=18 out=8 cached=2 (session total)" in console.export_text()
+    assert "usage: in=18 out=8 cached=2 reasoning=0 (session total)" in console.export_text()
+
+
+def test_run_once_prints_nonzero_reasoning_tokens():
+    # design doc §3.4: reasoning/thinking output is billable and must show up in the
+    # CLI usage line, not just be tracked internally on TokenUsage.
+    console = _console()
+    usage = TokenUsage(input_tokens=10, output_tokens=5, reasoning_tokens=42)
+    run_once(
+        "do a thing",
+        tier="trusted",
+        model="claude-sonnet-5",
+        client_factory=_factory([_reply(_done(), usage=usage)]),
+        console=console,
+    )
+    assert "reasoning=42" in console.export_text()
 
 
 def test_main_run_returns_zero_on_completion():
@@ -335,8 +350,8 @@ def test_repl_accumulates_usage_across_tasks_in_one_session():
     text = console.export_text()
     # First task's total is printed after task 1, then the running total after task 2
     # reflects both tasks combined (session total, not reset per goal).
-    assert "usage: in=10 out=5 cached=1 (session total)" in text
-    assert "usage: in=30 out=12 cached=4 (session total)" in text
+    assert "usage: in=10 out=5 cached=1 reasoning=0 (session total)" in text
+    assert "usage: in=30 out=12 cached=4 reasoning=0 (session total)" in text
 
 
 # --- config error handling ---------------------------------------------------
@@ -838,3 +853,40 @@ def test_repl_compat_models_word_shows_deprecation_and_still_lists():
     assert "deprecated" in text
     assert "/model" in text
     assert "claude-sonnet-5" in text
+
+
+def test_repl_compat_bare_mcp_word_shows_deprecation():
+    from forgeagent.cli import repl
+
+    inputs = iter(["mcp", "quit"])
+    console = _console()
+    repl(
+        tier="trusted",
+        model="claude-sonnet-5",
+        client_factory=_factory([]),  # never called — "mcp" never reaches run_once
+        console=console,
+        read_line=lambda prompt: next(inputs),
+    )
+    text = console.export_text()
+    assert "deprecated" in text
+    assert "/mcp" in text
+
+
+def test_repl_goal_starting_with_mcp_substring_runs_as_normal_task():
+    # Regression: goal.startswith("mcp") without a word boundary used to misroute any
+    # goal beginning with the literal substring "mcp" (e.g. "mcpherson's algorithm...")
+    # into the deprecated bare-word compat path instead of running it as a task.
+    from forgeagent.cli import repl
+
+    inputs = iter(["mcpherson's algorithm should not be misrouted", "quit"])
+    console = _console()
+    repl(
+        tier="trusted",
+        model="claude-sonnet-5",
+        client_factory=_factory([_reply(_done())]),
+        console=console,
+        read_line=lambda prompt: next(inputs),
+    )
+    text = console.export_text()
+    assert "deprecated" not in text
+    assert "completed" in text

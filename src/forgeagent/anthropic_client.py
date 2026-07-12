@@ -204,6 +204,7 @@ class AnthropicClient(ModelClient):
         while True:
             attempt += 1
             started = False
+            saw_message_stop = False
             text_parts: list[str] = []
             usage = TokenUsage()
             stop_reason = ""
@@ -240,6 +241,8 @@ class AnthropicClient(ModelClient):
                         stop_reason = (
                             getattr(getattr(event, "delta", None), "stop_reason", "") or ""
                         )
+                    elif event_type == "message_stop":
+                        saw_message_stop = True
             except TransportError as exc:
                 if not started and exc.retryable and attempt < self._max_attempts:
                     self._sleep(self._backoff_base * self._backoff_factor ** (attempt - 1))
@@ -249,6 +252,15 @@ class AnthropicClient(ModelClient):
             except Exception as exc:  # noqa: BLE001 - mid-stream failure, never retried
                 kind, _retryable = classify_transport_exception(exc)
                 yield ClientError(message=str(exc), kind=kind, attempts=attempt)
+                return
+            if not saw_message_stop:
+                # The transport generator ended (no exception) before the terminal
+                # message_stop event — a silent mid-stream truncation. Discard the
+                # partial text just like the exception path above, rather than
+                # yielding a DONE with a fabricated stop_reason (T11c).
+                yield ClientError(
+                    message="stream ended before message_stop", kind="unknown", attempts=attempt
+                )
                 return
             yield StreamEvent(
                 kind=StreamEventKind.DONE,

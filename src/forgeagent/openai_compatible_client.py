@@ -248,6 +248,15 @@ class OpenAICompatibleClient(ModelClient):
                 kind, _retryable = classify_transport_exception(exc)
                 yield ClientError(message=str(exc), kind=kind, attempts=attempt)
                 return
+            if not stop_reason:
+                # The transport generator ended (no exception) before any chunk carried
+                # a finish_reason — a silent mid-stream truncation. Discard the partial
+                # text just like the exception path above, rather than yielding a DONE
+                # with an empty stop_reason (T11c).
+                yield ClientError(
+                    message="stream ended before finish_reason", kind="unknown", attempts=attempt
+                )
+                return
             native_calls = [
                 NativeToolCall(
                     id=fragment["id"], name=fragment["name"], arguments=fragment["arguments"]

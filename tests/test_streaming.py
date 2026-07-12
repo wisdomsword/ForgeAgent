@@ -203,6 +203,35 @@ class TestAnthropicStream:
             isinstance(e, StreamEvent) and e.kind is StreamEventKind.DONE for e in events
         )
 
+    def test_silent_truncation_without_message_stop_yields_client_error_no_done(self):
+        # The transport generator can end early with no exception at all (e.g. the
+        # underlying connection is dropped and the SDK's iterator simply stops) --
+        # this must be treated the same as the exception path above: discard the
+        # partial text_delta, never fabricate a DONE with an empty stop_reason (T11c).
+        good = _anthropic_events()
+
+        def truncated():
+            yield good[0]
+            yield good[6]  # one text_delta
+            # generator ends here -- no message_delta/message_stop, no exception
+
+        client = AnthropicClient(
+            capability=_capability(),
+            api_key="k",
+            transport=lambda r, t: None,
+            stream_transport=lambda r, t: truncated(),
+            sleep=lambda s: None,
+        )
+        events = list(client.stream(USER))
+        assert [e.kind for e in events if isinstance(e, StreamEvent)] == [
+            StreamEventKind.TEXT_DELTA,
+        ]
+        errors = [e for e in events if isinstance(e, ClientError)]
+        assert len(errors) == 1
+        assert not any(
+            isinstance(e, StreamEvent) and e.kind is StreamEventKind.DONE for e in events
+        )
+
 
 # --- OpenAICompatibleClient.stream() ------------------------------------------
 
@@ -323,6 +352,32 @@ class TestOpenAIStream:
         errors = [e for e in events if isinstance(e, ClientError)]
         assert len(errors) == 1
         assert errors[0].attempts == 1
+        assert not any(
+            isinstance(e, StreamEvent) and e.kind is StreamEventKind.DONE for e in events
+        )
+
+    def test_silent_truncation_without_finish_reason_yields_client_error_no_done(self):
+        # No exception at all -- the transport generator just ends early (dropped
+        # connection). Must not fabricate a DONE with an empty stop_reason (T11c).
+        def truncated(request: dict, timeout: float):
+            yield _chunk(content="par")
+            yield _chunk(content="tial")
+            # generator ends here -- no finish_reason chunk, no exception
+
+        client = OpenAICompatibleClient(
+            capability=_capability("openai_compatible"),
+            api_key="k",
+            transport=lambda r, t: None,
+            stream_transport=truncated,
+            sleep=lambda s: None,
+        )
+        events = list(client.stream(USER))
+        assert [e.kind for e in events if isinstance(e, StreamEvent)] == [
+            StreamEventKind.TEXT_DELTA,
+            StreamEventKind.TEXT_DELTA,
+        ]
+        errors = [e for e in events if isinstance(e, ClientError)]
+        assert len(errors) == 1
         assert not any(
             isinstance(e, StreamEvent) and e.kind is StreamEventKind.DONE for e in events
         )

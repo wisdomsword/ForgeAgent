@@ -128,12 +128,14 @@ def _accumulate_usage(total: TokenUsage, rounds: list[RoundResult]) -> None:
         total.input_tokens += rnd.usage.input_tokens
         total.output_tokens += rnd.usage.output_tokens
         total.cached_tokens += rnd.usage.cached_tokens
+        total.reasoning_tokens += rnd.usage.reasoning_tokens
 
 
 def _print_usage(total: TokenUsage, console: Console) -> None:
     console.print(
         f"[dim]usage: in={total.input_tokens} out={total.output_tokens} "
-        f"cached={total.cached_tokens} (session total)[/dim]"
+        f"cached={total.cached_tokens} reasoning={total.reasoning_tokens} "
+        f"(session total)[/dim]"
     )
 
 
@@ -422,7 +424,7 @@ def repl(
             # milestone, mapped onto the same handlers, with a deprecation notice.
             # "models" maps to the singular "/model" command (list-models behavior);
             # "reload"/"mcp ..." map onto their same-named slash command unchanged.
-            if goal in {"models", "reload"} or goal.startswith("mcp"):
+            if goal in {"models", "reload", "mcp"} or goal.startswith("mcp "):
                 old_word = goal.split()[0]
                 new_prefix = "/model" if old_word == "models" else f"/{old_word}"
                 console.print(
