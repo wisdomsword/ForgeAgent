@@ -1,9 +1,15 @@
 """Subprocess sandbox worker for the restricted backend (M4-2).
 
 Run as `python -m forgeagent._sandbox_worker`. Reads a JSON payload from stdin
-({code, state, allowed_root, cpu_seconds, memory_mb}), installs a PEP 578 audit hook
-(path whitelist + network deny) and rlimits, executes the code with `utils` = Runtime,
-and writes a JSON result to stdout ({success, stdout, stderr, error, state}).
+({code, state, allowed_root, cpu_seconds, memory_mb, os_isolated}), installs a PEP 578
+audit hook (path whitelist + network deny) and rlimits, executes the code with
+`utils` = Runtime, and writes a JSON result to stdout ({success, stdout, stderr, error,
+state}).
+
+When `os_isolated` is true (container tier) the audit hook and rlimits are SKIPPED:
+isolation is provided by the container itself (mount namespace, --network none,
+--pids-limit, --memory/--cpus), and the in-process hook would only produce false
+positives (e.g. legitimate multiprocessing inside the container).
 
 Security notes:
 - The audit hook intercepts the low-level `open` event, so open/pathlib/io/os.open all
@@ -111,8 +117,9 @@ def main() -> None:
 
     runtime = Runtime(state=dict(payload.get("state", {})))
 
-    _apply_rlimits(payload.get("cpu_seconds", 0), payload.get("memory_mb", 0))
-    _install_audit_hook(allowed_root)
+    if not payload.get("os_isolated", False):
+        _apply_rlimits(payload.get("cpu_seconds", 0), payload.get("memory_mb", 0))
+        _install_audit_hook(allowed_root)
 
     out, err = io.StringIO(), io.StringIO()
     result = {"success": True, "stdout": "", "stderr": "", "error": None, "state": {}}
