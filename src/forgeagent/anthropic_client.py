@@ -11,7 +11,7 @@ Each client translates GenerationParams intent per its own `capability`.
 from __future__ import annotations
 
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Iterator
 from typing import Any
 
 from .client import ModelClient
@@ -23,6 +23,8 @@ from .models import (
     Message,
     ModelCapability,
     Role,
+    StreamEvent,
+    StreamEventKind,
     TokenUsage,
 )
 from .transport_errors import TransportError, classify_transport_exception, run_with_retries
@@ -35,6 +37,8 @@ __all__ = [
 
 # request dict + timeout -> raw response object (duck-typed: .content/.stop_reason/.usage)
 Transport = Callable[[dict, float], Any]
+# request dict + timeout -> iterable of raw SDK stream events (duck-typed)
+StreamTransport = Callable[[dict, float], Iterable[Any]]
 
 
 def _render_content(content: str | list) -> str | list[dict]:
@@ -103,6 +107,7 @@ class AnthropicClient(ModelClient):
         backoff_factor: float = 2.0,
         base_url: str | None = None,
         transport: Transport | None = None,
+        stream_transport: StreamTransport | None = None,
         sleep: Callable[[float], None] = time.sleep,
     ):
         self._capability = capability
@@ -113,6 +118,7 @@ class AnthropicClient(ModelClient):
         self._backoff_factor = backoff_factor
         self._base_url = base_url
         self._transport = transport or self._make_sdk_transport()
+        self._stream_transport = stream_transport or self._make_sdk_stream_transport()
         self._sleep = sleep
 
     @property
@@ -141,11 +147,7 @@ class AnthropicClient(ModelClient):
         # thinking: only send an explicit param to request it ("on") on a model that
         # supports it and is not always-on. "auto" and "off" both omit the param
         # (auto = model default; off is best-effort and cannot be guaranteed).
-        if (
-            params.thinking == "on"
-            and cap.supports_thinking
-            and not cap.thinking_always_on
-        ):
+        if params.thinking == "on" and cap.supports_thinking and not cap.thinking_always_on:
             request["thinking"] = {"type": "adaptive"}
 
         # effort: dropped entirely when unsupported (sending it errors on such models).
@@ -161,9 +163,7 @@ class AnthropicClient(ModelClient):
     ) -> AssistantMessage | ClientError:
         if _contains_image(messages) and not self._capability.supports_images:
             return ClientError(
-                message=(
-                    f"model {self._capability.model_id!r} does not support image input"
-                ),
+                message=(f"model {self._capability.model_id!r} does not support image input"),
                 kind="invalid_request",
                 attempts=1,
             )
@@ -179,6 +179,84 @@ class AnthropicClient(ModelClient):
             sleep=self._sleep,
             parse_response=_parse_response,
         )
+
+    def stream(
+        self, messages: list[Message], params: GenerationParams | None = None
+    ) -> Iterator[StreamEvent | ClientError]:
+        """Real streaming: translate SDK events into StreamEvents, ending with DONE.
+
+        Retry semantics (docs/m9 §3.1): only pre-first-byte failures are retried
+        (same classification as complete()); once any delta has been yielded, a
+        mid-stream failure is not retried — the partial text is discarded and a
+        single ClientError ends the iteration, so truncated protocol markup never
+        reaches the parser.
+        """
+        if _contains_image(messages) and not self._capability.supports_images:
+            yield ClientError(
+                message=(f"model {self._capability.model_id!r} does not support image input"),
+                kind="invalid_request",
+                attempts=1,
+            )
+            return
+        effective = params if params is not None else self._default_params
+        request = self.build_request(messages, effective)
+        attempt = 0
+        while True:
+            attempt += 1
+            started = False
+            text_parts: list[str] = []
+            usage = TokenUsage()
+            stop_reason = ""
+            try:
+                for event in self._stream_transport(request, effective.timeout_seconds):
+                    event_type = getattr(event, "type", None)
+                    if event_type == "message_start":
+                        # message_start's input/output counts are placeholders (spike
+                        # S1) — only the cache fields are read here; real totals come
+                        # from message_delta.
+                        start_usage = getattr(getattr(event, "message", None), "usage", None)
+                        usage.cached_tokens = (
+                            getattr(start_usage, "cache_creation_input_tokens", 0) or 0
+                        ) + (getattr(start_usage, "cache_read_input_tokens", 0) or 0)
+                    elif event_type == "content_block_delta":
+                        delta = getattr(event, "delta", None)
+                        delta_type = getattr(delta, "type", None)
+                        if delta_type == "text_delta":
+                            started = True
+                            text = delta.text
+                            text_parts.append(text)
+                            yield StreamEvent(kind=StreamEventKind.TEXT_DELTA, text=text)
+                        elif delta_type == "thinking_delta":
+                            started = True
+                            yield StreamEvent(
+                                kind=StreamEventKind.THINKING_DELTA, text=delta.thinking
+                            )
+                        # signature_delta (and any future delta kind) is skipped.
+                    elif event_type == "message_delta":
+                        # Authoritative usage: full input/output totals live here.
+                        delta_usage = getattr(event, "usage", None)
+                        usage.input_tokens = getattr(delta_usage, "input_tokens", 0) or 0
+                        usage.output_tokens = getattr(delta_usage, "output_tokens", 0) or 0
+                        stop_reason = (
+                            getattr(getattr(event, "delta", None), "stop_reason", "") or ""
+                        )
+            except TransportError as exc:
+                if not started and exc.retryable and attempt < self._max_attempts:
+                    self._sleep(self._backoff_base * self._backoff_factor ** (attempt - 1))
+                    continue
+                yield ClientError(message=str(exc), kind=exc.kind, attempts=attempt)
+                return
+            except Exception as exc:  # noqa: BLE001 - mid-stream failure, never retried
+                kind, _retryable = classify_transport_exception(exc)
+                yield ClientError(message=str(exc), kind=kind, attempts=attempt)
+                return
+            yield StreamEvent(
+                kind=StreamEventKind.DONE,
+                message=AssistantMessage(
+                    content="".join(text_parts), usage=usage, stop_reason=stop_reason
+                ),
+            )
+            return
 
     def _make_sdk_transport(self) -> Transport:
         """Build the default transport that calls the Anthropic SDK.
@@ -209,6 +287,37 @@ class AnthropicClient(ModelClient):
                 raise TransportError(kind, retryable, str(exc)) from exc
 
         return transport
+
+    def _make_sdk_stream_transport(self) -> StreamTransport:
+        """Build the default streaming transport (SDK create(stream=True)).
+
+        Mirrors _make_sdk_transport: lazy SDK import, per-base_url model-id
+        resolution, connect-time exceptions classified into TransportError.
+        Exceptions raised *during* iteration propagate raw — stream() classifies
+        them without retrying (mid-stream failures are never retried).
+        """
+        resolved_model_id: str | None = None
+
+        def stream_transport(request: dict, timeout_seconds: float) -> Iterable[Any]:
+            nonlocal resolved_model_id
+            import anthropic
+
+            if resolved_model_id is None:
+                resolved_model_id = resolve_effective_model_id(
+                    request["model"], base_url=self._base_url, api_key=self._api_key
+                )
+            client = anthropic.Anthropic(api_key=self._api_key, base_url=self._base_url)
+            try:
+                return client.messages.create(
+                    timeout=timeout_seconds,
+                    stream=True,
+                    **{**request, "model": resolved_model_id},
+                )
+            except Exception as exc:  # noqa: BLE001 - classified then re-raised
+                kind, retryable = classify_transport_exception(exc)
+                raise TransportError(kind, retryable, str(exc)) from exc
+
+        return stream_transport
 
 
 def _parse_response(raw: Any) -> AssistantMessage:

@@ -80,6 +80,12 @@ class TokenUsage(BaseModel):
     # Cache-related input tokens (Anthropic: cache_creation + cache_read combined;
     # OpenAI-compatible: prompt_tokens_details.cached_tokens). See docs/m10 §3.1.
     cached_tokens: int = 0
+    # Billed reasoning/thinking output tokens. OpenAI-compatible: max of
+    # usage.completion_tokens_details.reasoning_tokens and the non-standard top-level
+    # usage.reasoning_tokens — some providers put a fake zero in the standard nested
+    # location and the real value at top level, or vice versa (docs/m9 §8 S2).
+    # Anthropic: always 0 (thinking is billed inside output_tokens, never split out).
+    reasoning_tokens: int = 0
 
 
 class NativeToolCall(BaseModel):
@@ -121,9 +127,7 @@ class ClientError(BaseModel):
     """
 
     message: str
-    kind: Literal[
-        "network", "auth", "rate_limit", "invalid_request", "timeout", "unknown"
-    ]
+    kind: Literal["network", "auth", "rate_limit", "invalid_request", "timeout", "unknown"]
     attempts: int = Field(ge=1)
 
 
@@ -149,3 +153,22 @@ class ModelCapability(BaseModel):
     max_tokens_param: Literal["max_tokens", "max_completion_tokens"] = "max_tokens"
 
 
+# --- Streaming (M9) ---------------------------------------------------------
+
+
+class StreamEventKind(StrEnum):
+    """Kinds of events yielded by ModelClient.stream()."""
+
+    TEXT_DELTA = "text_delta"
+    THINKING_DELTA = "thinking_delta"
+    DONE = "done"
+
+
+class StreamEvent(BaseModel):
+    """One streaming event. TEXT_DELTA/THINKING_DELTA carry incremental text;
+    DONE is the terminal event and carries the complete AssistantMessage —
+    structurally identical to what complete() would return for the same request."""
+
+    kind: StreamEventKind
+    text: str = ""
+    message: AssistantMessage | None = None

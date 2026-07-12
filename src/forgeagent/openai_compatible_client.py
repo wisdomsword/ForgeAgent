@@ -13,7 +13,7 @@ lazy SDK import inside the default transport, duck-typed response parsing.
 from __future__ import annotations
 
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Iterator
 from typing import Any
 
 from .client import ModelClient
@@ -24,6 +24,8 @@ from .models import (
     Message,
     ModelCapability,
     NativeToolCall,
+    StreamEvent,
+    StreamEventKind,
     TokenUsage,
 )
 from .transport_errors import TransportError, classify_transport_exception, run_with_retries
@@ -32,6 +34,8 @@ __all__ = ["OpenAICompatibleClient"]
 
 # request dict + timeout -> raw response object (duck-typed: .choices[0].message/.usage)
 Transport = Callable[[dict, float], Any]
+# request dict + timeout -> iterable of raw SDK stream chunks (duck-typed)
+StreamTransport = Callable[[dict, float], Iterable[Any]]
 
 
 def _render_content(content: str | list) -> str | list[dict]:
@@ -83,6 +87,7 @@ class OpenAICompatibleClient(ModelClient):
         backoff_factor: float = 2.0,
         base_url: str | None = None,
         transport: Transport | None = None,
+        stream_transport: StreamTransport | None = None,
         sleep: Callable[[float], None] = time.sleep,
     ):
         self._capability = capability
@@ -93,6 +98,7 @@ class OpenAICompatibleClient(ModelClient):
         self._backoff_factor = backoff_factor
         self._base_url = base_url
         self._transport = transport or self._make_sdk_transport()
+        self._stream_transport = stream_transport or self._make_sdk_stream_transport()
         self._sleep = sleep
 
     @property
@@ -108,8 +114,7 @@ class OpenAICompatibleClient(ModelClient):
         """
         cap = self._capability
         turns = [
-            {"role": msg.role.value, "content": _render_content(msg.content)}
-            for msg in messages
+            {"role": msg.role.value, "content": _render_content(msg.content)} for msg in messages
         ]
         request: dict[str, Any] = {"model": cap.model_id, "messages": turns}
         request[cap.max_tokens_param] = params.max_output_tokens or cap.max_output_tokens
@@ -137,9 +142,7 @@ class OpenAICompatibleClient(ModelClient):
     ) -> AssistantMessage | ClientError:
         if _contains_image(messages) and not self._capability.supports_images:
             return ClientError(
-                message=(
-                    f"model {self._capability.model_id!r} does not support image input"
-                ),
+                message=(f"model {self._capability.model_id!r} does not support image input"),
                 kind="invalid_request",
                 attempts=1,
             )
@@ -155,6 +158,112 @@ class OpenAICompatibleClient(ModelClient):
             sleep=self._sleep,
             parse_response=_parse_response,
         )
+
+    def stream(
+        self, messages: list[Message], params: GenerationParams | None = None
+    ) -> Iterator[StreamEvent | ClientError]:
+        """Real streaming: translate Chat Completions chunks into StreamEvents.
+
+        Once any chunk carries `tool_calls`, further text/thinking deltas stop being
+        yielded (still accumulated for the final DONE message) — tool-call fragments
+        arrive interleaved with text on some providers and forwarding partial JSON
+        argument fragments as text would corrupt the transcript. Same mid-stream-no-
+        retry contract as AnthropicClient.stream() (docs/m9 §3.1).
+        """
+        if _contains_image(messages) and not self._capability.supports_images:
+            yield ClientError(
+                message=(f"model {self._capability.model_id!r} does not support image input"),
+                kind="invalid_request",
+                attempts=1,
+            )
+            return
+        effective = params if params is not None else self._default_params
+        request = self.build_request(messages, effective)
+        request["stream_options"] = {"include_usage": True}
+        attempt = 0
+        while True:
+            attempt += 1
+            started = False
+            aggregating_tool_calls = False
+            text_parts: list[str] = []
+            tool_call_fragments: dict[int, dict[str, str]] = {}
+            usage = TokenUsage()
+            stop_reason = ""
+            try:
+                for chunk in self._stream_transport(request, effective.timeout_seconds):
+                    choice = chunk.choices[0] if chunk.choices else None
+                    delta = getattr(choice, "delta", None) if choice is not None else None
+                    if delta is not None:
+                        raw_tool_calls = getattr(delta, "tool_calls", None)
+                        if raw_tool_calls:
+                            aggregating_tool_calls = True
+                            for fragment in raw_tool_calls:
+                                slot = tool_call_fragments.setdefault(
+                                    fragment.index, {"id": "", "name": "", "arguments": ""}
+                                )
+                                if fragment.id:
+                                    slot["id"] = fragment.id
+                                function = getattr(fragment, "function", None)
+                                if function is not None:
+                                    if getattr(function, "name", None):
+                                        slot["name"] += function.name
+                                    if getattr(function, "arguments", None):
+                                        slot["arguments"] += function.arguments
+                        text = getattr(delta, "content", None)
+                        if text:
+                            text_parts.append(text)
+                            if not aggregating_tool_calls:
+                                started = True
+                                yield StreamEvent(kind=StreamEventKind.TEXT_DELTA, text=text)
+                        thinking = getattr(delta, "reasoning_content", None)
+                        if thinking:
+                            if not aggregating_tool_calls:
+                                started = True
+                                yield StreamEvent(
+                                    kind=StreamEventKind.THINKING_DELTA, text=thinking
+                                )
+                    finish_reason = getattr(choice, "finish_reason", None) if choice else None
+                    if finish_reason:
+                        stop_reason = finish_reason
+                    chunk_usage = getattr(chunk, "usage", None)
+                    if chunk_usage is not None:
+                        usage = TokenUsage(
+                            input_tokens=getattr(chunk_usage, "prompt_tokens", 0) or 0,
+                            output_tokens=getattr(chunk_usage, "completion_tokens", 0) or 0,
+                            cached_tokens=getattr(
+                                getattr(chunk_usage, "prompt_tokens_details", None),
+                                "cached_tokens",
+                                0,
+                            )
+                            or 0,
+                            reasoning_tokens=_extract_reasoning_tokens(chunk_usage),
+                        )
+            except TransportError as exc:
+                if not started and exc.retryable and attempt < self._max_attempts:
+                    self._sleep(self._backoff_base * self._backoff_factor ** (attempt - 1))
+                    continue
+                yield ClientError(message=str(exc), kind=exc.kind, attempts=attempt)
+                return
+            except Exception as exc:  # noqa: BLE001 - mid-stream failure, never retried
+                kind, _retryable = classify_transport_exception(exc)
+                yield ClientError(message=str(exc), kind=kind, attempts=attempt)
+                return
+            native_calls = [
+                NativeToolCall(
+                    id=fragment["id"], name=fragment["name"], arguments=fragment["arguments"]
+                )
+                for _, fragment in sorted(tool_call_fragments.items())
+            ]
+            yield StreamEvent(
+                kind=StreamEventKind.DONE,
+                message=AssistantMessage(
+                    content="".join(text_parts),
+                    usage=usage,
+                    stop_reason=stop_reason,
+                    tool_calls=native_calls,
+                ),
+            )
+            return
 
     def _make_sdk_transport(self) -> Transport:
         """Build the default transport that calls the OpenAI SDK.
@@ -174,6 +283,41 @@ class OpenAICompatibleClient(ModelClient):
                 raise TransportError(kind, retryable, str(exc)) from exc
 
         return transport
+
+    def _make_sdk_stream_transport(self) -> StreamTransport:
+        """Build the default streaming transport (SDK create(stream=True)).
+
+        Mirrors _make_sdk_transport: lazy SDK import, connect-time exceptions
+        classified into TransportError. Exceptions raised *during* iteration
+        propagate raw — stream() classifies them without retrying.
+        """
+
+        def stream_transport(request: dict, timeout_seconds: float) -> Iterable[Any]:
+            import openai
+
+            client = openai.OpenAI(api_key=self._api_key, base_url=self._base_url)
+            try:
+                return client.chat.completions.create(
+                    timeout=timeout_seconds, stream=True, **request
+                )
+            except Exception as exc:  # noqa: BLE001 - classified then re-raised
+                kind, retryable = classify_transport_exception(exc)
+                raise TransportError(kind, retryable, str(exc)) from exc
+
+        return stream_transport
+
+
+def _extract_reasoning_tokens(usage: Any) -> int:
+    """Max of the standard nested location and a non-standard top-level location.
+
+    Different vendors put the real billed-reasoning-token value in different spots
+    and a fake zero in the other (docs/m9 §8 S2): glm-5.2 reports the real value at
+    the top level and a fake zero nested; gpt-5.4-mini reports the real value nested
+    and has no top-level field at all. Taking the max is correct for both shapes.
+    """
+    nested = getattr(getattr(usage, "completion_tokens_details", None), "reasoning_tokens", 0)
+    top_level = getattr(usage, "reasoning_tokens", 0)
+    return max(nested or 0, top_level or 0)
 
 
 def _parse_response(raw: Any) -> AssistantMessage:
@@ -196,10 +340,9 @@ def _parse_response(raw: Any) -> AssistantMessage:
         output_tokens=getattr(usage, "completion_tokens", 0) or 0,
         # Nested under prompt_tokens_details, which may be absent entirely on
         # providers that don't report prompt caching.
-        cached_tokens=getattr(
-            getattr(usage, "prompt_tokens_details", None), "cached_tokens", 0
-        )
+        cached_tokens=getattr(getattr(usage, "prompt_tokens_details", None), "cached_tokens", 0)
         or 0,
+        reasoning_tokens=_extract_reasoning_tokens(usage),
     )
     native_calls = [
         NativeToolCall(id=call.id, name=call.function.name, arguments=call.function.arguments)

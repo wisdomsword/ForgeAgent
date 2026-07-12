@@ -8,6 +8,7 @@ raises for backend/transport failures — it returns AssistantMessage or ClientE
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Iterator
 
 from .models import (
     AssistantMessage,
@@ -15,6 +16,8 @@ from .models import (
     GenerationParams,
     Message,
     ModelCapability,
+    StreamEvent,
+    StreamEventKind,
 )
 
 
@@ -34,6 +37,23 @@ class ModelClient(ABC):
     @abstractmethod
     def capability(self) -> ModelCapability:
         """The capability declaration of the model this client serves."""
+
+    def stream(
+        self, messages: list[Message], params: GenerationParams | None = None
+    ) -> Iterator[StreamEvent | ClientError]:
+        """Stream one completion as incremental events, ending with a DONE event that
+        carries the complete AssistantMessage (structurally identical to complete()).
+
+        Default implementation degrades to complete(): one TEXT_DELTA with the full
+        text, then DONE. Subclasses override with real streaming. Like complete(),
+        errors are yielded as a ClientError (then the iterator ends), never raised.
+        """
+        result = self.complete(messages, params)
+        if isinstance(result, ClientError):
+            yield result
+            return
+        yield StreamEvent(kind=StreamEventKind.TEXT_DELTA, text=result.content)
+        yield StreamEvent(kind=StreamEventKind.DONE, message=result)
 
 
 class MockScriptExhausted(RuntimeError):
