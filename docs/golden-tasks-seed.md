@@ -1,4 +1,4 @@
-# 340 个 Golden Tasks（M1 种子 15 + M3 扩充 15 + M5 扩充 50 + M6 扩充 120 + M7 扩充 100 + M8 扩充 20 + M10 扩充 20）
+# 380 个 Golden Tasks（M1 种子 15 + M3 扩充 15 + M5 扩充 50 + M6 扩充 120 + M7 扩充 100 + M8 扩充 20 + M10 扩充 20 + M9 扩充 40）
 
 > 配比来源：ACTION_PLAN.md §六.5 已裁决的分布——40% 文件/数据处理、25% Python 执行与 sandbox 边界、20% 代码修改/小型重构、10% 网络抓取或外部 API（优先 mock）、5% 系统查询/环境检查。
 > 规模说明：M1 种子集 **15 个**（G01–G15），M3 扩充至 **30 个**（G16–G30），M5 扩充至 **80 个**（G31–G80），M6 扩充至 **200 个**（新增 G81–G200，见文末"M6 扩充"区块）。后续里程碑按 ACTION_PLAN 里程碑表继续扩充：**M7→300 以内**。各里程碑的扩充独立成块，前序区块保持不动，便于追溯。
@@ -762,4 +762,88 @@ golden set 是**产品级功能验收**（任务能不能被正确完成），�
 | **合计** | 100% | 15 | 15 | 50 | 120 | 100 | 20 | 20 | **340** | 100% |
 
 340 个整体与 §六.5 配比精确一致（136/85/68/34/17 = 40/25/20/10/5%，无需取整近似）。M10 新增覆盖：WebFetch/FileRead/FileWrite/FileList 四个主进程工具的功能侧冒烟（内容掩码、project-root 锁定、相对路径输出、混合返回落盘+preview）与 SSRF Guard 的拦截语义（私网/metadata 地址、file:// scheme、重定向逐跳复检、restricted 档确认门）——SSRF Guard 与 project-root 锁定的系统性安全断言归 `tests/test_ssrf_guard.py`/后续 escape tests（T10a-T10c，见 `docs/m10-usage-observability-and-tools.md` §四），golden set 只保留上述功能侧冒烟，延续 G06/G14/G24 一路的分工原则。FileWrite 确认门非安全边界（G333）这一点尤其需要如实验证，不能包装成安全控制。
+
+---
+
+## M9 扩充（G341–G380，40 个 → 总 380）
+
+> M9 主题：流式支持 + 多模态消息 + 内嵌指令（详见 `docs/m9-streaming-multimodal-commands.md`）。三个正交增量按裁决 8（§五）覆盖：流式降级路径、多模态拒绝路径、指令路由——配比按 16/10/8/4/2 精确维持 40/25/20/10/5%。流式/多模态相关 golden 任务优先用 `MockClient`/脚本化 `stream()` 驱动，不依赖真实模型的流式行为差异（与既有"mock 优先"方针一致）。
+
+### 文件/数据处理（新增 16：G341–G356）
+
+| ID | 描述 | Pass 判定 |
+|---|---|---|
+| G341 | `run --image <path>` 单图附加后由模型描述图片内容 | Task 收到的首条 user 消息内容为 `[TextItem, ImageItem]` 列表形态；`ImageItem.media_type`/`data` 与独立读取+base64 编码结果一致 |
+| G342 | `run --image <目录>` 附加目录下全部图片（非递归） | 附加的 `ImageItem` 数量与顺序（按文件名排序）与独立 `os.listdir` 排序结果一致；子目录内图片不被收集 |
+| G343 | REPL `/image <path>` 暂存图片，下一条裸 goal 消费 | 暂存后下一条 goal 的 `run_once` 调用收到该 `images` 列表；再下一条 goal 不再携带（暂存态用后即清） |
+| G344 | REPL `/image <path> <inline goal>` 内联 goal 立即随图运行 | 图片与 inline goal 同一次 `run_once` 调用消费，不进入暂存态 |
+| G345 | `--image` 单张图片恰好等于 5MB 上限 | 加载成功（边界值不拒），`ImageItem.data` 长度与独立 base64 编码结果一致 |
+| G346 | `--image` 单张图片超过 5MB 上限（负向） | `load_images` 抛 `ValueError`（含大小与上限数值），CLI 返回退出码 2、不发起任何模型调用 |
+| G347 | `--image <目录>` 恰好 20 张图片 | 全部 20 张加载成功（边界值不拒），顺序与独立排序结果一致 |
+| G348 | `--image <目录>` 超过 20 张图片（负向） | `load_images` 抛 `ValueError`（含图片数与上限数值），CLI 返回退出码 2、未加载任何图片进 Task |
+| G349 | 图片文件魔数探测四种支持格式（png/jpeg/gif/webp）均正确识别 | 每种格式探测出的 `media_type` 与文件真实格式一致，不依赖文件扩展名（故意给错扩展名验证按内容判定） |
+| G350 | 附带图片但目标模型 `supports_images=False`（负向，capability-gate） | client 层返回结构化 `ClientError(kind="invalid_request")`，不静默丢图、不发起裸文字请求 |
+| G351 | `/model` 切换到不支持图片的模型后再 `/image` 附图运行 | 同 G350 的拒绝路径在 REPL 会话中触发；切换前已暂存的图片不因切换模型被清空或静默丢弃 |
+| G352 | `/search <query>` 返回结果只打印，不进入下一条 goal 的对话内容 | `console` 输出含结果标题/URL；`Task.run()` 收到的 goal 字符串中不包含任何搜索结果文本（T11b 功能侧冒烟） |
+| G353 | `/search` 命中 SSRF Guard 拦截（查询词构造对应内网地址场景） | 打印友好一行（不含原始堆栈/异常类名），REPL 继续可用、未导致进程退出 |
+| G354 | `/search` 引擎返回非 200 或解析失败 | 打印"暂时不可用"等效提示，不抛出未捕获异常，REPL 继续可用 |
+| G355 | `/mcp` 指令列出各 server 状态与其工具清单（含工具描述） | 输出包含每个已连接 server 名与其 `list_tools()` 结果的 `server:tool` 及描述文本，与 `tools_prompt()` 数据源一致 |
+| G356 | `/help /search` 只打印该指令的详细用法，不包含其余指令 | 输出含 `/search <query>` 完整用法行，不含 `/image`/`/mcp` 等其它指令的用法行 |
+
+### Python 执行与 sandbox 边界（新增 10：G357–G366）
+
+| ID | 描述 | Pass 判定 |
+|---|---|---|
+| G357 | `--stream` 附加终端环境下，Step 消费 `client.stream()` 而非 `complete()` | 插桩 `complete()` 抛错的测试 client 证明分支选择；每个 `TEXT_DELTA`/`THINKING_DELTA` 均转发到显示回调；最终历史/终止判定与非流式路径结果一致 |
+| G358 | `--stream` 但输出未接终端（管道/CI，非 TTY） | 自动降级为非流式：插桩 `stream()` 抛错的测试 client 证明该轮走的是 `complete()`；用户可见输出与不加 `--stream` 完全一致 |
+| G359 | 流式中途连接中断（已产出部分 delta 后失败） | 该轮收敛为单个结构化 `ClientError`；已产出的半截文本不进入对话历史，解析器未收到不完整的 Block/ToolCall 标记（T11c 功能侧冒烟） |
+| G360 | 流式 `THINKING_DELTA` 转发给显示回调但不进入对话历史 | 回调收到的事件序列包含 `THINKING_DELTA`；最终聚合的 `AssistantMessage.content` 不包含 thinking 增量文本（只有 DONE 事件携带的正文） |
+| G361 | 同一请求分别走 `stream()` 与 `complete()`，结果结构一致性校验 | 两条路径返回的 `AssistantMessage` 除 usage 的浮动字段外，`stop_reason`/`content`/`tool_calls` 字段完全一致（§3.1 不变量的黑盒验证） |
+| G362 | `restricted` 档下模型试图通过图片描述文本诱导生成越权代码（提示注入，T11b 兜底验证） | 生成的越权代码仍被执行后端的 audithook 拦截（T1-T3 后端层兜底），不因数据来源是图片而放宽——延续 T5 分层原则 |
+| G363 | 流式响应中 native tool_calls 分片到达（OpenAI-compatible 检测即回退聚合） | 分片到达前的 delta 已转发给回调；检测到 `tool_calls` 分片后不再转发新 delta（静默至 DONE）；DONE 事件的 `AssistantMessage.tool_calls` 是完整聚合结果 |
+| G364 | `/search` 查询词含 `&`/空格等特殊字符不改变请求 host | 查询词仅经 `urllib.parse.quote` 编码进入 query 参数，请求 host 与固定模板完全一致（T11a 功能侧冒烟） |
+| G365 | REPL 输入单独一个 `/` 自动展示指令菜单 | 输出内容与 `/help`（无参数）的输出等价；不误判为未知指令 |
+| G366 | REPL 输入未知 `/` 前缀指令 | 输出"unknown command"提示且随后展示指令菜单，不导致 REPL 退出或异常 |
+
+### 代码修改/小型重构（新增 8：G367–G374）
+
+| ID | 描述 | Pass 判定 |
+|---|---|---|
+| G367 | 把 `if/elif` 形式的 `StreamEventKind` 判定改写为字典分发表 | AST：字典字面量映射出现；`If/elif` 链消失；对全部三种 `kind` 的行为与改写前等价 |
+| G368 | 把手写累加文本 delta 的循环改写为 `"".join(...)` | AST：`str.join` 调用出现；原逐次 `+=` 累加循环消失；累加结果字符串完全一致 |
+| G369 | 把重复的"未知模型 id"校验逻辑提取为共享校验函数 | AST：新增共享函数定义；`/model`/`--model` 两处调用点均改为调用该函数；行为等价（未知 id 均拒绝切换/报错） |
+| G370 | 把魔数判断 if/elif 链改写为字典查表（复用 G337 的模式，应用到图片格式探测） | AST：出现字典字面量映射；If/elif 链消失；四种支持格式判定结果不变 |
+| G371 | 用 `functools.reduce` 或推导式重写手写聚合循环（usage 累加场景） | AST：手写 for 循环消失，替换为等价的推导式/`reduce`；累加结果一致 |
+| G372 | 把 `/help` 单指令查找的线性遍历改写为字典直查 | AST：`dict.get` 直查替代遍历比较；未知指令与已知指令的返回结果均不变 |
+| G373 | 用 `dataclasses`/`NamedTuple` 重构一个手写多返回值元组解包场景 | AST：新增结构化类型定义；原裸元组解包调用点改为属性访问；字段含义与访问结果不变 |
+| G374 | 把嵌套 try/except 改写为单层 `except (A, B):` 元组捕获 | AST：单层元组异常捕获出现；原嵌套 try/except 消失；两种异常场景下行为都不变 |
+
+### 网络抓取或外部 API（新增 4：G375–G378，优先 mock）
+
+| ID | 描述 | Pass 判定 |
+|---|---|---|
+| G375 | mock 流式 transport 分批产出 chunk，最终聚合 usage 与非流式请求一致 | 聚合后的 `TokenUsage` 字段与同一 mock 场景走非流式路径的结果完全一致 |
+| G376 | mock OpenAI-compatible 网关末帧缺失 usage 字段（流式） | `TokenUsage` 全 0（诚实置零，不估算），不抛异常、不中断该轮 |
+| G377 | mock reasoning_tokens 双位置字段（嵌套假零 + 顶层真值）流式场景 | 映射结果取二者较大值（`max` 策略），与非流式路径的 `_parse_response` 映射结果一致 |
+| G378 | `/search` mock 引擎 HTML 结构变化导致解析条目为 0（Best Effort 降级） | 打印"no results"而非报错；不因 HTML 结构非契约而抛未捕获异常 |
+
+### 系统查询/环境检查（新增 2：G379–G380）
+
+| ID | 描述 | Pass 判定 |
+|---|---|---|
+| G379 | `/model`（无参数）列出全部注册模型与别名，含当前 REPL 会话模型标记 | 输出包含全部 `list_models()` 结果；当前会话模型在输出中有可辨识标记（如高亮/前缀） |
+| G380 | 查询 `ModelCapability.supports_images` 与 `models.yaml` 逐模型声明一致性 | 对全部已注册模型，运行期读到的 `supports_images` 值与 `models.yaml` 静态声明值逐一相等 |
+
+## 380 个配比核对
+
+| 类别 | 目标占比 | M1 | M3 | M5 | M6 | M7 | M8 | M10 | M9 | 合计 | 实际占比 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 文件/数据 | 40% | 6 | 6 | 20 | 48 | 40 | 8 | 8 | 16（G341-356） | 152 | 40.0% |
+| 执行/边界 | 25% | 4 | 3 | 13 | 30 | 25 | 5 | 5 | 10（G357-366） | 95 | 25.0% |
+| 代码修改 | 20% | 3 | 3 | 10 | 24 | 20 | 4 | 4 | 8（G367-374） | 76 | 20.0% |
+| 网络/API | 10% | 1 | 2 | 5 | 12 | 10 | 2 | 2 | 4（G375-378） | 38 | 10.0% |
+| 系统查询 | 5% | 1 | 1 | 2 | 6 | 5 | 1 | 1 | 2（G379-380） | 19 | 5.0% |
+| **合计** | 100% | 15 | 15 | 50 | 120 | 100 | 20 | 20 | 40 | **380** | 100% |
+
+380 个整体与 §六.5 配比精确一致（152/95/76/38/19 = 40/25/20/10/5%，无需取整近似）。M9 新增覆盖三个正交增量（§一裁决 8 的覆盖要求）：**流式降级路径**（`--stream` 附终端走真流式 vs 非 TTY 自动降级为 `complete()`，中途断连收敛为 `ClientError`，G357-359/G375-377）、**多模态拒绝路径**（图片大小/数量上限、`supports_images=False` 的显式拒绝、提示注入兜底验证，G345-351/G362）、**指令路由**（`/model`/`/search`/`/image`/`/mcp`/`/help`/裸 `/` 菜单的行为与错误处理，G352-356/G364-366/G378-380）。流式/多模态相关断言优先用插桩的 `complete()`/`stream()` 互斥测试 double 驱动（证明分支选择而非仅凭输出吻合推断，延续 `tests/test_step.py` `_ScriptedStreamClient` 的验证模式），不依赖真实模型的流式行为差异；系统性安全断言（T11a-T11c）归 `tests/test_step.py`/`tests/test_web_search.py`/`tests/test_cli.py`，golden set 只保留上述功能侧冒烟，延续 G06/G14/G24/G333 一路的分工原则。
 

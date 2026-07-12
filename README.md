@@ -24,7 +24,30 @@ uv run forgeagent --tier trusted run "..."
 
 # 指定模型（默认 claude-sonnet-5）
 uv run forgeagent --model claude-haiku-4-5 run "..."
+
+# 列出已登记的模型与别名
+uv run forgeagent models
+
+# 允许任务中途向你提问（Survey 工具）——单次命令默认不交互，加 --interactive 开启
+uv run forgeagent --tier trusted run "..." --interactive
+
+# 流式显示：响应逐字实时渲染（非终端环境如管道/CI 自动降级为非流式）
+uv run forgeagent --stream run "..."
+
+# 附加图片：单个文件或整个目录（≤5MB/张、≤20 张），模型需支持图片输入
+uv run forgeagent run "描述这张图" --image ./screenshot.png
 ```
+
+REPL 内输入 `/` 加回车查看指令菜单，或直接 `/help`。当前支持的指令：
+
+- `/model [id-or-alias]` — 列出已登记模型，或切换本次会话使用的模型
+- `/search <query>` — 联网搜索，结果只打印，绝不自动送进对话内容
+- `/image <path> [goal...]` — 附加图片（文件或目录）；不带 goal 则暂存到下一条输入
+- `/mcp [status|enable <s>|disable <s>]` — 看 MCP server 连接状态与工具清单、启停某个 server
+- `/reload` — 重读 `~/.forgeagent/{models,config}.yaml`，配置写错时当场报错而非等到下次 run
+- `/help [command]` — 列出全部指令，或查看某个指令的详细用法
+
+旧的裸词命令（`models`/`reload`/`mcp status`）仍可用但已弃用，下个里程碑移除，用时会提示对应新指令。
 
 ## 配置（API key 与端点）
 
@@ -61,8 +84,43 @@ export LLM_BASE_URL="..."               # 必须含 /v1
 
 - `trusted`：同进程执行，无隔离，代码能碰宿主一切。仅在完全信任任务来源时用。
 - `restricted`（默认）：每块新起子进程 + 跨平台应用层限权——`sys.addaudithook` 拦 `open`/`socket.*`/进程 spawn 审计事件做路径白名单、默认禁网、禁子进程，配超时强杀与 `rlimit`（Unix）。能挡绝大多数越权与一部分蓄意逃逸，但非 OS 级隔离——`ctypes` 直调 syscall 等仍可绕过。适合日常使用与来源基本可信的任务。
+- `container`（M8）：OS 级隔离——每块跑在一次性 docker 容器里，只挂载项目目录（宿主其余文件系统在容器内**不存在**）、无网络设备（`--network none`）、资源硬限（`--pids-limit`/`--memory`/`--cpus`）、非 root + `--cap-drop ALL` + 只读 rootfs + `/sys` 遮蔽。restricted 挡不住的 native 代码逃逸在这一档被 namespace 拦住。需要本机安装并运行 docker（缺 docker 时报错退出，绝不静默降级）；镜像默认 `python:3.11-slim`，可用 `--container-image` 换（要第三方库就换自备镜像——容器内 pip 会被断网挡住）。不防内核 0-day——是 OS 级隔离，不是虚拟机级。
 
-隔离强度 = 所选档位对应后端能提供的强度，与提示词或静态规则数量无关。来源完全不可信且后果严重时，不要在敏感环境运行（OS 级容器隔离规划在 M10，待定）。
+```bash
+# 容器档（需 docker；首次先 docker pull python:3.11-slim）
+uv run forgeagent --tier container run "..."
+uv run forgeagent --tier container --container-image my-image:latest run "..."
+```
+
+隔离强度 = 所选档位对应后端能提供的强度，与提示词或静态规则数量无关。来源完全不可信且后果严重时用 container 档，或不在敏感环境运行。
+
+## 工具集
+
+模型通过文本协议标记调用工具（详见 [`docs/text-protocol-spec.md`](docs/text-protocol-spec.md)）。工具集可插拔（`ToolRegistry`）：
+
+- **Exec / Edit**：写并执行 Python 代码块 / 对已有块做 old→new 增量修改。核心的 code-as-action 工具。
+- **Survey**（M7）：任务中途向你提问获取信息（`question` + 可选 `options`）。REPL 与 `run --interactive` 下在终端提问并等你输入；无交互通道（headless）时任务以 `need_info` 干净终止，把问题回传给调用方，而不是卡住或瞎猜。
+- **MCP**（M7）：调用外部 [MCP](https://modelcontextprotocol.io) server 暴露的工具，见下节。
+
+## MCP 服务（连接外部工具）
+
+配置了 MCP server 时，`MCP` 工具自动出现在工具集里；未配置则完全不出现。配置放在 `~/.forgeagent/mcp.yaml`，用与 Claude Desktop / Cursor **相同的 `mcpServers` 格式**（现有配置可直接粘贴）：
+
+```yaml
+mcpServers:
+  filesystem:
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "/data"]
+    autoApprove: [read_file, list_directory]   # 只读工具，跳过确认门
+  github:
+    command: docker
+    args: ["run", "-i", "--rm", "-e", "GITHUB_TOKEN", "ghcr.io/github/github-mcp-server"]
+    env: {GITHUB_TOKEN: "${GITHUB_TOKEN}"}       # ${VAR} 从环境变量取，绝不写字面 secret
+```
+
+- **多 server 同时接入**：启动时并发连接所有 `enabled` server，单个连不上只标记 unavailable、不影响其余。同名工具（两个 server 都有 `search`）靠调用里的 `server` 字段区分，不冲突。
+- **确认门（安全边界）**：MCP server 在**主进程执行，不受 restricted 沙箱约束**。所以有副作用的工具调用会逐次要你确认（终端 y/N）；只有列在该 server `autoApprove` 里的只读工具才免确认。未批准 → 结构化拒绝，不执行。因此 `mcpServers` 里只应放你信任的可执行文件，`autoApprove` 只列真正只读的工具。安全模型详见 [`docs/threat-model.md`](docs/threat-model.md) T8。
+- 每 server 可 `enabled: false` 暂时关掉、`expose: [toolA]` 只广告部分工具（控制注入系统提示词的工具清单体积）。REPL 里 `mcp status` 看连接状态。
 
 ## 多模型支持
 
