@@ -1,0 +1,27 @@
+# Built-in MCP server registry. Ships with the package (see mcp_manager.py).
+#
+# EMPTY BY DEFAULT: ForgeAgent connects to no MCP servers unless you configure some.
+# Add servers by creating ~/.forgeagent/mcp.yaml with the same `mcpServers` shape as
+# Claude Desktop / Cursor (so you can paste an existing config straight in).
+#
+# Each server entry:
+#   command       the executable to launch (stdio transport)
+#   args          argument list
+#   env           optional child env; values may use ${VAR} to pull from your
+#                 environment — never write a literal secret here (see secret_policy.py)
+#   enabled       default true; set false to keep a server configured but off the menu
+#   autoApprove   tool names that skip the confirmation gate (read-only tools only)
+#   expose        optional allowlist: advertise only these tools to the model
+#
+# Example (in ~/.forgeagent/mcp.yaml, NOT here):
+#   mcpServers:
+#     filesystem:
+#       command: npx
+#       args: ["-y", "@modelcontextprotocol/server-filesystem", "/data"]
+#       autoApprove: [read_file, list_directory]
+#     github:
+#       command: docker
+#       args: ["run", "-i", "--rm", "-e", "GITHUB_TOKEN", "ghcr.io/github/github-mcp-server"]
+#       env: {GITHUB_TOKEN: "${GITHUB_TOKEN}"}
+
+mcpServers: {}

@@ -15,7 +15,9 @@ import yaml
 
 from forgeagent.model_registry import (
     RegistryError,
+    list_models,
     load_registry,
+    reload_registry,
     resolve_model,
 )
 
@@ -347,3 +349,52 @@ def test_model_with_capability_but_no_group_raises(tmp_path):
     registry = _registry(tmp_path, models_path=models_path)
     with pytest.raises(RegistryError, match="not listed under any group"):
         resolve_model("orphan-model", registry, env={})
+
+
+# --- alias index / reload / list_models (M7 Phase 4) -------------------------
+
+
+def test_alias_index_precomputed_and_covers_all_aliases(tmp_path):
+    # The alias index is built at load time and maps every declared alias to its canonical
+    # model — so _resolve_alias is an O(1) dict lookup, not a per-call linear scan.
+    registry = _registry(tmp_path)
+    assert registry.alias_index["sonnet"] == "claude-sonnet-5"
+    assert registry.alias_index["haiku"] == "claude-haiku-4-5"
+    assert registry.alias_index["deepseek"] == "deepseek-v4-flash"
+    # Every alias declared on a model appears in the index pointing back at that model.
+    for model_id, entry in registry.models.items():
+        for alias in entry.aliases:
+            assert registry.alias_index[alias] == model_id
+
+
+def test_alias_index_resolution_matches_prior_behaviour(tmp_path):
+    # The O(1) index resolves aliases identically to the old scan (regression guard).
+    registry = _registry(tmp_path)
+    resolved = resolve_model("sonnet", registry, env={"ANTHROPIC_API_KEY": "k"})
+    assert resolved.capability.model_id == "claude-sonnet-5"
+
+
+def test_reload_registry_reflects_file_changes(tmp_path):
+    # reload re-reads from disk: an alias absent at first load appears after the user file
+    # gains it — no process restart needed.
+    models_path = tmp_path / "models.yaml"
+    config_path = tmp_path / "no-config.yaml"
+    models_path.write_text(yaml.safe_dump({"models": {"claude-sonnet-5": {"aliases": []}}}))
+    first = reload_registry(user_models_path=models_path, user_config_path=config_path)
+    assert "s5" not in first.alias_index
+
+    models_path.write_text(yaml.safe_dump({"models": {"claude-sonnet-5": {"aliases": ["s5"]}}}))
+    second = reload_registry(user_models_path=models_path, user_config_path=config_path)
+    assert second.alias_index["s5"] == "claude-sonnet-5"
+
+
+def test_list_models_returns_all_models_sorted_with_fields(tmp_path):
+    registry = _registry(tmp_path)
+    infos = list_models(registry)
+    ids = [i.model_id for i in infos]
+    assert ids == sorted(ids)  # sorted by model_id
+    assert set(ids) == set(registry.models)  # covers every registered model
+    sonnet = next(i for i in infos if i.model_id == "claude-sonnet-5")
+    assert "sonnet" in sonnet.aliases
+    assert sonnet.client_kind == "anthropic"
+    assert sonnet.context_window == 1_000_000

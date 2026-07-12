@@ -38,9 +38,12 @@ __all__ = [
     "GroupConfig",
     "Registry",
     "ResolvedModel",
+    "ModelInfo",
     "load_registry",
+    "reload_registry",
     "resolve_model",
     "get_capability",
+    "list_models",
     "DEFAULT_USER_MODELS_PATH",
     "DEFAULT_USER_CONFIG_PATH",
 ]
@@ -108,6 +111,20 @@ class Registry(BaseModel):
     default_model: str | None = None
     models: dict[str, ModelEntry] = Field(default_factory=dict)
     groups: dict[str, GroupConfig] = Field(default_factory=dict)
+    # alias -> canonical model_id, precomputed at load time (validation already walks
+    # every alias, so this costs nothing extra) to make _resolve_alias O(1) instead of a
+    # linear scan across all models on every lookup. Not read from YAML — built by
+    # load_registry after validation.
+    alias_index: dict[str, str] = Field(default_factory=dict)
+
+
+class ModelInfo(BaseModel):
+    """A human-facing summary of one registered model, for `list_models`."""
+
+    model_id: str
+    aliases: list[str]
+    client_kind: str
+    context_window: int
 
 
 class ResolvedModel(BaseModel):
@@ -207,6 +224,25 @@ def load_registry(
     return registry
 
 
+def reload_registry(
+    *,
+    builtin_models_path: Path | None = None,
+    builtin_config_path: Path | None = None,
+    user_models_path: Path | None = None,
+    user_config_path: Path | None = None,
+) -> Registry:
+    """Re-read the YAML files and return a fresh Registry — for a REPL to pick up edits
+    to ~/.forgeagent/{models,config}.yaml without a restart. A thin alias of
+    load_registry() (which always reads from disk); named separately so the REPL's intent
+    ("reload from disk now") is explicit at the call site."""
+    return load_registry(
+        builtin_models_path=builtin_models_path,
+        builtin_config_path=builtin_config_path,
+        user_models_path=user_models_path,
+        user_config_path=user_config_path,
+    )
+
+
 def _validate_registry(registry: Registry) -> None:
     model_to_group: dict[str, str] = {}
     for group_name, group in registry.groups.items():
@@ -223,6 +259,8 @@ def _validate_registry(registry: Registry) -> None:
                 )
             model_to_group[model_id] = group_name
 
+    # Build the alias index while validating (single pass over aliases): a duplicate is a
+    # collision error, otherwise it becomes an O(1) alias -> canonical entry for lookups.
     alias_to_model: dict[str, str] = {}
     for model_id, entry in registry.models.items():
         for alias in entry.aliases:
@@ -230,16 +268,32 @@ def _validate_registry(registry: Registry) -> None:
                 owner = alias_to_model.get(alias, alias)
                 raise RegistryError(f"Alias {alias!r} for {model_id!r} collides with {owner!r}.")
             alias_to_model[alias] = model_id
+    registry.alias_index = alias_to_model
 
 
 def _resolve_alias(model_id: str, registry: Registry) -> str:
     if model_id in registry.models:
         return model_id
-    for canonical_id, entry in registry.models.items():
-        if model_id in entry.aliases:
-            return canonical_id
+    canonical = registry.alias_index.get(model_id)
+    if canonical is not None:
+        return canonical
     known = ", ".join(sorted(registry.models))
     raise RegistryError(f"Unknown model id {model_id!r}; registered models: {known}")
+
+
+def list_models(registry: Registry | None = None) -> list[ModelInfo]:
+    """Summarise every registered model (id, aliases, client_kind, context window),
+    sorted by model_id — for CLI/REPL `models` to answer "what can I use?"."""
+    registry = registry or load_registry()
+    return [
+        ModelInfo(
+            model_id=model_id,
+            aliases=list(entry.aliases),
+            client_kind=entry.client_kind,
+            context_window=entry.context_window,
+        )
+        for model_id, entry in sorted(registry.models.items())
+    ]
 
 
 def _find_group(model_id: str, registry: Registry) -> tuple[str, GroupConfig]:
