@@ -37,6 +37,40 @@ __all__ = [
 Transport = Callable[[dict, float], Any]
 
 
+def _render_content(content: str | list) -> str | list[dict]:
+    """Translate Message.content to Anthropic's wire shape.
+
+    A plain string passes through unchanged (pre-M9 path). A ContentItem list becomes
+    Anthropic content blocks; images use the base64 source shape (verified against the
+    real API, docs/m9-streaming-multimodal-commands.md §八 S3).
+    """
+    if isinstance(content, str):
+        return content
+    blocks: list[dict] = []
+    for item in content:
+        if item.type == "text":
+            blocks.append({"type": "text", "text": item.text})
+        else:
+            blocks.append(
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": item.media_type,
+                        "data": item.data,
+                    },
+                }
+            )
+    return blocks
+
+
+def _contains_image(messages: list[Message]) -> bool:
+    return any(
+        isinstance(msg.content, list) and any(item.type == "image" for item in msg.content)
+        for msg in messages
+    )
+
+
 def _split_system(messages: list[Message]) -> tuple[str | None, list[dict]]:
     """Anthropic takes `system` as a top-level param, not a messages entry.
 
@@ -50,7 +84,7 @@ def _split_system(messages: list[Message]) -> tuple[str | None, list[dict]]:
         if msg.role is Role.SYSTEM:
             system_parts.append(msg.content)
         else:
-            turns.append({"role": msg.role.value, "content": msg.content})
+            turns.append({"role": msg.role.value, "content": _render_content(msg.content)})
     system = "\n\n".join(system_parts) if system_parts else None
     return system, turns
 
@@ -125,6 +159,14 @@ class AnthropicClient(ModelClient):
     def complete(
         self, messages: list[Message], params: GenerationParams | None = None
     ) -> AssistantMessage | ClientError:
+        if _contains_image(messages) and not self._capability.supports_images:
+            return ClientError(
+                message=(
+                    f"model {self._capability.model_id!r} does not support image input"
+                ),
+                kind="invalid_request",
+                attempts=1,
+            )
         effective = params if params is not None else self._default_params
         request = self.build_request(messages, effective)
         return run_with_retries(

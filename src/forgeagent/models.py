@@ -8,26 +8,53 @@ its backend. All types are plain pydantic models with no vendor coupling.
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
 
 
 class Role(StrEnum):
-    """Message roles. v1 is text-only; multimodal message content (ContentItem/TextItem/
-    ImageItem) is deferred to M9. M10 tracks multimodal *usage counters* only (e.g. an
-    image count reported by the provider's usage payload) without accepting image input."""
+    """Message roles. Message content is text or a text+image item list (M9);
+    audio/video input is deferred (docs/m9-streaming-multimodal-commands.md §九)."""
 
     SYSTEM = "system"
     USER = "user"
     ASSISTANT = "assistant"
 
 
+class TextItem(BaseModel):
+    """One text part of a multimodal message."""
+
+    type: Literal["text"] = "text"
+    text: str
+
+
+class ImageItem(BaseModel):
+    """One image part of a multimodal message, as base64-encoded bytes.
+
+    Vendor-neutral: each client translates this to its own wire shape (Anthropic
+    content blocks vs OpenAI data-URI). Loading/validation (magic-number sniffing,
+    per-image and per-request caps) lives in image_input.py.
+    """
+
+    type: Literal["image"] = "image"
+    media_type: Literal["image/jpeg", "image/png", "image/gif", "image/webp"]
+    data: str
+
+
+ContentItem = Annotated[TextItem | ImageItem, Field(discriminator="type")]
+
+
 class Message(BaseModel):
-    """A single conversation message. content is plain text in v1."""
+    """A single conversation message.
+
+    content stays a plain string on the main path; only messages that actually
+    carry images use the list form (docs/m9 §3.4), so every pre-M9 construction
+    site keeps working unchanged.
+    """
 
     role: Role
-    content: str
+    content: str | list[ContentItem]
 
 
 class GenerationParams(BaseModel):
@@ -110,6 +137,9 @@ class ModelCapability(BaseModel):
     supports_thinking: bool
     thinking_always_on: bool
     supports_effort: bool
+    # Whether the model accepts image input (ImageItem). Clients refuse a request
+    # carrying images for a model without this (ClientError, never a silent drop).
+    supports_images: bool = False
     # Which concrete ModelClient this model is served by; cli.py dispatches on this
     # instead of branching on model_id/vendor strings.
     client_kind: Literal["anthropic", "openai_compatible"]

@@ -34,6 +34,36 @@ __all__ = ["OpenAICompatibleClient"]
 Transport = Callable[[dict, float], Any]
 
 
+def _render_content(content: str | list) -> str | list[dict]:
+    """Translate Message.content to the OpenAI-compatible wire shape.
+
+    A plain string passes through unchanged (pre-M9 path). A ContentItem list becomes
+    the `image_url` data-URI shape (verified against the real API,
+    docs/m9-streaming-multimodal-commands.md §八 S3).
+    """
+    if isinstance(content, str):
+        return content
+    parts: list[dict] = []
+    for item in content:
+        if item.type == "text":
+            parts.append({"type": "text", "text": item.text})
+        else:
+            parts.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{item.media_type};base64,{item.data}"},
+                }
+            )
+    return parts
+
+
+def _contains_image(messages: list[Message]) -> bool:
+    return any(
+        isinstance(msg.content, list) and any(item.type == "image" for item in msg.content)
+        for msg in messages
+    )
+
+
 class OpenAICompatibleClient(ModelClient):
     """Client for any OpenAI Chat Completions-compatible endpoint.
 
@@ -77,7 +107,10 @@ class OpenAICompatibleClient(ModelClient):
         `self._capability`, mirroring anthropic_client.AnthropicClient.build_request.
         """
         cap = self._capability
-        turns = [{"role": msg.role.value, "content": msg.content} for msg in messages]
+        turns = [
+            {"role": msg.role.value, "content": _render_content(msg.content)}
+            for msg in messages
+        ]
         request: dict[str, Any] = {"model": cap.model_id, "messages": turns}
         request[cap.max_tokens_param] = params.max_output_tokens or cap.max_output_tokens
         if params.temperature is not None:
@@ -102,6 +135,14 @@ class OpenAICompatibleClient(ModelClient):
     def complete(
         self, messages: list[Message], params: GenerationParams | None = None
     ) -> AssistantMessage | ClientError:
+        if _contains_image(messages) and not self._capability.supports_images:
+            return ClientError(
+                message=(
+                    f"model {self._capability.model_id!r} does not support image input"
+                ),
+                kind="invalid_request",
+                attempts=1,
+            )
         effective = params if params is not None else self._default_params
         request = self.build_request(messages, effective)
         return run_with_retries(
