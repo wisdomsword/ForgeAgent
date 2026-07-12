@@ -16,6 +16,7 @@ runtime concern.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
@@ -23,7 +24,15 @@ from pydantic import BaseModel, Field
 
 from .client import ModelClient
 from .executor import ExecutorBackend
-from .models import AssistantMessage, ClientError, GenerationParams, Message, Role, TokenUsage
+from .models import (
+    AssistantMessage,
+    ClientError,
+    GenerationParams,
+    Message,
+    Role,
+    StreamEventKind,
+    TokenUsage,
+)
 from .policy import CodeAnalyzer
 from .protocol import (
     ParseResult,
@@ -179,12 +188,18 @@ class Step:
         confirmer: Confirmer | None = None,
         tier: Tier = "restricted",
         allowed_root: str = ".",
+        on_stream_text: Callable[[str, StreamEventKind], None] | None = None,
     ):
         self._client = client
         self._backend = backend
         self._runtime = runtime
         self._max_rounds = max_rounds
         self._params = params
+        # None = non-streaming (unchanged complete() path). Set = CLI display callback
+        # (docs/m9-streaming-multimodal-commands.md §3.3); receives every TEXT_DELTA/
+        # THINKING_DELTA as it arrives. Never sees DONE — the aggregated AssistantMessage
+        # is this method's return value, not something the callback needs.
+        self._on_stream_text = on_stream_text
         # Static AST layer: advisory feedback before execution (not a security boundary).
         self._analyzer = analyzer or CodeAnalyzer()
         self.blocks = CodeBlockStore()
@@ -205,6 +220,23 @@ class Step:
         )
         self.rounds: list[RoundResult] = []
 
+    def _stream_or_complete(self, convo: list[Message]) -> AssistantMessage | ClientError:
+        """No callback -> plain complete() (today's path, unchanged). With a callback,
+        consume client.stream(), forward TEXT_DELTA/THINKING_DELTA text to it for
+        display, and return the DONE event's AssistantMessage (or a mid-stream
+        ClientError) — structurally identical to what complete() would return
+        (docs/m9-streaming-multimodal-commands.md §3.3)."""
+        if self._on_stream_text is None:
+            return self._client.complete(convo, self._params)
+        for event in self._client.stream(convo, self._params):
+            if isinstance(event, ClientError):
+                return event
+            if event.kind is StreamEventKind.DONE:
+                assert event.message is not None  # DONE always carries a message
+                return event.message
+            self._on_stream_text(event.text, event.kind)
+        raise RuntimeError("stream() ended without a DONE event or a ClientError")
+
     def run(self, messages: list[Message]) -> list[RoundResult]:
         """Run rounds until the task reaches a terminal state or max_rounds.
 
@@ -216,7 +248,7 @@ class Step:
         convo = list(messages)
         prose_nudged = False
         for _ in range(self._max_rounds):
-            reply = self._client.complete(convo, self._params)
+            reply = self._stream_or_complete(convo)
             if isinstance(reply, ClientError):
                 self.rounds.append(
                     RoundResult(

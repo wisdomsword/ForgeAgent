@@ -3,7 +3,7 @@
 import json
 
 from forgeagent.client import MockClient
-from forgeagent.models import AssistantMessage, TokenUsage
+from forgeagent.models import AssistantMessage, StreamEvent, StreamEventKind, TokenUsage
 from forgeagent.task import Task
 
 
@@ -86,3 +86,26 @@ def test_task_runtime_state_accessible_after_run():
     task.run("save answer")
     # The task owns the runtime; state persists after the run for inspection.
     assert task.runtime.get_state("answer") == 42
+
+
+def test_task_on_stream_text_reaches_step_and_leaves_outcome_unaffected():
+    # on_stream_text passed to Task must reach Step's stream() consumption; the final
+    # TaskOutcome is unaffected by streaming vs non-streaming (docs/m9 §3.3).
+    class _StreamOnlyClient(MockClient):
+        def complete(self, messages, params=None):
+            raise AssertionError("complete() must not be called when on_stream_text is set")
+
+        def stream(self, messages, params=None):
+            reply = _reply(_done())
+            yield StreamEvent(kind=StreamEventKind.TEXT_DELTA, text=reply.content)
+            yield StreamEvent(kind=StreamEventKind.DONE, message=reply)
+
+    received: list[str] = []
+    task = Task(
+        _StreamOnlyClient(script=[]),
+        on_stream_text=lambda text, kind: received.append(text),
+    )
+    outcome = task.run("do a thing")
+    assert outcome.status.completed is True
+    assert outcome.status.reason == "completed"
+    assert received  # the delta was forwarded

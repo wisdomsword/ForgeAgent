@@ -8,7 +8,16 @@ import json
 
 from forgeagent.client import MockClient
 from forgeagent.executor import TrustedBackend
-from forgeagent.models import AssistantMessage, Message, NativeToolCall, Role, TokenUsage
+from forgeagent.models import (
+    AssistantMessage,
+    ClientError,
+    Message,
+    NativeToolCall,
+    Role,
+    StreamEvent,
+    StreamEventKind,
+    TokenUsage,
+)
 from forgeagent.protocol import EditArgs
 from forgeagent.runtime import Runtime
 from forgeagent.step import Step, _apply_edit
@@ -263,6 +272,71 @@ def test_both_channels_in_one_reply_both_execute():
     assert step.blocks.get("b").code == "y = 2"
 
 
+def _survey_call(question: str, options=None) -> str:
+    args = {"question": question}
+    if options:
+        args["options"] = options
+    return _tool_call("Survey", **args)
+
+
+def test_survey_with_asker_feeds_answer_and_continues():
+    # An answered Survey produces feedback and the loop continues to completion.
+    from forgeagent.step import Step
+    from forgeagent.tools import default_registry
+
+    step = Step(
+        MockClient(script=[_reply(_survey_call("which color?")), _reply(_done())]),
+        TrustedBackend(),
+        Runtime(),
+        max_rounds=5,
+        registry=default_registry(),
+        asker=lambda args: "green",
+    )
+    rounds = step.run(_user())
+    assert len(rounds) == 2
+    assert rounds[0].outcomes[0].tool == "Survey"
+    assert rounds[0].outcomes[0].success is True
+    assert "green" in step._render_feedback(rounds[0])
+    assert rounds[1].completed is True
+
+
+def test_survey_without_asker_ends_needs_info():
+    # Headless Step (no asker): a Survey call terminates the loop with NEEDS_INFO, and
+    # the round carries the question as stopped_detail for Task to surface.
+    from forgeagent.step import Step
+    from forgeagent.tools import default_registry
+
+    step = Step(
+        MockClient(script=[_reply(_survey_call("which file should I edit?"))]),
+        TrustedBackend(),
+        Runtime(),
+        max_rounds=5,
+        registry=default_registry(),
+    )
+    rounds = step.run(_user())
+    assert len(rounds) == 1
+    assert rounds[0].stopped_reason == "needs_info"
+    assert rounds[0].stopped_detail == "which file should I edit?"
+
+
+def test_declared_completion_wins_over_survey_needs_info():
+    # If the model both completes and calls Survey without an asker in one round, the
+    # declared completion is the more reliable signal and takes precedence.
+    from forgeagent.step import Step
+    from forgeagent.tools import default_registry
+
+    reply_text = _done() + _survey_call("anything else?")
+    step = Step(
+        MockClient(script=[_reply(reply_text)]),
+        TrustedBackend(),
+        Runtime(),
+        max_rounds=5,
+        registry=default_registry(),
+    )
+    rounds = step.run(_user())
+    assert rounds[0].stopped_reason == "completed"
+
+
 class _RecordingClient(MockClient):
     """MockClient that also records the `messages` list it saw on each call, so a
     test can assert on what the loop actually replayed into history — not just on
@@ -292,3 +366,82 @@ def test_native_tool_call_is_replayed_into_convo_history():
     assert "ToolCall" in assistant_turn.content
     assert "blk" in assistant_turn.content
     assert "print(1)" in assistant_turn.content
+
+
+# --- streaming (M9 Phase 3) ---------------------------------------------------
+
+
+class _ScriptedStreamClient(MockClient):
+    """A client whose stream() replays a pre-scripted event sequence per call, and
+    whose complete() raises if ever invoked — proving _stream_or_complete takes the
+    streaming branch rather than silently falling back to complete()."""
+
+    def __init__(self, stream_script: list[list[StreamEvent | ClientError]]):
+        super().__init__(script=[])
+        self._stream_script = list(stream_script)
+        self._stream_index = 0
+
+    def complete(self, messages, params=None):
+        raise AssertionError("complete() must not be called when on_stream_text is set")
+
+    def stream(self, messages, params=None):
+        events = self._stream_script[self._stream_index]
+        self._stream_index += 1
+        yield from events
+
+
+def test_streaming_forwards_deltas_and_returns_done_message():
+    # With on_stream_text set, the loop must consume stream() (never complete()),
+    # forward every TEXT_DELTA/THINKING_DELTA to the callback, and treat the DONE
+    # event's message exactly like a complete() reply for parsing/history/termination.
+    done_message = _reply(_done())
+    client = _ScriptedStreamClient(
+        stream_script=[
+            [
+                StreamEvent(kind=StreamEventKind.THINKING_DELTA, text="pondering... "),
+                StreamEvent(kind=StreamEventKind.TEXT_DELTA, text=done_message.content),
+                StreamEvent(kind=StreamEventKind.DONE, message=done_message),
+            ]
+        ]
+    )
+    received: list[tuple[str, StreamEventKind]] = []
+    step = Step(
+        client, TrustedBackend(), Runtime(), max_rounds=5,
+        on_stream_text=lambda text, kind: received.append((text, kind)),
+    )
+    rounds = step.run(_user())
+    assert received == [
+        ("pondering... ", StreamEventKind.THINKING_DELTA),
+        (done_message.content, StreamEventKind.TEXT_DELTA),
+    ]
+    assert len(rounds) == 1
+    assert rounds[0].completed is True
+    assert rounds[0].stopped_reason == "completed"
+
+
+def test_streaming_mid_stream_client_error_stops_loop_like_complete_would():
+    # A ClientError yielded mid-stream (instead of a DONE) converges to the same
+    # terminal shape as a complete()-returned ClientError (docs/m9 §3.1/§3.3).
+    client = _ScriptedStreamClient(
+        stream_script=[[ClientError(message="down", kind="network", attempts=1)]]
+    )
+    step = Step(
+        client, TrustedBackend(), Runtime(), max_rounds=5,
+        on_stream_text=lambda text, kind: None,
+    )
+    rounds = step.run(_user())
+    assert rounds[0].stopped_reason == "client_error:network"
+    assert rounds[0].text == "down"
+
+
+def test_no_callback_uses_complete_not_stream():
+    # on_stream_text=None (the default) is the existing non-streaming path — stream()
+    # must never be consulted.
+    class _StreamRaisesClient(MockClient):
+        def stream(self, messages, params=None):
+            raise AssertionError("stream() must not be called without on_stream_text")
+
+    client = _StreamRaisesClient(script=[_reply(_done())])
+    step = Step(client, TrustedBackend(), Runtime(), max_rounds=5)
+    rounds = step.run(_user())
+    assert rounds[0].completed is True

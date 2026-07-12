@@ -10,7 +10,7 @@ from rich.console import Console
 from forgeagent.cli import build_parser, main, run_once
 from forgeagent.client import MockClient
 from forgeagent.model_registry import RegistryError
-from forgeagent.models import AssistantMessage, TokenUsage
+from forgeagent.models import AssistantMessage, StreamEvent, StreamEventKind, TokenUsage
 
 
 def _reply(
@@ -155,6 +155,128 @@ def test_parser_container_selectable_with_image():
 def test_parser_model_override():
     args = build_parser().parse_args(["--model", "claude-haiku-4-5", "run", "x"])
     assert args.model == "claude-haiku-4-5"
+
+
+def test_parser_stream_flag_defaults_off_and_is_settable():
+    assert build_parser().parse_args(["run", "x"]).stream is False
+    assert build_parser().parse_args(["--stream", "run", "x"]).stream is True
+
+
+# --- streaming (M9 Phase 3) ---------------------------------------------------
+
+
+def _make_terminal_console() -> Console:
+    # force_terminal=True makes console.is_terminal True regardless of the underlying
+    # file, so the Live-based streaming path is exercised without a real TTY.
+    return Console(record=True, width=100, force_terminal=True)
+
+
+class _StreamOnlyClient(MockClient):
+    """A MockClient whose complete() raises -- proving a --stream run never falls back
+    to the non-streaming path -- and whose stream() replays a scripted reply."""
+
+    def __init__(self, reply: AssistantMessage, thinking: str = ""):
+        super().__init__(script=[])
+        self._reply = reply
+        self._thinking = thinking
+
+    def complete(self, messages, params=None):
+        raise AssertionError("complete() must not be called when stream=True")
+
+    def stream(self, messages, params=None):
+        if self._thinking:
+            yield StreamEvent(kind=StreamEventKind.THINKING_DELTA, text=self._thinking)
+        yield StreamEvent(kind=StreamEventKind.TEXT_DELTA, text=self._reply.content)
+        yield StreamEvent(kind=StreamEventKind.DONE, message=self._reply)
+
+
+def test_make_stream_callback_styles_thinking_dim_and_text_plain():
+    from forgeagent.cli import _make_stream_callback
+
+    console = _make_terminal_console()
+    live, on_delta = _make_stream_callback(console)
+    with live:
+        on_delta("pondering ", StreamEventKind.THINKING_DELTA)
+        on_delta("answer", StreamEventKind.TEXT_DELTA)
+    styled = console.export_text(styles=True)
+    assert "pondering" in styled and "answer" in styled
+    # THINKING_DELTA is wrapped in a dim SGR code; TEXT_DELTA's "answer" is not.
+    assert "\x1b[2mpondering " in styled
+    assert "\x1b[2manswer" not in styled
+
+
+def test_run_once_stream_true_on_terminal_console_uses_stream_not_complete():
+    console = _make_terminal_console()
+    client = _StreamOnlyClient(_reply(_done()), thinking="thinking...")
+    outcome = run_once(
+        "do a thing",
+        tier="trusted",
+        model="claude-sonnet-5",
+        client_factory=lambda model: client,
+        console=console,
+        stream=True,
+    )
+    assert outcome.status.completed is True
+    assert "completed" in console.export_text()
+
+
+def test_run_once_stream_true_on_non_terminal_console_degrades_to_complete():
+    # _console() (no force_terminal) is not attached to a real terminal, so stream=True
+    # must auto-degrade: complete() is used, never stream() (design doc §3.3).
+    class _CompleteOnlyClient(MockClient):
+        def stream(self, messages, params=None):
+            raise AssertionError("stream() must not be called when console.is_terminal is False")
+
+    console = _console()
+    assert console.is_terminal is False
+    outcome = run_once(
+        "do a thing",
+        tier="trusted",
+        model="claude-sonnet-5",
+        client_factory=lambda model: _CompleteOnlyClient(script=[_reply(_done())]),
+        console=console,
+        stream=True,
+    )
+    assert outcome.status.completed is True
+
+
+def test_repl_stream_true_threads_into_run_once(tmp_path):
+    from forgeagent.cli import repl
+
+    client = _StreamOnlyClient(_reply(_done()))
+    console = _make_terminal_console()
+    inputs = iter(["do a thing", ""])
+    repl(
+        tier="trusted",
+        model="claude-sonnet-5",
+        client_factory=lambda model: client,
+        console=console,
+        read_line=lambda prompt: next(inputs),
+        stream=True,
+    )
+    assert "completed" in console.export_text()
+
+
+def test_main_run_threads_stream_flag_into_run_once(monkeypatch):
+    # main() builds its own plain Console() (no force_terminal), so this checks the
+    # --stream flag reaches run_once's `stream` kwarg, not the Live-rendering path
+    # itself (covered by the run_once/repl tests above).
+    seen_stream: list[bool] = []
+    import forgeagent.cli as cli_module
+
+    real_run_once = cli_module.run_once
+
+    def spy_run_once(*args, **kwargs):
+        seen_stream.append(kwargs.get("stream", False))
+        return real_run_once(*args, **kwargs)
+
+    monkeypatch.setattr(cli_module, "run_once", spy_run_once)
+    code = main(
+        ["--stream", "run", "goal"],
+        client_factory=_factory([_reply(_done())]),
+    )
+    assert code == 0
+    assert seen_stream == [True]
 
 
 # --- REPL --------------------------------------------------------------------

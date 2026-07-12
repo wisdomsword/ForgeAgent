@@ -17,6 +17,8 @@ import argparse
 from collections.abc import Callable
 
 from rich.console import Console
+from rich.live import Live
+from rich.text import Text
 
 from .anthropic_client import AnthropicClient
 from .client import ModelClient
@@ -31,7 +33,7 @@ from .model_registry import (
     reload_registry,
     resolve_model,
 )
-from .models import ImageItem, TokenUsage
+from .models import ImageItem, StreamEventKind, TokenUsage
 from .openai_compatible_client import OpenAICompatibleClient
 from .protocol import MCPArgs, SurveyArgs
 from .step import RoundResult, Termination
@@ -68,6 +70,22 @@ def build_real_client(model: str, env: dict[str, str] | None = None) -> ModelCli
         api_key=resolved.api_key,
         base_url=resolved.base_url,
     )
+
+
+def _make_stream_callback(console: Console) -> tuple[Live, Callable[[str, StreamEventKind], None]]:
+    """A rich.live.Live + callback pair for `--stream` display (design doc §3.3):
+    THINKING_DELTA renders dim, TEXT_DELTA plain. auto_refresh is off — the callback
+    refreshes synchronously on every delta so the display is deterministic (no
+    reliance on Live's background timer thread) rather than for any performance
+    reason."""
+    text = Text()
+    live = Live(text, console=console, auto_refresh=False)
+
+    def _on_delta(delta: str, kind: StreamEventKind) -> None:
+        text.append(delta, style="dim" if kind is StreamEventKind.THINKING_DELTA else None)
+        live.refresh()
+
+    return live, _on_delta
 
 
 def render_outcome(outcome: TaskOutcome, console: Console) -> None:
@@ -174,6 +192,7 @@ def run_once(
     container_image: str | None = None,
     usage_total: TokenUsage | None = None,
     images: list[ImageItem] | None = None,
+    stream: bool = False,
 ) -> TaskOutcome:
     """Run a single goal and render its outcome. Returns the outcome for testing.
 
@@ -184,16 +203,27 @@ def run_once(
     the same instance across tasks so it keeps growing; a bare `run_once` call with no
     accumulator gets a fresh one, since the task itself is the whole session then.
     `images` (M9 Phase 4) attaches image content to the goal via `run --image`/`/image`.
+    `stream` (M9 Phase 3) renders each round's text live as it arrives; auto-degrades to
+    non-streaming when `console` is not attached to a real terminal (piped/CI, design
+    doc §3.3), since a Live display has nothing meaningful to render there.
     """
     console = console or Console()
     usage_total = usage_total if usage_total is not None else TokenUsage()
     client = client_factory(model)
+    live: Live | None = None
+    on_stream_text = None
+    if stream and console.is_terminal:
+        live, on_stream_text = _make_stream_callback(console)
     task = Task(
         client, tier=tier, asker=asker, mcp=mcp, confirmer=confirmer,
-        container_image=container_image,
+        container_image=container_image, on_stream_text=on_stream_text,
     )
     try:
-        outcome = task.run(goal, images=images)
+        if live is not None:
+            with live:
+                outcome = task.run(goal, images=images)
+        else:
+            outcome = task.run(goal, images=images)
     finally:
         task.close()
     render_outcome(outcome, console)
@@ -360,10 +390,12 @@ def repl(
     console: Console | None = None,
     read_line: Callable[[str], str] = input,
     container_image: str | None = None,
+    stream: bool = False,
 ) -> None:
     """Interactive loop: read a goal, run it, repeat. Blank line or EOF/quit exits.
 
     `read_line` is injectable so tests can drive the REPL without a real terminal.
+    `stream` (M9 Phase 3) renders each goal's response live as it arrives.
     """
     console = console or Console()
     console.print("[bold]ForgeAgent[/bold] REPL — enter a goal, blank line or 'quit' to exit.")
@@ -423,6 +455,7 @@ def repl(
                     container_image=container_image,
                     usage_total=usage_total,
                     images=images,
+                    stream=stream,
                 )
                 continue
             if goal == "/mcp" or goal.startswith("/mcp "):
@@ -452,6 +485,7 @@ def repl(
                 container_image=container_image,
                 usage_total=usage_total,
                 images=staged_images,
+                stream=stream,
             )
             staged_images = None
     finally:
@@ -545,6 +579,9 @@ def build_parser() -> argparse.ArgumentParser:
                         help="container tier image (default: python:3.11-slim)")
     parser.add_argument("--model", default=DEFAULT_MODEL,
                         help=f"model id (default: {DEFAULT_MODEL})")
+    parser.add_argument("--stream", action="store_true",
+                        help="render responses live as they arrive "
+                             "(auto-disabled when not attached to a terminal)")
     sub = parser.add_subparsers(dest="command")
     run_p = sub.add_parser("run", help="run a single goal and exit")
     run_p.add_argument("goal", help="the task goal")
@@ -596,6 +633,7 @@ def main(
                     confirmer=make_console_confirmer(console) if mcp is not None else None,
                     container_image=args.container_image,
                     images=images,
+                    stream=args.stream,
                 )
             finally:
                 if mcp is not None:
@@ -612,7 +650,7 @@ def main(
             )
             return 0 if ok else 1
         repl(tier=args.tier, model=args.model, client_factory=client_factory, console=console,
-             container_image=args.container_image)
+             container_image=args.container_image, stream=args.stream)
         return 0
     except RegistryError as exc:
         console.print(f"[red]config error[/red]: {exc}")

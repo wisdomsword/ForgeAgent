@@ -11,6 +11,7 @@ until there are variants to compose).
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -18,7 +19,7 @@ from pydantic import BaseModel
 from .client import ModelClient
 from .executor import ContainerBackend, ExecutorBackend, RestrictedBackend, TrustedBackend
 from .mcp_manager import MCPManager
-from .models import GenerationParams, ImageItem, Message, Role, TextItem
+from .models import GenerationParams, ImageItem, Message, Role, StreamEventKind, TextItem
 from .runtime import Runtime
 from .step import RoundResult, Step, Termination
 from .tools import Asker, Confirmer, Tier
@@ -124,6 +125,7 @@ class Task:
         mcp: MCPManager | None = None,
         confirmer: Confirmer | None = None,
         container_image: str | None = None,
+        on_stream_text: Callable[[str, StreamEventKind], None] | None = None,
     ):
         self._client = client
         self._tier = tier
@@ -144,6 +146,10 @@ class Task:
         # side-effecting MCP/WebFetch/FileWrite calls. None = no gated tool on the menu.
         self._mcp = mcp
         self._confirmer = confirmer
+        # None = non-streaming (unchanged). Set = forwarded to Step, which consumes
+        # client.stream() instead of complete() and forwards each delta here for
+        # display (docs/m9-streaming-multimodal-commands.md §3.3).
+        self._on_stream_text = on_stream_text
         self.runtime = Runtime()
 
     def close(self) -> None:
@@ -190,6 +196,7 @@ class Task:
             confirmer=self._confirmer,
             tier=self._tier,
             allowed_root=self._allowed_root,
+            on_stream_text=self._on_stream_text,
         )
         rounds = step.run(messages)
         return TaskOutcome(status=self._derive_status(rounds), rounds=rounds)
