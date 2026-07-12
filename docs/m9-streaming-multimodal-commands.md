@@ -185,3 +185,42 @@ Phase 1/2/4 文件集互不重叠可并行；Phase 3 依赖 Phase 1 的 `stream(
 | `/search` 官方 API 引擎（需 key） | §五 裁决 7 | DDG HTML Best Effort 若频繁失效，升级为可配置引擎（Bing/Brave API 等） |
 | 执行子进程联网 Broker（代码块内受控出网） | threat-model "未决/明确不做" 延续 | 与 WebFetch 正交；需求驱动，v1 后再评估 |
 | M10 遗留：提交 `6ccfcb6` 边界拆分 | milestone_010 遗留问题 | 未 push 前可在整理性提交中处理，优先级低 |
+
+## 八、Phase 0 spike 实测记录（2026-07-12，真实 API/网络，非模拟）
+
+### S1/S1b：Anthropic 流式 event 序列（真机）
+
+- 事件序列实测：`message_start`（usage 只有 input≈0/output=1 占位）→ `content_block_start(thinking)` → `thinking_delta`* → `signature_delta` → `content_block_stop` → `content_block_start(text)` → `text_delta`* → `content_block_stop` → `message_delta`（**真实 usage 在此**：input/output 全量值 + stop_reason）→ `message_stop`。
+- **对设计的净影响①**：`message_start` 的 usage 是占位值不可信，聚合以 `message_delta` 的为准（与 §3.1 预估的"两处分布"不同——实测 `message_delta` 直接给全量，无需求和）。
+- **对设计的净影响②**：thinking 块存在 `signature_delta` 事件（§3.2 映射表遗漏），client 需静默跳过。
+- thinking token 落点：Anthropic 不单列 reasoning 计数，thinking 输出计入 `output_tokens`（`TokenUsage.reasoning_tokens` 对 Anthropic 恒 0，如实置零不拆分估算）。
+
+### S2：OpenAI-compatible 流式（gpt-5.4-mini / glm-5.2，经网关真机）
+
+- `stream_options: {"include_usage": true}`：两个模型均支持；**且该网关不带 stream_options 也在末帧给 usage**（用户提示的"厂商静默忽略"风险在本网关未出现，但映射代码仍按"usage 可能缺失→置 0"防御实现）。
+- reasoning 流式字段实测：glm-5.2 = `delta.reasoning_content`（42 chunks 里稳定出现）；gpt-5.4-mini 无 reasoning delta 字段。
+- **reasoning 计费字段实测（关键发现）**：glm-5.2 末帧 usage 同时给了 `completion_tokens_details.reasoning_tokens = 0`（假零！）和**顶层 `usage.reasoning_tokens = 121`（真值）**——OpenAI 标准嵌套位置是假的，真值在非标准顶层字段。gpt-5.4-mini 则相反：真值在标准嵌套位置（S3 中实测 `completion_tokens_details.reasoning_tokens = 69`）。**映射策略定稿：取 `max(completion_tokens_details.reasoning_tokens, 顶层 reasoning_tokens)`，两处均防御性 getattr、缺失置 0**。
+- deepseek-v4-flash：网关不提供该模型（fa-models.yaml 已注明 403），S2 覆盖两厂商即收口。
+
+### S3：多模态 request 形状（真机）
+
+- Anthropic content-block 形状（`{"type":"image","source":{"type":"base64",...}}`）实测接受，8x8 红色 PNG 正确识别（"Red."），usage 无图片专属计数字段（图片折算进 input_tokens=443）。
+- OpenAI-compatible data-URI 形状（`image_url`）实测接受（gpt-5.4-mini 答"Black"——8x8 小图识别错误是模型能力问题，wire 形状正确才是 spike 目的）。usage 同样无图片计数字段。
+- **裁决 8 落地（spike-then-decide）**：两家均无稳定的图片/多模态 usage 计数字段，`TokenUsage` **不加**图片计数字段；图片成本已如实体现在 input_tokens 内。
+
+### S4：搜索端点（真机，含一个改变设计的发现）
+
+- **DuckDuckGo 在本网络环境不可达**：`html.duckduckgo.com` 与 `duckduckgo.com` 均连接超时（curl 与 `guarded_urlopen` 一致复现，15s 超时），`lite.duckduckgo.com` 同样超时——非反爬，是网络层不可达（区域性封锁）。
+- Bing 实测可达且结构稳定：`www.bing.com/search?q=...` 经 `guarded_urlopen` 200，重定向到 `cn.bing.com`（逐跳复检通过），结果条目锚点 `<li class="b_algo">` 稳定出现 10 条/页，标题在 `b_algo` 内的 `<h2><a href>`，摘要在 `b_caption`。无 captcha 拦截。
+- **设计修订（需用户知悉，见 §五 裁决 7 修订备注）**：`/search` 默认引擎从 DDG 改为 **Bing HTML**（同样 Best Effort、零新依赖、经 guarded_urlopen），引擎 host 做成常量表可配置（`~/.forgeagent/config.yaml` 可覆盖），DDG 保留为备选引擎——用户网络若可达 DDG 可自行切换。安全模型不变：query 经 `urllib.parse.quote` 编码拼进固定 host 模板，T11a 缓解不受引擎更换影响。
+
+### S5：流式中途断连收敛（模拟 transport）
+
+- 假 event 序列在第 2 个 delta 后抛 `ConnectionResetError`，消费循环按 §3.1 语义收敛为单个结构化错误、丢弃已收 partial（不进历史），验证通过。Phase 1 单测按此形状编写。
+
+### 对设计的净影响汇总
+
+1. Anthropic usage 聚合以 `message_delta` 为准（`message_start` 占位值不可信）；`signature_delta` 需静默跳过。
+2. `reasoning_tokens` 映射定稿：`max(completion_tokens_details.reasoning_tokens, usage 顶层 reasoning_tokens)`，双位置防御读取；Anthropic 恒 0（计入 output_tokens，不拆分）。
+3. `TokenUsage` 不加图片计数字段（两家均无稳定形状，裁决 8 的 spike-then-decide 走"不加"分支）。
+4. `/search` 默认引擎 DDG → Bing（DDG 本网络不可达），host 可配置、DDG 留作备选。
