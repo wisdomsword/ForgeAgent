@@ -10,6 +10,9 @@
 # not part of ForgeAgent's own history)
 resource/
 
+# Throwaway spike/scratch code (e.g. Phase-0 wire spikes; not shipped)
+scratch/
+
 # Python
 __pycache__/
 *.pyc
