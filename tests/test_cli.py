@@ -430,3 +430,289 @@ def test_build_real_client_dispatches_openai_compatible_by_client_kind():
     client = build_real_client("gpt-5.4-mini", env={"OPENAI_API_KEY": "test-key"})
     assert isinstance(client, OpenAICompatibleClient)
     assert client.capability.model_id == "gpt-5.4-mini"
+
+
+# --- slash commands (M9 Phase 4) ----------------------------------------------
+
+
+def test_handle_model_command_no_arg_lists_models():
+    from forgeagent.cli import _handle_model_command
+
+    console = _console()
+    result = _handle_model_command("/model", "claude-sonnet-5", console)
+    assert result == "claude-sonnet-5"
+    assert "claude-sonnet-5" in console.export_text()
+
+
+def test_handle_model_command_switches_to_known_model():
+    from forgeagent.cli import _handle_model_command
+
+    console = _console()
+    result = _handle_model_command("/model claude-haiku-4-5", "claude-sonnet-5", console)
+    assert result == "claude-haiku-4-5"
+    assert "switched" in console.export_text()
+
+
+def test_handle_model_command_unknown_id_keeps_current_model():
+    from forgeagent.cli import _handle_model_command
+
+    console = _console()
+    result = _handle_model_command("/model no-such-model", "claude-sonnet-5", console)
+    assert result == "claude-sonnet-5"
+    assert "unknown model" in console.export_text()
+
+
+def test_handle_search_command_prints_results(monkeypatch):
+    from forgeagent.cli import _handle_search_command
+    from forgeagent.web_search import SearchResult
+
+    monkeypatch.setattr(
+        "forgeagent.cli.search_with_status",
+        lambda query, **kwargs: ([SearchResult(title="T", url="https://x", snippet="s")], None),
+    )
+    console = _console()
+    _handle_search_command("/search python", console)
+    text = console.export_text()
+    assert "T" in text and "https://x" in text and "s" in text
+
+
+def test_handle_search_command_zero_results(monkeypatch):
+    from forgeagent.cli import _handle_search_command
+
+    monkeypatch.setattr("forgeagent.cli.search_with_status", lambda query, **kwargs: ([], None))
+    console = _console()
+    _handle_search_command("/search nonsense", console)
+    assert "no results" in console.export_text()
+
+
+def test_handle_search_command_blocked(monkeypatch):
+    from forgeagent.cli import ERROR_BLOCKED, _handle_search_command
+
+    monkeypatch.setattr(
+        "forgeagent.cli.search_with_status", lambda query, **kwargs: ([], ERROR_BLOCKED)
+    )
+    console = _console()
+    _handle_search_command("/search python", console)
+    assert "blocked" in console.export_text()
+
+
+def test_handle_search_command_unavailable(monkeypatch):
+    from forgeagent.cli import ERROR_UNAVAILABLE, _handle_search_command
+
+    monkeypatch.setattr(
+        "forgeagent.cli.search_with_status", lambda query, **kwargs: ([], ERROR_UNAVAILABLE)
+    )
+    console = _console()
+    _handle_search_command("/search python", console)
+    assert "unavailable" in console.export_text()
+
+
+def test_handle_search_command_empty_query_shows_usage():
+    from forgeagent.cli import _handle_search_command
+
+    console = _console()
+    _handle_search_command("/search", console)
+    assert "usage" in console.export_text()
+
+
+def test_handle_image_command_path_only_stages(tmp_path):
+    from forgeagent.cli import _handle_image_command
+    from tests.test_multimodal import _PNG_BYTES
+
+    img = tmp_path / "a.png"
+    img.write_bytes(_PNG_BYTES)
+    console = _console()
+    images, inline_goal = _handle_image_command(f"/image {img}", console)
+    assert images is not None and len(images) == 1
+    assert inline_goal is None
+    assert "loaded" in console.export_text()
+
+
+def test_handle_image_command_with_inline_goal(tmp_path):
+    from forgeagent.cli import _handle_image_command
+    from tests.test_multimodal import _PNG_BYTES
+
+    img = tmp_path / "a.png"
+    img.write_bytes(_PNG_BYTES)
+    console = _console()
+    images, inline_goal = _handle_image_command(f"/image {img} describe this", console)
+    assert images is not None and len(images) == 1
+    assert inline_goal == "describe this"
+
+
+def test_handle_image_command_bad_path_returns_none():
+    from forgeagent.cli import _handle_image_command
+
+    console = _console()
+    images, inline_goal = _handle_image_command("/image /no/such/path", console)
+    assert images is None
+    assert inline_goal is None
+    assert "could not load image" in console.export_text()
+
+
+def test_handle_image_command_missing_arg_shows_usage():
+    from forgeagent.cli import _handle_image_command
+
+    console = _console()
+    images, inline_goal = _handle_image_command("/image", console)
+    assert images is None and inline_goal is None
+    assert "usage" in console.export_text()
+
+
+def test_handle_help_command_full_menu():
+    from forgeagent.cli import _handle_help_command
+
+    console = _console()
+    _handle_help_command("/help", console)
+    text = console.export_text()
+    assert "/model" in text and "/search" in text and "/image" in text and "/mcp" in text
+
+
+def test_handle_help_command_single_command_with_slash():
+    from forgeagent.cli import _handle_help_command
+
+    console = _console()
+    _handle_help_command("/help /search", console)
+    text = console.export_text()
+    assert "/search <query>" in text
+    assert "/image" not in text
+
+
+def test_handle_help_command_single_command_bare_word():
+    from forgeagent.cli import _handle_help_command
+
+    console = _console()
+    _handle_help_command("/help model", console)
+    assert "/model [id-or-alias]" in console.export_text()
+
+
+def test_handle_help_command_unknown_command():
+    from forgeagent.cli import _handle_help_command
+
+    console = _console()
+    _handle_help_command("/help nope", console)
+    assert "unknown command" in console.export_text()
+
+
+class _FakeMCPWithTools(_FakeMCP):
+    """Extends _FakeMCP with list_tools, for the /mcp tool-listing test."""
+
+    def list_tools(self):
+        from forgeagent.mcp_manager import MCPToolInfo
+
+        return [MCPToolInfo(server="fs", name="read", description="read a file")]
+
+
+def test_handle_mcp_slash_status_lists_tools():
+    from forgeagent.cli import _handle_mcp_slash
+
+    fake = _FakeMCPWithTools()
+    console = _console()
+    _handle_mcp_slash("/mcp status", fake, console)
+    text = console.export_text()
+    assert "fs" in text
+    assert "fs:read" in text and "read a file" in text
+
+
+def test_handle_mcp_slash_enable_disable_delegates():
+    from forgeagent.cli import _handle_mcp_slash
+
+    fake = _FakeMCPWithTools()
+    console = _console()
+    _handle_mcp_slash("/mcp disable fs", fake, console)
+    assert ("disable", "fs") in fake.actions
+
+
+def test_repl_bare_slash_prints_menu():
+    from forgeagent.cli import repl
+
+    inputs = iter(["/", "quit"])
+    console = _console()
+    repl(
+        tier="trusted",
+        model="claude-sonnet-5",
+        client_factory=_factory([]),
+        console=console,
+        read_line=lambda prompt: next(inputs),
+    )
+    assert "/model" in console.export_text()
+
+
+def test_repl_unknown_slash_command_shows_menu():
+    from forgeagent.cli import repl
+
+    inputs = iter(["/nope", "quit"])
+    console = _console()
+    repl(
+        tier="trusted",
+        model="claude-sonnet-5",
+        client_factory=_factory([]),
+        console=console,
+        read_line=lambda prompt: next(inputs),
+    )
+    text = console.export_text()
+    assert "unknown command" in text
+    assert "/model" in text
+
+
+def test_repl_slash_model_switches_session_model():
+    from forgeagent.cli import repl
+
+    seen: list[str] = []
+
+    def factory(model):
+        seen.append(model)
+        return MockClient(script=[_reply(_done())])
+
+    inputs = iter(["/model claude-haiku-4-5", "do a thing", "quit"])
+    console = _console()
+    repl(
+        tier="trusted",
+        model="claude-sonnet-5",
+        client_factory=factory,
+        console=console,
+        read_line=lambda prompt: next(inputs),
+    )
+    assert seen == ["claude-haiku-4-5"]
+
+
+def test_repl_image_staged_then_consumed_by_next_goal(tmp_path):
+    from forgeagent.cli import repl
+    from tests.test_multimodal import _PNG_BYTES
+
+    img = tmp_path / "a.png"
+    img.write_bytes(_PNG_BYTES)
+
+    def factory(model):
+        return MockClient(script=[_reply(_done())])
+
+    inputs = iter([f"/image {img}", "describe it", "quit"])
+    console = _console()
+    repl(
+        tier="trusted",
+        model="claude-sonnet-5",
+        client_factory=factory,
+        console=console,
+        read_line=lambda prompt: next(inputs),
+    )
+    text = console.export_text()
+    assert "loaded" in text
+    assert "completed" in text
+
+
+def test_repl_compat_models_word_shows_deprecation_and_still_lists():
+    from forgeagent.cli import repl
+
+    inputs = iter(["models", "quit"])
+    console = _console()
+    repl(
+        tier="trusted",
+        model="claude-sonnet-5",
+        client_factory=_factory([]),
+        console=console,
+        read_line=lambda prompt: next(inputs),
+    )
+    text = console.export_text()
+    assert "deprecated" in text
+    assert "/model" in text
+    assert "claude-sonnet-5" in text

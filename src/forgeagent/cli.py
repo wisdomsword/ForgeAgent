@@ -21,20 +21,23 @@ from rich.console import Console
 from .anthropic_client import AnthropicClient
 from .client import ModelClient
 from .executor import ContainerRuntimeError
+from .image_input import load_images
 from .mcp_manager import MCPManager, load_mcp_config
 from .model_registry import (
     RegistryError,
+    get_capability,
     list_models,
     load_registry,
     reload_registry,
     resolve_model,
 )
-from .models import TokenUsage
+from .models import ImageItem, TokenUsage
 from .openai_compatible_client import OpenAICompatibleClient
 from .protocol import MCPArgs, SurveyArgs
 from .step import RoundResult, Termination
 from .task import Task, TaskOutcome
 from .tools import Asker, Confirmer, Tier
+from .web_search import ERROR_BLOCKED, ERROR_UNAVAILABLE, search_with_status
 
 DEFAULT_MODEL = "claude-sonnet-5"
 
@@ -170,6 +173,7 @@ def run_once(
     confirmer: Confirmer | None = None,
     container_image: str | None = None,
     usage_total: TokenUsage | None = None,
+    images: list[ImageItem] | None = None,
 ) -> TaskOutcome:
     """Run a single goal and render its outcome. Returns the outcome for testing.
 
@@ -179,6 +183,7 @@ def run_once(
     `usage_total` is the session-scoped token accumulator (docs/m10 §3.2): the REPL passes
     the same instance across tasks so it keeps growing; a bare `run_once` call with no
     accumulator gets a fresh one, since the task itself is the whole session then.
+    `images` (M9 Phase 4) attaches image content to the goal via `run --image`/`/image`.
     """
     console = console or Console()
     usage_total = usage_total if usage_total is not None else TokenUsage()
@@ -188,7 +193,7 @@ def run_once(
         container_image=container_image,
     )
     try:
-        outcome = task.run(goal)
+        outcome = task.run(goal, images=images)
     finally:
         task.close()
     render_outcome(outcome, console)
@@ -219,6 +224,134 @@ def _handle_mcp_command(goal: str, mcp: MCPManager | None, console: Console) -> 
         console.print("[dim]usage: mcp status | mcp enable <server> | mcp disable <server>[/dim]")
 
 
+def _print_mcp_tools(mcp: MCPManager, console: Console) -> None:
+    """Tool listing for the `/mcp` slash command, on top of plain `mcp status`
+    (design doc §3.5) — same data `tools_prompt()` injects into the system prompt."""
+    tools = mcp.list_tools()
+    if not tools:
+        return
+    console.print("[bold]tools[/bold]:")
+    for tool in tools:
+        desc = tool.description.strip().replace("\n", " ")
+        console.print(f"  {tool.server}:{tool.name}" + (f" — {desc}" if desc else ""))
+
+
+def _handle_mcp_slash(goal: str, mcp: MCPManager | None, console: Console) -> None:
+    """`/mcp [status|enable <s>|disable <s>]` — equivalent to `mcp status` plus a tool
+    listing (design doc §3.5); `/mcp enable|disable <s>` behaves exactly like the
+    compat command, so it goes straight through `_handle_mcp_command`."""
+    _handle_mcp_command("mcp" + goal[len("/mcp") :], mcp, console)
+    parts = goal.split()
+    action = parts[1] if len(parts) > 1 else "status"
+    if mcp is not None and action == "status":
+        _print_mcp_tools(mcp, console)
+
+
+def _handle_model_command(goal: str, model: str, console: Console) -> str:
+    """`/model` lists registered models (reuses `print_models`); `/model <id-or-alias>`
+    switches the current REPL session's model. Returns the model to use for subsequent
+    goals — unchanged if no argument was given or the requested id is unknown (an
+    unknown id reports an error and never switches, design doc §3.5)."""
+    parts = goal.split(maxsplit=1)
+    if len(parts) == 1:
+        print_models(console)
+        return model
+    requested = parts[1].strip()
+    try:
+        get_capability(requested)
+    except RegistryError as exc:
+        console.print(f"[red]unknown model[/red]: {exc}")
+        return model
+    console.print(f"[green]switched[/green] to {requested}")
+    return requested
+
+
+def _handle_search_command(goal: str, console: Console) -> None:
+    """`/search <query>` — web search (M9 Phase 4, design doc §3.5). Results are only
+    printed, never injected into the conversation — the user copies whatever they want
+    into their next goal. Best-effort: engine HTML is not a contract interface, and
+    failures (SSRF block / non-200 / parse failure) never surface a raw traceback."""
+    parts = goal.split(maxsplit=1)
+    query = parts[1].strip() if len(parts) > 1 else ""
+    if not query:
+        console.print("[dim]usage: /search <query>[/dim]")
+        return
+    results, error = search_with_status(query)
+    if error == ERROR_BLOCKED:
+        console.print("[red]search request was blocked by the security policy[/red]")
+        return
+    if error == ERROR_UNAVAILABLE:
+        console.print("[red]search is temporarily unavailable[/red]")
+        return
+    if not results:
+        console.print("[dim]no results[/dim]")
+        return
+    for i, result in enumerate(results, 1):
+        console.print(f"  {i}. [cyan]{result.title}[/cyan]  {result.url}")
+        if result.snippet:
+            console.print(f"     {result.snippet}")
+
+
+def _handle_image_command(
+    goal: str, console: Console
+) -> tuple[list[ImageItem] | None, str | None]:
+    """`/image <path> [goal...]` — load image(s) from a file or directory (design doc
+    §3.4/§3.5, shared logic with `image_input.load_images`). With a goal, returns
+    (images, goal) so the caller runs it immediately with the images attached; with
+    just a path, returns (images, None) so the caller stages them for the next goal
+    typed at the prompt. Returns (None, None) on a bad path/usage — nothing to stage."""
+    parts = goal.split(maxsplit=2)
+    if len(parts) < 2:
+        # markup=False: the literal "[goal...]" would otherwise be parsed as a
+        # (invalid, silently-dropped) markup tag.
+        console.print("usage: /image <path> [goal...]", style="dim", markup=False)
+        return None, None
+    path, inline_goal = parts[1], parts[2] if len(parts) > 2 else None
+    try:
+        images = load_images(path)
+    except ValueError as exc:
+        console.print(f"[red]could not load image(s)[/red]: {exc}")
+        return None, None
+    console.print(f"[green]loaded[/green] {len(images)} image(s) from {path}")
+    return images, inline_goal
+
+
+# Usage lines for every `/`-prefixed command — the single source `/help` and the bare
+# `/` auto-menu (design doc §3.5) both render from, so the two never drift apart.
+_SLASH_COMMAND_USAGE: dict[str, str] = {
+    "/model": "/model [id-or-alias] — list models, or switch this session's model",
+    "/search": "/search <query> — web search; results are printed only, never sent to the model",
+    "/image": "/image <path> [goal...] — attach image(s) (file or directory) to a goal",
+    "/mcp": "/mcp [status|enable <s>|disable <s>] — MCP server status, tools, and toggles",
+    "/reload": "/reload — reload ~/.forgeagent/{models,config}.yaml",
+    "/help": "/help [command] — list commands, or show one command's detailed usage",
+}
+
+
+def _print_command_menu(console: Console) -> None:
+    # markup=False: usage strings contain literal "[...]" (e.g. "[goal...]") which
+    # Rich would otherwise parse as (invalid, silently-dropped) markup tags.
+    console.print("[bold]commands[/bold]:")
+    for usage in _SLASH_COMMAND_USAGE.values():
+        console.print(f"  {usage}", markup=False)
+
+
+def _handle_help_command(goal: str, console: Console) -> None:
+    """`/help` prints every command's usage line; `/help <command>` prints just one."""
+    parts = goal.split(maxsplit=1)
+    if len(parts) == 1:
+        _print_command_menu(console)
+        return
+    name = parts[1].strip()
+    if not name.startswith("/"):
+        name = f"/{name}"
+    usage = _SLASH_COMMAND_USAGE.get(name)
+    if usage:
+        console.print(usage, markup=False)
+    else:
+        console.print(f"[red]unknown command[/red] {name!r}")
+
+
 def repl(
     *,
     tier: Tier,
@@ -234,9 +367,7 @@ def repl(
     """
     console = console or Console()
     console.print("[bold]ForgeAgent[/bold] REPL — enter a goal, blank line or 'quit' to exit.")
-    console.print(
-        "[dim]commands: 'models', 'reload', 'mcp status|enable <s>|disable <s>', 'quit'[/dim]"
-    )
+    console.print("[dim]type '/' and enter for the command menu, or '/help'[/dim]")
     # REPL is interactive, so Survey questions and MCP confirmations use the same read_line.
     asker = make_console_asker(console, read_line)
     confirmer = make_console_confirmer(console, read_line)
@@ -244,6 +375,9 @@ def repl(
     # One accumulator for the whole REPL session — usage keeps growing across tasks,
     # not reset per goal (docs/m10 §3.2).
     usage_total = TokenUsage()
+    # Images staged by a path-only `/image` call, attached to the next goal the user
+    # types at the prompt (design doc §3.5).
+    staged_images: list[ImageItem] | None = None
     try:
         while True:
             try:
@@ -252,10 +386,49 @@ def repl(
                 break
             if not goal or goal in {"quit", "exit"}:
                 break
-            if goal == "models":
-                print_models(console)
+            # Compat period (design doc §3.5): old bare words keep working this
+            # milestone, mapped onto the same handlers, with a deprecation notice.
+            # "models" maps to the singular "/model" command (list-models behavior);
+            # "reload"/"mcp ..." map onto their same-named slash command unchanged.
+            if goal in {"models", "reload"} or goal.startswith("mcp"):
+                old_word = goal.split()[0]
+                new_prefix = "/model" if old_word == "models" else f"/{old_word}"
+                console.print(
+                    f"[dim]'{old_word}' is deprecated, use "
+                    f"'{new_prefix}' instead — removed next milestone[/dim]"
+                )
+                goal = new_prefix + goal[len(old_word) :]
+            if goal == "/":
+                _print_command_menu(console)
                 continue
-            if goal == "reload":
+            if goal == "/model" or goal.startswith("/model "):
+                model = _handle_model_command(goal, model, console)
+                continue
+            if goal == "/search" or goal.startswith("/search "):
+                _handle_search_command(goal, console)
+                continue
+            if goal == "/image" or goal.startswith("/image "):
+                images, inline_goal = _handle_image_command(goal, console)
+                if images is None:
+                    continue
+                if inline_goal is None:
+                    staged_images = images
+                    continue
+                goal = inline_goal
+                staged_images = None
+                run_once(
+                    goal, tier=tier, model=model, client_factory=client_factory,
+                    console=console, asker=asker, mcp=mcp,
+                    confirmer=confirmer if mcp is not None else None,
+                    container_image=container_image,
+                    usage_total=usage_total,
+                    images=images,
+                )
+                continue
+            if goal == "/mcp" or goal.startswith("/mcp "):
+                _handle_mcp_slash(goal, mcp, console)
+                continue
+            if goal == "/reload":
                 # Re-read ~/.forgeagent/{models,config}.yaml now, so a broken edit is
                 # caught here rather than on the next `run`. Each run already reloads
                 # from disk, so this is a validate-and-report, not a cache refresh.
@@ -265,8 +438,12 @@ def repl(
                 except RegistryError as exc:
                     console.print(f"[red]reload failed[/red]: {exc}")
                 continue
-            if goal.startswith("mcp"):
-                _handle_mcp_command(goal, mcp, console)
+            if goal == "/help" or goal.startswith("/help "):
+                _handle_help_command(goal, console)
+                continue
+            if goal.startswith("/"):
+                console.print(f"[red]unknown command[/red] {goal!r}")
+                _print_command_menu(console)
                 continue
             run_once(
                 goal, tier=tier, model=model, client_factory=client_factory,
@@ -274,7 +451,9 @@ def repl(
                 confirmer=confirmer if mcp is not None else None,
                 container_image=container_image,
                 usage_total=usage_total,
+                images=staged_images,
             )
+            staged_images = None
     finally:
         if mcp is not None:
             mcp.close()
@@ -371,6 +550,8 @@ def build_parser() -> argparse.ArgumentParser:
     run_p.add_argument("goal", help="the task goal")
     run_p.add_argument("--interactive", action="store_true",
                        help="allow mid-task Survey questions (prompts on the terminal)")
+    run_p.add_argument("--image", default=None, metavar="PATH",
+                       help="attach image(s) at PATH (a file, or a directory of images)")
     sub.add_parser("models", help="list available models and their aliases")
     smoke_p = sub.add_parser("smoke", help="run a live smoke check against real models")
     smoke_p.add_argument("--include-fable", action="store_true",
@@ -398,6 +579,13 @@ def main(
             print_models(console)
             return 0
         if args.command == "run":
+            images = None
+            if args.image:
+                try:
+                    images = load_images(args.image)
+                except ValueError as exc:
+                    console.print(f"[red]could not load image(s)[/red]: {exc}")
+                    return 2
             mcp = build_mcp_manager(console)
             try:
                 outcome = run_once(
@@ -407,6 +595,7 @@ def main(
                     mcp=mcp,
                     confirmer=make_console_confirmer(console) if mcp is not None else None,
                     container_image=args.container_image,
+                    images=images,
                 )
             finally:
                 if mcp is not None:

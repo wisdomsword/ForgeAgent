@@ -18,7 +18,7 @@ from pydantic import BaseModel
 from .client import ModelClient
 from .executor import ContainerBackend, ExecutorBackend, RestrictedBackend, TrustedBackend
 from .mcp_manager import MCPManager
-from .models import GenerationParams, Message, Role
+from .models import GenerationParams, ImageItem, Message, Role, TextItem
 from .runtime import Runtime
 from .step import RoundResult, Step, Termination
 from .tools import Asker, Confirmer, Tier
@@ -163,11 +163,21 @@ class Task:
             return self._system_prompt
         return f"{self._system_prompt}\n\n{tools_section}"
 
-    def run(self, goal: str) -> TaskOutcome:
-        """Run the task for `goal` and return its terminal outcome."""
+    def run(self, goal: str, *, images: list[ImageItem] | None = None) -> TaskOutcome:
+        """Run the task for `goal` and return its terminal outcome.
+
+        `images` (M9 Phase 4, the REPL `/image` command and `run --image`) attaches
+        image content to the goal message; the goal text always becomes a TextItem
+        alongside them, so a model without `supports_images` still sees the text
+        (the client-level pre-flight check rejects the request instead, see
+        docs/m9-streaming-multimodal-commands.md §3.4).
+        """
+        goal_content: str | list = goal
+        if images:
+            goal_content = [TextItem(text=goal), *images]
         messages = [
             Message(role=Role.SYSTEM, content=self._build_system_prompt()),
-            Message(role=Role.USER, content=goal),
+            Message(role=Role.USER, content=goal_content),
         ]
         step = Step(
             self._client,
