@@ -40,7 +40,7 @@ base-ref: 44456c57e2ef76990f44846eadb83bc8d5e25166
 - Produces: pytest session hook 隔离的 `HOME`/`USERPROFILE`；`FORGE_TEST_MCP_PID_FILE` 测试协议；本地 socket bind capability helper。
 - Consumes: pytest hooks、标准库 tempfile/shutil/os、现有 `_server()` MCP fixture config helper。
 
-- [ ] **Step 1: 添加测试进程启动前 HOME 隔离 hook**
+- [x] **Step 1: 添加测试进程启动前 HOME 隔离 hook**
 
 在 `tests/conftest.py` 定义唯一 stash key，`pytest_sessionstart` 创建 worker 专属目录并保存原环境，`pytest_sessionfinish` 恢复环境和删除目录：
 
@@ -82,7 +82,7 @@ def pytest_sessionfinish(session: pytest.Session) -> None:
     shutil.rmtree(home, ignore_errors=True)
 ```
 
-- [ ] **Step 2: 写隔离回归并验证 RED/GREEN**
+- [x] **Step 2: 写隔离回归并验证 RED/GREEN**
 
 在 `tests/test_mcp_manager.py` 断言默认 MCP 路径位于测试 home，且测试进程看不到开发者真实配置。运行：
 
@@ -92,7 +92,7 @@ UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_mcp_manager.py te
 
 预期：新增隔离断言 PASS；测试不连接用户 MCP server。
 
-- [ ] **Step 3: 用 PID 文件替换全局进程计数**
+- [x] **Step 3: 用 PID 文件替换全局进程计数**
 
 在 `tests/mcp_fixture_server.py` 启动时执行：
 
@@ -106,11 +106,11 @@ if pid_file:
 
 扩展 `tests/test_mcp_manager.py::_server()` 允许传入每服务唯一 PID 文件。泄漏测试读取 PID，用 `os.kill(pid, 0)` 和有截止时间的轮询判断 close 后进程消失，不再比较全局 `ps` 行数。
 
-- [ ] **Step 4: 让本地 bind 测试按能力诚实 skip**
+- [x] **Step 4: 让本地 bind 测试按能力诚实 skip**
 
 `test_guarded_urlopen_blocks_loopback_target` 改为不启动 server，直接请求一个 loopback URL 并断言 socket connect 未发生。保留 redirect server 测试，但 `_start_server()` 捕获 `PermissionError/OSError` 后调用 `pytest.skip("local socket bind is unavailable")`。
 
-- [ ] **Step 5: 运行基线并记录结果**
+- [x] **Step 5: 运行基线并记录结果**
 
 ```bash
 UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run ruff check src tests
@@ -119,7 +119,7 @@ UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest -q -ra
 
 预期：Ruff PASS；真实 HOME 不再造成 CLI/MCP 失败；Docker/公网/本地 bind 不可用时只出现带理由的 skip。
 
-- [ ] **Step 6: 提交测试隔离**
+- [x] **Step 6: 提交测试隔离**
 
 ```bash
 git add tests/conftest.py tests/test_ssrf_guard.py tests/test_mcp_manager.py tests/mcp_fixture_server.py
