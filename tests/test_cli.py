@@ -7,6 +7,7 @@ config-error behavior.
 
 import sys
 
+import pytest
 from pydantic import BaseModel
 from rich.console import Console
 
@@ -34,7 +35,7 @@ def _factory(script):
 
 def _console() -> Console:
     # record=True lets us assert on rendered text without a real terminal.
-    return Console(record=True, width=100)
+    return Console(record=True, width=100, force_terminal=False)
 
 
 class _UnknownConfirmationArgs(BaseModel):
@@ -77,18 +78,77 @@ def test_confirmation_summary_redacts_url_userinfo_and_sensitive_query(monkeypat
     assert "example.com/path" in summary
 
 
-def test_confirmation_summary_limits_filewrite_to_safe_path_and_length():
+def test_confirmation_summary_redacts_url_fragment(monkeypatch):
     from forgeagent.cli import _confirmation_summary
 
+    monkeypatch.setattr("forgeagent.cli.sensitive_env_values", lambda: set())
+    summary = _confirmation_summary(
+        WebFetchArgs(url="https://example.com/public#fragment-secret-value")
+    )
+
+    assert "example.com/public" in summary
+    assert "fragment-secret-value" not in summary
+    assert "REDACTED" in summary
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https:///sensitive/path#fragment-secret-value",
+        "sensitive/path?token=query-secret#fragment-secret-value",
+        "https://[malformed/sensitive/path#fragment-secret-value",
+    ],
+)
+def test_confirmation_summary_never_echoes_malformed_url_material(url):
+    from forgeagent.cli import _confirmation_summary
+
+    summary = _confirmation_summary(WebFetchArgs(url=url))
+
+    assert summary == "WebFetch <redacted malformed URL>"
+
+
+def test_confirmation_summary_preserves_normalized_project_relative_filewrite_path(
+    tmp_path, monkeypatch
+):
+    from forgeagent.cli import _confirmation_summary
+
+    monkeypatch.chdir(tmp_path)
     content = "do not disclose this write payload"
     summary = _confirmation_summary(
-        FileWriteArgs(path="/private/var/hidden/report.txt", content=content)
+        FileWriteArgs(path="notes/../reports/report.txt", content=content)
     )
 
     assert content not in summary
-    assert "/private/var/hidden" not in summary
-    assert "report.txt" in summary
+    assert "reports/report.txt" in summary
     assert str(len(content)) in summary
+
+
+def test_confirmation_summary_shows_cwd_contained_absolute_filewrite_path_as_relative(
+    tmp_path, monkeypatch
+):
+    from forgeagent.cli import _confirmation_summary
+
+    monkeypatch.chdir(tmp_path)
+    summary = _confirmation_summary(
+        FileWriteArgs(path=str(tmp_path / "reports" / "report.txt"), content="x")
+    )
+
+    assert "reports/report.txt" in summary
+    assert str(tmp_path) not in summary
+
+
+def test_confirmation_summary_limits_external_filewrite_path_to_basename(tmp_path, monkeypatch):
+    from forgeagent.cli import _confirmation_summary
+
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.chdir(project_root)
+    external_path = tmp_path / "private-secrets" / "report.txt"
+
+    summary = _confirmation_summary(FileWriteArgs(path=str(external_path), content="x"))
+
+    assert ".../report.txt" in summary
+    assert str(external_path.parent) not in summary
 
 
 def test_confirmation_summary_limits_unknown_models_to_type_name():
@@ -265,7 +325,9 @@ def test_main_run_omits_confirmer_without_terminal_console(monkeypatch):
         seen.append(kwargs["confirmer"])
         return real_run_once(*args, **kwargs)
 
-    monkeypatch.setattr(cli_module, "Console", lambda: Console(record=True))
+    monkeypatch.setattr(
+        cli_module, "Console", lambda: Console(record=True, force_terminal=False)
+    )
     monkeypatch.setattr(cli_module, "build_mcp_manager", lambda console: _MCP())
     monkeypatch.setattr(cli_module, "run_once", spy_run_once)
     monkeypatch.setattr(sys.stdin, "isatty", lambda: True)

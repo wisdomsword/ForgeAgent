@@ -318,7 +318,7 @@ class WebFetchTool(Tool):
             if not ctx.confirmer(args):
                 return ToolOutcome(
                     tool="WebFetch", success=False,
-                    detail=f"WebFetch {args.url} was not approved by the user",
+                    detail="WebFetch was not approved by the user",
                 )
         try:
             response = guarded_urlopen(args.url)
@@ -407,12 +407,18 @@ class FileWriteTool(Tool):
             if not ctx.confirmer(args):
                 return ToolOutcome(
                     tool="FileWrite", success=False,
-                    detail=f"FileWrite {args.path} was not approved by the user",
+                    detail="FileWrite was not approved by the user",
                 )
         try:
             resolved = _validate_path(args.path, ctx.allowed_root)
+        except PermissionError:
+            return ToolOutcome(
+                tool="FileWrite", success=False,
+                detail="FileWrite path is outside project root",
+            )
+        try:
             resolved.write_text(args.content, encoding="utf-8")
-        except (PermissionError, OSError) as exc:
+        except OSError as exc:
             return ToolOutcome(tool="FileWrite", success=False, detail=str(exc))
         return ToolOutcome(tool="FileWrite", success=True, detail=f"wrote {args.path}")
 

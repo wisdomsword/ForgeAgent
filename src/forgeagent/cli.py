@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -183,29 +184,42 @@ def _redact_confirmation_value(value):
 def _redact_confirmation_url(url: str) -> str:
     try:
         parts = urlsplit(url)
+        if parts.scheme.lower() not in {"http", "https"} or not parts.hostname:
+            return "<redacted malformed URL>"
         hostname = parts.hostname or ""
+        port = parts.port
     except ValueError:
         return "<redacted malformed URL>"
     if ":" in hostname and not hostname.startswith("["):
         hostname = f"[{hostname}]"
-    try:
-        port = parts.port
-    except ValueError:
-        port = None
     netloc = hostname if port is None else f"{hostname}:{port}"
     if parts.username is not None or parts.password is not None:
         netloc = f"<redacted>@{netloc}"
+    secret_values = sensitive_env_values()
     query = urlencode(
         [
             (
                 key,
                 "REDACTED" if is_secret_name(key)
-                else mask_secrets(value, sensitive_env_values()),
+                else mask_secrets(value, secret_values),
             )
             for key, value in parse_qsl(parts.query, keep_blank_values=True)
         ]
     )
-    return urlunsplit((parts.scheme, netloc, parts.path, query, parts.fragment))
+    path = mask_secrets(parts.path, secret_values)
+    fragment = "REDACTED" if parts.fragment else ""
+    return urlunsplit((parts.scheme, netloc, path, query, fragment))
+
+
+def _confirmation_filewrite_path(path: str) -> str:
+    normalized = Path(os.path.normpath(path))
+    if not normalized.is_absolute():
+        return normalized.as_posix()
+    try:
+        relative = normalized.relative_to(Path.cwd())
+    except ValueError:
+        return f".../{normalized.name or '.'}"
+    return relative.as_posix()
 
 
 def _confirmation_summary(args: BaseModel) -> str:
@@ -215,7 +229,7 @@ def _confirmation_summary(args: BaseModel) -> str:
     if isinstance(args, WebFetchArgs):
         return f"WebFetch {_redact_confirmation_url(args.url)}"
     if isinstance(args, FileWriteArgs):
-        safe_path = Path(args.path).name or "."
+        safe_path = _confirmation_filewrite_path(args.path)
         return f"FileWrite {safe_path} ({len(args.content)} bytes)"
     return type(args).__name__
 

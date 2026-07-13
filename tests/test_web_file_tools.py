@@ -112,16 +112,23 @@ def test_webfetch_ssrf_guard_error_becomes_failed_outcome(monkeypatch):
 
 def test_webfetch_restricted_tier_confirmer_denial_blocks_fetch(monkeypatch):
     calls = []
+    secret_url = (
+        "https://alice:password-value@example.com/private"
+        "?token=query-secret#fragment-secret"
+    )
     monkeypatch.setattr(
         "forgeagent.tools.guarded_urlopen",
         lambda url, **kw: calls.append(url) or _FakeResponse(b"body"),
     )
     ctx = _webfetch_ctx(tier="restricted", confirmer=lambda args: False)
 
-    outcome = WebFetchTool().run(WebFetchArgs(url="http://example.com/"), ctx)
+    outcome = WebFetchTool().run(WebFetchArgs(url=secret_url), ctx)
 
     assert outcome.success is False
-    assert "not approved" in outcome.detail
+    assert outcome.detail == "WebFetch was not approved by the user"
+    assert secret_url not in outcome.detail
+    for secret in ("alice", "password-value", "query-secret", "fragment-secret"):
+        assert secret not in outcome.detail
     assert calls == []  # denied -> never fetched
 
 
@@ -204,20 +211,32 @@ def test_file_write_within_root_is_unmasked(tmp_path, monkeypatch):
 
 def test_file_write_escaping_root_is_blocked(tmp_path):
     ctx = _file_ctx(allowed_root=str(tmp_path))
+    external_path = tmp_path.parent / "private-secrets" / "escape.txt"
+    content = "do not disclose this write payload"
 
-    outcome = FileWriteTool().run(FileWriteArgs(path="../escape.txt", content="x"), ctx)
+    outcome = FileWriteTool().run(
+        FileWriteArgs(path=str(external_path), content=content), ctx
+    )
 
     assert outcome.success is False
-    assert "escapes project root" in outcome.detail
+    assert outcome.detail == "FileWrite path is outside project root"
+    assert str(external_path) not in outcome.detail
+    assert content not in outcome.detail
 
 
 def test_file_write_restricted_tier_confirmer_denial_blocks_write(tmp_path):
     ctx = _file_ctx(tier="restricted", confirmer=lambda args: False, allowed_root=str(tmp_path))
+    external_path = tmp_path.parent / "private-secrets" / "out.txt"
+    content = "do not disclose this write payload"
 
-    outcome = FileWriteTool().run(FileWriteArgs(path="out.txt", content="x"), ctx)
+    outcome = FileWriteTool().run(
+        FileWriteArgs(path=str(external_path), content=content), ctx
+    )
 
     assert outcome.success is False
-    assert "not approved" in outcome.detail
+    assert outcome.detail == "FileWrite was not approved by the user"
+    assert str(external_path) not in outcome.detail
+    assert content not in outcome.detail
     assert not (tmp_path / "out.txt").exists()
 
 
