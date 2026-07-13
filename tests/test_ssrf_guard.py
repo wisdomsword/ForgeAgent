@@ -8,10 +8,13 @@ an allowed non-loopback address to bind to.
 """
 
 import http.server
+import io
 import ipaddress
 import socket
 import threading
 import urllib.request
+import urllib.response
+from email.message import Message
 
 import pytest
 
@@ -194,6 +197,42 @@ def test_redirect_handler_rejects_non_http_scheme(url):
 
     with pytest.raises(SSRFGuardError, match="scheme"):
         handler.redirect_request(request, None, 302, "Found", {}, url)
+
+
+@pytest.mark.parametrize("redirect_code", [301, 302, 303, 307, 308])
+def test_guarded_urlopen_blocks_loopback_redirect_before_socket_construction(
+    monkeypatch, redirect_code
+):
+    real_build_opener = urllib.request.build_opener
+
+    class _SyntheticPublicRedirectHandler(urllib.request.BaseHandler):
+        handler_order = 100
+
+        def http_open(self, request):
+            if request.full_url != "http://public.example/redirect":
+                return None
+            headers = Message()
+            headers["Location"] = "http://127.0.0.1/private"
+            response = urllib.response.addinfourl(
+                io.BytesIO(), headers, request.full_url, redirect_code
+            )
+            response.msg = "synthetic redirect"
+            return response
+
+    def _build_opener_with_synthetic_redirect(*handlers):
+        return real_build_opener(_SyntheticPublicRedirectHandler(), *handlers)
+
+    def _unexpected_socket(*args, **kwargs):
+        pytest.fail("redirected loopback target attempted socket construction")
+
+    monkeypatch.setattr(
+        "forgeagent.ssrf_guard.urllib.request.build_opener",
+        _build_opener_with_synthetic_redirect,
+    )
+    monkeypatch.setattr("forgeagent.ssrf_guard.socket.socket", _unexpected_socket)
+
+    with pytest.raises(SSRFGuardError, match="127.0.0.1"):
+        guarded_urlopen("http://public.example/redirect", timeout=1)
 
 
 class _RespondOKHandler(http.server.BaseHTTPRequestHandler):
