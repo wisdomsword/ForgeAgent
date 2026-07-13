@@ -263,4 +263,5 @@ def test_mcp_no_confirmer_denies_non_approved_call():
     ctx = _mcp_ctx(mcp=fake, confirmer=None)
     outcome = MCPTool().run(MCPArgs(server="gh", tool="push"), ctx)
     assert outcome.success is False
+    assert outcome.detail == "rejected: no interactive confirmation channel available"
     assert fake.calls == []

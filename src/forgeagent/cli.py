@@ -14,8 +14,13 @@ MockClient can be injected for tests.
 from __future__ import annotations
 
 import argparse
+import json
+import sys
 from collections.abc import Callable
+from pathlib import Path
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+from pydantic import BaseModel
 from rich.console import Console
 from rich.live import Live
 from rich.text import Text
@@ -35,7 +40,8 @@ from .model_registry import (
 )
 from .models import ImageItem, StreamEventKind, TokenUsage
 from .openai_compatible_client import OpenAICompatibleClient
-from .protocol import MCPArgs, SurveyArgs
+from .protocol import FileWriteArgs, MCPArgs, SurveyArgs, WebFetchArgs
+from .secret_policy import is_secret_name, mask_secrets, sensitive_env_values
 from .step import RoundResult, Termination
 from .task import Task, TaskOutcome
 from .tools import Asker, Confirmer, Tier
@@ -160,18 +166,67 @@ def make_console_asker(
     return _ask
 
 
+def _redact_confirmation_value(value):
+    if isinstance(value, dict):
+        return {
+            str(key): "<redacted>" if is_secret_name(str(key))
+            else _redact_confirmation_value(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_confirmation_value(item) for item in value]
+    if isinstance(value, str):
+        return mask_secrets(value, sensitive_env_values())
+    return value
+
+
+def _redact_confirmation_url(url: str) -> str:
+    try:
+        parts = urlsplit(url)
+        hostname = parts.hostname or ""
+    except ValueError:
+        return "<redacted malformed URL>"
+    if ":" in hostname and not hostname.startswith("["):
+        hostname = f"[{hostname}]"
+    try:
+        port = parts.port
+    except ValueError:
+        port = None
+    netloc = hostname if port is None else f"{hostname}:{port}"
+    if parts.username is not None or parts.password is not None:
+        netloc = f"<redacted>@{netloc}"
+    query = urlencode(
+        [
+            (
+                key,
+                "REDACTED" if is_secret_name(key)
+                else mask_secrets(value, sensitive_env_values()),
+            )
+            for key, value in parse_qsl(parts.query, keep_blank_values=True)
+        ]
+    )
+    return urlunsplit((parts.scheme, netloc, parts.path, query, parts.fragment))
+
+
+def _confirmation_summary(args: BaseModel) -> str:
+    if isinstance(args, MCPArgs):
+        arguments = json.dumps(_redact_confirmation_value(args.arguments), sort_keys=True)
+        return f"MCP {args.server}:{args.tool} {arguments}"
+    if isinstance(args, WebFetchArgs):
+        return f"WebFetch {_redact_confirmation_url(args.url)}"
+    if isinstance(args, FileWriteArgs):
+        safe_path = Path(args.path).name or "."
+        return f"FileWrite {safe_path} ({len(args.content)} bytes)"
+    return type(args).__name__
+
+
 def make_console_confirmer(
     console: Console, read_line: Callable[[str], str] = input
 ) -> Confirmer:
-    """Console-based `Confirmer` for side-effecting MCP calls: show the pending call and
-    require an explicit y/n. Anything but 'y'/'yes' (incl. EOF) denies — a side-effecting
-    call outside a server's autoApprove list never runs without a clear yes (T8a)."""
+    """Console-based `Confirmer` for side-effecting calls with minimal disclosure."""
 
-    def _confirm(args: MCPArgs) -> bool:
-        console.print(
-            f"[bold yellow]MCP call[/bold yellow] {args.server}:{args.tool} "
-            f"[dim]{args.arguments}[/dim]"
-        )
+    def _confirm(args: BaseModel) -> bool:
+        console.print(f"[bold yellow]approve[/bold yellow] {_confirmation_summary(args)}")
         try:
             answer = read_line("approve? [y/N] ").strip().lower()
         except EOFError:
@@ -453,7 +508,7 @@ def repl(
                 run_once(
                     goal, tier=tier, model=model, client_factory=client_factory,
                     console=console, asker=asker, mcp=mcp,
-                    confirmer=confirmer if mcp is not None else None,
+                    confirmer=confirmer,
                     container_image=container_image,
                     usage_total=usage_total,
                     images=images,
@@ -483,7 +538,7 @@ def repl(
             run_once(
                 goal, tier=tier, model=model, client_factory=client_factory,
                 console=console, asker=asker, mcp=mcp,
-                confirmer=confirmer if mcp is not None else None,
+                confirmer=confirmer,
                 container_image=container_image,
                 usage_total=usage_total,
                 images=staged_images,
@@ -627,12 +682,17 @@ def main(
                     return 2
             mcp = build_mcp_manager(console)
             try:
+                confirmer = (
+                    make_console_confirmer(console)
+                    if console.is_terminal and sys.stdin.isatty()
+                    else None
+                )
                 outcome = run_once(
                     args.goal, tier=args.tier, model=args.model, client_factory=client_factory,
                     console=console,
                     asker=make_console_asker(console) if args.interactive else None,
                     mcp=mcp,
-                    confirmer=make_console_confirmer(console) if mcp is not None else None,
+                    confirmer=confirmer,
                     container_image=args.container_image,
                     images=images,
                     stream=args.stream,

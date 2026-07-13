@@ -275,7 +275,12 @@ class MCPTool(Tool):
                 detail="no MCP servers are configured",
             )
         if not ctx.mcp.is_auto_approved(args.server, args.tool):
-            if ctx.confirmer is None or not ctx.confirmer(args):
+            if ctx.confirmer is None:
+                return ToolOutcome(
+                    tool="MCP", block_name=label, success=False,
+                    detail="rejected: no interactive confirmation channel available",
+                )
+            if not ctx.confirmer(args):
                 return ToolOutcome(
                     tool="MCP", block_name=label, success=False,
                     detail=f"MCP call {label} was not approved by the user",
@@ -305,7 +310,12 @@ class WebFetchTool(Tool):
     def run(self, args: BaseModel, ctx: ToolContext) -> ToolOutcome:
         assert isinstance(args, WebFetchArgs)
         if ctx.tier in ("restricted", "container"):
-            if ctx.confirmer is None or not ctx.confirmer(args):
+            if ctx.confirmer is None:
+                return ToolOutcome(
+                    tool="WebFetch", success=False,
+                    detail="rejected: no interactive confirmation channel available",
+                )
+            if not ctx.confirmer(args):
                 return ToolOutcome(
                     tool="WebFetch", success=False,
                     detail=f"WebFetch {args.url} was not approved by the user",
@@ -389,7 +399,12 @@ class FileWriteTool(Tool):
     def run(self, args: BaseModel, ctx: ToolContext) -> ToolOutcome:
         assert isinstance(args, FileWriteArgs)
         if ctx.tier in ("restricted", "container"):
-            if ctx.confirmer is None or not ctx.confirmer(args):
+            if ctx.confirmer is None:
+                return ToolOutcome(
+                    tool="FileWrite", success=False,
+                    detail="rejected: no interactive confirmation channel available",
+                )
+            if not ctx.confirmer(args):
                 return ToolOutcome(
                     tool="FileWrite", success=False,
                     detail=f"FileWrite {args.path} was not approved by the user",

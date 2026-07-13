@@ -5,12 +5,16 @@ CLI logic under test is argument handling, run/REPL flow, outcome rendering, and
 config-error behavior.
 """
 
+import sys
+
+from pydantic import BaseModel
 from rich.console import Console
 
 from forgeagent.cli import build_parser, main, run_once
 from forgeagent.client import MockClient
 from forgeagent.model_registry import RegistryError
 from forgeagent.models import AssistantMessage, StreamEvent, StreamEventKind, TokenUsage
+from forgeagent.protocol import FileWriteArgs, MCPArgs, WebFetchArgs
 
 
 def _reply(
@@ -31,6 +35,87 @@ def _factory(script):
 def _console() -> Console:
     # record=True lets us assert on rendered text without a real terminal.
     return Console(record=True, width=100)
+
+
+class _UnknownConfirmationArgs(BaseModel):
+    secret: str
+
+
+def test_confirmation_summary_masks_nested_mcp_secret_arguments(monkeypatch):
+    from forgeagent.cli import _confirmation_summary
+
+    monkeypatch.setattr("forgeagent.cli.sensitive_env_values", lambda: {"known-secret-value"})
+    summary = _confirmation_summary(
+        MCPArgs(
+            server="github",
+            tool="create_issue",
+            arguments={
+                "token": "nested-token",
+                "settings": {"password": "nested-password", "safe": "known-secret-value"},
+                "items": [{"key": "nested-key"}],
+            },
+        )
+    )
+
+    for secret in ("nested-token", "nested-password", "known-secret-value", "nested-key"):
+        assert secret not in summary
+    assert "<redacted>" in summary
+
+
+def test_confirmation_summary_redacts_url_userinfo_and_sensitive_query(monkeypatch):
+    from forgeagent.cli import _confirmation_summary
+
+    monkeypatch.setattr("forgeagent.cli.sensitive_env_values", lambda: {"known-secret-value"})
+    summary = _confirmation_summary(
+        WebFetchArgs(
+            url="https://alice:password-value@example.com/path?token=query-token&q=known-secret-value"
+        )
+    )
+
+    for secret in ("alice", "password-value", "query-token", "known-secret-value"):
+        assert secret not in summary
+    assert "example.com/path" in summary
+
+
+def test_confirmation_summary_limits_filewrite_to_safe_path_and_length():
+    from forgeagent.cli import _confirmation_summary
+
+    content = "do not disclose this write payload"
+    summary = _confirmation_summary(
+        FileWriteArgs(path="/private/var/hidden/report.txt", content=content)
+    )
+
+    assert content not in summary
+    assert "/private/var/hidden" not in summary
+    assert "report.txt" in summary
+    assert str(len(content)) in summary
+
+
+def test_confirmation_summary_limits_unknown_models_to_type_name():
+    from forgeagent.cli import _confirmation_summary
+
+    summary = _confirmation_summary(_UnknownConfirmationArgs(secret="do not disclose"))
+
+    assert summary == "_UnknownConfirmationArgs"
+
+
+def test_console_confirmer_rejects_eof_empty_and_other_input():
+    from forgeagent.cli import make_console_confirmer
+
+    args = MCPArgs(server="github", tool="delete_issue")
+    for read_line in (
+        lambda prompt: (_ for _ in ()).throw(EOFError),
+        lambda prompt: "",
+        lambda prompt: "no",
+    ):
+        assert make_console_confirmer(_console(), read_line)(args) is False
+
+
+def test_console_confirmer_accepts_trimmed_yes():
+    from forgeagent.cli import make_console_confirmer
+
+    confirmer = make_console_confirmer(_console(), lambda prompt: " y\n")
+    assert confirmer(MCPArgs(server="github", tool="create_issue")) is True
 
 
 # --- single-command run ------------------------------------------------------
@@ -142,6 +227,71 @@ def test_main_run_returns_one_when_not_completed():
         client_factory=_factory([_reply("cannot", stop_reason="refusal")]),
     )
     assert code == 1
+
+
+def test_main_run_wires_confirmer_only_with_terminal_console_and_tty_stdin(monkeypatch):
+    import forgeagent.cli as cli_module
+
+    seen: list[object] = []
+    real_run_once = cli_module.run_once
+    console = Console(record=True, force_terminal=True)
+
+    def spy_run_once(*args, **kwargs):
+        seen.append(kwargs["confirmer"])
+        return real_run_once(*args, **kwargs)
+
+    monkeypatch.setattr(cli_module, "Console", lambda: console)
+    monkeypatch.setattr(cli_module, "run_once", spy_run_once)
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+
+    assert main(["run", "goal"], client_factory=_factory([_reply(_done())])) == 0
+    assert callable(seen[0])
+
+
+def test_main_run_omits_confirmer_without_terminal_console(monkeypatch):
+    import forgeagent.cli as cli_module
+
+    class _MCP:
+        def tools_prompt(self):
+            return ""
+
+        def close(self):
+            pass
+
+    seen: list[object] = []
+    real_run_once = cli_module.run_once
+
+    def spy_run_once(*args, **kwargs):
+        seen.append(kwargs["confirmer"])
+        return real_run_once(*args, **kwargs)
+
+    monkeypatch.setattr(cli_module, "Console", lambda: Console(record=True))
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda console: _MCP())
+    monkeypatch.setattr(cli_module, "run_once", spy_run_once)
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+
+    assert main(["run", "goal"], client_factory=_factory([_reply(_done())])) == 0
+    assert seen == [None]
+
+
+def test_main_run_omits_confirmer_without_tty_even_if_interactive(monkeypatch):
+    import forgeagent.cli as cli_module
+
+    seen: list[tuple[object, object]] = []
+    real_run_once = cli_module.run_once
+    console = Console(record=True, force_terminal=True)
+
+    def spy_run_once(*args, **kwargs):
+        seen.append((kwargs["asker"], kwargs["confirmer"]))
+        return real_run_once(*args, **kwargs)
+
+    monkeypatch.setattr(cli_module, "Console", lambda: console)
+    monkeypatch.setattr(cli_module, "run_once", spy_run_once)
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+
+    assert main(["run", "--interactive", "goal"], client_factory=_factory([_reply(_done())])) == 0
+    assert callable(seen[0][0])
+    assert seen[0][1] is None
 
 
 # --- tier / argument parsing -------------------------------------------------
@@ -310,6 +460,30 @@ def test_repl_runs_then_exits_on_blank():
         read_line=lambda prompt: next(inputs),
     )
     assert "completed" in console.export_text()
+
+
+def test_repl_wires_confirmer_without_mcp_manager(monkeypatch):
+    import forgeagent.cli as cli_module
+
+    seen: list[object] = []
+    real_run_once = cli_module.run_once
+    inputs = iter(["do thing", ""])
+
+    def spy_run_once(*args, **kwargs):
+        seen.append(kwargs["confirmer"])
+        return real_run_once(*args, **kwargs)
+
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda console: None)
+    monkeypatch.setattr(cli_module, "run_once", spy_run_once)
+    cli_module.repl(
+        tier="trusted",
+        model="claude-sonnet-5",
+        client_factory=_factory([_reply(_done())]),
+        console=_console(),
+        read_line=lambda prompt: next(inputs),
+    )
+
+    assert callable(seen[0])
 
 
 def test_repl_exits_on_quit():

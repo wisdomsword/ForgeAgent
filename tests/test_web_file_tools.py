@@ -125,6 +125,22 @@ def test_webfetch_restricted_tier_confirmer_denial_blocks_fetch(monkeypatch):
     assert calls == []  # denied -> never fetched
 
 
+def test_webfetch_restricted_tier_without_confirmer_reports_missing_channel(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        "forgeagent.tools.guarded_urlopen",
+        lambda url, **kw: calls.append(url) or _FakeResponse(b"body"),
+    )
+
+    outcome = WebFetchTool().run(
+        WebFetchArgs(url="http://example.com/"), _webfetch_ctx(tier="restricted")
+    )
+
+    assert outcome.success is False
+    assert outcome.detail == "rejected: no interactive confirmation channel available"
+    assert calls == []
+
+
 def test_webfetch_restricted_tier_confirmer_approval_allows_fetch(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "forgeagent.tools.guarded_urlopen",
@@ -202,6 +218,17 @@ def test_file_write_restricted_tier_confirmer_denial_blocks_write(tmp_path):
 
     assert outcome.success is False
     assert "not approved" in outcome.detail
+    assert not (tmp_path / "out.txt").exists()
+
+
+def test_file_write_restricted_tier_without_confirmer_reports_missing_channel(tmp_path):
+    outcome = FileWriteTool().run(
+        FileWriteArgs(path="out.txt", content="x"),
+        _file_ctx(tier="restricted", allowed_root=str(tmp_path)),
+    )
+
+    assert outcome.success is False
+    assert outcome.detail == "rejected: no interactive confirmation channel available"
     assert not (tmp_path / "out.txt").exists()
 
 
