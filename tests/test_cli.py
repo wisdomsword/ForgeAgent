@@ -6,6 +6,7 @@ config-error behavior.
 """
 
 import sys
+from urllib.parse import parse_qsl, unquote, urlsplit
 
 import pytest
 from pydantic import BaseModel
@@ -78,6 +79,88 @@ def test_confirmation_summary_redacts_url_userinfo_and_sensitive_query(monkeypat
     assert "example.com/path" in summary
 
 
+def test_confirmation_summary_masks_known_secret_in_url_hostname(monkeypatch):
+    from forgeagent.cli import _confirmation_summary
+
+    secret = "opaque-value-12345"
+    monkeypatch.setattr("forgeagent.cli.sensitive_env_values", lambda: {secret})
+
+    summary = _confirmation_summary(
+        WebFetchArgs(url=f"https://{secret}.example.com/public")
+    )
+
+    assert secret not in summary
+    assert "example.com/public" in summary
+    assert "REDACTED" in summary
+
+
+def test_confirmation_summary_masks_known_secret_in_query_key(monkeypatch):
+    from forgeagent.cli import _confirmation_summary
+
+    secret = "opaque-value-12345"
+    monkeypatch.setattr("forgeagent.cli.sensitive_env_values", lambda: {secret})
+
+    summary = _confirmation_summary(
+        WebFetchArgs(url=f"https://example.com/public?{secret}=visible")
+    )
+
+    assert secret not in summary
+    assert parse_qsl(urlsplit(summary.removeprefix("WebFetch ")).query) == [
+        ("***REDACTED***", "visible")
+    ]
+
+
+def test_confirmation_summary_masks_known_secret_in_percent_encoded_path(monkeypatch):
+    from forgeagent.cli import _confirmation_summary
+
+    secret = "opaque value-12345"
+    monkeypatch.setattr("forgeagent.cli.sensitive_env_values", lambda: {secret})
+
+    summary = _confirmation_summary(
+        WebFetchArgs(url="https://example.com/public/opaque%20value-12345/file")
+    )
+    path = urlsplit(summary.removeprefix("WebFetch ")).path
+
+    assert secret not in summary
+    assert "opaque%20value-12345" not in summary
+    assert path == "/public/%2A%2A%2AREDACTED%2A%2A%2A/file"
+    assert unquote(path) == "/public/***REDACTED***/file"
+
+
+def test_confirmation_summary_preserves_duplicate_query_order(monkeypatch):
+    from forgeagent.cli import _confirmation_summary
+
+    secret = "opaque-value-12345"
+    monkeypatch.setattr("forgeagent.cli.sensitive_env_values", lambda: {secret})
+
+    summary = _confirmation_summary(
+        WebFetchArgs(
+            url=f"https://example.com/public?{secret}=first&token=hidden&{secret}=second"
+        )
+    )
+
+    assert parse_qsl(urlsplit(summary.removeprefix("WebFetch ")).query) == [
+        ("***REDACTED***", "first"),
+        ("token", "REDACTED"),
+        ("***REDACTED***", "second"),
+    ]
+
+
+def test_confirmation_summary_removes_url_userinfo_entirely(monkeypatch):
+    from forgeagent.cli import _confirmation_summary
+
+    monkeypatch.setattr("forgeagent.cli.sensitive_env_values", lambda: set())
+
+    summary = _confirmation_summary(
+        WebFetchArgs(url="https://alice:password-value@example.com/public")
+    )
+
+    assert "alice" not in summary
+    assert "password-value" not in summary
+    assert "@" not in summary
+    assert "example.com/public" in summary
+
+
 def test_confirmation_summary_redacts_url_fragment(monkeypatch):
     from forgeagent.cli import _confirmation_summary
 
@@ -88,7 +171,8 @@ def test_confirmation_summary_redacts_url_fragment(monkeypatch):
 
     assert "example.com/public" in summary
     assert "fragment-secret-value" not in summary
-    assert "REDACTED" in summary
+    assert "#" not in summary
+    assert urlsplit(summary.removeprefix("WebFetch ")).fragment == ""
 
 
 @pytest.mark.parametrize(

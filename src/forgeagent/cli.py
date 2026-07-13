@@ -19,7 +19,7 @@ import os
 import sys
 from collections.abc import Callable
 from pathlib import Path
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, quote, unquote, urlencode, urlsplit, urlunsplit
 
 from pydantic import BaseModel
 from rich.console import Console
@@ -186,29 +186,29 @@ def _redact_confirmation_url(url: str) -> str:
         parts = urlsplit(url)
         if parts.scheme.lower() not in {"http", "https"} or not parts.hostname:
             return "<redacted malformed URL>"
-        hostname = parts.hostname or ""
         port = parts.port
     except ValueError:
         return "<redacted malformed URL>"
+    secret_values = sensitive_env_values()
+    hostname = mask_secrets(parts.hostname or "", secret_values)
     if ":" in hostname and not hostname.startswith("["):
         hostname = f"[{hostname}]"
     netloc = hostname if port is None else f"{hostname}:{port}"
-    if parts.username is not None or parts.password is not None:
-        netloc = f"<redacted>@{netloc}"
-    secret_values = sensitive_env_values()
     query = urlencode(
         [
             (
-                key,
+                mask_secrets(key, secret_values),
                 "REDACTED" if is_secret_name(key)
                 else mask_secrets(value, secret_values),
             )
             for key, value in parse_qsl(parts.query, keep_blank_values=True)
         ]
     )
-    path = mask_secrets(parts.path, secret_values)
-    fragment = "REDACTED" if parts.fragment else ""
-    return urlunsplit((parts.scheme, netloc, path, query, fragment))
+    path = quote(
+        mask_secrets(unquote(parts.path, errors="replace"), secret_values),
+        safe="/",
+    )
+    return urlunsplit((parts.scheme, netloc, path, query, ""))
 
 
 def _confirmation_filewrite_path(path: str) -> str:
