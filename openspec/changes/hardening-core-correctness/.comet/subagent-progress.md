@@ -5,7 +5,7 @@
 - Review mode: `thorough`
 - TDD mode: `tdd`
 
-## Current Task
+## Completed Task 1
 
 - Plan task: `Task 1: 隔离测试 HOME 并稳定环境能力断言`
 - OpenSpec mappings:
@@ -32,3 +32,33 @@
 - Fix agent: `019f5aab-f3bf-7710-8688-3b6de0ca6867` (`Pasteur`)
 - Fix commit: `260fcfa`
 - Fix evidence: RED probe retained fixture PID and live manager thread after simulated post-startup exception; GREEN focused leak test `1 passed`, MCP/CLI `78 passed, 1 skipped`, Ruff passed.
+
+## Current Task
+
+- Plan task: `Task 2: 禁用环境代理并约束重定向`
+- OpenSpec mappings:
+  - `2.1 增加大小写环境代理变量下 WebFetch 和 /search 必须直连的测试，并覆盖代理指向回环目标的绕过场景`
+  - `2.2 让受保护的 URL opener 显式禁用环境代理，同时复用现有目标解析、地址分类和逐跳重定向校验`
+  - `2.3 补齐私网、回环、链路本地、NAT64 和公网页面重定向到私网的回归覆盖`
+  - `2.4 文档化 ForgeAgent 专用显式代理的未来契约与“本里程碑不实现代理转发”的边界`
+- Stage: `done`
+- Base commit: `faa7b2e`
+- Implementer: `019f5aba-5787-74b2-9f86-572797b18a8e` (`Lorentz`)
+- Implementation commit: `22178fc`
+- RED evidence: pre-change SSRF suite `9 failed, 28 passed, 2 skipped`; proxy bypass and missing redirect handler failures observed.
+- GREEN evidence: focused SSRF `37 passed, 2 skipped`; combined network suite `68 passed, 2 skipped`; full pytest `456 passed, 13 skipped`; Ruff clean.
+- Changed files: `src/forgeagent/ssrf_guard.py`, `tests/test_ssrf_guard.py`
+- Risk signals: security-sensitive network input and environment proxy handling; local bind/network capability skips.
+- Review result: approved after fix. The final re-review found no Critical, Important, or Minor issues; effective redirected loopback rejection is proven offline for 301/302/303/307/308.
+- Review/fix round: `1/2`
+- Implementer report: `.superpowers/sdd/task-2-report.md`
+- Reviewer: `019f5ad0-aa25-7722-816a-d1124f885845` (`Avicenna`)
+- Review package: `.superpowers/sdd/review-faa7b2e..22178fc.diff`
+- Fix stage: `final-fix`
+- Fix round: `1/2`
+- Fix agent: `019f5ad8-a466-7651-9f2b-866c1764d384` (`Ramanujan`)
+- Fix commit: `acaa25f`
+- Fix evidence: mutation RED `5 failed` across 301/302/303/307/308 by reaching the socket sentinel with an unguarded hop-2 handler; GREEN `5 passed`; combined network `73 passed, 2 skipped`; full pytest `461 passed, 13 skipped`; Ruff clean.
+- Re-reviewer: `019f5ae9-6bd9-7d62-8976-d4a74c4446d6` (`Linnaeus`)
+- Re-review package: `.superpowers/sdd/review-faa7b2e..acaa25f.diff`
+- Review/fix round: `2/2`

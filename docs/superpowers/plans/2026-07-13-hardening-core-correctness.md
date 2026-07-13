@@ -138,7 +138,7 @@ git commit -m "test: isolate user configuration and process fixtures"
 - Produces: `_GuardedRedirectHandler`、`_MAX_REDIRECTS = 10`；不变的 `guarded_urlopen(url, timeout=...)` 公共接口。
 - Consumes: `_ALLOWED_SCHEMES`、`SSRFGuardError`、现有 guarded HTTP/HTTPS handlers。
 
-- [ ] **Step 1: 写环境代理和重定向 RED 测试**
+- [x] **Step 1: 写环境代理和重定向 RED 测试**
 
 覆盖以下断言：
 
@@ -171,7 +171,7 @@ def test_redirect_handler_rejects_non_http_scheme(url):
 UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_ssrf_guard.py -q
 ```
 
-- [ ] **Step 2: 实现空 ProxyHandler 和 guard-owned redirect handler**
+- [x] **Step 2: 实现空 ProxyHandler 和 guard-owned redirect handler**
 
 在 `src/forgeagent/ssrf_guard.py` 增加：
 
@@ -206,7 +206,7 @@ opener = urllib.request.build_opener(
 
 不得 `pop` 或修改代理环境变量。
 
-- [ ] **Step 3: 验证 WebFetch 和 search 共用修复路径**
+- [x] **Step 3: 验证 WebFetch 和 search 共用修复路径**
 
 ```bash
 UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_ssrf_guard.py tests/test_web_search.py tests/test_web_file_tools.py -q
@@ -214,7 +214,7 @@ UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_ssrf_guard.py tes
 
 预期：代理矩阵、10/11 hop、FTP/file redirect、NAT64、private redirect 全部 PASS；受限本地 bind 只产生有理由的 skip。
 
-- [ ] **Step 4: 提交网络边界修复**
+- [x] **Step 4: 提交网络边界修复**
 
 ```bash
 git add src/forgeagent/ssrf_guard.py tests/test_ssrf_guard.py tests/test_web_search.py tests/test_web_file_tools.py
