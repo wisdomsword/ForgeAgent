@@ -45,9 +45,32 @@ ForgeAgent MUST redact structured secret-key values and known sensitive environm
 - **WHEN** a WebFetch URL contains user information, known secret values or query keys matching the existing secret-name policy
 - **THEN** the confirmer displays a sanitized URL without the sensitive values
 
+#### Scenario: WebFetch hostname encodes a known secret
+- **WHEN** a WebFetch hostname contains a percent-encoded or DNS case-normalized form of a known sensitive environment value
+- **THEN** the confirmer decodes and matches the hostname using DNS case-insensitive semantics and does not display the sensitive value
+
 #### Scenario: FileWrite uses an absolute path and sensitive content
 - **WHEN** FileWrite requests an absolute path and arbitrary content
 - **THEN** the confirmer displays a project-relative path when possible or a basename-only external path, displays only content length, and never displays the content
+
+### Requirement: Restricted tool outcomes minimize sensitive exposure
+ForgeAgent MUST prevent WebFetch failure outcomes and FileWrite success or failure outcomes from reintroducing raw URLs, hostnames, content or host absolute paths after confirmation.
+
+#### Scenario: WebFetch is blocked by network policy
+- **WHEN** a confirmed WebFetch request fails with `SSRFGuardError`
+- **THEN** the tool returns the fixed detail `WebFetch blocked by network policy` without the original URL, hostname or exception text
+
+#### Scenario: WebFetch fails at the network layer
+- **WHEN** a confirmed WebFetch request fails with `OSError`
+- **THEN** the tool returns the fixed detail `WebFetch request failed` without the original URL, hostname or exception text
+
+#### Scenario: FileWrite succeeds with an absolute project path
+- **WHEN** a confirmed FileWrite request resolves inside `allowed_root` and succeeds
+- **THEN** the tool result identifies the target only by its project-relative path and does not include the model-provided absolute path or content
+
+#### Scenario: FileWrite fails during the write operation
+- **WHEN** a confirmed FileWrite request passes project-root validation but the filesystem write raises `OSError`
+- **THEN** the tool returns the fixed detail `FileWrite failed` without the absolute path, content or exception text
 
 ### Requirement: Survey interaction remains separately controlled
 ForgeAgent MUST keep `--interactive` scoped to Survey behavior and SHALL NOT require that flag for automatic TTY confirmation of WebFetch, FileWrite or MCP.

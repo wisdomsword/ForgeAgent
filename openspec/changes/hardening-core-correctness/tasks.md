@@ -19,6 +19,8 @@
 - [ ] 3.3 按 TTY 能力为 REPL 和单次 run 自动注入 confirmer，验证非 TTY 默认拒绝且 `--interactive` 仍只控制 Survey
 - [ ] 3.4 增加工具成功、工具失败、解析错误与 `completed: true` 组合的 Step 状态转换测试
 - [ ] 3.5 实施严格两阶段完成门控，只有后续无工具、无解析错误的独立响应可完成任务
+- [ ] 3.6 为 percent-encoded/大小写变化的 hostname secret、WebFetch guard/network 失败和 FileWrite 成功/写入失败结果增加泄漏回归测试
+- [ ] 3.7 实施固定安全 WebFetch 失败消息与 FileWrite project-relative 成功/固定失败消息，并验证 Step feedback 不再暴露原始 URL、hostname 或宿主绝对路径
 
 ## 4. MCP 韧性与生命周期
 

@@ -70,7 +70,7 @@
   - `3.1 为 MCP、WebFetch、FileWrite 参数分别增加 confirmer 格式化与批准/拒绝测试`
   - `3.2 扩展现有 confirmer 使其类型安全地支持三类工具参数，不引入新的审批框架`
   - `3.3 按 TTY 能力为 REPL 和单次 run 自动注入 confirmer，验证非 TTY 默认拒绝且 --interactive 仍只控制 Survey`
-- Stage: `blocked`
+- Stage: `design-update`
 - Base commit: `797a3e7`
 - Implementer: `019f5af9-1ea0-7a31-a4db-d3c4bd00ce24` (`Poincare`)
 - Implementation commit: `a370811`
@@ -102,3 +102,4 @@
 - Confirmed binding blocker: percent-encoded hostname values are not decoded before known-secret masking in the WebFetch confirmation summary.
 - Reviewer scope adjudication: raw WebFetch network-error text and successful/post-validation FileWrite outcome paths are outside the current OpenSpec requirement, which governs confirmation prompts plus no-channel/explicit-rejection behavior. Treating them as mandatory requires an explicit scope expansion and delta-spec/design update.
 - Resume decision required: authorize one exceptional narrow fix/re-review round, expand the current change to sanitize all post-confirmation outcomes, or pause.
+- Scope decision: user selected expansion of the current change and approved fixed safe outcome messages. Design Doc, delta spec, OpenSpec design and tasks are being updated before implementation resumes.

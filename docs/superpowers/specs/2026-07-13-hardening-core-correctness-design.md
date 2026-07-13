@@ -108,7 +108,7 @@ network:
 `Confirmer = Callable[[BaseModel], bool]` 保持不变。CLI 内部增加一个小型 formatter，由 `make_console_confirmer()` 调用：
 
 - `MCPArgs`：显示 `server:tool`。arguments 递归遍历 dict/list；键名匹配现有 `is_secret_name()` 时，无论值长度都显示 `<redacted>`；其他字符串再用 `mask_secrets(..., sensitive_env_values())` 替换已知环境 secret value。
-- `WebFetchArgs`：通过 `urllib.parse` 清除 URL userinfo，替换敏感 query key 的值，再用 `mask_secrets()` 处理已知 secret value。不得用字符串正则直接改写 URL 结构。
+- `WebFetchArgs`：通过 `urllib.parse` 清除 URL userinfo 和 fragment，替换敏感 query key 的值，再用 `mask_secrets()` 处理已知 secret value。hostname 和 path 在匹配前先 percent-decode；hostname 按 DNS 大小写不敏感语义匹配，再结构化重建显示 URL。不得用字符串正则直接改写 URL 结构。
 - `FileWriteArgs`：不回显 content。绝对路径在 cwd 内时显示项目相对路径，在 cwd 外时只显示 `.../<basename>`；相对路径保持规范化相对形式。提示同时显示 content 字符数。
 - 其他 `BaseModel`：只显示类型名，避免访问不存在的字段或意外回显敏感数据。
 
@@ -123,6 +123,17 @@ network:
 - 非 TTY 不读取 stdin，向 Task 传 `None`。WebFetch/FileWrite 和仍需确认的 MCP 调用返回 `rejected: no interactive confirmation channel available`，与用户在 TTY 中明确回答 no 的 `not approved by the user` 区分。
 - `--interactive` 继续只决定 Survey 是否获得 asker，不参与 confirmer 选择。
 - MCP `autoApprove` 是用户配置中的显式预批准，继续在调用 confirmer 前短路；因此它可以在非 TTY 执行。WebFetch/FileWrite 没有对应例外。
+
+### 5.3 执行结果的最小披露
+
+实施期 thorough review 发现确认后的工具结果同样会进入 Step feedback 和 CLI console。用户于 2026-07-13 选择把该问题纳入当前 change，并批准固定安全结果消息方案：
+
+- WebFetch 捕获 `SSRFGuardError` 时返回固定 `WebFetch blocked by network policy`，捕获 `OSError` 时返回固定 `WebFetch request failed`。不得把底层异常、原始 URL 或 hostname 写入 `ToolOutcome.detail`。
+- FileWrite 通过 project-root 校验并成功写入后，只返回由已解析目标相对 `allowed_root` 计算出的 project-relative 路径；不复用模型提供的原始绝对路径。
+- FileWrite 写入阶段发生 `OSError` 时返回固定 `FileWrite failed`。越界、无交互通道和用户拒绝继续使用既有固定消息。
+- 不新增通用 result sanitizer，不修改 FileRead/FileList/MCP 的结果契约，也不改变全局 `mask_secrets()` 行为。固定消息牺牲部分底层诊断细节，以避免平台相关异常字符串重新引入 URL、hostname 或宿主绝对路径泄漏。
+
+测试必须覆盖：percent-encoded 且大小写变化的 hostname secret；携带原始 URL/hostname 的 WebFetch guard/network 异常；FileWrite 使用绝对 cwd 内路径成功时只回显 project-relative 路径；FileWrite 写入异常包含绝对路径时结果仍为固定消息。以上结果还需通过现有 Step feedback 渲染路径验证不再泄漏。
 
 ## 6. 完成状态设计
 
@@ -276,7 +287,7 @@ runner 本里程碑明确顺序执行，不承诺多个进程同时写同一个 
 | 能力 | 关键测试 | 主要证据 |
 | --- | --- | --- |
 | 代理/SSRF | 大小写 proxy env、loopback、private、NAT64、redirect private、11 跳、FTP/file redirect | 实际校验 host 是目标而非代理；blocked target 未连接；redirect limit/scheme 明确拒绝 |
-| confirmer | MCP/WebFetch/FileWrite formatter、EOF、空输入、带空白的 yes/no、嵌套 secret key、URL/path mask | 无属性错误；敏感内容不回显；TTY 与非 TTY 原因正确 |
+| confirmer 与结果最小披露 | MCP/WebFetch/FileWrite formatter、EOF、空输入、带空白的 yes/no、嵌套 secret key、encoded/case hostname、URL/path mask、WebFetch 失败、FileWrite 成功/失败 outcome | 无属性错误；prompt、ToolOutcome、Step feedback 不回显敏感 URL/hostname/宿主绝对路径；TTY 与非 TTY 原因正确 |
 | CLI 注入 | REPL、TTY run、非 TTY run、`--interactive` | confirmer 与 MCP 解耦；Survey 语义不漂移 |
 | 完成门控 | 工具成功/失败/parse error + completed；后续独立完成 | 同轮不完成；反馈后完成；max_rounds 诚实 |
 | MCP 配置 | required 默认、enabled/disabled required | optional 降级；required 启动失败；禁用项不阻断 |

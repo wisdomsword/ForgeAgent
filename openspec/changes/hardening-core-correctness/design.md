@@ -36,6 +36,8 @@ ForgeAgent 专用显式代理契约只在文档中定义为未来能力，运行
 
 保留当前 callable confirmer 注入方式，使其能够格式化 `MCPArgs`、`WebFetchArgs` 和 `FileWriteArgs`。CLI 是否提供交互 confirmer 由终端能力决定，而不再依赖是否配置 MCP：stdin/stdout 为 TTY 时自动询问；非 TTY 时返回拒绝且不读取输入。`--interactive` 只保留 Survey 语义。
 
+2026-07-13 的实施期审查进一步确认，仅保护确认提示不足以覆盖同一数据流：WebFetch 的底层异常和 FileWrite 的成功/失败结果也会进入 Step feedback 与 CLI console。用户已确认扩展当前 change。扩展仍不引入统一 sanitizer：WebFetch 的 SSRF/网络失败使用固定安全类别消息；FileWrite 成功只返回 `allowed_root` 内的 project-relative 路径，写入失败使用固定消息。确认 URL 的 hostname 在已知 secret 匹配前先 percent-decode，并按 DNS 大小写不敏感语义匹配。
+
 备选方案是引入新的审批对象、策略引擎或 CI 预批准参数；当前没有足够需求支撑这些配置面，因此不采用。
 
 ### 3. 完成状态采用严格两阶段门控
