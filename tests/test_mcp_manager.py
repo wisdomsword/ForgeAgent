@@ -205,10 +205,12 @@ def test_close_terminates_child_processes_no_leak(tmp_path):
     # and terminates the child) before stopping the loop — else children leak.
     pid_file = tmp_path / "alpha.pid"
     mgr = MCPManager({"alpha": _server("alpha", pid_file=pid_file)})
-    mgr.connect()
-    pid = int(pid_file.read_text(encoding="utf-8"))
-    os.kill(pid, 0)
-    mgr.close()
+    try:
+        mgr.connect()
+        pid = int(pid_file.read_text(encoding="utf-8"))
+        os.kill(pid, 0)
+    finally:
+        mgr.close()
     deadline = time.monotonic() + 5
     while time.monotonic() < deadline:
         try:
