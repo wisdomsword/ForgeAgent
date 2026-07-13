@@ -11,6 +11,7 @@ Each MCPManager test closes its manager in a finally so no background loop/threa
 
 from __future__ import annotations
 
+import os
 import sys
 import time
 from pathlib import Path
@@ -18,6 +19,7 @@ from pathlib import Path
 import pytest
 
 from forgeagent.mcp_manager import (
+    DEFAULT_USER_MCP_PATH,
     MCPManager,
     MCPServerConfig,
     load_mcp_config,
@@ -26,11 +28,16 @@ from forgeagent.mcp_manager import (
 _FIXTURE = str(Path(__file__).with_name("mcp_fixture_server.py"))
 
 
-def _server(name: str, mode: str = "normal", **overrides) -> MCPServerConfig:
+def _server(
+    name: str, mode: str = "normal", pid_file: Path | None = None, **overrides
+) -> MCPServerConfig:
+    env = {"FORGE_TEST_MCP_NAME": name, "FORGE_TEST_MCP_MODE": mode}
+    if pid_file is not None:
+        env["FORGE_TEST_MCP_PID_FILE"] = str(pid_file)
     cfg = {
         "command": sys.executable,
         "args": [_FIXTURE],
-        "env": {"FORGE_TEST_MCP_NAME": name, "FORGE_TEST_MCP_MODE": mode},
+        "env": env,
     }
     cfg.update(overrides)
     return MCPServerConfig.model_validate(cfg)
@@ -43,6 +50,12 @@ def test_builtin_config_is_empty(tmp_path):
     # A user file that doesn't exist -> only the built-in (empty) servers.
     servers = load_mcp_config(user_path=tmp_path / "absent.yaml")
     assert servers == {}
+
+
+def test_default_mcp_path_uses_isolated_test_home():
+    home = Path.home()
+    assert DEFAULT_USER_MCP_PATH == home / ".forgeagent" / "mcp.yaml"
+    assert not DEFAULT_USER_MCP_PATH.exists()
 
 
 def test_user_config_merges_and_parses_aliased_fields(tmp_path):
@@ -187,26 +200,24 @@ def test_auto_approve_reported_per_server_tool():
 # --- Phase-6 review fixes (regression guards) --------------------------------
 
 
-def _live_fixture_children() -> int:
-    """Count live fixture-server child processes (for the close() leak guard)."""
-    import subprocess
-
-    out = subprocess.run(
-        ["pgrep", "-f", "mcp_fixture_server.py"], capture_output=True, text=True
-    ).stdout
-    return len([ln for ln in out.splitlines() if ln.strip()])
-
-
-def test_close_terminates_child_processes_no_leak():
+def test_close_terminates_child_processes_no_leak(tmp_path):
     # Review finding #1: close() must await holders (so each async-with __aexit__ runs
     # and terminates the child) before stopping the loop — else children leak.
-    before = _live_fixture_children()
-    mgr = MCPManager({"alpha": _server("alpha"), "beta": _server("beta")})
+    pid_file = tmp_path / "alpha.pid"
+    mgr = MCPManager({"alpha": _server("alpha", pid_file=pid_file)})
     mgr.connect()
-    assert _live_fixture_children() >= before + 2
+    pid = int(pid_file.read_text(encoding="utf-8"))
+    os.kill(pid, 0)
     mgr.close()
-    time.sleep(1.5)
-    assert _live_fixture_children() == before  # no survivors
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.05)
+    else:
+        pytest.fail(f"fixture process {pid} survived MCPManager.close()")
 
 
 def test_enable_startup_disabled_server_connects_it():

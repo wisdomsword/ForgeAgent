@@ -90,19 +90,15 @@ def test_guarded_urlopen_rejects_other_non_http_schemes():
         guarded_urlopen("ftp://example.com/")
 
 
-def test_guarded_urlopen_blocks_loopback_target():
-    """127.0.0.1 is itself a blocked address, so a local HTTPServer round-trip must
-    be refused before any socket connects out."""
-    server = http.server.HTTPServer(("127.0.0.1", 0), http.server.BaseHTTPRequestHandler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    try:
-        port = server.server_address[1]
-        with pytest.raises(SSRFGuardError):
-            guarded_urlopen(f"http://127.0.0.1:{port}/", timeout=2)
-    finally:
-        server.shutdown()
-        thread.join(timeout=5)
+def test_guarded_urlopen_blocks_loopback_target_without_connecting(monkeypatch):
+    """Loopback is rejected before any socket is constructed or connected."""
+
+    def _unexpected_socket(*args, **kwargs):
+        pytest.fail("blocked loopback URL attempted a socket connection")
+
+    monkeypatch.setattr("forgeagent.ssrf_guard.socket.socket", _unexpected_socket)
+    with pytest.raises(SSRFGuardError):
+        guarded_urlopen("http://127.0.0.1:9/", timeout=2)
 
 
 class _RespondOKHandler(http.server.BaseHTTPRequestHandler):
@@ -130,10 +126,22 @@ def _make_redirect_handler(target_url: str) -> type[http.server.BaseHTTPRequestH
 
 
 def _start_server(handler_cls):
-    server = http.server.HTTPServer(("127.0.0.1", 0), handler_cls)
+    try:
+        server = http.server.HTTPServer(("127.0.0.1", 0), handler_cls)
+    except (PermissionError, OSError):
+        pytest.skip("local socket bind is unavailable")
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     return server, thread
+
+
+def test_start_server_skips_when_local_socket_bind_is_unavailable(monkeypatch):
+    def _deny_bind(*args, **kwargs):
+        raise PermissionError("socket bind denied")
+
+    monkeypatch.setattr(http.server, "HTTPServer", _deny_bind)
+    with pytest.raises(pytest.skip.Exception, match="local socket bind is unavailable"):
+        _start_server(_RespondOKHandler)
 
 
 def test_redirect_hop_by_hop_revalidation(monkeypatch):

@@ -13,11 +13,16 @@ Behaviour is selected by env vars so one script can play the servers the tests n
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 
 NAME = os.environ.get("FORGE_TEST_MCP_NAME", "fixture")
 MODE = os.environ.get("FORGE_TEST_MCP_MODE", "normal")
+
+pid_file = os.environ.get("FORGE_TEST_MCP_PID_FILE")
+if pid_file:
+    Path(pid_file).write_text(str(os.getpid()), encoding="utf-8")
 
 server = FastMCP(NAME)
 
