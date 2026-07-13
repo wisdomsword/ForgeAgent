@@ -13,6 +13,7 @@ import urllib.request
 
 _NAT64_PREFIX = ipaddress.ip_network("64:ff9b::/96")
 _ALLOWED_SCHEMES = {"http", "https"}
+_MAX_REDIRECTS = 10
 
 
 class SSRFGuardError(Exception):
@@ -78,6 +79,20 @@ class _GuardedHTTPSHandler(urllib.request.HTTPSHandler):
         return self.do_open(_GuardedHTTPSConnection, req)
 
 
+class _GuardedRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        scheme = urllib.parse.urlsplit(newurl).scheme.lower()
+        if scheme not in _ALLOWED_SCHEMES:
+            raise SSRFGuardError(f"redirect scheme {scheme!r} is not allowed")
+        count = getattr(req, "_forgeagent_redirect_count", 0)
+        if count >= _MAX_REDIRECTS:
+            raise SSRFGuardError(f"redirect limit exceeded ({_MAX_REDIRECTS})")
+        redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if redirected is not None:
+            redirected._forgeagent_redirect_count = count + 1
+        return redirected
+
+
 def guarded_urlopen(url: str, *, timeout: float = 10.0):
     """Perform a GET request through the SSRF guard.
 
@@ -87,5 +102,10 @@ def guarded_urlopen(url: str, *, timeout: float = 10.0):
     scheme = urllib.parse.urlsplit(url).scheme.lower()
     if scheme not in _ALLOWED_SCHEMES:
         raise SSRFGuardError(f"scheme {scheme!r} is not allowed, only http/https")
-    opener = urllib.request.build_opener(_GuardedHTTPHandler, _GuardedHTTPSHandler)
+    opener = urllib.request.build_opener(
+        urllib.request.ProxyHandler({}),
+        _GuardedRedirectHandler(),
+        _GuardedHTTPHandler(),
+        _GuardedHTTPSHandler(),
+    )
     return opener.open(url, timeout=timeout)

@@ -11,9 +11,11 @@ import http.server
 import ipaddress
 import socket
 import threading
+import urllib.request
 
 import pytest
 
+from forgeagent import ssrf_guard
 from forgeagent.ssrf_guard import (
     SSRFGuardError,
     _guarded_create_connection,
@@ -99,6 +101,99 @@ def test_guarded_urlopen_blocks_loopback_target_without_connecting(monkeypatch):
     monkeypatch.setattr("forgeagent.ssrf_guard.socket.socket", _unexpected_socket)
     with pytest.raises(SSRFGuardError):
         guarded_urlopen("http://127.0.0.1:9/", timeout=2)
+
+
+_PROXY_ENV_NAMES = (
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "all_proxy",
+    "NO_PROXY",
+    "no_proxy",
+)
+
+
+@pytest.mark.parametrize(
+    ("proxy_name", "url"),
+    [
+        ("HTTP_PROXY", "http://127.0.0.1/resource"),
+        ("HTTPS_PROXY", "https://127.0.0.1/resource"),
+        ("ALL_PROXY", "http://127.0.0.1/resource"),
+        ("http_proxy", "http://127.0.0.1/resource"),
+        ("https_proxy", "https://127.0.0.1/resource"),
+        ("all_proxy", "http://127.0.0.1/resource"),
+    ],
+)
+def test_environment_proxy_does_not_replace_guarded_target(monkeypatch, proxy_name, url):
+    for name in _PROXY_ENV_NAMES:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv(proxy_name, "http://8.8.8.8:9999")
+    monkeypatch.setenv("NO_PROXY", "example.com")
+
+    with pytest.raises(SSRFGuardError, match="127.0.0.1"):
+        guarded_urlopen(url, timeout=0.1)
+
+
+def test_no_proxy_loopback_bypass_still_uses_guard(monkeypatch):
+    for name in _PROXY_ENV_NAMES:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("HTTP_PROXY", "http://8.8.8.8:9999")
+    monkeypatch.setenv("NO_PROXY", "127.0.0.1")
+
+    with pytest.raises(SSRFGuardError, match="127.0.0.1"):
+        guarded_urlopen("http://127.0.0.1/resource", timeout=0.1)
+
+
+def test_guarded_urlopen_uses_explicit_empty_proxy_handler(monkeypatch):
+    created_proxy_mappings = []
+    real_proxy_handler = urllib.request.ProxyHandler
+
+    class RecordingProxyHandler(real_proxy_handler):
+        def __init__(self, proxies=None):
+            created_proxy_mappings.append(proxies)
+            super().__init__(proxies)
+
+    monkeypatch.setattr(
+        "forgeagent.ssrf_guard.urllib.request.ProxyHandler", RecordingProxyHandler
+    )
+
+    with pytest.raises(SSRFGuardError, match="127.0.0.1"):
+        guarded_urlopen("http://127.0.0.1/resource", timeout=0.1)
+
+    assert created_proxy_mappings == [{}]
+
+
+def test_redirect_handler_allows_tenth_hop():
+    handler = ssrf_guard._GuardedRedirectHandler()
+    request = urllib.request.Request("https://example.com/0")
+    request._forgeagent_redirect_count = 9
+
+    redirected = handler.redirect_request(
+        request, None, 302, "Found", {}, "https://example.com/10"
+    )
+
+    assert redirected is not None
+    assert redirected._forgeagent_redirect_count == 10
+
+
+def test_redirect_handler_rejects_eleventh_hop():
+    handler = ssrf_guard._GuardedRedirectHandler()
+    request = urllib.request.Request("https://example.com/0")
+    request._forgeagent_redirect_count = 10
+
+    with pytest.raises(SSRFGuardError, match="redirect limit exceeded"):
+        handler.redirect_request(request, None, 302, "Found", {}, "https://example.com/11")
+
+
+@pytest.mark.parametrize("url", ["ftp://example.com/a", "file:///etc/passwd"])
+def test_redirect_handler_rejects_non_http_scheme(url):
+    handler = ssrf_guard._GuardedRedirectHandler()
+    request = urllib.request.Request("https://example.com/start")
+
+    with pytest.raises(SSRFGuardError, match="scheme"):
+        handler.redirect_request(request, None, 302, "Found", {}, url)
 
 
 class _RespondOKHandler(http.server.BaseHTTPRequestHandler):
