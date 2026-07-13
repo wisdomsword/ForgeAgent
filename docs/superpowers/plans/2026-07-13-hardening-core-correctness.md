@@ -84,7 +84,7 @@ def pytest_sessionfinish(session: pytest.Session) -> None:
 
 - [ ] **Step 2: 写隔离回归并验证 RED/GREEN**
 
-在 `tests/test_cli.py` 或 `tests/test_mcp_manager.py` 断言默认 MCP 路径位于测试 home，且测试进程看不到开发者真实配置。运行：
+在 `tests/test_mcp_manager.py` 断言默认 MCP 路径位于测试 home，且测试进程看不到开发者真实配置。运行：
 
 ```bash
 UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_mcp_manager.py tests/test_cli.py -q
@@ -122,7 +122,7 @@ UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest -q -ra
 - [ ] **Step 6: 提交测试隔离**
 
 ```bash
-git add tests/conftest.py tests/test_ssrf_guard.py tests/test_mcp_manager.py tests/mcp_fixture_server.py tests/test_cli.py
+git add tests/conftest.py tests/test_ssrf_guard.py tests/test_mcp_manager.py tests/mcp_fixture_server.py
 git commit -m "test: isolate user configuration and process fixtures"
 ```
 
