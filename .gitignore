@@ -6,6 +6,9 @@
 # CodeGraph index (regenerable, see CLAUDE.md — indexing is a local dev-tool choice)
 .codegraph/
 
+# Local Git worktrees used for isolated feature development
+.worktrees/
+
 # Read-only reference project (see CLAUDE.md 项目使命 — borrowed from, never modified,
 # not part of ForgeAgent's own history)
 resource/

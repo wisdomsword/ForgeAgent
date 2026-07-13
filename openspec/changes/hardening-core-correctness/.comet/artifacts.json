@@ -1,0 +1,8 @@
+{
+  "openspec_proposal": "openspec/changes/hardening-core-correctness/proposal.md",
+  "openspec_design": "openspec/changes/hardening-core-correctness/design.md",
+  "openspec_tasks": "openspec/changes/hardening-core-correctness/tasks.md",
+  "openspec_delta_spec": "openspec/changes/hardening-core-correctness/specs/completion-integrity/spec.md",
+  "handoff_context": "openspec/changes/hardening-core-correctness/.comet/handoff/design-context.json",
+  "handoff_markdown": "openspec/changes/hardening-core-correctness/.comet/handoff/design-context.md"
+}

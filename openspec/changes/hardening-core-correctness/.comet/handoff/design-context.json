@@ -1,0 +1,18 @@
+{
+  "change": "hardening-core-correctness",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "1e828b304218e0d381a08f610af0c9c356c925391c11f5f8bf6a579df87032ac",
+  "files": [
+    { "path": "openspec/changes/hardening-core-correctness/proposal.md", "sha256": "4bc899cb4128c08af9563800c34ae3afe08966341e7b7e25029a0772abd9602e" },
+    { "path": "openspec/changes/hardening-core-correctness/design.md", "sha256": "02e7e48a083bf09e4a57f0be13f72c630afcc02a260a44a951d6154eb202993c" },
+    { "path": "openspec/changes/hardening-core-correctness/tasks.md", "sha256": "f0b7dd6ae379c7b508de486922897fa18f481abb0b5139db35f668a7b941a017" },
+    { "path": "openspec/changes/hardening-core-correctness/specs/completion-integrity/spec.md", "sha256": "8cba8b659e3c3af0774ab4c74b6f298f0a6752ad9b24e71ed3566135d53c1944" },
+    { "path": "openspec/changes/hardening-core-correctness/specs/golden-validation-core/spec.md", "sha256": "c6de5321d8e3e6387b0645c6c2d18c516d4961df1fa10f304e156a3616d93968" },
+    { "path": "openspec/changes/hardening-core-correctness/specs/mcp-resilience/spec.md", "sha256": "67af21c5c9e31929baecc3d219700b7d588635dbfe42b1754799d059f2f1d5a3" },
+    { "path": "openspec/changes/hardening-core-correctness/specs/network-boundary-safety/spec.md", "sha256": "b93a5595dba83c2be4e9c1dae0fae9e5b03cfac749de3d51fd01663b086293f4" },
+    { "path": "openspec/changes/hardening-core-correctness/specs/tool-approval/spec.md", "sha256": "b3ae815ca48cf8c57b9d7b70fc6bd4db7d57395424cf558128420f1d313ec349" }
+  ]
+}
