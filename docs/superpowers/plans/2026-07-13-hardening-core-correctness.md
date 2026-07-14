@@ -221,77 +221,350 @@ git add src/forgeagent/ssrf_guard.py tests/test_ssrf_guard.py tests/test_web_sea
 git commit -m "fix: enforce direct guarded web connections"
 ```
 
-### Task 3: 统一且最小披露的工具确认
+### Task 3A: 完成 confirmer URL 组件脱敏
+
+**Existing checkpoint:** 初始类型安全 formatter、TTY 注入和拒绝原因已在 `a370811`、`72a1585`、`66612f6` 实现并通过 484 tests；本任务只完成最终 blocked review 指出的 hostname/组件交互与字符数契约。
 
 **Files:**
 - Modify: `src/forgeagent/cli.py`
-- Modify: `src/forgeagent/tools.py`
 - Modify: `tests/test_cli.py`
-- Modify: `tests/test_web_file_tools.py`
-- Modify: `tests/test_tools.py`
+- Verify: `tests/test_tools.py`
+- Verify: `tests/test_web_file_tools.py`
 
 **Interfaces:**
-- Produces: `_confirmation_summary(args: BaseModel) -> str`；TTY run 和 REPL confirmer 注入；无交互通道的明确 ToolOutcome。
-- Consumes: `is_secret_name`、`mask_secrets`、`sensitive_env_values`、MCPArgs/WebFetchArgs/FileWriteArgs。
+- Produces: `_mask_confirmation_hostname(hostname: str, secret_values: set[str]) -> str`；确定性的 `_redact_confirmation_url(url: str) -> str`；FileWrite `characters` 摘要。
+- Consumes: `REDACTED`、`is_secret_name()`、`mask_secrets()`、`sensitive_env_values()`、`urllib.parse` 结构化 API。
 
-- [ ] **Step 1: 写三类参数、脱敏和终端 RED 测试**
+- [ ] **Step 1: 写 hostname、IPv6 和组件交互 RED 测试**
 
-精确覆盖：MCP 嵌套 `token/password/key` 值不出现；URL userinfo 和敏感 query 不出现；FileWrite content 与 cwd 外绝对目录不出现；EOF/空输入拒绝；`" y\n"` 批准；run 双向 TTY 才注入；REPL 与 MCP 是否存在无关。
+在 `tests/test_cli.py` 增加参数化断言，至少包含：
+
+```python
+@pytest.mark.parametrize(
+    ("secret", "url"),
+    [
+        ("OPAQUE-VALUE-12345", "https://opaque-value-12345.example.com/public"),
+        ("opaque-value-12345", "https://%6fpaque-value-12345.example.com/public"),
+    ],
+)
+def test_confirmation_summary_masks_case_and_percent_encoded_hostname(
+    secret, url, monkeypatch
+):
+    monkeypatch.setattr("forgeagent.cli.sensitive_env_values", lambda: {secret})
+    summary = _confirmation_summary(WebFetchArgs(url=url))
+    assert secret.casefold() not in unquote(summary).casefold()
+    assert "REDACTED" in unquote(summary)
+
+
+@pytest.mark.parametrize("encoded", ["%40", "%2F", "%3F", "%23", "%3A"])
+def test_confirmation_summary_does_not_reinterpret_encoded_hostname_delimiters(encoded):
+    summary = _confirmation_summary(WebFetchArgs(url=f"https://safe{encoded}host/public"))
+    assert summary == "WebFetch <redacted malformed URL>"
+
+
+def test_confirmation_summary_handles_ipv6_zone_and_masks_each_component_once(monkeypatch):
+    secret = "opaque-value-12345"
+    monkeypatch.setattr("forgeagent.cli.sensitive_env_values", lambda: {secret})
+    summary = _confirmation_summary(
+        WebFetchArgs(
+            url=(
+                "https://[fe80::1%25en0]/opaque-value-12345"
+                "?q=opaque-value-12345#discard-me"
+            )
+        )
+    )
+    rendered = unquote(summary)
+    assert "[fe80::1%en0]" in rendered
+    assert secret not in rendered
+    assert rendered.count("***REDACTED***") == 2
+    assert "discard-me" not in rendered
+
+
+def test_filewrite_confirmation_labels_unicode_character_count():
+    summary = _confirmation_summary(FileWriteArgs(path="out.txt", content="你好"))
+    assert summary.endswith("(2 characters)")
+```
+
+另加 overlapping secret 测试，证明最长值优先且不做重叠二次替换：
+
+```python
+def test_confirmation_summary_prefers_longest_overlapping_hostname_secret(monkeypatch):
+    monkeypatch.setattr(
+        "forgeagent.cli.sensitive_env_values",
+        lambda: {"opaque-value-12345", "value-12345"},
+    )
+    rendered = unquote(
+        _confirmation_summary(
+            WebFetchArgs(url="https://opaque-value-12345.example.com/public")
+        )
+    )
+    assert rendered.count("***REDACTED***") == 1
+    assert "value-12345" not in rendered
+```
+
+- [ ] **Step 2: 运行 RED 测试并记录失败**
 
 ```bash
-UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_cli.py tests/test_web_file_tools.py tests/test_tools.py -q
+UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_cli.py -q
 ```
 
-预期：当前 `FileWriteArgs`/`WebFetchArgs` formatter 测试以 AttributeError FAIL，或 confirmer 缺失断言 FAIL。
+预期：percent-encoded/case hostname、encoded delimiter 和 `characters` 标签至少一项 FAIL。
 
-- [ ] **Step 2: 实现结构化 formatter**
+- [ ] **Step 3: 实现单次 hostname 匹配和结构化重建**
 
-在 `cli.py` 使用结构化 API，不用正则改写 URL：
+在 `cli.py` 导入 `ipaddress`、`re` 和 `REDACTED`。局部 helper 只处理已经解码的 hostname：
 
 ```python
-def _redact_confirmation_value(value):
-    if isinstance(value, dict):
-        return {
-            str(key): "<redacted>" if is_secret_name(str(key))
-            else _redact_confirmation_value(item)
-            for key, item in value.items()
-        }
-    if isinstance(value, list):
-        return [_redact_confirmation_value(item) for item in value]
-    if isinstance(value, str):
-        return mask_secrets(value, sensitive_env_values())
-    return value
+def _mask_confirmation_hostname(hostname: str, secret_values: set[str]) -> str:
+    candidates = sorted(
+        (value for value in secret_values if value),
+        key=lambda value: (-len(value), value.casefold(), value),
+    )
+    if not candidates:
+        return hostname
+    pattern = re.compile(
+        "|".join(re.escape(value) for value in candidates),
+        flags=re.IGNORECASE | re.ASCII,
+    )
+    return pattern.sub(REDACTED, hostname)
 ```
 
-`_confirmation_summary()` 对 MCP 使用 `json.dumps(..., sort_keys=True)`，对 URL 使用 `urlsplit/parse_qsl/urlencode/urlunsplit`，对 FileWrite 只输出安全路径和 `len(content)`。未知 BaseModel 只输出类型名。
+`_redact_confirmation_url()` 必须一次读取 `secret_values`，先丢弃 userinfo/fragment。用原始 `netloc.rsplit("@", 1)[-1].startswith("[")` 判断 bracketed IPv6；先验证 `ipaddress.IPv6Address(decoded_hostname)`，再掩码并把 zone `%` 重编码为 `%25`。非 bracketed hostname 若解码后含 `@/:?#`，直接返回 malformed；否则 quote 掩码后的 hostname component。path/query 各调用一次全局 `mask_secrets()`，重建后不得对完整 URL 再掩码。
 
-- [ ] **Step 3: 解耦 confirmer 与 MCP，区分拒绝原因**
-
-单次 run 的 confirmer 选择：
+FileWrite 摘要固定为：
 
 ```python
-confirmer = (
-    make_console_confirmer(console)
-    if console.is_terminal and sys.stdin.isatty()
-    else None
-)
+return f"FileWrite {safe_path} ({len(args.content)} characters)"
 ```
 
-REPL 两处 `run_once()` 都直接传 `confirmer=confirmer`。三个 gated tool 对 `ctx.confirmer is None` 返回 `rejected: no interactive confirmation channel available`；有 confirmer 且返回 false 时保留 `not approved by the user`。MCP `autoApprove` 的短路顺序不变。
-
-- [ ] **Step 4: 运行定向回归**
+- [ ] **Step 4: 运行 confirmer 回归**
 
 ```bash
 UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_cli.py tests/test_tools.py tests/test_web_file_tools.py -q
 ```
 
-预期：三类 formatter、敏感信息、TTY/non-TTY、autoApprove、Survey `--interactive` 全部 PASS。
+预期：formatter、TTY/non-TTY、autoApprove、Survey `--interactive` 和新 URL matrix 全部 PASS。
 
-- [ ] **Step 5: 提交确认器修复**
+- [ ] **Step 5: 提交 confirmer 完成修复**
 
 ```bash
-git add src/forgeagent/cli.py src/forgeagent/tools.py tests/test_cli.py tests/test_tools.py tests/test_web_file_tools.py
-git commit -m "fix: make restricted tool confirmation type safe"
+git add src/forgeagent/cli.py tests/test_cli.py
+git commit -m "fix: complete confirmation URL redaction"
+```
+
+### Task 3B: 收敛 WebFetch 与 search 消费端异常
+
+**Files:**
+- Modify: `src/forgeagent/tools.py`
+- Modify: `src/forgeagent/web_search.py`
+- Modify: `tests/test_web_file_tools.py`
+- Modify: `tests/test_web_search.py`
+- Modify: `tests/test_step.py`
+- Modify: `tests/test_cli.py`
+
+**Interfaces:**
+- Produces: WebFetch 固定 details `WebFetch blocked by network policy`、`WebFetch request failed`、`WebFetch response save failed`；`/search` unknown-charset UTF-8 fallback。
+- Consumes: `http.client.HTTPException`、`SSRFGuardError`、`ERROR_UNAVAILABLE`、`Step._render_feedback()`、`render_outcome()`。
+
+- [ ] **Step 1: 写 HTTPException、artifact 和反馈路径 RED 测试**
+
+在 `tests/test_web_file_tools.py` 用 fake response 的 open/read/exit 注入代表性异常：
+
+```python
+class _RaisingResponse(_FakeResponse):
+    def __init__(self, exc: Exception, *, stage: str = "read") -> None:
+        super().__init__(b"")
+        self._exc = exc
+        self._stage = stage
+
+    def read(self, n: int = -1) -> bytes:
+        if self._stage == "read":
+            raise self._exc
+        return super().read(n)
+
+    def __exit__(self, *exc_info) -> bool:
+        if self._stage == "exit":
+            raise self._exc
+        return False
+
+
+@pytest.mark.parametrize("stage", ["open", "read", "exit"])
+@pytest.mark.parametrize(
+    "exc",
+    [
+        http.client.InvalidURL("nonnumeric port"),
+        http.client.BadStatusLine("secret-host.invalid"),
+        http.client.LineTooLong("status line"),
+        http.client.IncompleteRead(b"partial", 10),
+        http.client.RemoteDisconnected("secret-host.invalid closed connection"),
+    ],
+)
+def test_webfetch_http_protocol_failures_are_fixed_and_do_not_raise(
+    stage, exc, monkeypatch
+):
+    def fake_open(url, **kwargs):
+        if stage == "open":
+            raise exc
+        return _RaisingResponse(exc, stage=stage)
+
+    monkeypatch.setattr("forgeagent.tools.guarded_urlopen", fake_open)
+    outcome = WebFetchTool().run(WebFetchArgs(url="https://secret-host.invalid/"), _webfetch_ctx())
+    assert outcome.success is False
+    assert outcome.detail == "WebFetch request failed"
+```
+
+open 阶段让 monkeypatched `guarded_urlopen()` 直接抛异常；read/exit 阶段由 response 抛出。三处消费边界都有明确 RED 证据。
+
+用 `patch.object(Path, "write_text", side_effect=OSError("/host/private/path"))` 断言 `WebFetch response save failed`。在 `tests/test_web_search.py` 断言代表性 `HTTPException` 返回 `([], ERROR_UNAVAILABLE)`，未知 charset 使用 UTF-8 replacement 后继续解析。
+
+在 `tests/test_step.py` 构造带固定 failure detail 的 `RoundResult`，断言 `_render_feedback()` 不含 secret URL；在 `tests/test_cli.py` 用 `render_outcome()` 断言普通 CLI 输出同样不含异常文本。
+
+- [ ] **Step 2: 运行 RED 测试**
+
+```bash
+UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_web_file_tools.py tests/test_web_search.py tests/test_step.py tests/test_cli.py -q
+```
+
+预期：HTTPException 或 artifact OSError 逃逸，search unknown charset 抛 `LookupError`，固定 feedback 断言 FAIL。
+
+- [ ] **Step 3: 实现局部固定错误类别**
+
+在 `tools.py` 导入 `http.client`，保持 SSRF 分类优先：
+
+```python
+try:
+    response = guarded_urlopen(args.url)
+    with response:
+        content_type = response.headers.get_content_type()
+        raw = response.read(_MAX_FETCH_BYTES + 1)
+except SSRFGuardError:
+    return ToolOutcome(tool="WebFetch", success=False, detail="WebFetch blocked by network policy")
+except (OSError, http.client.HTTPException, ValueError):
+    return ToolOutcome(tool="WebFetch", success=False, detail="WebFetch request failed")
+```
+
+artifact 写入使用独立 try/except，避免误报网络失败：
+
+```python
+try:
+    dest.write_text(masked, encoding="utf-8", errors="replace")
+except OSError:
+    return ToolOutcome(tool="WebFetch", success=False, detail="WebFetch response save failed")
+```
+
+`web_search.py` 捕获 `(OSError, http.client.HTTPException)`；decode 仅对 `LookupError` 回退：
+
+```python
+try:
+    html = raw.decode(charset, errors="replace")
+except LookupError:
+    html = raw.decode("utf-8", errors="replace")
+```
+
+不得增加覆盖整个函数的 `except Exception`。
+
+- [ ] **Step 4: 运行网络消费端回归**
+
+```bash
+UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_web_file_tools.py tests/test_web_search.py tests/test_step.py tests/test_cli.py -q
+```
+
+预期：代表性 HTTPException、invalid URL、artifact save、search unavailable/fallback、Step/CLI 最小披露全部 PASS。
+
+- [ ] **Step 5: 提交网络消费端修复**
+
+```bash
+git add src/forgeagent/tools.py src/forgeagent/web_search.py tests/test_web_file_tools.py tests/test_web_search.py tests/test_step.py tests/test_cli.py
+git commit -m "fix: contain guarded web consumer failures"
+```
+
+### Task 3C: 修复文件路径边界和失败披露
+
+**Files:**
+- Modify: `src/forgeagent/tools.py`
+- Modify: `src/forgeagent/_sandbox_worker.py`
+- Modify: `tests/test_web_file_tools.py`
+- Modify: `tests/test_restricted_backend.py`
+- Modify: `tests/test_step.py`
+- Modify: `tests/test_cli.py`
+
+**Interfaces:**
+- Produces: root-safe `_validate_path(path: str, allowed_root: str) -> Path`；FileRead/FileList 固定失败 detail；FileWrite canonical project-relative success detail。
+- Consumes: `os.path.realpath()`、`os.path.commonpath()`、`os.path.normcase()`、restricted audit hook。
+
+- [ ] **Step 1: 写 root、NUL、固定错误和 canonical success RED 测试**
+
+在 `tests/test_web_file_tools.py` 增加：
+
+```python
+def test_validate_path_accepts_descendant_when_allowed_root_is_filesystem_root(tmp_path):
+    assert _validate_path(str(tmp_path / "file.txt"), os.path.abspath(os.sep)) == (
+        tmp_path / "file.txt"
+    ).resolve()
+
+
+@pytest.mark.parametrize(
+    ("tool", "args", "detail"),
+    [
+        (FileReadTool(), FileReadArgs(path="bad\x00path"), "FileRead failed"),
+        (FileWriteTool(), FileWriteArgs(path="bad\x00path", content="x"), "FileWrite failed"),
+        (FileListTool(), FileListArgs(path="bad\x00path"), "FileList failed"),
+    ],
+)
+def test_file_tools_contain_invalid_path_value_error(tool, args, detail, tmp_path):
+    outcome = tool.run(args, _file_ctx(allowed_root=str(tmp_path)))
+    assert outcome.success is False
+    assert outcome.detail == detail
+```
+
+再覆盖：越界和 monkeypatched OSError 不含模型路径/root；`allowed_root="."` 与绝对项目内 FileWrite 成功均只返回 `wrote nested/file.txt`；静态 symlink 指向外部仍拒绝。`tests/test_restricted_backend.py` 用 `RestrictedBackend(allowed_root=os.path.abspath(os.sep))` 只读取测试创建的 tmp 文件，证明 audit hook 不再因 `//` predicate 误拒绝。
+
+- [ ] **Step 2: 运行 RED 测试**
+
+```bash
+UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_web_file_tools.py tests/test_restricted_backend.py tests/test_step.py tests/test_cli.py -q
+```
+
+预期：filesystem root 和 NUL 测试 FAIL；FileRead/List 仍回显绝对路径；FileWrite success 仍回显原始 args.path。
+
+- [ ] **Step 3: 实现 commonpath 和固定 outcome**
+
+`tools.py` 与 `_sandbox_worker.py` 保持独立的小判定，不新增模块：
+
+```python
+def _is_within_root(root: str, target: str) -> bool:
+    try:
+        common = os.path.commonpath((root, target))
+    except ValueError:
+        return False
+    return os.path.normcase(common) == os.path.normcase(root)
+```
+
+`_validate_path()` 在 `realpath()` 或 commonpath 失败时抛不含路径的 `PermissionError`/`ValueError`。FileRead/FileList 对 `(PermissionError, OSError, ValueError)` 分别返回 `FileRead failed` / `FileList failed`；FileWrite 保留越界 detail `FileWrite path is outside project root`，对 invalid/write failure 返回 `FileWrite failed`。
+
+FileWrite success 只能由 canonical 值生成：
+
+```python
+base = Path(os.path.realpath(ctx.allowed_root))
+relative = resolved.relative_to(base).as_posix()
+return ToolOutcome(tool="FileWrite", success=True, detail=f"wrote {relative}")
+```
+
+restricted audit hook 使用相同 commonpath/normcase 逻辑，拒绝消息固定为 `restricted: file access outside allowed root denied`，不附带 path。
+
+- [ ] **Step 4: 运行文件边界和反馈回归**
+
+```bash
+UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_web_file_tools.py tests/test_restricted_backend.py tests/test_step.py tests/test_cli.py -q
+```
+
+预期：root-safe containment、静态 symlink 拒绝、NUL 收敛、固定失败消息、canonical success 和 Step/CLI 无路径泄漏全部 PASS。
+
+- [ ] **Step 5: 提交文件边界修复**
+
+```bash
+git add src/forgeagent/tools.py src/forgeagent/_sandbox_worker.py tests/test_web_file_tools.py tests/test_restricted_backend.py tests/test_step.py tests/test_cli.py
+git commit -m "fix: harden file tool path boundaries"
 ```
 
 ### Task 4: 实施严格两阶段完成门控
@@ -435,27 +708,47 @@ git commit -m "feat: support required MCP services"
 - Modify: `tests/mcp_fixture_server.py`
 
 **Interfaces:**
-- Produces: 构造参数 `shutdown_timeout: float = 10.0`、`thread_join_timeout: float = 2.0`；幂等 `close() -> None`。
-- Consumes: `_holders`、`_sessions`、`_loop`、`_thread`、SDK stdio process-tree cleanup。
+- Produces: 构造参数 `shutdown_timeout: float = 10.0`、`thread_join_timeout: float = 2.0`；`_shutdown_future: Future[set[str]] | None`；固定 thread name `forgeagent-mcp-loop`；可重试且幂等的 `close() -> None`。
+- Consumes: `_holders`、`_sessions`、`_loop`、`_thread`、SDK stdio process-tree cleanup、`_remaining(deadline: float, *, reserve: float = 0.0) -> float`、absolute monotonic deadline。
 
-- [ ] **Step 1: 写 deadline、cancel、异常和重复 close RED 测试**
+- [ ] **Step 1: 写绝对 deadline、future ownership 和延迟清理 RED 测试**
 
-使用短注入上限验证：normal holder；忽略 stop 直到 cancel 的 holder；内部 `_submit` 抛 Exception；thread.join 超时；close 两次。每个测试断言 wall time 小于注入总 deadline 加 0.5 秒，且 close 不抛、`_closed is True`。真实 fixture PID 测试断言进程在默认 deadline 内消失。
+使用短注入上限验证：normal holder；忽略 stop 直到 cancel 的 holder；内部 shutdown 异常；future timeout；thread.join 超时；close 两次；第一次 close 超时后让 thread 停止，再次 close 才关闭 loop/清引用。每个测试断言 wall time 小于注入总 deadline 加 0.5 秒、close 不抛、`_closed is True`。warning 必须包含固定 thread name、ident、alive 状态、pending server snapshot、`shutdown incomplete`，不得包含 arguments/env/server content。真实 fixture PID 测试断言 normal/holder-stuck 路径在默认 deadline 内消失；event-loop hard-stuck 路径只断言 CLI 返回、资源残余 warning 和引用保留。
 
-- [ ] **Step 2: 实现基于绝对时间的 holder 收尾**
+- [ ] **Step 2: 实现 manager shutdown 状态字段和线程命名**
 
-内部 coroutine 只使用实时剩余额度：
+在 `MCPManager.__init__` 增加：
+
+```python
+self._shutdown_timeout = shutdown_timeout
+self._thread_join_timeout = thread_join_timeout
+self._closed = False
+self._shutdown_future: concurrent.futures.Future[set[str]] | None = None
+```
+
+创建后台 loop 时固定 `name="forgeagent-mcp-loop"`。构造参数只供内部和测试注入，不加入 YAML 配置。
+
+模块内 deadline helper 固定为：
 
 ```python
 def _remaining(deadline: float, *, reserve: float = 0.0) -> float:
     return max(0.0, deadline - time.monotonic() - reserve)
+```
 
+- [ ] **Step 3: 实现 loop-owned holder shutdown**
 
-async def _shutdown_holders(self, deadline: float) -> None:
+主线程提交前保存只读 snapshot；loop coroutine 独占 Task wait/cancel 和容器清理：
+
+```python
+async def _shutdown_holders(
+    self,
+    holder_snapshot: dict[str, asyncio.Task],
+    deadline: float,
+) -> set[str]:
     for state in self._states.values():
         if state.stop is not None:
             state.stop.set()
-    pending = set(self._holders.values())
+    pending = set(holder_snapshot.values())
     if pending:
         _, pending = await asyncio.wait(
             pending,
@@ -464,27 +757,70 @@ async def _shutdown_holders(self, deadline: float) -> None:
     for holder in pending:
         holder.cancel()
     if pending:
-        await asyncio.wait(
+        _, pending = await asyncio.wait(
             pending,
             timeout=_remaining(deadline, reserve=self._thread_join_timeout),
         )
-    self._holders.clear()
-    self._sessions.clear()
+    for name, holder in holder_snapshot.items():
+        if holder.done():
+            self._holders.pop(name, None)
+    return {name for name, holder in holder_snapshot.items() if not holder.done()}
 ```
 
-- [ ] **Step 3: 实现公开 close 的 no-throw 边界**
+不得从主线程修改仍可能被该 coroutine 使用的 `_holders`/`_sessions`；pending holder/session 引用保留到 loop thread 停止。
 
-进入函数立即 `getattr`/设置 `_closed`，建立 `deadline = monotonic + shutdown + join`。在 try 中提交 `_shutdown_holders`；except Exception 记录 warning；finally 中 stop loop、按 `min(thread_join_timeout, remaining)` join，线程停止后才 close loop，并清理引用。Timeout 时 cancel submitted future。不要捕获 BaseException。
+- [ ] **Step 4: 实现公开 `close()` 的 future、retry 和 no-throw 边界**
 
-- [ ] **Step 4: 运行 MCP 专项测试**
+首次调用立即设置 `_closed=True`；未创建 loop 时清理空引用并返回。存在 loop 时建立唯一 absolute deadline，保存 `self._shutdown_future = asyncio.run_coroutine_threadsafe(...)`，在剩余时间内读取结果。future 返回时使用精确 pending names并清除 future；超时或异常时 `future.cancel()` 但保留引用，使用提交前的 name snapshot。finally 只通过 `loop.call_soon_threadsafe(loop.stop)`、bounded `thread.join()` 完成线程收尾；线程停止后才关闭 loop、清空 `_shutdown_future`、holders、sessions、loop、thread。线程仍活跃时保留全部引用并记录无敏感信息 warning。重复 close 不重跑 holder shutdown，只对保存的 future 重复 cancel，并重试 stop/join。只捕获 `Exception`，不吞 `KeyboardInterrupt`/`SystemExit`。
+
+核心控制流必须保持以下 ownership，不得在主线程清理 loop-owned 容器：
+
+```python
+if getattr(self, "_closed", False):
+    try:
+        self._retry_lingering_thread()
+    except Exception as exc:
+        logger.warning("MCP shutdown retry failed: %s", type(exc).__name__)
+    return
+self._closed = True
+if self._loop is None:
+    self._clear_stopped_resources()
+    return
+deadline = time.monotonic() + self._shutdown_timeout + self._thread_join_timeout
+holder_snapshot = dict(self._holders)
+fallback_pending = set(holder_snapshot)
+pending = fallback_pending
+try:
+    self._shutdown_future = asyncio.run_coroutine_threadsafe(
+        self._shutdown_holders(holder_snapshot, deadline), self._loop
+    )
+    pending = self._shutdown_future.result(
+        timeout=_remaining(deadline, reserve=self._thread_join_timeout)
+    )
+    self._shutdown_future = None
+except Exception as exc:
+    pending = fallback_pending
+    if self._shutdown_future is not None:
+        self._shutdown_future.cancel()
+    logger.warning("MCP shutdown failed: %s", type(exc).__name__)
+finally:
+    try:
+        self._stop_and_join(deadline, pending)
+    except Exception as exc:
+        logger.warning("MCP shutdown finalization failed: %s", type(exc).__name__)
+```
+
+`_clear_stopped_resources()` 只在线程不存在或确认停止后清空 future/holders/sessions/loop/thread。`_stop_and_join()` 对 stop、join 和 loop.close 各自使用独立 `try/except Exception`，确保某一步失败不跳过后续收尾；在线程仍存活时保留全部引用并记录 `shutdown incomplete; resources may remain`。`_retry_lingering_thread()` 为每次重试建立 `monotonic() + thread_join_timeout` 的新 deadline，只能再次 cancel 已保存 future 并 stop/join，绝不重新提交 holder coroutine。
+
+- [ ] **Step 5: 运行 MCP 专项测试**
 
 ```bash
 UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_mcp_manager.py tests/test_cli.py -q
 ```
 
-预期：normal、stuck、timeout、internal exception、idempotent、required startup cleanup 全部 PASS；无 fixture PID 存活。
+预期：normal、stuck、timeout、internal exception、future cancellation、idempotent、delayed cleanup、required startup cleanup 全部 PASS；normal/holder-stuck fixture 无 PID 存活；hard-stuck 仅保留有证据的 incomplete-shutdown warning。
 
-- [ ] **Step 5: 提交 MCP 生命周期修复**
+- [ ] **Step 6: 提交 MCP 生命周期修复**
 
 ```bash
 git add src/forgeagent/mcp_manager.py tests/test_mcp_manager.py tests/mcp_fixture_server.py
@@ -684,7 +1020,17 @@ git commit -m "test: cover hardened runtime boundaries in golden core"
 
 - [ ] **Step 2: 更新安全与 MCP 文档**
 
-`threat-model.md` 写入 ProxyHandler({})、10 hop、HTTP(S) redirect、未来 network.proxy 非实现状态、TTY/non-TTY 和 autoApprove 边界。发布说明用 `[SECURITY][BREAKING]` 标记环境代理被禁用。MCP 文档加入 required、optional degrade、absolute deadline close。
+`threat-model.md` 写入以下已批准边界：
+
+- `ProxyHandler({})` 禁用大小写环境代理，`NO_PROXY` 不能重新启用代理；HTTP(S) redirect 最多 10 跳且每跳重新校验。
+- 未来显式代理只能选择 trusted-forward-proxy 或 guarded-tunnel trust model，本 change 不实现 `network.proxy`。
+- `realpath + commonpath` 阻止静态 symlink alias escape，但不能消除攻击者并发替换 canonical ancestor 的 TOCTOU；restricted tier 仍假设 host/trusted code/MCP 不并发改写 `allowed_root` 祖先。
+- fixed outcome message 主动牺牲底层诊断文本，避免 URL、hostname 和宿主路径回流到 Step/CLI。
+- event-loop thread 完全卡死时 MCP transport、FD 或 child process 可能暂留；CLI 按 deadline 返回、保留引用并输出 `shutdown incomplete; resources may remain`，不声称能强杀 Python thread。
+
+README 的 release-facing compatibility note 必须使用 `[SECURITY][BREAKING]`，明确依赖企业环境代理的部署会直连失败，且不得建议用 `NO_PROXY` 或恢复环境 `ProxyHandler` 规避。只列三条可操作迁移路径：允许 ForgeAgent 进程直连；由外部可信进程预取到 `allowed_root` 后用 FileRead；改用用户显式信任的 MCP fetch 工具。
+
+`docs/m10-usage-observability-and-tools.md` 同步 direct-only WebFetch、固定 WebFetch/FileRead/FileWrite/FileList outcome 和 symlink residual；`docs/m7-tools-mcp-survey.md` 加入 `required`、optional degrade、absolute deadline、固定 thread 诊断和 incomplete-shutdown residual。TTY/non-TTY、autoApprove 和不抓取线程堆栈的理由也写入对应边界说明。
 
 - [ ] **Step 3: 重写黄金验证口径**
 
@@ -719,7 +1065,7 @@ git commit -m "docs: align runtime contracts and golden validation"
 - Generated only: `artifacts/golden/offline/results.json`, `artifacts/golden/offline/report.md`
 
 **Interfaces:**
-- Produces: 33/33 tasks 勾选、实证里程碑、完整离线报告、可进入 Comet verify 的提交状态。
+- Produces: 37/37 tasks 勾选、实证里程碑、完整离线报告、可进入 Comet verify 的提交状态。
 - Consumes: 所有实现提交、OpenSpec specs、Design Doc、base ref。
 
 - [ ] **Step 1: 运行静态检查**
@@ -766,9 +1112,9 @@ UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run python -m tests.golden.runner
 
 查询 `guarded_urlopen`, `make_console_confirmer`, `_apply_declared_status`, `MCPManager.connect/close`, `GoldenScenario` 的调用方。确认 WebFetch/search、run/REPL、Task/Step、MCP CLI 和测试入口均覆盖，无 stale index 警告未处理。
 
-- [ ] **Step 6: 创建实证里程碑并回填 33 项 tasks**
+- [ ] **Step 6: 创建实证里程碑并回填 37 项 tasks**
 
-全部门禁通过后，按 `MILESTONE_GUIDE.md` 一次性创建 `milestones/milestone_013.md`，把实际命令、pass/skip 数、黄金通过率和三次评审结论写入文件，并将 `milestones/latest` 更新为唯一一行 `milestone_013.md`。M11/M12 仍是未完成规划，因此 M13 的“前置里程碑”链接写为最后已完成的 `milestone_010.md`，并在正文说明编号跳跃原因。逐条核对本计划末尾映射后，将 `tasks.md` 的 33 个 checkbox 定向改为 `[x]`；不能一次性盲目全选。
+全部门禁通过后，按 `MILESTONE_GUIDE.md` 一次性创建 `milestones/milestone_013.md`，把实际命令、pass/skip 数、黄金通过率和三次评审结论写入文件，并将 `milestones/latest` 更新为唯一一行 `milestone_013.md`。M11/M12 仍是未完成规划，因此 M13 的“前置里程碑”链接写为最后已完成的 `milestone_010.md`，并在正文说明编号跳跃原因。逐条核对本计划末尾映射后，将 `tasks.md` 的 37 个 checkbox 定向改为 `[x]`；不能一次性盲目全选。
 
 - [ ] **Step 7: 提交验证收尾**
 
@@ -786,8 +1132,10 @@ git commit -m "chore: record hardening verification evidence"
 | 1.3 | 1, 6 |
 | 1.4 | 1 |
 | 2.1-2.4 | 2, 10 |
-| 3.1-3.3 | 3 |
+| 3.1-3.3 | 3A |
 | 3.4-3.5 | 4 |
+| 3.6-3.7 | 3A, 3B, 3C |
+| 3.8-3.9 | 3B, 3C |
 | 4.1-4.3 | 5 |
 | 4.4-4.5 | 6 |
 | 5.1-5.5 | 7, 8, 9 |
@@ -796,7 +1144,7 @@ git commit -m "chore: record hardening verification evidence"
 
 ## Final Plan Self-Review
 
-- Spec coverage: 五份 capability specs 和 tasks.md 33 项均在 coverage map 中有实施与验证任务。
+- Spec coverage: 五份 capability specs 和 tasks.md 37 项均在 coverage map 中有实施与验证任务。
 - Type consistency: `GoldenScenario`, `GoldenEvidence`, `MCPStartupError`, `required_failures()`, `_GuardedRedirectHandler` 和完成门控签名在生产者与消费者任务中一致。
 - Scope: 未增加依赖、代理实现、通用策略层、并发 golden runner 或无关重构。
 - Execution safety: 每个行为任务包含 RED、GREEN、定向测试和独立提交；综合验证不使用人工 deselect。
