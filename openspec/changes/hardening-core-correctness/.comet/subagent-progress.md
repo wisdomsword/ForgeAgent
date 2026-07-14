@@ -71,7 +71,7 @@
 - Final review result: blocked after two review-fix rounds because percent-encoded hostname values were not decoded before known-secret masking.
 - Scope decision: user expanded the current change to include post-confirmation WebFetch and file outcome hardening. The approved design was committed through `7c3e13f`; the implementation plan was split into Task 3A/3B/3C and committed as `d356d6d`.
 
-## Current Task
+## Completed Task 3A
 
 - Plan task: `Task 3A: 完成 confirmer URL 组件脱敏`
 - OpenSpec mappings:
@@ -95,4 +95,34 @@
 - Review result: approved; no Critical or Important issues. The sole Minor was stale report commit state and was corrected in the ignored handoff report.
 - Review/fix round: `0/2`
 - Checkoff result: all five Task 3A plan steps and OpenSpec 3.1-3.3 passed exact-text `task-checkoff`; shared OpenSpec 3.6 remains pending until Task 3B/3C complete its remaining scenarios.
+
+## Current Task
+
+- Plan task: `Task 3B: 收敛 WebFetch 与 search 消费端异常`
+- OpenSpec mappings:
+  - Partial: `3.6 为 percent-encoded/大小写变化/重叠的 hostname secret、encoded delimiter、IPv6/zone-id、组件级 mask 交互、Unicode content character count、WebFetch guard/network 失败和 FileWrite 成功/写入失败结果增加泄漏回归测试`
+  - Partial: `3.7 实施固定安全 WebFetch 失败消息与 FileWrite project-relative 成功/固定失败消息，并验证 Step feedback 不再暴露原始 URL、hostname 或宿主绝对路径`
+  - Partial: `3.8 为 InvalidURL/BadStatusLine/LineTooLong/IncompleteRead/RemoteDisconnected、WebFetch artifact 写入、search 未知 charset、allowed_root="/"、非法路径及 FileRead/FileList 失败文本增加行为探针和回归测试`
+  - Partial: `3.9 实施 WebFetch/search 消费端异常收敛、canonical commonpath 文件边界和 FileRead/FileList 固定失败消息，并验证 CLI outcome 渲染不泄漏敏感路径`
+- Stage: `done`
+- Base commit: `bf5faa6`
+- Implementer: `019f5f30-c01c-76c3-ac2b-684a6d419dd2` (`Kierkegaard`)
+- Implementer report: `.superpowers/sdd/task-3B-report.md`
+- Implementer status: `DONE`
+- Implementation commit: `d41d124`
+- RED evidence: focused WebFetch/search/Step/CLI suite exited 1 with `19 failed, 156 passed` before production edits.
+- GREEN evidence: same focused suite `175 passed`; scoped Ruff `All checks passed!`.
+- Changed files: `src/forgeagent/tools.py`, `src/forgeagent/web_search.py`, `tests/test_web_file_tools.py`, `tests/test_web_search.py`, `tests/test_step.py`, `tests/test_cli.py`
+- Risk signals: cross-module external-input/error-boundary change; security-sensitive URL/hostname disclosure; public ToolOutcome feedback contract.
+- Reviewer: `019f5f38-cd09-70c3-93aa-2cb9361f8ee1` (`Confucius`)
+- Review package: `.superpowers/sdd/review-bf5faa6..d41d124.diff`
+- Review result: production behavior compliant; no Critical/Important. Minor test gap requires fix because the explicit plain `ValueError` branch was only indirectly represented by `InvalidURL`, an `HTTPException` subclass.
+- Review/fix round: `1/2`
+- Fix agent: `019f5f3c-4825-7fb2-b280-6ab34832ad1d` (`Halley`)
+- Fix commit: `f372ce7`
+- Fix evidence: mutation RED escaped plain `ValueError`; restored production then focused GREEN `1 passed`, Task 3B suite `176 passed`, Ruff passed.
+- Re-reviewer: `019f5f40-2b7a-72d2-847e-3af6ce9d7909` (`Copernicus`)
+- Re-review package: `.superpowers/sdd/review-bf5faa6..f372ce7.diff`
+- Re-review result: approved with no Critical, Important, or Minor findings; direct plain `ValueError` coverage is mutation-sensitive and production restoration was verified.
 - Review mode: `thorough`
+- Checkoff result: all five Task 3B plan steps passed exact-text `task-checkoff`; shared OpenSpec 3.6-3.9 remain pending until Task 3C completes their file-boundary portions.

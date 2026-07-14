@@ -366,7 +366,7 @@ git commit -m "fix: complete confirmation URL redaction"
 - Produces: WebFetch 固定 details `WebFetch blocked by network policy`、`WebFetch request failed`、`WebFetch response save failed`；`/search` unknown-charset UTF-8 fallback。
 - Consumes: `http.client.HTTPException`、`SSRFGuardError`、`ERROR_UNAVAILABLE`、`Step._render_feedback()`、`render_outcome()`。
 
-- [ ] **Step 1: 写 HTTPException、artifact 和反馈路径 RED 测试**
+- [x] **Step 1: 写 HTTPException、artifact 和反馈路径 RED 测试**
 
 在 `tests/test_web_file_tools.py` 用 fake response 的 open/read/exit 注入代表性异常：
 
@@ -419,7 +419,7 @@ open 阶段让 monkeypatched `guarded_urlopen()` 直接抛异常；read/exit 阶
 
 在 `tests/test_step.py` 构造带固定 failure detail 的 `RoundResult`，断言 `_render_feedback()` 不含 secret URL；在 `tests/test_cli.py` 用 `render_outcome()` 断言普通 CLI 输出同样不含异常文本。
 
-- [ ] **Step 2: 运行 RED 测试**
+- [x] **Step 2: 运行网络消费端 RED 测试**
 
 ```bash
 UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_web_file_tools.py tests/test_web_search.py tests/test_step.py tests/test_cli.py -q
@@ -427,7 +427,7 @@ UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_web_file_tools.py
 
 预期：HTTPException 或 artifact OSError 逃逸，search unknown charset 抛 `LookupError`，固定 feedback 断言 FAIL。
 
-- [ ] **Step 3: 实现局部固定错误类别**
+- [x] **Step 3: 实现局部固定错误类别**
 
 在 `tools.py` 导入 `http.client`，保持 SSRF 分类优先：
 
@@ -463,7 +463,7 @@ except LookupError:
 
 不得增加覆盖整个函数的 `except Exception`。
 
-- [ ] **Step 4: 运行网络消费端回归**
+- [x] **Step 4: 运行网络消费端回归**
 
 ```bash
 UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_web_file_tools.py tests/test_web_search.py tests/test_step.py tests/test_cli.py -q
@@ -471,7 +471,7 @@ UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_web_file_tools.py
 
 预期：代表性 HTTPException、invalid URL、artifact save、search unavailable/fallback、Step/CLI 最小披露全部 PASS。
 
-- [ ] **Step 5: 提交网络消费端修复**
+- [x] **Step 5: 提交网络消费端修复**
 
 ```bash
 git add src/forgeagent/tools.py src/forgeagent/web_search.py tests/test_web_file_tools.py tests/test_web_search.py tests/test_step.py tests/test_cli.py
@@ -519,7 +519,7 @@ def test_file_tools_contain_invalid_path_value_error(tool, args, detail, tmp_pat
 
 再覆盖：越界和 monkeypatched OSError 不含模型路径/root；`allowed_root="."` 与绝对项目内 FileWrite 成功均只返回 `wrote nested/file.txt`；静态 symlink 指向外部仍拒绝。`tests/test_restricted_backend.py` 用 `RestrictedBackend(allowed_root=os.path.abspath(os.sep))` 只读取测试创建的 tmp 文件，证明 audit hook 不再因 `//` predicate 误拒绝。
 
-- [ ] **Step 2: 运行 RED 测试**
+- [ ] **Step 2: 运行文件边界 RED 测试**
 
 ```bash
 UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_web_file_tools.py tests/test_restricted_backend.py tests/test_step.py tests/test_cli.py -q
