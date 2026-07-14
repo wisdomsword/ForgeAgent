@@ -96,7 +96,7 @@
 - Review/fix round: `0/2`
 - Checkoff result: all five Task 3A plan steps and OpenSpec 3.1-3.3 passed exact-text `task-checkoff`; shared OpenSpec 3.6 remains pending until Task 3B/3C complete its remaining scenarios.
 
-## Current Task
+## Completed Task 3B
 
 - Plan task: `Task 3B: 收敛 WebFetch 与 search 消费端异常`
 - OpenSpec mappings:
@@ -126,3 +126,35 @@
 - Re-review result: approved with no Critical, Important, or Minor findings; direct plain `ValueError` coverage is mutation-sensitive and production restoration was verified.
 - Review mode: `thorough`
 - Checkoff result: all five Task 3B plan steps passed exact-text `task-checkoff`; shared OpenSpec 3.6-3.9 remain pending until Task 3C completes their file-boundary portions.
+
+## Current Task
+
+- Plan task: `Task 3C: 修复文件路径边界和失败披露`
+- OpenSpec mappings:
+  - Completion: `3.6 为 percent-encoded/大小写变化/重叠的 hostname secret、encoded delimiter、IPv6/zone-id、组件级 mask 交互、Unicode content character count、WebFetch guard/network 失败和 FileWrite 成功/写入失败结果增加泄漏回归测试`
+  - Completion: `3.7 实施固定安全 WebFetch 失败消息与 FileWrite project-relative 成功/固定失败消息，并验证 Step feedback 不再暴露原始 URL、hostname 或宿主绝对路径`
+  - Completion: `3.8 为 InvalidURL/BadStatusLine/LineTooLong/IncompleteRead/RemoteDisconnected、WebFetch artifact 写入、search 未知 charset、allowed_root="/"、非法路径及 FileRead/FileList 失败文本增加行为探针和回归测试`
+  - Completion: `3.9 实施 WebFetch/search 消费端异常收敛、canonical commonpath 文件边界和 FileRead/FileList 固定失败消息，并验证 CLI outcome 渲染不泄漏敏感路径`
+- Stage: `done`
+- Base commit: `0287faa`
+- Implementer: `019f5f47-5311-7803-836c-81ad5f51b913` (`Hubble`)
+- Implementer report: `.superpowers/sdd/task-3C-report.md`
+- Implementer status: `DONE`
+- Implementation commit: `a97c3c0`
+- RED evidence: focused file/restricted/Step/CLI suite exited 1 with `13 failed, 169 passed` before production edits.
+- GREEN evidence: same focused suite `182 passed`; scoped Ruff `All checks passed!`.
+- Changed files: `src/forgeagent/tools.py`, `src/forgeagent/_sandbox_worker.py`, `tests/test_web_file_tools.py`, `tests/test_restricted_backend.py`, `tests/test_step.py`, `tests/test_cli.py`
+- Risk signals: security-sensitive path boundary, external input, duplicated containment semantics across host/restricted worker; documented concurrent ancestor-symlink TOCTOU residual.
+- Reviewer: `019f5f50-3419-7782-aecc-eb1557c7afc0` (`Kepler`)
+- Review package: `.superpowers/sdd/review-0287faa..a97c3c0.diff`
+- Review result: implementation approved with no Critical/Important. Accepted Minor for repair: Step/CLI tests constructed already-sanitized outcomes instead of routing real FileRead/FileList failures through renderers.
+- Review/fix round: `1/2`
+- Fix agent: `019f5f55-33b3-79a2-9434-59ccbd2003d1` (`Nietzsche`)
+- Fix commit: `2eeb946`
+- Fix evidence: real FileRead/FileList outcomes routed through Step/CLI; mutation RED `2 failed`, focused GREEN `2 passed`, Task 3C suite `182 passed`, Ruff passed, production diff restored to empty.
+- Integration note: subagent Git metadata permission failed; coordinator committed only the two test files after `git diff --check`, without source implementation.
+- Re-reviewer: `019f5f61-cc08-7380-906c-5c2007d76380` (`Planck`)
+- Re-review package: `.superpowers/sdd/review-0287faa..2eeb946.diff`
+- Re-review result: approved with no Critical, Important, or Minor findings; real tool failures now exercise both renderer boundaries and no temporary production mutation remains.
+- Review mode: `thorough`
+- Checkoff result: all five Task 3C plan steps and OpenSpec 3.6-3.9 passed exact-text `task-checkoff`; the expanded core-correctness outcome scope is complete.

@@ -492,7 +492,7 @@ git commit -m "fix: contain guarded web consumer failures"
 - Produces: root-safe `_validate_path(path: str, allowed_root: str) -> Path`；FileRead/FileList 固定失败 detail；FileWrite canonical project-relative success detail。
 - Consumes: `os.path.realpath()`、`os.path.commonpath()`、`os.path.normcase()`、restricted audit hook。
 
-- [ ] **Step 1: 写 root、NUL、固定错误和 canonical success RED 测试**
+- [x] **Step 1: 写 root、NUL、固定错误和 canonical success RED 测试**
 
 在 `tests/test_web_file_tools.py` 增加：
 
@@ -519,7 +519,7 @@ def test_file_tools_contain_invalid_path_value_error(tool, args, detail, tmp_pat
 
 再覆盖：越界和 monkeypatched OSError 不含模型路径/root；`allowed_root="."` 与绝对项目内 FileWrite 成功均只返回 `wrote nested/file.txt`；静态 symlink 指向外部仍拒绝。`tests/test_restricted_backend.py` 用 `RestrictedBackend(allowed_root=os.path.abspath(os.sep))` 只读取测试创建的 tmp 文件，证明 audit hook 不再因 `//` predicate 误拒绝。
 
-- [ ] **Step 2: 运行文件边界 RED 测试**
+- [x] **Step 2: 运行文件边界 RED 测试**
 
 ```bash
 UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_web_file_tools.py tests/test_restricted_backend.py tests/test_step.py tests/test_cli.py -q
@@ -527,7 +527,7 @@ UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_web_file_tools.py
 
 预期：filesystem root 和 NUL 测试 FAIL；FileRead/List 仍回显绝对路径；FileWrite success 仍回显原始 args.path。
 
-- [ ] **Step 3: 实现 commonpath 和固定 outcome**
+- [x] **Step 3: 实现 commonpath 和固定 outcome**
 
 `tools.py` 与 `_sandbox_worker.py` 保持独立的小判定，不新增模块：
 
@@ -552,7 +552,7 @@ return ToolOutcome(tool="FileWrite", success=True, detail=f"wrote {relative}")
 
 restricted audit hook 使用相同 commonpath/normcase 逻辑，拒绝消息固定为 `restricted: file access outside allowed root denied`，不附带 path。
 
-- [ ] **Step 4: 运行文件边界和反馈回归**
+- [x] **Step 4: 运行文件边界和反馈回归**
 
 ```bash
 UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_web_file_tools.py tests/test_restricted_backend.py tests/test_step.py tests/test_cli.py -q
@@ -560,7 +560,7 @@ UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_web_file_tools.py
 
 预期：root-safe containment、静态 symlink 拒绝、NUL 收敛、固定失败消息、canonical success 和 Step/CLI 无路径泄漏全部 PASS。
 
-- [ ] **Step 5: 提交文件边界修复**
+- [x] **Step 5: 提交文件边界修复**
 
 ```bash
 git add src/forgeagent/tools.py src/forgeagent/_sandbox_worker.py tests/test_web_file_tools.py tests/test_restricted_backend.py tests/test_step.py tests/test_cli.py
