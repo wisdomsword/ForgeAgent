@@ -235,7 +235,7 @@ git commit -m "fix: enforce direct guarded web connections"
 - Produces: `_mask_confirmation_hostname(hostname: str, secret_values: set[str]) -> str`；确定性的 `_redact_confirmation_url(url: str) -> str`；FileWrite `characters` 摘要。
 - Consumes: `REDACTED`、`is_secret_name()`、`mask_secrets()`、`sensitive_env_values()`、`urllib.parse` 结构化 API。
 
-- [ ] **Step 1: 写 hostname、IPv6 和组件交互 RED 测试**
+- [x] **Step 1: 写 hostname、IPv6 和组件交互 RED 测试**
 
 在 `tests/test_cli.py` 增加参数化断言，至少包含：
 
@@ -302,7 +302,7 @@ def test_confirmation_summary_prefers_longest_overlapping_hostname_secret(monkey
     assert "value-12345" not in rendered
 ```
 
-- [ ] **Step 2: 运行 RED 测试并记录失败**
+- [x] **Step 2: 运行 RED 测试并记录失败**
 
 ```bash
 UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_cli.py -q
@@ -310,7 +310,7 @@ UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_cli.py -q
 
 预期：percent-encoded/case hostname、encoded delimiter 和 `characters` 标签至少一项 FAIL。
 
-- [ ] **Step 3: 实现单次 hostname 匹配和结构化重建**
+- [x] **Step 3: 实现单次 hostname 匹配和结构化重建**
 
 在 `cli.py` 导入 `ipaddress`、`re` 和 `REDACTED`。局部 helper 只处理已经解码的 hostname：
 
@@ -337,7 +337,7 @@ FileWrite 摘要固定为：
 return f"FileWrite {safe_path} ({len(args.content)} characters)"
 ```
 
-- [ ] **Step 4: 运行 confirmer 回归**
+- [x] **Step 4: 运行 confirmer 回归**
 
 ```bash
 UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_cli.py tests/test_tools.py tests/test_web_file_tools.py -q
@@ -345,7 +345,7 @@ UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_cli.py tests/test
 
 预期：formatter、TTY/non-TTY、autoApprove、Survey `--interactive` 和新 URL matrix 全部 PASS。
 
-- [ ] **Step 5: 提交 confirmer 完成修复**
+- [x] **Step 5: 提交 confirmer 完成修复**
 
 ```bash
 git add src/forgeagent/cli.py tests/test_cli.py

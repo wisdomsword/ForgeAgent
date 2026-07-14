@@ -63,43 +63,36 @@
 - Re-review package: `.superpowers/sdd/review-faa7b2e..acaa25f.diff`
 - Review/fix round: `2/2`
 
+## Superseded Task 3 Checkpoint
+
+- Original plan task: `Task 3: 统一且最小披露的工具确认`
+- Implementation commits: `a370811`, `72a1585`, `5894316`, `66612f6`
+- Final focused evidence: Task 3 suite `113 passed`; full pytest `484 passed, 13 skipped`; Ruff clean.
+- Final review result: blocked after two review-fix rounds because percent-encoded hostname values were not decoded before known-secret masking.
+- Scope decision: user expanded the current change to include post-confirmation WebFetch and file outcome hardening. The approved design was committed through `7c3e13f`; the implementation plan was split into Task 3A/3B/3C and committed as `d356d6d`.
+
 ## Current Task
 
-- Plan task: `Task 3: 统一且最小披露的工具确认`
+- Plan task: `Task 3A: 完成 confirmer URL 组件脱敏`
 - OpenSpec mappings:
   - `3.1 为 MCP、WebFetch、FileWrite 参数分别增加 confirmer 格式化与批准/拒绝测试`
   - `3.2 扩展现有 confirmer 使其类型安全地支持三类工具参数，不引入新的审批框架`
   - `3.3 按 TTY 能力为 REPL 和单次 run 自动注入 confirmer，验证非 TTY 默认拒绝且 --interactive 仍只控制 Survey`
-- Stage: `design-update`
-- Base commit: `797a3e7`
-- Implementer: `019f5af9-1ea0-7a31-a4db-d3c4bd00ce24` (`Poincare`)
-- Implementation commit: `a370811`
-- RED evidence: focused confirmer suite `10 failed, 92 passed` before production edits.
-- GREEN evidence: focused suite `102 passed`; full pytest `473 passed, 13 skipped`; Ruff clean.
-- Changed files: `src/forgeagent/cli.py`, `src/forgeagent/tools.py`, `tests/test_cli.py`, `tests/test_tools.py`, `tests/test_web_file_tools.py`
-- Risk signals: security-sensitive secret/path/URL disclosure; TTY/shared CLI integration; task diff exceeds 200 lines (`292 insertions, 15 deletions`).
-- Review result: changes requested. Critical: explicit WebFetch rejection leaks the original URL. Important: URL fragment/malformed input redaction, FileWrite useful-safe path display and rejection/validation path leakage, and auditable TDD ordering evidence. Minor: deterministic Rich non-terminal test and duplicated one-shot test scaffolding.
-- Review/fix round: `1/2`
-- Implementer report: `.superpowers/sdd/task-3-report.md`
-- Reviewer: `019f5b0c-b78c-7192-abf5-bab643e12208` (`Anscombe`)
-- Review package: `.superpowers/sdd/review-797a3e7..a370811.diff`
-- Fix stage: `final-fix`
-- Fix round: `1/2`
-- Fix agent: `019f5b1b-f032-7b11-a659-460e5787ee94` (`Kant`)
-- Fix commits: `72a1585` (security fixes), `5894316` (remove accidental report tracking)
-- Fix evidence: current RED `9 failed, 99 passed`; archived original Task 3 RED `10 failed, 92 passed`; GREEN `108 passed`; full pytest `479 passed, 13 skipped`; Ruff clean.
-- Re-reviewer: `019f5b37-f5dc-7770-9b86-aebd1091ca7a` (`Aristotle`)
-- Re-review package: `.superpowers/sdd/review-797a3e7..5894316.diff`
-- Review/fix round: `2/2`
-- Re-review result: changes requested. Critical: known secrets can remain in hostname, query keys, and percent-encoded paths. Minor: userinfo must be removed rather than replaced.
-- Second fix stage: `final-fix`
-- Second fix agent: `019f5b3f-33d7-7af2-a3b6-68ac429ccbbb` (`Dewey`)
-- Second fix commit: `66612f6`
-- Second fix evidence: component leak RED `5 failed` plus fragment-removal RED `1 failed`; GREEN Task 3 suite `113 passed`; full pytest `484 passed, 13 skipped`; Ruff clean.
-- Final re-reviewer: `019f5b4d-4456-7ef1-a82d-42caff426e34` (`Arendt`)
-- Final re-review package: `.superpowers/sdd/review-797a3e7..66612f6.diff`
-- Final re-review result: BLOCKED after the maximum two review-fix rounds.
-- Confirmed binding blocker: percent-encoded hostname values are not decoded before known-secret masking in the WebFetch confirmation summary.
-- Reviewer scope adjudication: raw WebFetch network-error text and successful/post-validation FileWrite outcome paths are outside the current OpenSpec requirement, which governs confirmation prompts plus no-channel/explicit-rejection behavior. Treating them as mandatory requires an explicit scope expansion and delta-spec/design update.
-- Resume decision required: authorize one exceptional narrow fix/re-review round, expand the current change to sanitize all post-confirmation outcomes, or pause.
-- Scope decision: user selected expansion of the current change and approved fixed safe outcome messages. Design Doc, delta spec, OpenSpec design and tasks are being updated before implementation resumes.
+  - Partial: `3.6 为 percent-encoded/大小写变化/重叠的 hostname secret、encoded delimiter、IPv6/zone-id、组件级 mask 交互、Unicode content character count、WebFetch guard/network 失败和 FileWrite 成功/写入失败结果增加泄漏回归测试`
+- Stage: `done`
+- Base commit: `d356d6d`
+- Implementer: `019f5f0c-8751-7613-84ea-81728735f025` (`Singer`)
+- Implementer report: `.superpowers/sdd/task-3A-report.md`
+- Implementer status: `DONE_WITH_CONCERNS`; implementation and verification completed, while the coordinator created the commit because the subagent sandbox could not write linked-worktree Git metadata.
+- Implementation commit: `a8dc6c6`
+- RED evidence: `UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_cli.py -q` exited 1 with `8 failed, 83 passed` before production edits.
+- GREEN evidence: focused CLI `91 passed`; confirmer regression `123 passed`; Ruff `All checks passed!`.
+- Changed files: `src/forgeagent/cli.py`, `tests/test_cli.py`
+- Risk signals: security-sensitive URL/secret disclosure; `DONE_WITH_CONCERNS` due linked-worktree Git integration.
+- Integration note: coordinator staged and committed only the implementer's two owned files after `git diff --check` passed; no source implementation was performed in the main session.
+- Reviewer: `019f5f29-ac7a-7c22-9494-6113bd437e1b` (`Carver`)
+- Review package: `.superpowers/sdd/review-d356d6d..a8dc6c6.diff`
+- Review result: approved; no Critical or Important issues. The sole Minor was stale report commit state and was corrected in the ignored handoff report.
+- Review/fix round: `0/2`
+- Checkoff result: all five Task 3A plan steps and OpenSpec 3.1-3.3 passed exact-text `task-checkoff`; shared OpenSpec 3.6 remains pending until Task 3B/3C complete its remaining scenarios.
+- Review mode: `thorough`
