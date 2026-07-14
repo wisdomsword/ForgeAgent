@@ -20,7 +20,8 @@ from forgeagent.models import (
 )
 from forgeagent.protocol import EditArgs
 from forgeagent.runtime import Runtime
-from forgeagent.step import Step, _apply_edit
+from forgeagent.step import RoundResult, Step, _apply_edit
+from forgeagent.tools import ToolOutcome
 
 
 def _reply(text: str, stop_reason: str = "end_turn", tool_calls=None) -> AssistantMessage:
@@ -135,6 +136,23 @@ def test_long_stdout_is_truncated_in_feedback():
     assert "truncated" in feedback
     assert len(feedback) < 10_000
     assert feedback.endswith("x" * 100)
+
+
+def test_webfetch_fixed_failure_detail_is_safe_in_step_feedback():
+    secret_url = "https://secret-host.invalid/private?token=secret-value"
+    feedback = _step([])._render_feedback(
+        RoundResult(
+            text="",
+            outcomes=[
+                ToolOutcome(
+                    tool="WebFetch", success=False, detail="WebFetch request failed"
+                )
+            ],
+        )
+    )
+
+    assert feedback == "[WebFetch None] FAILED: WebFetch request failed"
+    assert secret_url not in feedback
 
 
 def test_max_rounds_stops():

@@ -15,6 +15,7 @@ returns an empty list and logs the detail (user ruling — no raw tracebacks).
 
 from __future__ import annotations
 
+import http.client
 import logging
 import urllib.parse
 from dataclasses import dataclass
@@ -222,13 +223,17 @@ def search_with_status(
                 logger.warning("search engine %s returned HTTP %s", engine, status)
                 return [], ERROR_UNAVAILABLE
             charset = response.headers.get_content_charset() or "utf-8"
-            html = response.read().decode(charset, errors="replace")
+            raw = response.read()
     except SSRFGuardError as exc:
         logger.warning("search request blocked by SSRF guard: %s", exc)
         return [], ERROR_BLOCKED
-    except OSError as exc:  # incl. URLError/HTTPError/timeouts
+    except (OSError, http.client.HTTPException) as exc:  # incl. URLError/HTTPError/timeouts
         logger.warning("search request to %s failed: %s", engine, exc)
         return [], ERROR_UNAVAILABLE
+    try:
+        html = raw.decode(charset, errors="replace")
+    except LookupError:
+        html = raw.decode("utf-8", errors="replace")
     return _parse_results(html, engine)[:max_results], None
 
 

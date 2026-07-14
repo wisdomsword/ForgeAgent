@@ -9,7 +9,12 @@ FileWrite's confirmer gate (UX-only, see FileWriteTool's docstring).
 guard itself is covered by tests/test_ssrf_guard.py.
 """
 
+import http.client
 import os
+from pathlib import Path
+from unittest.mock import patch
+
+import pytest
 
 from forgeagent.executor import TrustedBackend
 from forgeagent.policy import CodeAnalyzer
@@ -75,6 +80,23 @@ class _FakeResponse:
         return False
 
 
+class _RaisingResponse(_FakeResponse):
+    def __init__(self, exc: Exception, *, stage: str = "read") -> None:
+        super().__init__(b"")
+        self._exc = exc
+        self._stage = stage
+
+    def read(self, n: int = -1) -> bytes:
+        if self._stage == "read":
+            raise self._exc
+        return super().read(n)
+
+    def __exit__(self, *exc_info) -> bool:
+        if self._stage == "exit":
+            raise self._exc
+        return False
+
+
 # --- WebFetchTool (M10 Phase 3) ----------------------------------------------
 
 
@@ -107,7 +129,49 @@ def test_webfetch_ssrf_guard_error_becomes_failed_outcome(monkeypatch):
     outcome = WebFetchTool().run(WebFetchArgs(url="http://127.0.0.1/"), _webfetch_ctx())
 
     assert outcome.success is False
-    assert "blocked" in outcome.detail
+    assert outcome.detail == "WebFetch blocked by network policy"
+
+
+@pytest.mark.parametrize("stage", ["open", "read", "exit"])
+@pytest.mark.parametrize(
+    "exc",
+    [
+        http.client.InvalidURL("nonnumeric port"),
+        http.client.BadStatusLine("secret-host.invalid"),
+        http.client.LineTooLong("status line"),
+        http.client.IncompleteRead(b"partial", 10),
+        http.client.RemoteDisconnected("secret-host.invalid closed connection"),
+    ],
+)
+def test_webfetch_http_protocol_failures_are_fixed_and_do_not_raise(stage, exc, monkeypatch):
+    def fake_open(url, **kwargs):
+        if stage == "open":
+            raise exc
+        return _RaisingResponse(exc, stage=stage)
+
+    monkeypatch.setattr("forgeagent.tools.guarded_urlopen", fake_open)
+
+    outcome = WebFetchTool().run(
+        WebFetchArgs(url="https://secret-host.invalid/"), _webfetch_ctx()
+    )
+
+    assert outcome.success is False
+    assert outcome.detail == "WebFetch request failed"
+
+
+def test_webfetch_artifact_write_failure_is_fixed_and_does_not_raise(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "forgeagent.tools.guarded_urlopen", lambda url, **kwargs: _FakeResponse(b"body")
+    )
+
+    with patch.object(Path, "write_text", side_effect=OSError("/host/private/path")):
+        outcome = WebFetchTool().run(
+            WebFetchArgs(url="https://secret-host.invalid/"),
+            _webfetch_ctx(allowed_root=str(tmp_path)),
+        )
+
+    assert outcome.success is False
+    assert outcome.detail == "WebFetch response save failed"
 
 
 def test_webfetch_restricted_tier_confirmer_denial_blocks_fetch(monkeypatch):

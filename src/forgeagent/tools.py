@@ -14,6 +14,7 @@ refactor is behaviour-preserving.
 from __future__ import annotations
 
 import hashlib
+import http.client
 import logging
 import os
 from abc import ABC, abstractmethod
@@ -325,10 +326,12 @@ class WebFetchTool(Tool):
             with response:
                 content_type = response.headers.get_content_type()
                 raw = response.read(_MAX_FETCH_BYTES + 1)
-        except SSRFGuardError as exc:
-            return ToolOutcome(tool="WebFetch", success=False, detail=str(exc))
-        except OSError as exc:
-            return ToolOutcome(tool="WebFetch", success=False, detail=f"fetch failed: {exc}")
+        except SSRFGuardError:
+            return ToolOutcome(
+                tool="WebFetch", success=False, detail="WebFetch blocked by network policy"
+            )
+        except (OSError, http.client.HTTPException, ValueError):
+            return ToolOutcome(tool="WebFetch", success=False, detail="WebFetch request failed")
         truncated = len(raw) > _MAX_FETCH_BYTES
         if truncated:
             raw = raw[:_MAX_FETCH_BYTES]
@@ -337,7 +340,12 @@ class WebFetchTool(Tool):
         ext = _EXT_BY_CONTENT_TYPE.get(content_type, ".fetch")
         dest = Path(ctx.allowed_root) / f"webfetch_{digest}{ext}"
         truncated_note = " (truncated at 1MB)" if truncated else ""
-        dest.write_text(masked, encoding="utf-8", errors="replace")
+        try:
+            dest.write_text(masked, encoding="utf-8", errors="replace")
+        except OSError:
+            return ToolOutcome(
+                tool="WebFetch", success=False, detail="WebFetch response save failed"
+            )
         preview = masked[:_FETCH_PREVIEW_CHARS]
         preview_note = " (preview truncated)" if len(masked) > _FETCH_PREVIEW_CHARS else ""
         detail = (

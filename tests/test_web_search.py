@@ -8,6 +8,7 @@ exercise search_with_status's own logic (status handling, decoding, error mappin
 The guard itself already has full coverage in test_ssrf_guard.py.
 """
 
+import http.client
 import urllib.parse
 
 from forgeagent.ssrf_guard import SSRFGuardError
@@ -200,6 +201,32 @@ def test_search_with_status_oserror_returns_unavailable(monkeypatch):
     results, error_kind = search_with_status("python", engine="bing")
     assert results == []
     assert error_kind == ERROR_UNAVAILABLE
+
+
+def test_search_with_status_http_protocol_failure_returns_unavailable(monkeypatch):
+    def fake_urlopen(url, *, timeout=10.0):
+        raise http.client.BadStatusLine("secret-host.invalid")
+
+    monkeypatch.setattr("forgeagent.web_search.guarded_urlopen", fake_urlopen)
+
+    results, error_kind = search_with_status("python", engine="bing")
+
+    assert results == []
+    assert error_kind == ERROR_UNAVAILABLE
+
+
+def test_search_with_status_unknown_charset_falls_back_to_utf8(monkeypatch):
+    monkeypatch.setattr(
+        "forgeagent.web_search.guarded_urlopen",
+        lambda url, *, timeout=10.0: _FakeResponse(
+            BING_HTML.encode("utf-8"), charset="unknown-charset"
+        ),
+    )
+
+    results, error_kind = search_with_status("python", engine="bing")
+
+    assert error_kind is None
+    assert len(results) == 2
 
 
 def test_search_with_status_respects_max_results(monkeypatch):

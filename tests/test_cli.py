@@ -12,11 +12,14 @@ import pytest
 from pydantic import BaseModel
 from rich.console import Console
 
-from forgeagent.cli import build_parser, main, run_once
+from forgeagent.cli import build_parser, main, render_outcome, run_once
 from forgeagent.client import MockClient
 from forgeagent.model_registry import RegistryError
 from forgeagent.models import AssistantMessage, StreamEvent, StreamEventKind, TokenUsage
 from forgeagent.protocol import FileWriteArgs, MCPArgs, WebFetchArgs
+from forgeagent.step import RoundResult, Termination
+from forgeagent.task import TaskOutcome, TaskStatus
+from forgeagent.tools import ToolOutcome
 
 
 def _reply(
@@ -368,6 +371,30 @@ def test_run_once_renders_exec_output():
         console=console,
     )
     assert "hi" in console.export_text()
+
+
+def test_render_outcome_discloses_only_fixed_webfetch_failure_detail():
+    secret_url = "https://secret-host.invalid/private?token=secret-value"
+    console = _console()
+    outcome = TaskOutcome(
+        status=TaskStatus(completed=False, reason=Termination.MAX_ROUNDS),
+        rounds=[
+            RoundResult(
+                text="",
+                outcomes=[
+                    ToolOutcome(
+                        tool="WebFetch", success=False, detail="WebFetch request failed"
+                    )
+                ],
+            )
+        ],
+    )
+
+    render_outcome(outcome, console)
+
+    rendered = console.export_text()
+    assert "WebFetch request failed" in rendered
+    assert secret_url not in rendered
 
 
 def test_run_once_renders_plain_text_answer_without_exec():
