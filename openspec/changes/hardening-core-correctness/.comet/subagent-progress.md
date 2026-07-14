@@ -253,3 +253,19 @@
 - Uncommitted evidence file: `tests/test_mcp_manager.py` contains only the two failing regressions above; no production file is uncommitted.
 - Stop condition: maximum `thorough` review-fix budget exhausted. Do not dispatch another fix or advance to Task 7 without a new user decision.
 - Review mode: `thorough`
+
+## Approved Task 6 Structural Redesign
+
+- User decision: approved Scheme A, replacing another narrow patch with loop-owned reconcile plus generation tokens; focused redesign is authorized within the existing change.
+- Initial redesign commit: `20409b6` (`docs: redesign MCP lifecycle ownership`).
+- Current stage: `design-update`; source implementation remains paused until the revised written design is approved and the Task 6 implementation plan is rewritten.
+- Preserved RED evidence: the two uncommitted `tests/test_mcp_manager.py` regressions above remain unchanged and failing against `cd36e31`.
+- OpenSpec mapping: pending tasks `4.4`, `4.5`, `4.6`; total change task count remains 38.
+- Structural contract: loop-owned `(generation, task, stop)` holder slots, `(generation, session)` session slots, independent `restart_after_generation`, exact-generation publish/finalize/call handling, closing barrier and loop-owned snapshot.
+- Facade contract: enable/disable/connect waiters are cancellable and do not own holder cleanup; disable shields the holder so a caller timeout cannot leave an untracked lifecycle waiter or cancel teardown.
+- Startup contract: all initial holders start before the first await, ready waits share one monotonic deadline, the publication worker observes cancellation even when gate release fails before set, and post-publication primary control exceptions preserve identity through cleanup.
+- Shutdown contract: the public absolute deadline bounds caller wait, while the unique shielded drain may continue finalizers; ordinary cleanup failures are isolated, and an incomplete authoritative task waits for a repeated-close retry signal instead of ending or duplicating.
+- Disclosure contract: optional/required public MCP status and pending-name diagnostics expose only fixed categories/types with secret-value masking, never raw exception/config/server text.
+- Newly confirmed audit gaps repaired in the written design: stale main-thread ClientSession selection; lost enable during unavailable finalization or after its slot is gone; teardown/restart-intent conflation; sequential N-times connection timeout and ready-timeout overwrite; holder task creation partial state; pending lifecycle waiter at loop stop; gate-before-set worker stranding; background-drain/deadline contradiction; cancelled first facade leaving repeated close no wait path; and done-incomplete shutdown dead-end.
+- Next gate: strict OpenSpec/diff validation, then user approval of the final written spec. Only after approval may `writing-plans` reset Task 6 and implementation/review budgets.
+- Post-audit RED revalidation: focused command still reports `3 failed in 1.06s`; the two gate-release parameter cases leave `_started=True`, and timed-out disable still fails to start replacement. No assertion was removed or relaxed.

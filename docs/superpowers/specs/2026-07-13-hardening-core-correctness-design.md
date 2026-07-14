@@ -232,15 +232,17 @@ required: bool = False
 
 ### 7.2 启动判定
 
-`MCPManager.connect()` 保持并发连接和 per-server unavailable 状态。新增只读查询返回 enabled required failures，例如 `required_failures() -> dict[str, str]`。
+`MCPManager.connect()` 保持并发连接和 per-server unavailable 状态，但并发不仅指 holder task 同时创建：全部 enabled holder 必须在第一次 await 前启动，ready wait 从同一个 monotonic 起点并发计时，外层 synchronous facade timeout 也使用同一 `connect_timeout` 加固定调度余量而不乘 server 数。因此 N 个无响应服务的初始等待接近一个 `connect_timeout`，而不是 N 倍 timeout。单个超时 holder 仍保留 generation slot；它后续只能在 generation、desired state 和 closing barrier 都匹配时发布，required 失败触发的 close 则会把它纳入 snapshot 清理。
+
+新增只读查询返回 enabled required failures，例如 `required_failures() -> dict[str, str]`。holder 的公开 unavailable 状态只包含固定类别和异常类型，不保存或输出异常字符串；`server_status()` 与 `required_failures()` 在返回前仍用既有 secret-value mask 做防御性处理。optional 黄色诊断、required startup error 和 REPL `/mcp status` 因而都不会泄漏 command、args、env、server content 或异常携带的 secret。
 
 `build_mcp_manager()` 的流程：
 
 1. 加载配置并构造 manager。
-2. 无 enabled server 时返回 `None`。
-3. 调用 `connect()`。服务级连接失败继续由 holder 收敛为状态；manager 基础设施异常则 best-effort close 后转为启动错误。
+2. 无 enabled server 时返回 `None`。直接使用 `MCPManager` 时，`connect()` 在无 enabled server 的情况下不创建 loop 且保持可在修改 desired config 后再次显式 connect 的 pre-start 状态；`enable()` 本身不隐式创建一个此前不存在的 manager/loop。
+3. 调用 `connect()`。服务级连接失败继续由 holder 收敛为状态；initial holder submission/result 发生普通 manager 基础设施异常时，`connect()` 先对已发布 loop/holder 执行 bounded close，再让组装层转成不含异常文本的 `MCPStartupError`。`KeyboardInterrupt`/`SystemExit` 也必须先 best-effort cleanup，但原样传播。
 4. 收集 required failures。
-5. 若非空，先调用不会抛出的 `close()`，再抛 `MCPStartupError`，消息包含服务名和状态。`close()` 进入后第一项动作必须是设置 closed state，避免二次错误让启动清理重新进入。
+5. 若非空，先调用不会抛出普通 `Exception` 的 `close()`，再抛 `MCPStartupError`，消息只包含服务名和已脱敏的固定状态。`close()` 进入后第一项动作必须是设置 closed state，避免二次错误让启动清理重新进入。
 6. 否则打印全部状态；optional unavailable 使用黄色诊断，返回 manager。
 
 CLI 捕获 `MCPStartupError`，打印单行错误并返回 2。run 与 REPL 都使用同一构造函数，因此行为一致。
@@ -253,18 +255,19 @@ manager 构造参数增加仅供内部/测试注入的 `shutdown_timeout=10.0` �
 
 `close()` 顺序：
 
-1. manager 增加内部 `_shutdown_future` 引用。用 `getattr(self, "_closed", False)` 检查重复调用。首次调用立即置真并执行完整 holder shutdown；重复调用不得重新提交 shutdown coroutine 或重新等待 holders，只能再次 cancel 已保存的 future、请求既有 loop-owned drain/stop 并 bounded join。只有 cleanup completion 已证明且线程停止时才关闭 loop并清理引用。
+1. manager 增加内部 `_shutdown_future` 引用。用 `getattr(self, "_closed", False)` 检查重复调用。首次调用立即置真并执行完整 holder shutdown；重复调用不得重新提交 shutdown coroutine 或重新等待 holders，只能再次 cancel 已保存的 future、唤醒既有 loop-owned drain、等待 completion event并 bounded join。只有 cleanup completion 已证明且线程停止时才关闭 loop并清理引用。
 2. 未创建 loop 时直接清理引用并返回。
-3. 用 `time.monotonic()` 建立唯一绝对 deadline：当前时间加 `shutdown_timeout + thread_join_timeout`。所有阶段只读取 `remaining = max(0, deadline - monotonic())`，不累计相对 timeout。
-4. `_holders` 的值是 `(generation, holder_task)`。主线程提交前保存只读 `holder_snapshot = dict(self._holders)` 和基于该 snapshot 的 immutable fallback names；shutdown 只处理 snapshot 中精确的 `(name, generation, task)`，不会因为同名 replacement 出现而 cancel 新代 holder。
-5. `_shutdown(holder_snapshot)` 只在 loop thread 内操作 Task：向 snapshot 对应 holder 发 stop，正常阶段最多消费 5 秒并为 join 保留预算，再 cancel/await 仍 pending 的精确 task。holder/session 只有在当前 slot 仍等于自身 `(generation, object)` 时才能删除；旧代 finally 不得按 name 盲删 replacement。任何单 holder 异常被收集而不传播。
-6. 主线程直接保存 `asyncio.run_coroutine_threadsafe(...)` 返回的 `_shutdown_future`。future 在预算内完成时清空该引用；若 `.result()` 超时，则 cancel 但保留 future，并使用 immutable fallback 作诊断。future cancellation 只是加速信号：loop-owned fallback drain 必须继续 await snapshot holder 的 async-context cleanup；只有全部 snapshot holder 清理完成后才设置 `_shutdown_complete` 并由 loop thread 请求 `loop.stop()`。
-7. 主线程不在 cleanup incomplete 时直接 stop loop。`thread.join()` 使用 `min(thread_join_timeout, remaining)`；重复 close 不重提 shutdown，只再次 cancel future、请求已有 loop-owned drain/stop 并做 bounded join。
-8. 只有 `thread.is_alive() is False` 且 `_shutdown_complete` 已设置，主线程才能 close loop 并清空 shutdown future、holders、sessions、loop、thread。thread 已死但 cleanup completion 未被证明时也按 incomplete 处理并保留引用。warning 至少包含固定 thread name、ident、alive 状态、snapshot pending server 名称和 timeout，不输出 MCP arguments、env、server content 或 stack。
-9. 公开 `close()` 在设置 closed state 后用 `try/except Exception/finally` 包围内部操作。Exception 只记录 warning并继续 best-effort drain/join；KeyboardInterrupt/SystemExit 不被吞掉。cleanup incomplete 时无论 thread 是否暂时存活，都不得从主线程清空 loop-owned slot/session 引用。
-10. 返回 None，不向调用方传播关闭异常。
+3. 用 `time.monotonic()` 为每次公开 `close()` 建立唯一绝对 deadline：当前时间加 `shutdown_timeout + thread_join_timeout`。主线程等待 shutdown facade 时必须为 join 预留 `thread_join_timeout`，所有公开等待阶段只读取 `remaining = max(0, deadline - monotonic())`，不累计相对 timeout。该 deadline 约束调用方等待时间，不授权 loop 在 async context finalizer 尚未完成时提前停止。
+4. `_holders` 的值是 `(generation, holder_task, stop_event)`。主线程提交前只能保存 server-name fallback 供超时诊断；精确 slot snapshot 必须由 shutdown coroutine 在 loop thread 设置 closing barrier 后创建，避免与已排队的 enable/disable reconcile 竞态。shutdown 只处理该 loop-owned snapshot 中的 `(name, generation, task, stop)`，不会漏掉刚启动的 holder，也不会 cancel 后续 generation。
+5. loop thread 创建并发布唯一 `_shutdown_task`。`_ensure_shutdown_task(deadline)` 在第一次 await 前原子设置 closing barrier、创建精确 slot snapshot并启动 drain；重复 ensure 返回同一 task。drain 设置 snapshot slot 的精确 stop event，正常阶段最多消费 5 秒并为 join 保留预算，再 cancel/await 仍 pending 的精确 holder。公开 deadline 到达而 holder 仍在 async context cleanup 时，`close()` 返回，但 shielded drain 必须留在仍运行的 loop 上继续等待；它不能为了满足调用 deadline 提前 `loop.stop()`。session、status、tools 和 holder slot 的写入/删除都必须验证 generation；holder slot 只能在 task 已 done 后由 loop-owned finalizer/reconcile 删除。
+6. `_shutdown_task` 对每个 holder/result/finalizer 的普通 `Exception` 分别收集并只记录固定异常类型，然后执行一次幂等的最终清理检查；普通异常不得让 task 提前失败并绕过其余 holder。只有 snapshot task 全部 done、精确 slot/session 已完成条件清理且没有 replacement 后，才设置 `_shutdown_complete` 并请求 `loop.stop()`。若最终不变量仍不成立，则保留 complete 未设置和全部证据；同一个 task 等待一个 loop-owned retry event，不返回、不 busy-loop。重复 close 的 `_ensure_shutdown_task(new_deadline)` 只唤醒这个既有 task做下一次有界清理尝试，不能创建第二个 task或第二份 snapshot。loop 停止且 completion 已证明后，主线程才可丢弃 `_shutdown_task` 引用，这不属于活跃 loop 上的跨线程 mutation。
+7. 主线程保存 `asyncio.run_coroutine_threadsafe(_wait_for_shutdown(), loop)` 返回的 `_shutdown_future`；`_wait_for_shutdown()` 在 loop 内用 `asyncio.shield(_shutdown_task)`，因此 concurrent future timeout/cancel 不会取消真正的 drain。若 outer coroutine 在 ensure 前即被取消，fallback 只向 loop 提交 `_ensure_shutdown_task` callback；它创建或复用同一 task，绝不重复 snapshot/holder shutdown。主线程 cancel 但保留 `_shutdown_future`，并使用 pre-submit name fallback 作诊断。
+8. 主线程不在 cleanup incomplete 时直接 stop loop。第一次 close 通过 concurrent facade 等待；该 future 一旦取消就不可复用，因此重复 close 在唤醒既有 drain 后，改用线程安全的 `_shutdown_complete.wait(max(0, remaining - thread_join_timeout))` 等待同一 task 的 completion，不创建第二个 coroutine/future/task。随后 `thread.join()` 使用 `min(thread_join_timeout, remaining)`。
+9. 只有 `thread.is_alive() is False` 且 `_shutdown_complete` 已设置，主线程才能 close loop 并清空 shutdown future/task、holders、sessions、loop、thread。thread 已死但 cleanup completion 未被证明时也按 incomplete 处理并保留引用。warning 至少包含固定 thread name、ident、alive 状态、经 secret-value mask 的 snapshot pending server 名称和 timeout，不输出 MCP arguments、env、server content 或 stack。
+10. 公开 `close()` 在设置 closed state 后用 `try/except Exception/finally` 包围内部操作。Exception 只记录 warning并继续 best-effort drain/join；KeyboardInterrupt/SystemExit 不被吞掉。cleanup incomplete 时无论 thread 是否暂时存活，都不得从主线程清空 loop-owned slot/session 引用。
+11. 返回 None，不向调用方传播普通关闭异常。
 
-正常和 holder 无响应 fixture 必须证明 SDK 的进程树清理可以在上限内结束子进程。更极端的情形是 event-loop thread 本身被同步代码卡死：cancel 和 SDK context exit 可能尚未执行，daemon thread 可能暂时保有 transport、file descriptor，甚至 MCP child process。Python 不提供安全强杀线程的 API，manager 也没有 SDK child handle 可供主线程可靠终止，因此 CLI 仍按 deadline 返回，warning 明确标记 `shutdown incomplete; resources may remain` 并保留上述诊断证据。若线程随后停止，第二次 `close()` 必须关闭遗留 loop 并清除引用；若仍存活，第二次调用也只能消耗自己的 `thread_join_timeout`。默认不抓取线程堆栈：`sys._current_frames()` 是 CPython 私有诊断接口，输出冗长且可能包含宿主路径；固定线程身份和 pending holder 足以定位本层问题。
+正常和 holder 无响应 fixture 必须证明 SDK 的进程树清理可以在上限内结束子进程。更极端的情形是 event-loop thread 本身被同步代码卡死：cancel 和 SDK context exit 可能尚未执行，daemon thread 可能暂时保有 transport、file descriptor，甚至 MCP child process。Python 不提供安全强杀线程的 API，manager 也没有 SDK child handle 可供主线程可靠终止，因此 CLI 仍按 deadline 返回，warning 明确标记 `shutdown incomplete; resources may remain` 并保留上述诊断证据。若线程随后停止，第二次 `close()` 必须关闭遗留 loop 并清除引用；若仍存活，第二次调用仍只能在自己的新 absolute deadline 内等待 completion 与 join。默认不抓取线程堆栈：`sys._current_frames()` 是 CPython 私有诊断接口，输出冗长且可能包含宿主路径；固定线程身份和 pending holder 足以定位本层问题。
 
 ### 7.4 Loop-owned reconcile 与 generation token
 
@@ -272,33 +275,56 @@ manager 构造参数增加仅供内部/测试注入的 `shutdown_timeout=10.0` �
 
 内部结构固定为：
 
-- `_ServerState.generation: int`：只在 loop thread 每次真正启动新 holder 时递增；initial connect 和 runtime replacement 使用同一分配入口。
-- `_ServerState.tearing_down: bool`：表示当前 slot 已收到 stop、但 holder async cleanup 尚未完成。
-- `_holders: dict[str, tuple[int, asyncio.Task]]`。
-- `_sessions: dict[str, tuple[int, object]]`。`call_tool()` 读取 tuple 中的 session；holder publish/finally 只在 tuple generation 仍等于自身 generation 时写入或删除。
-- `config.enabled` 是 desired state。loop 存在时，runtime enable/disable 必须通过提交到 loop 的 reconcile coroutine 更新 desired state 和 slot，不从主线程直接替换 `_holders`/`_sessions`。
+- `_ServerState.generation: int`：只在 loop thread 每次真正启动新 holder 时递增；initial connect、显式 enable 和 runtime replacement 使用同一 `_start_holder()` 分配入口。
+- `_ServerState.tearing_down_generation: int | None`：只绑定正在 cleanup 的精确 generation，不能用跨代 bool。disable、当前 session 的 call failure，或用户对 unavailable/finishing slot 的显式 enable 会设置它；新 generation 启动时清空，旧代 callback 只有 generation 匹配时才能修改。
+- `_ServerState.restart_after_generation: int | None`：只表示用户 enable 已明确要求在该代 cleanup 后 replacement。disable/close 清空它；enable 遇到 tearing-down 或 unavailable-finalizing slot 时设为该代；initial connection failure 和 call failure 本身都不设置，避免永久配置错误或一次工具失败触发未声明的自动重连。
+- `_holders: dict[str, tuple[int, asyncio.Task, asyncio.Event]]`，slot 原子携带 generation、task 和该代专属 stop event；删除 `_ServerState.stop` 单值字段，避免 close/disable signal 到错误代。
+- `_sessions: dict[str, tuple[int, object]]`。`call_tool()` 只使用 generation 与当前 state/holder slot 一致的 session。
+- `_shutdown_task: asyncio.Task | None` 只由 loop thread 创建和发布；`_shutdown_future` 只是主线程等待该 task 的 concurrent facade。两者不得混为同一 completion 证据；仅在 loop 已停止且 completion 已证明后，主线程才可随其余引用一起清空它。
+- `config.enabled` 是 desired state。loop 存在时，runtime enable/disable 必须通过提交到 loop 的 reconcile coroutine更新 desired state 和 slot，不从主线程直接替换 `_holders`/`_sessions`；manager closed/closing 后 connect/enable 不得创建 generation。
+- holder 驱动的 `status`、`tools`、session publish/finally，以及 call failure 的 session invalidation，都必须在 loop thread 检查 generation 后执行。同步 `call_tool()` 不从主线程读取或持有 ClientSession；它提交 loop-owned wrapper，由 wrapper 在实际执行时原子选择仍匹配 current holder 的 `(generation, session)`、await SDK call，并在失败时只 invalidation/停止该 generation。旧 session 不会在 replacement 已发布后才被主线程重新提交。
+- holder 在 `initialize()`/`list_tools()` 等 await 后、发布 available/session/tools 前，必须再次验证当前 holder slot 仍匹配自身 generation、desired enabled、stop 未设置且 manager 未 closing；任一条件不满足就退出 context并只做本代 cleanup。per-start ready event 无论成功、失败或被 supersede 都必须设置，避免 `_start_holders()` 等待到额外 timeout；ready timeout 写 unavailable 前也必须复核该 generation 的 ready 尚未设置且没有成功发布，不能用迟到 timeout 覆盖 available。
 
 每个 server 的状态转换：
 
 ```text
-disabled/no slot
-  -- enable reconcile --> allocate gen N --> alive(gen N)
+disabled or unavailable/no slot
+  -- explicit enable reconcile --> desired enabled + allocate gen N --> alive(gen N)
 
 alive(gen N)
-  -- disable reconcile --> desired disabled + tearing_down(gen N)
-  -- enable reconcile while tearing_down --> desired enabled only; keep gen N slot
+  -- disable reconcile --> desired disabled + tearing_down_generation=N
+                          + restart_after_generation=None
+                          + status disabled/tools empty + signal stop(N)
+  -- active call failure --> tearing_down_generation=N + status unavailable/tools empty
+                             + remove session(N) + signal stop(N)
+  -- enable reconcile while tearing_down/unavailable --> desired enabled
+                                                         + restart_after_generation=N
+                                                         + status restarting/tools empty
+                                                         + keep gen N slot
 
 tearing_down(gen N)
-  -- holder cleanup complete --> remove only exact (N, task/session)
-  -- reconcile sees desired enabled --> allocate gen N+1 --> alive(gen N+1)
-  -- reconcile sees desired disabled/manager closed --> no replacement
+  -- holder task done --> loop finalizer removes only exact (N, task/stop/session)
+  -- restart_after=N + desired enabled --> allocate gen N+1 --> alive(gen N+1)
+  -- no restart intent/desired disabled/manager closed --> no replacement
 ```
 
-`disable()` timeout 只表示同步调用方停止等待，不取消 loop-owned teardown coroutine，也不摘除 slot。随后 `enable()` 看见 tearing-down slot 时不得立即覆盖；它只更新 desired enabled。旧 holder finally 完成后按精确 generation 删除自身，再由同一个 loop reconcile 启动 replacement。测试 `test_enable_during_timed_out_disable_restarts_after_old_holder_cleanup` 锁定该顺序；另加 `test_re_enable_old_holder_finally_does_not_delete_replacement_session`，证明旧 generation 无法删除新 session。
+`disable()` timeout 只表示同步调用方停止等待，不取消 loop-owned holder teardown，也不摘除 slot。随后 `enable()` 看见 tearing-down slot 时不得立即覆盖；它只更新 desired enabled 并为该 generation 记录 restart intent。holder coroutine 的 `finally` 只做 generation-conditional session/status cleanup；task 真正 done 后，loop-owned done finalizer 才移除精确 holder slot并调用 reconcile。reconcile 同时验证最终 desired state 与 restart intent，必要时启动 replacement。测试 `test_enable_during_timed_out_disable_restarts_after_old_holder_cleanup` 锁定该顺序；另加 `test_re_enable_old_holder_finally_does_not_delete_replacement_session`，证明旧 generation 无法删除新 session或把新 status/tools 改为 unavailable。
 
-`close()` 把 manager desired state 固定为 closed，阻止任何 replacement。它 snapshot 的是 `(name, generation, task)`；disable teardown 中的 holder 在 cleanup 完成前始终留在 `_holders`，因此 close 不会漏掉。cancel 与 conditional remove 都使用 snapshot generation，不能命中中途出现的新代。
+enable 遇到 status unavailable 且同代 task 正在 finally 时，必须把该 generation 标为 tearing down并设置 `restart_after_generation`，而不是因 slot 尚在就视为幂等成功；task 已 done 时先走同一 finalizer。这样显式 retry 不会在 done-callback 竞态中丢失，也不会自动重试从未成功建立的永久失败服务。当前 active session 的 call failure 在 loop 内清空 tools/session、设置本代 teardown 并 signal 本代 stop，但保持 unavailable 且不自行设置 restart intent；用户随后显式 enable 才触发 replacement，保留既有“调用失败后降级、由用户决定重试”的外部语义。
 
-Loop startup 也是 transaction：先创建局部 loop、publication gate、cancel event 和固定名称 thread；worker 在 gate 前不得进入 `run_forever()`。只有 manager 的 `_loop/_thread/_started` 发布成功后才 release gate。`Thread.start()`、状态发布或 gate release 任一点抛出 `BaseException` 时：记录原异常，设置 cancel 并 release gate；若 worker 可能已经进入 loop，先请求 `loop.stop()`；在 `thread_join_timeout` 内 join。线程停止后 close loop、清空 refs、恢复 `_started=False`/`_closed=False`，使 manager 可重试，再原样重抛。若线程仍活，不能 close loop或清空 refs；保留 `_loop/_thread`、置 closed、记录 sanitized incomplete warning，再原样重抛，供持有 manager 的调用方做 bounded close retry。`KeyboardInterrupt`/`SystemExit` 从不被替换或吞掉。
+slot finalization 使用单一幂等函数 `_finalize_holder_slot(name, generation, task)`。`_start_holder()` 同步创建 generation、ready、stop、task 和原子 slot，并给 task 注册 done callback；callback 在 loop thread 调 finalizer。task/coroutine 创建任一点失败都要关闭尚未调度的 coroutine、把本代状态收敛为固定 unavailable 类别且不留下半个 slot，并向 initial/runtime waiter 返回立即 ready-failure，不能再消耗一次 `connect_timeout`。shutdown 的 `asyncio.wait()` 不得假设 done callback 已先运行，因此 await snapshot task 后也显式调用同一 finalizer。finalizer 只有在当前 slot 精确匹配时才 pop；只有 `restart_after_generation` 匹配、desired enabled 且 manager 非 closed/closing 时，才清空 restart intent并同步调用 `_start_holder()` 分配下一代，否则不 restart。该函数不 await、不创建未追踪 reconcile task；done callback 还必须消费 task 的普通异常以避免后台 warning。
+
+同步 lifecycle API 的等待同样分成 ownership 与 facade：enable/initial connect 的 waiter 只等 generation-specific ready，disable waiter 用 `asyncio.shield(holder_task)` 等本代退出，holder/slot 本身始终由 loop 拥有。若 `Future.result()` timeout 或 caller 收到控制异常，主线程取消该 concurrent waiter future，但 shield 使 teardown/holder 不被取消；它不构成资源所有权，也不需要新增 manager 级 in-flight registry。同一 caller 随后的 close 排在 waiter cancellation 之后。这样 close 只需 snapshot holder slot，不会在停止 loop 时遗留一个未跟踪的 disable/enable waiter task。initial enabled holders 在第一次 await 前全部创建，ready waits 并发使用同一 start deadline。
+
+`close()` 先在主线程置 `_closed=True`，再由 loop-owned shutdown entry 设置 `_closing=True` 并创建 `(name, generation, task, stop)` snapshot。所有已排队 reconcile 在启动 generation 前都检查 closed/closing；shutdown entry 之后的 reconcile 也不得启动。disable teardown 中的 holder 在 task done 前始终留在 `_holders`，因此 snapshot 不会漏掉。stop、cancel 与 conditional remove 都使用 snapshot generation。主线程仅保存 pre-submit name fallback 供 hard-stuck warning，不跨线程复制 Task slot作为权威 snapshot。
+
+`enable()`/`disable()` 仅在 initial connect 之前（`_started=False`、loop 尚未创建、manager 未 closed）可以直接更新配置 desired state；loop 存在时必须走 reconcile。manager closed/closing 后两者可返回“server name known”，但不得重启资源；`connect()` 在 closed manager 上也不得 reopen。增加 enable-after-close 与 close/enable queue-order 回归。全 disabled 配置在 CLI 组装层仍返回 `None`，本 change 不新增“无 manager 的 REPL 动态建 loop”能力。
+
+同步 facade 的线程契约保持不变：CLI/Task 使用单一调用线程，不承诺多个 OS caller thread 同时调用 enable/disable/call/close。这里的 overlap 专指同步 `_submit(...).result(timeout)` 已返回或超时、但先前 loop coroutine 仍在运行，随后同一 caller 发出下一操作。SDK `call_tool` 继续依赖 inner read timeout 早于 outer facade timeout；本重设计不新增通用 in-flight call registry。若 loop 被同步代码完全卡死，未完成 call 与 transport 一并属于 7.3 已记录的 hard-stuck residual。
+
+Loop startup 也是 transaction：先创建局部 loop、publication gate、cancel event 和固定名称 thread；worker 用短周期 gate wait 同时检查 cancel，未见 published gate 时不得进入 `run_forever()`，即使 gate release 本身在真正 set 前抛错也能因 cancel 退出。`connect()` 在 closed manager 上直接返回且不得 reopen。只有 manager 的 `_loop/_thread/_started` 发布成功后才 release gate。`Thread.start()`、状态发布或 gate release 任一点抛出 `BaseException` 时：保存第一个原异常对象，设置 cancel 并 best-effort release gate；无论 worker 尚未检查 cancel 还是已经进入 `run_forever()`，都 best-effort `call_soon_threadsafe(loop.stop)`，再在 `thread_join_timeout` 内 join。rollback 内每个 cleanup 操作独立捕获后续 `BaseException`、只记录固定异常类型，最终用裸 `raise` 保留第一个原异常；这不是吞掉 caller 的控制异常，而是防止 cleanup 的第二异常替换根因。线程停止后 close loop、清空 refs、恢复 `_started=False`/`_closed=False` 与未设置的 shutdown state，使 manager 可重试。若线程仍活，不能 close loop或清空 refs；保留 `_loop/_thread`、置 `_started=True/_closed=True`，因该分支没有 holder 而把 startup cleanup 标为 complete，记录 sanitized incomplete-startup warning，再原样重抛，供持有 manager 的调用方做 bounded close retry。
+
+transaction 直到 initial `_start_holders()` submission/result 成功才结束。publication 后的 `_submit` 若抛普通 `Exception`，`connect()` 先调用 bounded close 清理已创建 generation；cleanup 的普通异常被 close 收敛，若 cleanup 自身收到新的 `KeyboardInterrupt`/`SystemExit` 则按进程控制语义传播，否则原 infrastructure Exception 交给 `build_mcp_manager()` 转成只含固定类别与异常类型的 `MCPStartupError`。若 primary 本身是 `KeyboardInterrupt`/`SystemExit`，`connect()` 必须保存该对象，cleanup 中捕获并仅记录任何后续 `BaseException` 的固定类型，再重抛同一 primary 对象，不能让第二异常替换它。所有路径都不能输出原异常字符串、command、args 或 env。增加 submission rejection/timeout 后无 loop、holder、PID 泄漏的回归。
 
 现有未提交回归必须作为重设计第一轮 RED：
 
@@ -306,6 +332,25 @@ Loop startup 也是 transaction：先创建局部 loop、publication gate、canc
 - `test_connect_interrupt_releasing_publication_gate_stops_running_loop` 对应 startup transaction rollback。
 
 实现完成后再扩展 disable+enable+close overlap、旧代 finally 隔离和 startup partial-success matrix；不得先删除或放宽这两个失败断言。
+
+新增回归至少包含：
+
+- `test_re_enable_old_holder_finally_does_not_delete_replacement_session`：旧代 session/status/tools cleanup 不影响新代。
+- `test_close_snapshots_generation_on_loop_before_reconcile`：close barrier 与 slot snapshot 在 loop 内原子完成，排队 enable 不能逃出 snapshot 或在 closing 后启动。
+- `test_call_failure_does_not_invalidate_replacement_session`：旧代 call failure 只能 invalidation 自己的 `(generation, session)`。
+- `test_call_selection_occurs_on_loop_for_current_generation`：main thread 不能在代际切换前缓存旧 ClientSession；wrapper 执行时选择 current generation。
+- `test_current_call_failure_waits_for_explicit_enable_before_replacement`：当前代失败会 cleanup 并降级，但不会仅因 desired enabled 隐式自动重连。
+- `test_disable_during_holder_initialization_never_publishes_available`：initialize/list_tools 阻塞期间 disable 后，旧代不得发布 session/tools/status且 ready wait 能结束。
+- `test_enable_racing_failed_holder_finalizer_starts_one_replacement`：显式 retry 落在 unavailable holder 的 finally 窗口时不丢 intent，且不出现双 replacement。
+- `test_enable_after_failed_holder_finalized_starts_one_generation`：desired 已是 enabled 但 slot 已清理时，显式 enable 仍执行 retry。
+- `test_timed_out_disable_then_close_leaves_no_lifecycle_waiter`：timeout 只取消 facade waiter，close 后无 pending waiter warning，holder cleanup 仍完成。
+- `test_enable_after_close_does_not_start_holder`：closed/closing manager 不 reopen。
+- startup matrix 覆盖 start 前抛错、OS thread 已启动后抛错、publication gate release 在 set 前/后抛 `KeyboardInterrupt`/`SystemExit`、正常 rollback 可 retry，以及 still-alive 分支保留 refs。
+- initial holder submission/result 抛普通 Exception、`KeyboardInterrupt`/`SystemExit` 时均先 cleanup；普通异常映射为固定 CLI startup error，控制异常保持 identity。
+- 多个 hung initial holder 的 ready timeout 从共享起点并发计时，启动等待不随 server 数量线性增长；optional/required 公共状态均不包含注入的 secret 异常文本。
+- ready publish 与 timeout 同边界时成功状态不被迟到 timeout 覆盖；holder task 创建失败关闭 coroutine、立即报告 unavailable且不留下 partial slot。
+- public close deadline 到达后 shielded drain 仍完成 holder finalizer 再 stop loop；注入单个 shutdown 普通异常不会跳过其余 slot或伪造 `_shutdown_complete`。
+- normal/cancel holder 测试使用可区分 outcome marker，证明 graceful holder 收到自身 stop event，不能只比较相同 thread id。
 
 ## 8. 测试环境隔离
 
@@ -392,10 +437,11 @@ runner 本里程碑明确顺序执行，不承诺多个进程同时写同一个 
 | 文件路径边界 | root allowed_root、相对 root、NUL、越界、symlink resolve、FileRead/List/Write OSError、restricted audit | commonpath 正确接受 root 子路径并拒绝越界；无 ValueError 逃逸；固定失败消息无绝对路径 |
 | CLI 注入 | REPL、TTY run、非 TTY run、`--interactive` | confirmer 与 MCP 解耦；Survey 语义不漂移 |
 | 完成门控 | 工具成功/失败/parse error + completed；后续独立完成 | 同轮不完成；反馈后完成；max_rounds 诚实 |
-| MCP 配置 | required 默认、enabled/disabled required | optional 降级；required 启动失败；禁用项不阻断 |
-| MCP lifecycle - generation | timed-out disable→enable replacement、旧 gen finally、disable+enable+close overlap | slot 在旧 holder 清理完成前可见；replacement 只由 loop reconcile 在清理后启动；旧 gen 不能删除新 holder/session；close cancel 精确 `(name, gen, task)` |
-| MCP lifecycle - startup transaction | Thread.start 抛错、start 后 gate release 抛 KeyboardInterrupt/SystemExit、join timeout | cancel→release gate→loop stop→bounded join；停止后 rollback 为可重试状态；仍活时保留 refs/closed warning；原控制异常不被替换 |
-| MCP close | 正常、完全忽略 stop、内部异常、重复 close、结果保留、thread join 超时 warning、延迟停止后再次 close | 绝对 deadline 内返回；future timeout cancel 并保留引用；loop drain 完成后才 stop；cleanup complete + thread stopped 后才 close/clear；PID 消失；warning 无敏感参数；原结果不被覆盖 |
+| MCP 配置 | required 默认、enabled/disabled required、optional/required secret-bearing status | optional 降级；required 启动失败；禁用项不阻断；公共诊断只含脱敏固定类别/异常类型 |
+| MCP lifecycle - generation | timed-out disable→enable replacement、unavailable-finalizer retry、当前 call failure 不自动重连、旧 gen finally/call failure、current-session call、disable+enable+close overlap、enable-after-close | `(gen, task, stop)` slot 在 task done 前可见；replacement 需精确 restart intent 且至多一个；call 在 loop 执行时选择 current session；旧 gen 不能改新 holder/session/status/tools；close 在 loop 内 snapshot 精确 slot |
+| MCP lifecycle - facade wait | enable/disable/connect timeout、timed-out disable 后立即 close | timeout 只取消 concurrent waiter；shielded holder ownership 继续；loop stop 前无 pending lifecycle waiter warning |
+| MCP lifecycle - startup transaction | Thread.start 抛错、start 后 gate release 在 set 前/后抛 KeyboardInterrupt/SystemExit、initial holder submission/result 异常、多个 hung holder、join timeout | cancel-aware gate→loop stop→bounded join；停止后 rollback 为可重试状态；ready timeout 不随 server 数量线性增长；仍活时保留 refs/closed warning；普通异常固定 startup error，原控制异常不被替换 |
+| MCP close | 正常、完全忽略 stop、内部异常、重复 close、结果保留、thread join 超时 warning、公开 deadline 后 finalizer 完成、延迟停止后再次 close | 绝对 deadline 内返回；future timeout cancel 并保留引用；loop drain 可越过 caller deadline但 finalizer 完成后才 stop；普通异常不跳过其他 slot或伪造 completion；cleanup complete + thread stopped 后才 close/clear；PID 消失；warning 无敏感参数；原结果不被覆盖 |
 | 测试隔离 | 真实 home 放置恶意 mcp.yaml 后运行 suite | 测试只读取临时 home，结果不变 |
 | 黄金 runner | manifest 变异、20 pass、单项 fail、preflight fail | ID/数量锁定；JSON/Markdown 同源；退出码 0/1/2 |
 | 真实模型入口 | 缺配置、有效单模型 | 缺配置无报告且退出 2；只执行 5 项 |

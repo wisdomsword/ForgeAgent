@@ -29,9 +29,9 @@
 - [x] 4.1 在 MCP 服务配置模型中增加默认 `false` 的 `required` 字段及兼容性解析测试
 - [x] 4.2 实施可选服务连接失败降级，验证失败服务工具被排除且诊断包含服务名和原因
 - [x] 4.3 实施必需服务连接失败的启动中止、资源清理和 CLI 非零退出测试
-- [ ] 4.4 为正常关闭、无响应子进程、部分关闭失败、重复 close、daemon thread join 超时 warning 和延迟停止后的二次清理建立确定性测试并确定有证据的超时上限
-- [ ] 4.5 使 `MCPManager.close()` 有界且幂等，为 loop thread 设置固定名称，在 manager 保存 shutdown future，由 loop coroutine 独占 holder wait/cancel 且只移除 done entries，future 超时时使用只读 fallback 并保留全部 pending 资源引用，允许重复 close 仅重试 cancel/stop/join，并保证关闭错误不覆盖任务结果或原始启动错误
-- [ ] 4.6 将 enable/disable/close 重构为 loop-owned generation-safe reconcile，以 `(name, generation, object)` 约束 holder/session 所有权；实现 publication-gated startup transaction，并用 timed-out disable→enable、旧代 finally、close overlap 和 gate-release 控制异常回归验证无 replacement/loop 泄漏
+- [ ] 4.4 为正常关闭、无响应子进程、部分关闭失败、重复 close、daemon thread join 超时 warning、公开 deadline 后后台 finalizer 继续运行和延迟停止后的二次清理建立确定性测试，并验证内部异常不跳过其余 slot或伪造 completion
+- [ ] 4.5 使 `MCPManager.close()` 有界且幂等，为 loop thread 设置固定名称；主线程保存首次 bounded concurrent future，loop 保存唯一 shielded shutdown task并独占 closing barrier、generation slot snapshot、holder wait/cancel/finalize；公开 deadline 只限制 caller，未完成 finalizer 继续在 loop drain，清理不变量失败时同一 task 等 repeated-close retry signal，重复 close 用 thread-safe completion event 等待新预算而不创建第二 facade/task；future 超时时使用只读且脱敏的 name fallback并保留全部 pending 资源引用，且关闭错误不覆盖任务结果或原始启动错误
+- [ ] 4.6 将 holder publish/finally、enable/disable/call selection/failure/close 重构为 loop-owned generation-safe reconcile，以 `(name, generation, task, stop)` holder slot、`(name, generation, session)` 和独立 `restart_after_generation` 约束所有权与 replacement intent；用可取消 lifecycle waiter + shield 分离同步等待与 holder ownership，在 loop 内建立 closing barrier/snapshot，实现共享 ready deadline及覆盖 initial holder submission 的 publication-gated/cancel-aware startup transaction；验证 initialize 中 disable、timed-out disable→enable→close、unavailable-finalizer/no-slot retry、call failure 不隐式重连、旧代 finally/call failure、current-session call、ready-timeout publication race、holder task creation failure、close overlap、enable-after-close、gate set 前后控制异常、post-publication submission、并发 hung server timeout和 optional/required status secret 不泄漏
 
 ## 5. 黄金验证核心
 
