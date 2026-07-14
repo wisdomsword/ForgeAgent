@@ -26,6 +26,10 @@ The golden runner MUST validate declared expectations for each scenario and SHAL
 - **WHEN** any scenario violates its declared outcome
 - **THEN** the runner identifies the scenario and failed expectation, reports a reduced pass rate and exits non-zero
 
+#### Scenario: Real-model identifier contains path syntax
+- **WHEN** the selected configured model identifier contains separators, dot segments, Unicode or punctuation
+- **THEN** the default real-model report directory is derived from a bounded ASCII slug plus a digest of the original identifier, remains under `artifacts/golden/real`, and cannot collide solely because unsafe characters were normalized
+
 ### Requirement: Five core scenarios support opt-in real-model execution
 Exactly G01, G03, G08, G11 and G43 SHALL be tagged as compatible with an explicitly configured real model, and real-model execution MUST remain opt-in and outside the base CI gate.
 
@@ -38,7 +42,7 @@ Exactly G01, G03, G08, G11 and G43 SHALL be tagged as compatible with an explici
 - **THEN** the runner executes only the 5 compatible scenarios and produces a separate pass-rate report
 
 #### Scenario: Real-model preflight lacks configuration or credentials
-- **WHEN** a user explicitly requests real-model execution but the selected model cannot be resolved or authenticated
+- **WHEN** a user explicitly requests real-model execution but the selected model cannot be resolved or its required local credential is unavailable
 - **THEN** the runner exits with status 2 before executing scenarios and does not generate a pass-rate report
 
 ### Requirement: Candidate catalog is not presented as validated

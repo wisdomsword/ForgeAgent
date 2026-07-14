@@ -427,9 +427,9 @@ JSON 结果包含：schema version、mode、model、开始/结束时间、total/
 
 - 全部场景通过：写报告，退出 0。
 - 任一场景失败或异常：继续运行剩余场景，写完整报告，退出 1。
-- manifest 不合法、真实模型无法解析/鉴权、输出目录不可用等 preflight 失败：退出 2，不生成通过率报告。
+- manifest 不合法、真实模型无法解析、所需本地凭证缺失、输出目录不可用等 preflight 失败：退出 2，不生成通过率报告。远端供应商是否接受凭证只能由首次真实场景请求证明；该类运行期鉴权失败按场景失败记录并退出 1，不额外发起 preflight 网络探测。
 
-默认输出为 `artifacts/golden/offline/` 或 `artifacts/golden/real/<sanitized-model-id>/`，覆盖同模式上一次结果，提供稳定 CI 路径。每个文件使用同目录临时文件加 `os.replace()` 原子写入，避免进程中断留下半文件。`artifacts/` 加入 `.gitignore`。
+默认输出为 `artifacts/golden/offline/` 或 `artifacts/golden/real/<sanitized-model-id>/`，覆盖同模式上一次结果，提供稳定 CI 路径。`sanitized-model-id` 固定为：把原始 model id 中连续的非 ASCII 字母数字/`_`/`-` 字符替换为 `-`，去掉首尾 `-`/`_`，空结果使用 `model`，截断到 48 字符，再追加 `-` 与原始 UTF-8 model id 的 SHA-256 前 8 位。这样 `/`、`..`、Unicode 和标点不能形成路径段，规范化后相同的不同 ID 也不会静默共用目录。每个文件使用同目录临时文件加 `os.replace()` 原子写入，避免进程中断留下半文件。`artifacts/` 加入 `.gitignore`。
 
 runner 本里程碑明确顺序执行，不承诺多个进程同时写同一个 output-dir；并发调用方必须提供不同的 `--output-dir`。因此不增加跨进程锁或并行写测试。
 

@@ -949,7 +949,7 @@ git commit -m "fix: harden MCP lifecycle ownership and shutdown"
 
 - [ ] **Step 1: 写 manifest 和报告 RED 测试**
 
-测试固定 20 ID、唯一性、精确 5 real callable、未知/重复 ID preflight exit 2、两项 fake suite 的 0/1 exit、JSON/Markdown 同一 summary、preflight 不写报告、原子覆盖。
+测试固定 20 ID、唯一性、精确 5 real callable、未知/重复 ID preflight exit 2、两项 fake suite 的 0/1 exit、JSON/Markdown 同一 summary、preflight 不写报告、原子覆盖，以及含 `/`、`..`、Unicode/标点和规范化碰撞的 model id 始终映射到 root 内不同目录。
 
 ```bash
 UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_golden_runner.py -q
@@ -988,7 +988,7 @@ manifest 中显式列出设计文档批准的 20 ID；只有 G01/G03/G08/G11/G43
 
 - [ ] **Step 4: 实现同源报告和 exit code**
 
-JSON schema 固定 `forgeagent.golden.v1`；Markdown 从同一个 suite result 渲染。每个文件先写同目录临时文件，再 `os.replace()`。默认目录为 `artifacts/golden/offline` 或 `artifacts/golden/real/<sanitized-model>`；并发调用要求不同 `--output-dir`。
+JSON schema 固定 `forgeagent.golden.v1`；Markdown 从同一个 suite result 渲染。每个文件先写同目录临时文件，再 `os.replace()`。默认目录为 `artifacts/golden/offline` 或 `artifacts/golden/real/<sanitized-model>`；`sanitized-model` 按 Design Doc 固定为 48 字符上限的 ASCII slug 加原始 model id SHA-256 前 8 位，不得直接拼接原始 ID。并发调用要求不同 `--output-dir`。
 
 - [ ] **Step 5: 运行 runner 合约测试并提交**
 
@@ -1031,7 +1031,7 @@ def require(condition: bool, message: str) -> None:
 
 - [ ] **Step 3: 实现 5 项 real callable**
 
-real callable 与 offline 使用同一 fixture 和 judge，只替换 client。`runner --real-model` 在执行前调用现有 `build_real_client(model_id)`；解析/凭证失败转 preflight exit 2 且不创建报告。
+real callable 与 offline 使用同一 fixture 和 judge，只替换 client。`runner --real-model` 在执行前调用现有 `build_real_client(model_id)`；模型解析或本地必需凭证缺失转 preflight exit 2 且不创建报告。不得为验证凭证有效性额外发送探测请求；供应商拒绝凭证属于真实场景的运行期失败，写入完整报告并退出 1。
 
 - [ ] **Step 4: 让旧回放测试调用共享 case**
 
@@ -1069,7 +1069,7 @@ git commit -m "test: implement trusted golden task core"
 
 - [ ] **Step 1: 实现 sandbox/project-root 五项判定**
 
-G06 restricted 越权返回结构化失败且未读取目标；G14 timeout 轮失败后后续任务仍成功；G58 项目外读被 audit hook 拦截；G59 项目外写未生成文件；G324 FileWrite 越界返回 escapes project root 且目标不存在。
+G06 restricted 越权返回结构化失败且未读取目标；G14 timeout 轮失败后后续任务仍成功；G58 项目外读被 audit hook 拦截；G59 项目外写未生成文件；G324 FileWrite 越界返回固定 `FileWrite path is outside project root` 且目标不存在。
 
 - [ ] **Step 2: 实现 SSRF/确认四项判定**
 
