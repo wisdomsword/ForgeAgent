@@ -178,7 +178,7 @@ WebFetch formatter 在一次调用开始时只读取一次 `sensitive_env_values
 - FileWrite 写入阶段发生 `OSError` 或路径语法产生 `ValueError` 时返回固定 `FileWrite failed`。越界、无交互通道和用户拒绝继续使用既有固定消息。
 - FileRead/FileList 的路径校验和文件系统失败分别返回固定 `FileRead failed` / `FileList failed`，不回显异常文本、模型提供的绝对路径或 canonical root。MCP 结果契约和全局 `mask_secrets()` 行为保持不变。
 - 不新增通用 result sanitizer。固定消息牺牲部分底层诊断细节，以避免平台相关异常字符串重新引入 URL、hostname 或宿主绝对路径泄漏。
-- 确认摘要最终作为 Rich `Text` 的 literal segment 输出，不把完整 f-string 交给 markup parser。MCP identifier 和 FileWrite display path 在 secret masking 后还要规范为单行可见文本：C0/C1、DEL、CR/LF 和 Unicode line/paragraph separator 使用 `\\xNN`/`\\uNNNN` 转义；普通 `[`/`]` 保持字面值。这样模型内容既不能闭合样式标签，也不能伪造第二行提示。该 helper 只服务确认显示，不扩展为通用 sanitizer。
+- 确认摘要最终作为 Rich `Text` 的 literal segment 输出，不把完整 f-string 交给 markup parser。MCP identifier 和 FileWrite display path 在 secret masking 后还要规范为单行可见文本：C0/C1、DEL、CR/LF、Unicode line/paragraph separator，以及 Unicode category `Cf` 的格式控制符（含 bidi embedding/override/isolate 与 directional marks）使用 `\\xNN`/`\\uNNNN`/`\\UNNNNNNNN` 转义；普通 `[`/`]` 保持字面值。这样模型内容既不能闭合样式标签、伪造第二行提示，也不能用不可见方向控制重排审批文本。该 helper 只服务确认显示，不扩展为通用 sanitizer。
 
 测试必须覆盖：percent-encoded、大小写变化和重叠的 hostname secret；encoded `@`、`/`、`?`、`#`、`:`；普通 IPv6 与 zone-id 字面量；userinfo/fragment 丢弃；hostname 局部 helper 与 path/query 全局 `mask_secrets()` 不重复或漏脱敏；携带原始 URL/hostname 的 WebFetch guard/network/HTTP protocol 异常；WebFetch artifact 写入异常包含绝对路径；预置 artifact symlink/ancestor 指向 root 外且外部目标不变；FileWrite 使用绝对路径和相对 `allowed_root="."` 时只回显 canonical project-relative 路径；FileRead/FileWrite/FileList 的越界、非法路径和文件系统异常不回显宿主路径。失败结果还需通过现有 Step feedback 与 CLI `render_outcome()` 路径验证不再泄漏。
 
@@ -413,7 +413,7 @@ runner preflight 必须验证：
 
 ### 9.3 场景执行
 
-每个场景获得独立临时工作目录。case callable 负责 fixture 创建、Task/CLI/工具调用和显式 judge，并返回标准化 evidence。判定不得依赖 Python `assert`，以免 `python -O` 改变结果；失败通过专用 check error 或结构化结果表达。
+每个场景获得独立临时工作目录。case callable 负责 fixture 创建、Task/CLI/工具调用和显式 judge，并返回标准化 evidence。判定不得依赖 Python `assert`，以免 `python -O` 改变结果；失败通过专用 check error 或结构化结果表达。evidence 只能递归包含 JSON 标准值（字符串键的 object、array、string、finite number、boolean、null）；runner 在接纳场景结果时用严格 JSON 编码验证，非序列化值或 NaN/Infinity 转成该场景的固定失败结果并继续其余场景，不能让最终报告阶段整体崩溃。
 
 离线模式只使用本地 fixture：进入 Agent 循环的场景使用 MockClient；网络、CLI、Tool、RestrictedBackend 和 MCP 生命周期等边界场景可以直接调用对应入口及本地 test double，而不伪造一次无意义的模型轮次。基础运行不得访问公网、Docker、真实模型配置或用户 home。
 

@@ -23,7 +23,7 @@
 - [x] 3.7 实施固定安全 WebFetch 失败消息与 FileWrite project-relative 成功/固定失败消息，并验证 Step feedback 不再暴露原始 URL、hostname 或宿主绝对路径
 - [x] 3.8 为 InvalidURL/BadStatusLine/LineTooLong/IncompleteRead/RemoteDisconnected、WebFetch artifact 写入、search 未知 charset、`allowed_root="/"`、非法路径及 FileRead/FileList 失败文本增加行为探针和回归测试
 - [x] 3.9 实施 WebFetch/search 消费端异常收敛、canonical commonpath 文件边界和 FileRead/FileList 固定失败消息，并验证 CLI outcome 渲染不泄漏敏感路径
-- [ ] 3.10 验证并实施非 TTY REPL 不读取确认输入、MCP server/tool 与 FileWrite 展示路径的已知 secret 脱敏和 Rich markup/终端控制字符单行 literal 渲染，以及 M9 到期裸词命令兼容层移除；顶层 `forgeagent models` 保持不变
+- [ ] 3.10 验证并实施非 TTY REPL 不读取确认输入、MCP server/tool 与 FileWrite 展示路径的已知 secret 脱敏和 Rich markup/C0-C1/Unicode `Cf` 格式控制字符单行 literal 渲染，以及 M9 到期裸词命令兼容层移除；顶层 `forgeagent models` 保持不变
 - [ ] 3.11 验证并实施 WebFetch artifact 写入前的 canonical root containment，使预置 artifact symlink 或 canonical root 下的 descendant symlink component 指向 root 外时返回固定保存失败且外部目标不变
 
 ## 4. MCP 韧性与生命周期
@@ -39,7 +39,7 @@
 
 - [ ] 5.1 从 380 项候选中确定覆盖核心成功路径和本次风险边界的 20 个场景，并建立单一 manifest
 - [ ] 5.2 为 20 个场景提供完全离线的本地输入和自动判定期望；Agent-loop 场景使用 MockClient，边界场景允许直接调用对应本地入口
-- [ ] 5.3 实现可重复 runner，输出逐场景机器可读结果、失败原因、人类可读汇总和通过率，并以失败状态控制退出码
+- [ ] 5.3 实现可重复 runner，逐项验证 evidence 只含标准 JSON 值并把非法 evidence 收敛为单项失败，输出完整机器可读结果、失败原因、人类可读汇总和通过率，并以失败状态控制退出码
 - [ ] 5.4 标记其中 5 个真实模型兼容场景，提供显式 opt-in 运行入口和独立报告，确保基础 CI 不访问外部模型
 - [ ] 5.5 将黄金核心接入项目验证命令，验证无网络、无 Docker、无凭证、隔离 HOME 环境下可完整执行
 
@@ -54,7 +54,7 @@
 ## 7. 综合验证与审查
 
 - [ ] 7.1 运行 Ruff 静态检查并修复本 change 引入的问题
-- [ ] 7.2 在隔离 HOME 下运行完整 pytest，确保环境能力不足只产生有理由的 skip，不依赖人工 deselect
-- [ ] 7.3 运行 SSRF/代理、CLI 确认、Step 完成和 MCP 生命周期专项测试，记录命令、结果与任何环境限制
+- [ ] 7.2 在隔离 HOME 下运行完整 pytest并将 RuntimeWarning/unraisable callback 提升为失败，确保环境能力不足只产生有理由的 skip，不依赖人工 deselect
+- [ ] 7.3 运行 SSRF/代理、CLI 确认、Step 完成和 MCP 生命周期专项测试，将 RuntimeWarning/unraisable callback 提升为失败，并记录命令、结果与任何环境限制
 - [ ] 7.4 运行 20 项离线黄金核心并核对逐项结果、报告、通过率和退出码；有凭证时仅补充非门禁的 5 项真实模型报告
 - [ ] 7.5 对照 `spec.md`、本 change specs 和 CodeGraph 调用路径执行代码审查，确认没有扩大范围、遗漏调用方或产生文档漂移

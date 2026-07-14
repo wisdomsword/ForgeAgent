@@ -585,7 +585,7 @@ git commit -m "fix: harden file tool path boundaries"
 - 非 TTY REPL 的 scripted response 请求 WebFetch/FileWrite 或非 auto-approved MCP 时，confirmation reader 若被调用就立即失败；断言工具返回 `rejected: no interactive confirmation channel available`，而 goal reader 仍可完成后续轮次。
 - TTY REPL 显式 terminal-capability 为真时仍调用同一个 `read_line` 完成 y/N 确认。
 - 已知环境 secret 出现在 MCP server、MCP tool、FileWrite 项目相对路径和外部 basename 时，summary 不包含原值；FileWrite content 仍不显示。
-- 参数化 `bad[/red]`、`[bold]fake[/bold]`、ANSI/C0/C1、CR/LF、U+2028/U+2029 到 MCP identifier 与 FileWrite path：确认输出不抛 `MarkupError`、不改变 `approve` 样式、不产生注入行，控制字符以可见转义呈现，且 `read_line` 只调用一次。
+- 参数化 `bad[/red]`、`[bold]fake[/bold]`、ANSI/C0/C1、CR/LF、U+2028/U+2029，以及 U+202E、U+2066/U+2069、U+200E 等 Unicode `Cf` 格式控制符到 MCP identifier 与 FileWrite path：确认输出不抛 `MarkupError`、不改变 `approve` 样式、不产生注入行或双向重排，控制/格式字符以可见转义呈现，且 `read_line` 只调用一次。
 - 参数化输入 `models`、`reload`、`mcp`、`mcp status` 都完整进入 `run_once()`，无 deprecation 文本；`/model`、`/reload`、`/mcp` 仍只走 handler。现有顶层 `main(["models"])` 测试继续通过。
 
 - [ ] **Step 2: 运行 RED 测试**
@@ -600,7 +600,7 @@ UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_cli.py -q
 
 `repl()` 增加 `confirmation_available: bool | None = None`；未提供时按 `console.is_terminal and sys.stdin.isatty()` 计算。只在该值为真时创建 confirmer，否则向 `run_once()` 传 `None`。测试可显式传 true/false，不把注入的 `read_line` 自动视为 TTY。
 
-`_confirmation_summary()` 一次读取已知 secret values：MCP server/tool、非敏感 arguments string 和 FileWrite 安全路径分别使用现有 `mask_secrets()`；结构化敏感键仍直接 `<redacted>`。完整摘要通过 Rich `Text` literal segment 输出，并用一个 confirmation-only single-line formatter 把 C0/C1、DEL、CR/LF、U+2028/U+2029 转成可见 `\\xNN`/`\\uNNNN`；不得仅 escape markup 后让终端控制字符原样通过，也不得扩展为通用 sanitizer。
+`_confirmation_summary()` 一次读取已知 secret values：MCP server/tool、非敏感 arguments string 和 FileWrite 安全路径分别使用现有 `mask_secrets()`；结构化敏感键仍直接 `<redacted>`。完整摘要通过 Rich `Text` literal segment 输出，并用一个 confirmation-only single-line formatter把 C0/C1、DEL、CR/LF、U+2028/U+2029 和 `unicodedata.category(ch) == "Cf"` 的格式控制符转成可见 `\\xNN`/`\\uNNNN`/`\\UNNNNNNNN`；不得仅 escape markup 后让终端控制或 bidi 字符原样通过，也不得扩展为通用 sanitizer。
 
 删除 REPL 的 bare-word compatibility rewrite；不修改 argparse 的顶层 `models` subcommand，也不改变 slash handler。
 
@@ -952,7 +952,7 @@ git commit -m "fix: harden MCP lifecycle ownership and shutdown"
 
 - [ ] **Step 1: 写 manifest 和报告 RED 测试**
 
-测试固定 20 ID、唯一性、精确 5 real callable、未知/重复 ID preflight exit 2、两项 fake suite 的 0/1 exit、JSON/Markdown 同一 summary、preflight 不写报告、原子覆盖，以及含 `/`、`..`、Unicode/标点和规范化碰撞的 model id 始终映射到 root 内不同目录。
+测试固定 20 ID、唯一性、精确 5 real callable、未知/重复 ID preflight exit 2、两项 fake suite 的 0/1 exit、JSON/Markdown 同一 summary、preflight 不写报告、原子覆盖、单个 fake scenario 返回 `Path`/NaN evidence 时只将该项记为固定失败并继续生成有效报告，以及含 `/`、`..`、Unicode/标点和规范化碰撞的 model id 始终映射到 root 内不同目录。
 
 ```bash
 UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_golden_runner.py -q
@@ -987,7 +987,7 @@ manifest 中显式列出设计文档批准的 20 ID；只有 G01/G03/G08/G11/G43
 
 `validate_manifest()` 比较精确 frozenset、数量和 real set，并读取 `docs/golden-tasks-seed.md`，使用行首 heading/table 正则证明每个 ID 有定义。失败抛 `GoldenPreflightError`。
 
-`run_suite()` 对每项使用 `TemporaryDirectory`，捕获 `GoldenCheckError` 和 Exception 为失败结果但继续执行。preflight 在输出目录创建前完成。
+`run_suite()` 对每项使用 `TemporaryDirectory`，捕获 `GoldenCheckError` 和 Exception 为失败结果但继续执行。成功 evidence 在加入 suite result 前用 `json.dumps(..., allow_nan=False)` 验证只含标准 JSON 值；验证失败按固定 detail 和空 evidence 记录该项失败，不包含对象 repr。preflight 在输出目录创建前完成。
 
 - [ ] **Step 4: 实现同源报告和 exit code**
 
@@ -1206,7 +1206,9 @@ UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest \
   tests/test_step.py \
   tests/test_task.py \
   tests/test_mcp_manager.py \
-  tests/test_golden_runner.py -q -ra
+  tests/test_golden_runner.py -q -ra \
+  -W error::RuntimeWarning \
+  -W error::pytest.PytestUnraisableExceptionWarning
 ```
 
 预期：全部可运行测试 PASS；环境能力 skip 带明确原因。
@@ -1214,7 +1216,9 @@ UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest \
 - [ ] **Step 3: 运行隔离全量测试**
 
 ```bash
-UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest -q -ra
+UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest -q -ra \
+  -W error::RuntimeWarning \
+  -W error::pytest.PytestUnraisableExceptionWarning
 ```
 
 预期：无人工 deselect；所有失败必须先按 systematic-debugging 修复，不能进入下一步。

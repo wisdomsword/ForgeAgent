@@ -30,6 +30,10 @@ The golden runner MUST validate declared expectations for each scenario and SHAL
 - **WHEN** a trusted-core catalog entry requires runtime instrumentation, unchanged fixture hashes, an Edit version chain, AST validity or exact structured output in addition to a final value or passing test
 - **THEN** that scenario's judge checks every declared observable condition and fails when any one is missing, so a hard-coded result or whole-block replacement cannot produce a false pass
 
+#### Scenario: Scenario returns invalid report evidence
+- **WHEN** a scenario returns evidence containing a non-JSON value or non-finite number
+- **THEN** the runner records that scenario as failed with fixed serializable evidence, continues the remaining scenarios, and still emits complete JSON and Markdown reports instead of failing during final serialization
+
 #### Scenario: Real-model identifier contains path syntax
 - **WHEN** the selected configured model identifier contains separators, dot segments, Unicode or punctuation
 - **THEN** the default real-model report directory is derived from a bounded ASCII slug plus a digest of the original identifier, remains under `artifacts/golden/real`, and cannot collide solely because unsafe characters were normalized
