@@ -14,8 +14,10 @@ MockClient can be injected for tests.
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
 import os
+import re
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -42,7 +44,7 @@ from .model_registry import (
 from .models import ImageItem, StreamEventKind, TokenUsage
 from .openai_compatible_client import OpenAICompatibleClient
 from .protocol import FileWriteArgs, MCPArgs, SurveyArgs, WebFetchArgs
-from .secret_policy import is_secret_name, mask_secrets, sensitive_env_values
+from .secret_policy import REDACTED, is_secret_name, mask_secrets, sensitive_env_values
 from .step import RoundResult, Termination
 from .task import Task, TaskOutcome
 from .tools import Asker, Confirmer, Tier
@@ -181,6 +183,20 @@ def _redact_confirmation_value(value):
     return value
 
 
+def _mask_confirmation_hostname(hostname: str, secret_values: set[str]) -> str:
+    candidates = sorted(
+        (value for value in secret_values if value),
+        key=lambda value: (-len(value), value.casefold(), value),
+    )
+    if not candidates:
+        return hostname
+    pattern = re.compile(
+        "|".join(re.escape(value) for value in candidates),
+        flags=re.IGNORECASE | re.ASCII,
+    )
+    return pattern.sub(REDACTED, hostname)
+
+
 def _redact_confirmation_url(url: str) -> str:
     try:
         parts = urlsplit(url)
@@ -190,9 +206,19 @@ def _redact_confirmation_url(url: str) -> str:
     except ValueError:
         return "<redacted malformed URL>"
     secret_values = sensitive_env_values()
-    hostname = mask_secrets(parts.hostname or "", secret_values)
-    if ":" in hostname and not hostname.startswith("["):
-        hostname = f"[{hostname}]"
+    raw_authority = parts.netloc.rsplit("@", 1)[-1]
+    decoded_hostname = unquote(parts.hostname or "", errors="replace")
+    if raw_authority.startswith("["):
+        try:
+            ipaddress.IPv6Address(decoded_hostname)
+        except ValueError:
+            return "<redacted malformed URL>"
+        masked_hostname = _mask_confirmation_hostname(decoded_hostname, secret_values)
+        hostname = f"[{quote(masked_hostname, safe=':')}]"
+    else:
+        if any(delimiter in decoded_hostname for delimiter in "@/:?#"):
+            return "<redacted malformed URL>"
+        hostname = quote(_mask_confirmation_hostname(decoded_hostname, secret_values), safe="")
     netloc = hostname if port is None else f"{hostname}:{port}"
     query = urlencode(
         [
@@ -230,7 +256,7 @@ def _confirmation_summary(args: BaseModel) -> str:
         return f"WebFetch {_redact_confirmation_url(args.url)}"
     if isinstance(args, FileWriteArgs):
         safe_path = _confirmation_filewrite_path(args.path)
-        return f"FileWrite {safe_path} ({len(args.content)} bytes)"
+        return f"FileWrite {safe_path} ({len(args.content)} characters)"
     return type(args).__name__
 
 

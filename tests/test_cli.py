@@ -94,6 +94,72 @@ def test_confirmation_summary_masks_known_secret_in_url_hostname(monkeypatch):
     assert "REDACTED" in summary
 
 
+@pytest.mark.parametrize(
+    ("secret", "url"),
+    [
+        ("OPAQUE-VALUE-12345", "https://opaque-value-12345.example.com/public"),
+        ("opaque-value-12345", "https://%6fpaque-value-12345.example.com/public"),
+    ],
+)
+def test_confirmation_summary_masks_case_and_percent_encoded_hostname(
+    secret, url, monkeypatch
+):
+    from forgeagent.cli import _confirmation_summary
+
+    monkeypatch.setattr("forgeagent.cli.sensitive_env_values", lambda: {secret})
+    summary = _confirmation_summary(WebFetchArgs(url=url))
+
+    assert secret.casefold() not in unquote(summary).casefold()
+    assert "REDACTED" in unquote(summary)
+
+
+@pytest.mark.parametrize("encoded", ["%40", "%2F", "%3F", "%23", "%3A"])
+def test_confirmation_summary_does_not_reinterpret_encoded_hostname_delimiters(encoded):
+    from forgeagent.cli import _confirmation_summary
+
+    summary = _confirmation_summary(WebFetchArgs(url=f"https://safe{encoded}host/public"))
+
+    assert summary == "WebFetch <redacted malformed URL>"
+
+
+def test_confirmation_summary_handles_ipv6_zone_and_masks_each_component_once(monkeypatch):
+    from forgeagent.cli import _confirmation_summary
+
+    secret = "opaque-value-12345"
+    monkeypatch.setattr("forgeagent.cli.sensitive_env_values", lambda: {secret})
+    summary = _confirmation_summary(
+        WebFetchArgs(
+            url=(
+                "https://[fe80::1%25en0]/opaque-value-12345"
+                "?q=opaque-value-12345#discard-me"
+            )
+        )
+    )
+    rendered = unquote(summary)
+
+    assert "[fe80::1%en0]" in rendered
+    assert secret not in rendered
+    assert rendered.count("***REDACTED***") == 2
+    assert "discard-me" not in rendered
+
+
+def test_confirmation_summary_prefers_longest_overlapping_hostname_secret(monkeypatch):
+    from forgeagent.cli import _confirmation_summary
+
+    monkeypatch.setattr(
+        "forgeagent.cli.sensitive_env_values",
+        lambda: {"opaque-value-12345", "value-12345"},
+    )
+    rendered = unquote(
+        _confirmation_summary(
+            WebFetchArgs(url="https://opaque-value-12345.example.com/public")
+        )
+    )
+
+    assert rendered.count("***REDACTED***") == 1
+    assert "value-12345" not in rendered
+
+
 def test_confirmation_summary_masks_known_secret_in_query_key(monkeypatch):
     from forgeagent.cli import _confirmation_summary
 
@@ -205,6 +271,14 @@ def test_confirmation_summary_preserves_normalized_project_relative_filewrite_pa
     assert content not in summary
     assert "reports/report.txt" in summary
     assert str(len(content)) in summary
+
+
+def test_filewrite_confirmation_labels_unicode_character_count():
+    from forgeagent.cli import _confirmation_summary
+
+    summary = _confirmation_summary(FileWriteArgs(path="out.txt", content="\u4f60\u597d"))
+
+    assert summary.endswith("(2 characters)")
 
 
 def test_confirmation_summary_shows_cwd_contained_absolute_filewrite_path_as_relative(
