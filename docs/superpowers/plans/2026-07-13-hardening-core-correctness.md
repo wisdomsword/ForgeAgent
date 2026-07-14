@@ -700,7 +700,107 @@ git add src/forgeagent/mcp_manager.py src/forgeagent/cli.py src/forgeagent/res/m
 git commit -m "feat: support required MCP services"
 ```
 
-### Task 6: 让 MCP close 使用绝对 deadline 且不抛异常
+### Task 6A: 用 generation token 重建 MCP holder/session ownership
+
+**Files:**
+- Modify: `src/forgeagent/mcp_manager.py`
+- Modify: `tests/test_mcp_manager.py`
+
+**Interfaces:**
+- Produces: `_ServerState.generation`、`tearing_down_generation`、`restart_after_generation`；`_holders: dict[str, tuple[int, asyncio.Task, asyncio.Event]]`；`_sessions: dict[str, tuple[int, object]]`；loop-owned `_start_holder()`、`_finalize_holder_slot()` 和 generation-aware `_holder()`。
+- Consumes: existing `MCPServerConfig`, `MCPToolInfo`, `mask_secrets()`, `_render_content()` and synchronous manager API.
+
+- [ ] **Step 1: Add the preserved RED regressions and generation-specific RED cases**
+
+Keep these existing assertions unchanged:
+
+```bash
+UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest \
+  tests/test_mcp_manager.py::test_connect_interrupt_releasing_publication_gate_stops_running_loop \
+  tests/test_mcp_manager.py::test_enable_during_timed_out_disable_restarts_after_old_holder_cleanup \
+  -q -W error::RuntimeWarning
+```
+
+Add tests for `test_re_enable_old_holder_finally_does_not_delete_replacement_session`, `test_call_failure_does_not_invalidate_replacement_session`, `test_call_selection_occurs_on_loop_for_current_generation`, `test_enable_racing_failed_holder_finalizer_starts_one_replacement`, `test_enable_after_failed_holder_finalized_starts_one_generation`, and `test_disable_during_holder_initialization_never_publishes_available`. Make each test assert the externally visible status/tools/session behavior, not only private dict shape. Run the focused file and confirm the new tests fail against the name-keyed implementation.
+
+- [ ] **Step 2: Replace name-only state with exact generation slots**
+
+Change `_ServerState` and manager fields to the exact shapes above. Remove all uses of `_ServerState.stop` and direct main-thread `_sessions.pop()`/`_holders.pop()`. Allocate `state.generation + 1` only inside loop-owned `_start_holder()`. Create `(generation, task, stop)` before the task can run, and close the coroutine if task creation fails; that failure sets a fixed unavailable status and an already-set ready event without leaving a partial slot.
+
+Implement `_finalize_holder_slot(name, generation, task)` as the only holder-slot remover. It must compare the current tuple including task/stop before clearing session, tools or status. Clear `tearing_down_generation` only for the matching generation. Start a replacement only when `restart_after_generation == generation`, `config.enabled` is true, and neither `_closed` nor loop-owned `_closing` is true; clear the restart intent before allocating the next generation. The done callback must consume ordinary task exceptions and call this function on the loop thread.
+
+Update the existing pre-Task-6C shutdown code and all test fixtures to unpack exact holder slots instead of assuming dict values are bare tasks. This is a compatibility bridge only: keep its existing deadline behavior until Task 6C, but all stop/cancel/finalize operations must already use the slot generation and stop event so the generation tests can pass without a mixed representation.
+
+- [ ] **Step 3: Make holder publication and failure cleanup generation-safe**
+
+Change the holder signature to receive `generation`, `ready`, and its generation-specific `stop`. After every initialize/list-tools await, verify the exact slot, enabled desired state, stop flag and closing barrier before publishing the session tuple, tools and `available` status. On failure, expose only `unavailable: <ExceptionType>`, set ready, and do not include exception text. In `finally`, remove only the matching `(generation, session)` and never overwrite a newer generation. Active call failure must mark the exact generation unavailable and stop it, but must not set `restart_after_generation`; explicit `enable()` is required for retry.
+
+- [ ] **Step 4: Route enable/disable/retry through loop-owned reconcile**
+
+When the loop exists, `enable()` and `disable()` submit loop coroutines; they do not mutate config, slots, sessions or status from the caller thread. `enable()` starts a holder when no slot exists even if `config.enabled` was already true; for an unavailable/finishing exact slot it sets desired enabled, `tearing_down_generation`, `restart_after_generation`, status `restarting`, clears tools, and signals only that stop event. `disable()` sets desired disabled, clears restart intent, keeps the holder slot until its task is done, clears catalog state and signals only that generation. Before initial connect, direct config mutation remains allowed; an all-disabled `connect()` leaves the manager pre-start with no loop.
+
+Close the already-preserved publication-gate RED in this task by requesting `loop.stop()` before the rollback join when gate release throws after the worker entered `run_forever()`. Preserve the primary `KeyboardInterrupt`/`SystemExit` object. Task 6B will extend this from the current set-then-raise case to gate failure before set and the full startup transaction.
+
+- [ ] **Step 5: Make call selection loop-owned and verify generation behavior**
+
+Implement a loop-owned call wrapper that selects the current `(generation, session)` immediately before invoking `session.call_tool(...)`. The synchronous facade only submits that wrapper and receives the existing structured result contract. A call exception invalidates only the captured matching session/status/tools and signals its exact holder; it cannot remove or mark a replacement. Preserve the SDK inner read timeout before the outer facade timeout.
+
+- [ ] **Step 6: Run the generation-focused GREEN suite and commit**
+
+```bash
+UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_mcp_manager.py -q -W error::RuntimeWarning
+UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run ruff check src/forgeagent/mcp_manager.py tests/test_mcp_manager.py
+```
+
+Expected: the preserved gate and timed-out disable regressions plus generation, stale-finalizer, current-call, failed-holder retry and initialization-disable cases pass with no RuntimeWarning. Commit:
+
+```bash
+git add src/forgeagent/mcp_manager.py tests/test_mcp_manager.py
+git commit -m "fix: make MCP holder ownership generation-safe"
+```
+
+### Task 6B: Make MCP startup and synchronous lifecycle waiters transactional
+
+**Files:**
+- Modify: `src/forgeagent/mcp_manager.py`
+- Modify: `tests/test_mcp_manager.py`
+- Modify: `tests/test_cli.py`
+
+**Interfaces:**
+- Produces: publication-gated startup rollback; cancel-aware `_submit()` waiter behavior; shared-deadline initial holder startup; fixed public MCP status diagnostics.
+- Consumes: Task 6A generation slots and `MCPStartupError`/CLI construction from Task 5.
+
+- [ ] **Step 1: Add startup, waiter, timeout-race and disclosure RED tests**
+
+Add `test_timed_out_disable_then_close_leaves_no_lifecycle_waiter`, `test_connect_gate_release_before_set_preserves_exception_and_stops_worker`, `test_connect_initial_submission_control_exception_preserves_identity`, `test_multiple_hung_initial_holders_share_ready_deadline`, `test_ready_publish_cannot_be_overwritten_by_timeout`, `test_holder_task_creation_failure_closes_coroutine`, and `test_optional_status_does_not_expose_secret_exception_text`. Run them against Task 6A and verify each fails for the missing behavior or wrong state transition.
+
+- [ ] **Step 2: Implement cancel-aware publication-gated startup**
+
+Use local `loop`, `startup_gate`, and `startup_cancelled` objects. The worker waits for publication with short timed waits while also checking cancellation; it never enters `run_forever()` before manager `_loop`, `_thread`, and `_started` are published. On any `Thread.start()`, publication, or gate-release `BaseException`, preserve the primary exception, set cancellation, best-effort release the gate, request `loop.stop()` whether the worker has started the loop or not, bounded-join, and close/reset only when the thread is stopped. If still alive, retain refs, set closed/started conservatively, mark startup cleanup complete because no holder was published, and rethrow the primary exception. Cleanup exceptions are logged by type and never replace the primary control exception.
+
+- [ ] **Step 3: Implement shared initial ready deadline and waiter cancellation**
+
+Start every enabled holder before the first await. Use one monotonic start deadline and concurrent ready waiters; a timeout writes `unavailable: connect timeout` only after checking the exact generation and `ready.is_set()`. `_submit()` must cancel only the concurrent waiter on timeout or caller control exception. Disable waiters await `asyncio.shield(holder_task)` so canceling the waiter cannot cancel holder cleanup; enable/connect waiters only await generation-specific ready and never own the holder slot. A canceled waiter must not remain pending when a later close stops the loop.
+
+- [ ] **Step 4: Sanitize public MCP diagnostics**
+
+Make `server_status()` return fixed status categories/types passed through `mask_secrets()`, matching `required_failures()`. Keep server names and cause type, but never expose exception strings, command, args, env or server-returned content in optional diagnostics, required startup errors or close warnings. Add tests through both `build_mcp_manager()` and REPL status rendering.
+
+- [ ] **Step 5: Run Task 6B GREEN tests and commit**
+
+```bash
+UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_mcp_manager.py tests/test_cli.py -q -W error::RuntimeWarning
+UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run ruff check src/forgeagent/mcp_manager.py tests/test_mcp_manager.py tests/test_cli.py
+```
+
+Expected: startup control exceptions preserve object identity, no live startup worker remains in the normal injected cases, multiple hung servers do not multiply the ready timeout, no pending lifecycle waiter warnings appear, and public status is secret-safe. Commit:
+
+```bash
+git add src/forgeagent/mcp_manager.py tests/test_mcp_manager.py tests/test_cli.py
+git commit -m "fix: make MCP startup and lifecycle waits transactional"
+```
+
+### Task 6C: Implement one loop-owned shutdown drain with absolute deadline
 
 **Files:**
 - Modify: `src/forgeagent/mcp_manager.py`
@@ -708,123 +808,41 @@ git commit -m "feat: support required MCP services"
 - Modify: `tests/mcp_fixture_server.py`
 
 **Interfaces:**
-- Produces: 构造参数 `shutdown_timeout: float = 10.0`、`thread_join_timeout: float = 2.0`；`_shutdown_future: Future[set[str]] | None`；固定 thread name `forgeagent-mcp-loop`；可重试且幂等的 `close() -> None`。
-- Consumes: `_holders`、`_sessions`、`_loop`、`_thread`、SDK stdio process-tree cleanup、`_remaining(deadline: float, *, reserve: float = 0.0) -> float`、absolute monotonic deadline。
+- Produces: `shutdown_timeout=10.0`、`thread_join_timeout=2.0`；fixed `forgeagent-mcp-loop`；`_shutdown_future` as first-call facade；unique loop-owned `_shutdown_task` with retry event and exact slot snapshot；idempotent `close() -> None` for ordinary cleanup failures.
+- Consumes: Task 6A exact slots, Task 6B startup/submit behavior, SDK stdio process-tree cleanup and `_remaining()`.
 
-- [ ] **Step 1: 写绝对 deadline、future ownership 和延迟清理 RED 测试**
+- [ ] **Step 1: Add shutdown RED matrix before changing close behavior**
 
-使用短注入上限验证：normal holder；忽略 stop 直到 cancel 的 holder；内部 shutdown 异常；future timeout；thread.join 超时；close 两次；第一次 close 超时后让 thread 停止，再次 close 才关闭 loop/清引用。每个测试断言 wall time 小于注入总 deadline 加 0.5 秒、close 不抛、`_closed is True`。warning 必须包含固定 thread name、ident、alive 状态、pending server snapshot、`shutdown incomplete`，不得包含 arguments/env/server content。真实 fixture PID 测试断言 normal/holder-stuck 路径在默认 deadline 内消失；event-loop hard-stuck 路径只断言 CLI 返回、资源残余 warning 和引用保留。
+Add/retain tests for normal close, holder ignoring stop until cancel, delayed async context cleanup, loop thread hard-stuck, internal shutdown exception, repeated close after a canceled facade, repeated close after cleanup completion, result preservation, warning sanitization, and exact `(name, generation, task, stop)` snapshot. Use PID files for real fixture process assertions and distinguish graceful-stop and cancel markers. Confirm the focused matrix fails against the existing shutdown implementation without loosening the two preserved regressions.
 
-- [ ] **Step 2: 实现 manager shutdown 状态字段和线程命名**
+- [ ] **Step 2: Add shutdown state and exact loop snapshot ownership**
 
-在 `MCPManager.__init__` 增加：
+Add `_closing`, `_shutdown_task`, `_shutdown_retry`, `_shutdown_snapshot`, `_shutdown_complete`, and the configured budgets. The first loop-owned shutdown entry sets `_closing` and snapshots every current `(name, generation, task, stop)` before its first await. Every queued reconcile checks `_closed`/`_closing` before starting a generation. Main-thread fallback stores only server names for diagnostics; it never copies or mutates live holder/session containers.
 
-```python
-self._shutdown_timeout = shutdown_timeout
-self._thread_join_timeout = thread_join_timeout
-self._closed = False
-self._shutdown_future: concurrent.futures.Future[set[str]] | None = None
-```
+- [ ] **Step 3: Implement shielded authoritative drain**
 
-创建后台 loop 时固定 `name="forgeagent-mcp-loop"`。构造参数只供内部和测试注入，不加入 YAML 配置。
+The loop-owned task signals only snapshot stop events, waits gracefully using `_remaining(deadline, reserve=thread_join_timeout)`, cancels exact pending tasks, and then continues waiting past the public deadline when async context finalizers still run. It invokes the same idempotent generation finalizer after `asyncio.wait()` because done callbacks are not ordered before wait return. Ordinary holder/finalizer exceptions are collected by type; the task does not stop the loop or set completion until all snapshot tasks and exact cleanup invariants hold and no replacement can start. If an invariant remains false, the same task waits on `_shutdown_retry` without busy looping; repeated close signals that event with a new deadline and never creates a second task or snapshot.
 
-模块内 deadline helper 固定为：
+- [ ] **Step 4: Implement absolute-deadline public close and delayed retry**
 
-```python
-def _remaining(deadline: float, *, reserve: float = 0.0) -> float:
-    return max(0.0, deadline - time.monotonic() - reserve)
-```
+First `close()` sets `_closed=True`, creates `deadline = monotonic() + shutdown_timeout + thread_join_timeout`, submits `_wait_for_shutdown()` and shields the authoritative task. Timeout/cancel of the concurrent facade cancels only the facade and retains the future for diagnostics. Repeated close signals the existing retry event, waits on the thread-safe `_shutdown_complete` event for the remaining shutdown budget, then performs bounded `thread.join()`. Only when completion and thread stop are both proven may the main thread close the loop and clear future/task/holder/session/loop/thread refs. A live or cleanup-incomplete thread keeps all refs and receives a fixed warning containing thread identity, sanitized pending names and timeout, never args/env/content. Catch ordinary `Exception` per operation; do not swallow `KeyboardInterrupt` or `SystemExit`.
 
-- [ ] **Step 3: 实现 loop-owned holder shutdown**
-
-主线程提交前保存只读 snapshot；loop coroutine 独占 Task wait/cancel 和容器清理：
-
-```python
-async def _shutdown_holders(
-    self,
-    holder_snapshot: dict[str, asyncio.Task],
-    deadline: float,
-) -> set[str]:
-    for state in self._states.values():
-        if state.stop is not None:
-            state.stop.set()
-    pending = set(holder_snapshot.values())
-    if pending:
-        _, pending = await asyncio.wait(
-            pending,
-            timeout=min(5.0, _remaining(deadline, reserve=self._thread_join_timeout)),
-        )
-    for holder in pending:
-        holder.cancel()
-    if pending:
-        _, pending = await asyncio.wait(
-            pending,
-            timeout=_remaining(deadline, reserve=self._thread_join_timeout),
-        )
-    for name, holder in holder_snapshot.items():
-        if holder.done():
-            self._holders.pop(name, None)
-    return {name for name, holder in holder_snapshot.items() if not holder.done()}
-```
-
-不得从主线程修改仍可能被该 coroutine 使用的 `_holders`/`_sessions`；pending holder/session 引用保留到 loop thread 停止。
-
-- [ ] **Step 4: 实现公开 `close()` 的 future、retry 和 no-throw 边界**
-
-首次调用立即设置 `_closed=True`；未创建 loop 时清理空引用并返回。存在 loop 时建立唯一 absolute deadline，保存 `self._shutdown_future = asyncio.run_coroutine_threadsafe(...)`，在剩余时间内读取结果。future 返回时使用精确 pending names并清除 future；超时或异常时 `future.cancel()` 但保留引用，使用提交前的 name snapshot。finally 只通过 `loop.call_soon_threadsafe(loop.stop)`、bounded `thread.join()` 完成线程收尾；线程停止后才关闭 loop、清空 `_shutdown_future`、holders、sessions、loop、thread。线程仍活跃时保留全部引用并记录无敏感信息 warning。重复 close 不重跑 holder shutdown，只对保存的 future 重复 cancel，并重试 stop/join。只捕获 `Exception`，不吞 `KeyboardInterrupt`/`SystemExit`。
-
-核心控制流必须保持以下 ownership，不得在主线程清理 loop-owned 容器：
-
-```python
-if getattr(self, "_closed", False):
-    try:
-        self._retry_lingering_thread()
-    except Exception as exc:
-        logger.warning("MCP shutdown retry failed: %s", type(exc).__name__)
-    return
-self._closed = True
-if self._loop is None:
-    self._clear_stopped_resources()
-    return
-deadline = time.monotonic() + self._shutdown_timeout + self._thread_join_timeout
-holder_snapshot = dict(self._holders)
-fallback_pending = set(holder_snapshot)
-pending = fallback_pending
-try:
-    self._shutdown_future = asyncio.run_coroutine_threadsafe(
-        self._shutdown_holders(holder_snapshot, deadline), self._loop
-    )
-    pending = self._shutdown_future.result(
-        timeout=_remaining(deadline, reserve=self._thread_join_timeout)
-    )
-    self._shutdown_future = None
-except Exception as exc:
-    pending = fallback_pending
-    if self._shutdown_future is not None:
-        self._shutdown_future.cancel()
-    logger.warning("MCP shutdown failed: %s", type(exc).__name__)
-finally:
-    try:
-        self._stop_and_join(deadline, pending)
-    except Exception as exc:
-        logger.warning("MCP shutdown finalization failed: %s", type(exc).__name__)
-```
-
-`_clear_stopped_resources()` 只在线程不存在或确认停止后清空 future/holders/sessions/loop/thread。`_stop_and_join()` 对 stop、join 和 loop.close 各自使用独立 `try/except Exception`，确保某一步失败不跳过后续收尾；在线程仍存活时保留全部引用并记录 `shutdown incomplete; resources may remain`。`_retry_lingering_thread()` 为每次重试建立 `monotonic() + thread_join_timeout` 的新 deadline，只能再次 cancel 已保存 future 并 stop/join，绝不重新提交 holder coroutine。
-
-- [ ] **Step 5: 运行 MCP 专项测试**
+- [ ] **Step 5: Run full MCP/CLI, fixture PID and static validation**
 
 ```bash
-UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_mcp_manager.py tests/test_cli.py -q
+UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_mcp_manager.py tests/test_cli.py tests/test_tools.py -q -W error::RuntimeWarning
+UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest -q -ra
+UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run ruff check src tests
+UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run ruff format --check src tests
 ```
 
-预期：normal、stuck、timeout、internal exception、future cancellation、idempotent、delayed cleanup、required startup cleanup 全部 PASS；normal/holder-stuck fixture 无 PID 存活；hard-stuck 仅保留有证据的 incomplete-shutdown warning。
+Expected: all MCP shutdown/startup/generation tests pass, fixture PIDs disappear on normal and holder-stuck paths, hard-stuck retains only documented residual refs/warning, full pytest has no new failures or warnings, and Ruff is clean.
 
-- [ ] **Step 6: 提交 MCP 生命周期修复**
+- [ ] **Step 6: Commit the complete MCP lifecycle implementation**
 
 ```bash
-git add src/forgeagent/mcp_manager.py tests/test_mcp_manager.py tests/mcp_fixture_server.py
-git commit -m "fix: bound and isolate MCP shutdown"
+git add src/forgeagent/mcp_manager.py tests/test_mcp_manager.py tests/test_cli.py tests/mcp_fixture_server.py
+git commit -m "fix: harden MCP lifecycle ownership and shutdown"
 ```
 
 ### Task 7: 建立黄金 manifest、runner 和报告协议
@@ -1112,9 +1130,9 @@ UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run python -m tests.golden.runner
 
 查询 `guarded_urlopen`, `make_console_confirmer`, `_apply_declared_status`, `MCPManager.connect/close`, `GoldenScenario` 的调用方。确认 WebFetch/search、run/REPL、Task/Step、MCP CLI 和测试入口均覆盖，无 stale index 警告未处理。
 
-- [ ] **Step 6: 创建实证里程碑并回填 37 项 tasks**
+- [ ] **Step 6: 创建实证里程碑并回填 38 项 tasks**
 
-全部门禁通过后，按 `MILESTONE_GUIDE.md` 一次性创建 `milestones/milestone_013.md`，把实际命令、pass/skip 数、黄金通过率和三次评审结论写入文件，并将 `milestones/latest` 更新为唯一一行 `milestone_013.md`。M11/M12 仍是未完成规划，因此 M13 的“前置里程碑”链接写为最后已完成的 `milestone_010.md`，并在正文说明编号跳跃原因。逐条核对本计划末尾映射后，将 `tasks.md` 的 37 个 checkbox 定向改为 `[x]`；不能一次性盲目全选。
+全部门禁通过后，按 `MILESTONE_GUIDE.md` 一次性创建 `milestones/milestone_013.md`，把实际命令、pass/skip 数、黄金通过率和三次评审结论写入文件，并将 `milestones/latest` 更新为唯一一行 `milestone_013.md`。M11/M12 仍是未完成规划，因此 M13 的“前置里程碑”链接写为最后已完成的 `milestone_010.md`，并在正文说明编号跳跃原因。逐条核对本计划末尾映射后，将 `tasks.md` 的 38 个 checkbox 定向改为 `[x]`；不能一次性盲目全选。
 
 - [ ] **Step 7: 提交验证收尾**
 
@@ -1127,9 +1145,9 @@ git commit -m "chore: record hardening verification evidence"
 
 | OpenSpec tasks.md | Plan task |
 | --- | --- |
-| 1.1 | 2, 3, 4, 5, 6 的 RED 回归 |
+| 1.1 | 2, 3, 4, 5, 6A-6C 的 RED 回归 |
 | 1.2 | 1 |
-| 1.3 | 1, 6 |
+| 1.3 | 1, 6C |
 | 1.4 | 1 |
 | 2.1-2.4 | 2, 10 |
 | 3.1-3.3 | 3A |
@@ -1137,14 +1155,14 @@ git commit -m "chore: record hardening verification evidence"
 | 3.6-3.7 | 3A, 3B, 3C |
 | 3.8-3.9 | 3B, 3C |
 | 4.1-4.3 | 5 |
-| 4.4-4.5 | 6 |
+| 4.4-4.6 | 6A, 6B, 6C |
 | 5.1-5.5 | 7, 8, 9 |
 | 6.1-6.5 | 10, 11 |
 | 7.1-7.5 | 11 |
 
 ## Final Plan Self-Review
 
-- Spec coverage: 五份 capability specs 和 tasks.md 37 项均在 coverage map 中有实施与验证任务。
-- Type consistency: `GoldenScenario`, `GoldenEvidence`, `MCPStartupError`, `required_failures()`, `_GuardedRedirectHandler` 和完成门控签名在生产者与消费者任务中一致。
+- Spec coverage: 五份 capability specs 和 tasks.md 38 项均在 coverage map 中有实施与验证任务。
+- Type consistency: `GoldenScenario`, `GoldenEvidence`, `MCPStartupError`, `required_failures()`, `_GuardedRedirectHandler`, generation holder/session slots, `restart_after_generation` 和完成门控签名在生产者与消费者任务中一致。
 - Scope: 未增加依赖、代理实现、通用策略层、并发 golden runner 或无关重构。
 - Execution safety: 每个行为任务包含 RED、GREEN、定向测试和独立提交；综合验证不使用人工 deselect。

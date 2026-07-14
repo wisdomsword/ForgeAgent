@@ -269,3 +269,10 @@
 - Newly confirmed audit gaps repaired in the written design: stale main-thread ClientSession selection; lost enable during unavailable finalization or after its slot is gone; teardown/restart-intent conflation; sequential N-times connection timeout and ready-timeout overwrite; holder task creation partial state; pending lifecycle waiter at loop stop; gate-before-set worker stranding; background-drain/deadline contradiction; cancelled first facade leaving repeated close no wait path; and done-incomplete shutdown dead-end.
 - Next gate: strict OpenSpec/diff validation, then user approval of the final written spec. Only after approval may `writing-plans` reset Task 6 and implementation/review budgets.
 - Post-audit RED revalidation: focused command still reports `3 failed in 1.06s`; the two gate-release parameter cases leave `_started=True`, and timed-out disable still fails to start replacement. No assertion was removed or relaxed.
+
+## Task 6 Implementation Resume
+
+- User authorization: proceed automatically after design repair; no further proposal/design/plan approval pause is required for this change. Continue through implementation, tests, final review and repair loops until verified complete.
+- Rewritten plan: Task 6 is split into `6A` generation-safe holder/session ownership, `6B` transactional startup and lifecycle waiters, and `6C` one loop-owned absolute-deadline shutdown drain.
+- Plan self-review: OpenSpec `4.4-4.6` map to `6A-6C`; all 38 tasks remain represented; placeholder and type/signature scans are clean.
+- Execution mode remains subagent-driven, TDD, thorough review. The two preserved failing regressions are the first RED evidence and must not be weakened.
