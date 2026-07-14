@@ -76,6 +76,10 @@ ForgeAgent MUST serialize holder desired-state reconciliation on the MCP loop th
 - **WHEN** close begins while a disable teardown is still awaiting holder cleanup
 - **THEN** a loop-owned closing barrier blocks replacement, close snapshots and drains the exact `(server, generation, task, stop)` slot on the loop thread, and does not miss the in-progress holder or cancel a later generation
 
+#### Scenario: Close races holder task allocation
+- **WHEN** the caller publishes close after loop reconciliation has entered holder startup but before task creation and slot publication finish
+- **THEN** one lifecycle barrier orders the operations atomically: close-first leaves generation unchanged, while start-first publishes the complete generation/task/stop slot and finalizer before close can proceed, so shutdown cannot miss an untracked task
+
 #### Scenario: Enable or connect is requested after close
 - **WHEN** the manager is closed or loop-owned shutdown has entered closing state
 - **THEN** ForgeAgent reports the known server or returns idempotently without starting a new holder, session, loop or generation
@@ -102,6 +106,10 @@ ForgeAgent MUST keep a new loop worker behind a publication gate until manager s
 #### Scenario: Startup rollback stops the worker
 - **WHEN** startup rollback confirms the loop thread has stopped
 - **THEN** ForgeAgent closes the loop, clears loop/thread references, restores `_started=False` and `_closed=False`, and allows a later connect attempt
+
+#### Scenario: Startup rollback cannot close a stopped loop
+- **WHEN** startup rollback stops the worker but closing the event-loop object raises an ordinary Exception
+- **THEN** ForgeAgent records only the fixed exception type, retains the stopped loop/thread and completed pre-holder cleanup evidence, remains closed rather than retryable, and lets a later `close()` retry loop closure before references are cleared
 
 #### Scenario: Startup rollback cannot stop the worker in time
 - **WHEN** the loop thread remains alive after the startup rollback join bound
@@ -133,6 +141,10 @@ ForgeAgent MUST keep a new loop worker behind a publication gate until manager s
 #### Scenario: Loop thread stops before cleanup completion is proven
 - **WHEN** the OS thread is no longer alive but the loop-owned cleanup completion signal is not set
 - **THEN** ForgeAgent treats shutdown as incomplete, retains holder/session/lifecycle-operation/loop/thread evidence, and does not clear resources or fabricate completion based on thread state or empty holder/session maps alone
+
+#### Scenario: Shutdown facade submission is rejected
+- **WHEN** submitting the public shutdown facade fails while the loop thread is alive and loop-owned containers currently appear empty
+- **THEN** ForgeAgent closes the unsubmitted coroutine, schedules or retains a loop-owned drain retry, leaves authoritative completion unset on the caller thread, and preserves loop/thread/future evidence until the loop proves cleanup invariants
 
 #### Scenario: Internal shutdown operation raises unexpectedly
 - **WHEN** an internal holder, event-loop or thread cleanup operation raises an Exception
