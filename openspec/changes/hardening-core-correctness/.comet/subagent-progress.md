@@ -159,7 +159,7 @@
 - Review mode: `thorough`
 - Checkoff result: all five Task 3C plan steps and OpenSpec 3.6-3.9 passed exact-text `task-checkoff`; the expanded core-correctness outcome scope is complete.
 
-## Current Task
+## Completed Task 4
 
 - Plan task: `Task 4: 实施严格两阶段完成门控`
 - OpenSpec mappings:
@@ -182,3 +182,33 @@
 - Review/fix round: `0/2`
 - Review mode: `thorough`
 - Checkoff result: all four Task 4 plan steps and OpenSpec 3.4-3.5 passed exact-text `task-checkoff`.
+
+## Current Task
+
+- Plan task: `Task 5: 增加 MCP required 启动语义`
+- OpenSpec mappings:
+  - `4.1 在 MCP 服务配置模型中增加默认 false 的 required 字段及兼容性解析测试`
+  - `4.2 实施可选服务连接失败降级，验证失败服务工具被排除且诊断包含服务名和原因`
+  - `4.3 实施必需服务连接失败的启动中止、资源清理和 CLI 非零退出测试`
+- Stage: `done`
+- Base commit: `3c67b17`
+- Implementer: `019f5f90-80ad-7e43-bd77-2e8821841c2a` (`Einstein`)
+- Implementer report: `.superpowers/sdd/task-5-report.md`
+- Implementer status: `DONE`
+- Implementation commit: `687ed24`
+- RED evidence: MCP/CLI suite exited 1 with `6 failed, 112 passed, 1 skipped` for missing required config/query/startup abort.
+- GREEN evidence: MCP/CLI `118 passed, 1 skipped`; MCP/CLI/tools regression `134 passed, 1 skipped`; scoped Ruff passed.
+- Changed files: `src/forgeagent/mcp_manager.py`, `src/forgeagent/cli.py`, `src/forgeagent/res/mcp.yaml`, `tests/test_mcp_manager.py`, `tests/test_cli.py`
+- Risk signals: public MCP configuration/startup contract, subprocess cleanup dependency, cross-module CLI integration.
+- Reviewer: `019f5fa1-78eb-7140-98fe-d692f859d17a` (`Meitner`)
+- Review package: `.superpowers/sdd/review-3c67b17..687ed24.diff`
+- Review result: changes requested. Important: close failure can replace required startup error before Task 6; required failure status can carry unmasked exception secret text.
+- Review/fix round: `1/2`
+- Fix agent: `019f5fac-0309-7a01-9e82-03b948bd6d8b` (`Dalton`)
+- Fix commit: `290acb2`
+- Fix evidence: focused RED `2 failed, 2 passed`; GREEN `4 passed`; Task 5 regression `138 passed, 1 skipped`; Ruff passed. Exception-only cleanup containment and status masking implemented.
+- Re-reviewer: `019f5fb4-1ff3-7be3-a7c7-296f30f5fd8b` (`Averroes`)
+- Re-review package: `.superpowers/sdd/review-3c67b17..290acb2.diff`
+- Re-review result: approved with no Critical, Important, or Minor findings.
+- Review mode: `thorough`
+- Checkoff result: all five Task 5 plan steps and OpenSpec 4.1-4.3 passed exact-text `task-checkoff`.

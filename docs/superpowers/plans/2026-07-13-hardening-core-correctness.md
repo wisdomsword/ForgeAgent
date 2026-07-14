@@ -647,7 +647,7 @@ git commit -m "fix: require standalone task completion responses"
 - Produces: `MCPServerConfig.required: bool`、`MCPManager.required_failures() -> dict[str, str]`、`MCPStartupError`。
 - Consumes: 现有 `server_status()`、`enabled`、`connect_timeout=15.0`、CLI exit code 2 路径。
 
-- [ ] **Step 1: 写配置、optional/required 和运行期 RED 测试**
+- [x] **Step 1: 写配置、optional/required 和运行期 RED 测试**
 
 覆盖 omitted required=False、required+disabled 不阻断、optional timeout 降级、required unavailable 关闭 manager 后 exit 2、REPL enable/disable required 不退出。
 
@@ -657,7 +657,7 @@ UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_mcp_manager.py te
 
 预期：required 字段或 required_failures 不存在导致 FAIL。
 
-- [ ] **Step 2: 增加配置字段和只读失败查询**
+- [x] **Step 2: 增加配置字段和只读失败查询**
 
 ```python
 class MCPStartupError(RuntimeError):
@@ -681,11 +681,11 @@ def required_failures(self) -> dict[str, str]:
     }
 ```
 
-- [ ] **Step 3: 在 CLI 组装层执行启动裁决**
+- [x] **Step 3: 在 CLI 组装层执行启动裁决**
 
 `build_mcp_manager()` 连接后收集 failures；非空时调用 close，再抛包含排序后 `name: status` 的 `MCPStartupError`。`main()` 捕获该异常、打印 `[red]MCP startup error[/red]` 并返回 2。optional unavailable 继续黄色输出。
 
-- [ ] **Step 4: 更新内置 MCP 示例并运行回归**
+- [x] **Step 4: 更新内置 MCP 示例并运行回归**
 
 在 `src/forgeagent/res/mcp.yaml` 的注释示例加入 `required: false` 及语义，不改变默认空配置。
 
@@ -693,7 +693,7 @@ def required_failures(self) -> dict[str, str]:
 UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_mcp_manager.py tests/test_cli.py tests/test_tools.py -q
 ```
 
-- [ ] **Step 5: 提交 MCP 启动策略**
+- [x] **Step 5: 提交 MCP 启动策略**
 
 ```bash
 git add src/forgeagent/mcp_manager.py src/forgeagent/cli.py src/forgeagent/res/mcp.yaml tests/test_mcp_manager.py tests/test_cli.py

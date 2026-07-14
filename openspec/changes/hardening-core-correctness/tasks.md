@@ -26,9 +26,9 @@
 
 ## 4. MCP 韧性与生命周期
 
-- [ ] 4.1 在 MCP 服务配置模型中增加默认 `false` 的 `required` 字段及兼容性解析测试
-- [ ] 4.2 实施可选服务连接失败降级，验证失败服务工具被排除且诊断包含服务名和原因
-- [ ] 4.3 实施必需服务连接失败的启动中止、资源清理和 CLI 非零退出测试
+- [x] 4.1 在 MCP 服务配置模型中增加默认 `false` 的 `required` 字段及兼容性解析测试
+- [x] 4.2 实施可选服务连接失败降级，验证失败服务工具被排除且诊断包含服务名和原因
+- [x] 4.3 实施必需服务连接失败的启动中止、资源清理和 CLI 非零退出测试
 - [ ] 4.4 为正常关闭、无响应子进程、部分关闭失败、重复 close、daemon thread join 超时 warning 和延迟停止后的二次清理建立确定性测试并确定有证据的超时上限
 - [ ] 4.5 使 `MCPManager.close()` 有界且幂等，为 loop thread 设置固定名称，在 manager 保存 shutdown future，由 loop coroutine 独占 holder wait/cancel 且只移除 done entries，future 超时时使用只读 fallback 并保留全部 pending 资源引用，允许重复 close 仅重试 cancel/stop/join，并保证关闭错误不覆盖任务结果或原始启动错误
 
