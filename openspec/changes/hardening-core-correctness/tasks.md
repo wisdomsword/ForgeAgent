@@ -23,7 +23,7 @@
 - [x] 3.7 实施固定安全 WebFetch 失败消息与 FileWrite project-relative 成功/固定失败消息，并验证 Step feedback 不再暴露原始 URL、hostname 或宿主绝对路径
 - [x] 3.8 为 InvalidURL/BadStatusLine/LineTooLong/IncompleteRead/RemoteDisconnected、WebFetch artifact 写入、search 未知 charset、`allowed_root="/"`、非法路径及 FileRead/FileList 失败文本增加行为探针和回归测试
 - [x] 3.9 实施 WebFetch/search 消费端异常收敛、canonical commonpath 文件边界和 FileRead/FileList 固定失败消息，并验证 CLI outcome 渲染不泄漏敏感路径
-- [ ] 3.10 验证并实施非 TTY REPL 不读取确认输入、MCP server/tool 与 FileWrite 展示路径的已知 secret 脱敏，以及 M9 到期裸词命令兼容层移除；顶层 `forgeagent models` 保持不变
+- [ ] 3.10 验证并实施非 TTY REPL 不读取确认输入、MCP server/tool 与 FileWrite 展示路径的已知 secret 脱敏和 Rich markup/终端控制字符单行 literal 渲染，以及 M9 到期裸词命令兼容层移除；顶层 `forgeagent models` 保持不变
 - [ ] 3.11 验证并实施 WebFetch artifact 写入前的 canonical root containment，使预置 artifact symlink 或 canonical root 下的 descendant symlink component 指向 root 外时返回固定保存失败且外部目标不变
 
 ## 4. MCP 韧性与生命周期

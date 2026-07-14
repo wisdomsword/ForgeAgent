@@ -178,6 +178,7 @@ WebFetch formatter 在一次调用开始时只读取一次 `sensitive_env_values
 - FileWrite 写入阶段发生 `OSError` 或路径语法产生 `ValueError` 时返回固定 `FileWrite failed`。越界、无交互通道和用户拒绝继续使用既有固定消息。
 - FileRead/FileList 的路径校验和文件系统失败分别返回固定 `FileRead failed` / `FileList failed`，不回显异常文本、模型提供的绝对路径或 canonical root。MCP 结果契约和全局 `mask_secrets()` 行为保持不变。
 - 不新增通用 result sanitizer。固定消息牺牲部分底层诊断细节，以避免平台相关异常字符串重新引入 URL、hostname 或宿主绝对路径泄漏。
+- 确认摘要最终作为 Rich `Text` 的 literal segment 输出，不把完整 f-string 交给 markup parser。MCP identifier 和 FileWrite display path 在 secret masking 后还要规范为单行可见文本：C0/C1、DEL、CR/LF 和 Unicode line/paragraph separator 使用 `\\xNN`/`\\uNNNN` 转义；普通 `[`/`]` 保持字面值。这样模型内容既不能闭合样式标签，也不能伪造第二行提示。该 helper 只服务确认显示，不扩展为通用 sanitizer。
 
 测试必须覆盖：percent-encoded、大小写变化和重叠的 hostname secret；encoded `@`、`/`、`?`、`#`、`:`；普通 IPv6 与 zone-id 字面量；userinfo/fragment 丢弃；hostname 局部 helper 与 path/query 全局 `mask_secrets()` 不重复或漏脱敏；携带原始 URL/hostname 的 WebFetch guard/network/HTTP protocol 异常；WebFetch artifact 写入异常包含绝对路径；预置 artifact symlink/ancestor 指向 root 外且外部目标不变；FileWrite 使用绝对路径和相对 `allowed_root="."` 时只回显 canonical project-relative 路径；FileRead/FileWrite/FileList 的越界、非法路径和文件系统异常不回显宿主路径。失败结果还需通过现有 Step feedback 与 CLI `render_outcome()` 路径验证不再泄漏。
 
@@ -415,7 +416,7 @@ runner preflight 必须验证：
 
 离线模式只使用本地 fixture：进入 Agent 循环的场景使用 MockClient；网络、CLI、Tool、RestrictedBackend 和 MCP 生命周期等边界场景可以直接调用对应入口及本地 test double，而不伪造一次无意义的模型轮次。基础运行不得访问公网、Docker、真实模型配置或用户 home。
 
-G13 的离线脚本在工具失败/成功轮携带提前 `completed: true`，同时验证错误反馈环和严格两阶段完成。MCP required/close 的细粒度故障矩阵保留在专项测试；G355 只承担产品级状态/工具目录和 optional 降级冒烟。
+G13 的离线脚本在工具失败/成功轮携带提前 `completed: true`，同时验证错误反馈环和严格两阶段完成。G03 judge 必须解析并逐行核对扁平 CSV；G05 必须用运行时插桩证明第二块调用 `get_state()` 且副作用恰好一次；G08 必须核对给定测试文件 hash 不变；G15 必须同时验证 Edit version+1、旧历史保留、仅目标 diff 和 AST；G27 必须验证初始 FAIL、最终 PASS 和 Edit 版本链。最终值或测试通过只是这些场景的必要条件，不是充分条件。MCP required/close 的细粒度故障矩阵保留在专项测试；G355 只承担产品级状态/工具目录和 optional 降级冒烟。
 
 现有 `test_mock_replay_e2e.py` 的 G01/G05/G13 逻辑迁移到 cases 供 runner 与 pytest 共享，不复制一套脚本和 judge。
 
@@ -439,7 +440,7 @@ runner 本里程碑明确顺序执行，不承诺多个进程同时写同一个 
 | --- | --- | --- |
 | 代理/SSRF | 大小写 proxy env、loopback、private、NAT64、redirect private、11 跳、FTP/file redirect | 实际校验 host 是目标而非代理；blocked target 未连接；redirect limit/scheme 明确拒绝 |
 | 网络消费端错误 | WebFetch InvalidURL/BadStatusLine/LineTooLong/IncompleteRead/RemoteDisconnected/close error/artifact OSError；search representative protocol error/unknown charset | HTTPException 基类覆盖代表性叶子；工具级异常不逃逸；固定消息不含 URL/hostname/path；search 返回 unavailable 或 UTF-8 fallback |
-| confirmer 与结果最小披露 | MCP/WebFetch/FileWrite formatter、EOF、空输入、带空白的 yes/no、非 TTY REPL、MCP identifier/FileWrite path secret、嵌套 secret key、encoded/case/overlap hostname、encoded delimiters、IPv6/zone id、URL component mask、WebFetch 失败、artifact symlink escape、FileWrite 成功/失败 outcome、到期裸词路由 | 无属性错误；无跨组件或双重脱敏；prompt、ToolOutcome、Step feedback 不回显敏感 URL/hostname/宿主绝对路径；artifact 不写出 root；TTY 与非 TTY 原因正确；仅 slash command 被路由 |
+| confirmer 与结果最小披露 | MCP/WebFetch/FileWrite formatter、EOF、空输入、带空白的 yes/no、非 TTY REPL、MCP identifier/FileWrite path secret、Rich markup/terminal controls、嵌套 secret key、encoded/case/overlap hostname、encoded delimiters、IPv6/zone id、URL component mask、WebFetch 失败、artifact symlink escape、FileWrite 成功/失败 outcome、到期裸词路由 | 无属性错误；模型文本按单行 literal 渲染且不注入样式/换行；无跨组件或双重脱敏；prompt、ToolOutcome、Step feedback 不回显敏感 URL/hostname/宿主绝对路径；artifact 不写出 root；TTY 与非 TTY 原因正确；仅 slash command 被路由 |
 | 文件路径边界 | root allowed_root、相对 root、NUL、越界、symlink resolve、FileRead/List/Write OSError、restricted audit | commonpath 正确接受 root 子路径并拒绝越界；无 ValueError 逃逸；固定失败消息无绝对路径 |
 | CLI 注入 | REPL、TTY run、非 TTY run、`--interactive` | confirmer 与 MCP 解耦；Survey 语义不漂移 |
 | 完成门控 | 工具成功/失败/parse error + completed；后续独立完成 | 同轮不完成；反馈后完成；max_rounds 诚实 |

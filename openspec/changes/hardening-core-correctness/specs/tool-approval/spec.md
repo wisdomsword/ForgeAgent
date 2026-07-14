@@ -77,6 +77,10 @@ ForgeAgent MUST redact structured secret-key values and known sensitive environm
 - **WHEN** the project-relative path or external basename contains a known sensitive environment value
 - **THEN** the confirmer masks that value in the displayed safe path without revealing the content or host directory
 
+#### Scenario: Confirmation summary contains markup or terminal controls
+- **WHEN** a model-provided MCP identifier or FileWrite path contains Rich markup delimiters, ANSI/control characters, carriage returns, line feeds or Unicode line separators
+- **THEN** the confirmation prompt renders the value as escaped single-line literal text, does not raise a rendering exception, does not change prompt styling or create an injected line, and still reads exactly one approval answer
+
 ### Requirement: REPL command routing is explicit after compatibility expiry
 ForgeAgent SHALL interpret only slash-prefixed REPL inputs as embedded commands after the M9 one-milestone compatibility period, while retaining the top-level `forgeagent models` CLI subcommand.
 

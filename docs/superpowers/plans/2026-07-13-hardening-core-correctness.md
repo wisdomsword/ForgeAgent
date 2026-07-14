@@ -575,16 +575,17 @@ git commit -m "fix: harden file tool path boundaries"
 - Verify later: `README.md`（Task 10 统一同步用户文档）
 
 **Interfaces:**
-- Produces: REPL 显式 terminal-capability 注入；MCP identifier/FileWrite safe-path 已知 secret 脱敏；仅 slash-prefixed REPL command 路由。
+- Produces: REPL 显式 terminal-capability 注入；MCP identifier/FileWrite safe-path 已知 secret 脱敏与单行 literal-safe Rich 渲染；仅 slash-prefixed REPL command 路由。
 - Consumes: `sys.stdin.isatty()`、`Console.is_terminal`、`mask_secrets()`、`sensitive_env_values()`、现有 `_confirmation_summary()` 和 slash handlers。
 
-- [ ] **Step 1: 写非 TTY、identifier/path 脱敏和裸词迁移 RED 测试**
+- [ ] **Step 1: 写非 TTY、literal-safe confirmation、identifier/path 脱敏和裸词迁移 RED 测试**
 
 在 `tests/test_cli.py` 增加：
 
 - 非 TTY REPL 的 scripted response 请求 WebFetch/FileWrite 或非 auto-approved MCP 时，confirmation reader 若被调用就立即失败；断言工具返回 `rejected: no interactive confirmation channel available`，而 goal reader 仍可完成后续轮次。
 - TTY REPL 显式 terminal-capability 为真时仍调用同一个 `read_line` 完成 y/N 确认。
 - 已知环境 secret 出现在 MCP server、MCP tool、FileWrite 项目相对路径和外部 basename 时，summary 不包含原值；FileWrite content 仍不显示。
+- 参数化 `bad[/red]`、`[bold]fake[/bold]`、ANSI/C0/C1、CR/LF、U+2028/U+2029 到 MCP identifier 与 FileWrite path：确认输出不抛 `MarkupError`、不改变 `approve` 样式、不产生注入行，控制字符以可见转义呈现，且 `read_line` 只调用一次。
 - 参数化输入 `models`、`reload`、`mcp`、`mcp status` 都完整进入 `run_once()`，无 deprecation 文本；`/model`、`/reload`、`/mcp` 仍只走 handler。现有顶层 `main(["models"])` 测试继续通过。
 
 - [ ] **Step 2: 运行 RED 测试**
@@ -593,13 +594,13 @@ git commit -m "fix: harden file tool path boundaries"
 UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_cli.py -q
 ```
 
-预期：非 TTY REPL 会读取确认输入、identifier/path 泄漏 secret，裸词仍被 compat 分支截获，新增测试 FAIL。
+预期：非 TTY REPL 会读取确认输入、identifier/path 泄漏 secret、畸形 Rich tag 可在询问前抛错或控制文本可伪造行，裸词仍被 compat 分支截获，新增测试 FAIL。
 
 - [ ] **Step 3: 实施最小 CLI 收口**
 
 `repl()` 增加 `confirmation_available: bool | None = None`；未提供时按 `console.is_terminal and sys.stdin.isatty()` 计算。只在该值为真时创建 confirmer，否则向 `run_once()` 传 `None`。测试可显式传 true/false，不把注入的 `read_line` 自动视为 TTY。
 
-`_confirmation_summary()` 一次读取已知 secret values：MCP server/tool、非敏感 arguments string 和 FileWrite 安全路径分别使用现有 `mask_secrets()`；结构化敏感键仍直接 `<redacted>`。不得新增通用 sanitizer。
+`_confirmation_summary()` 一次读取已知 secret values：MCP server/tool、非敏感 arguments string 和 FileWrite 安全路径分别使用现有 `mask_secrets()`；结构化敏感键仍直接 `<redacted>`。完整摘要通过 Rich `Text` literal segment 输出，并用一个 confirmation-only single-line formatter 把 C0/C1、DEL、CR/LF、U+2028/U+2029 转成可见 `\\xNN`/`\\uNNNN`；不得仅 escape markup 后让终端控制字符原样通过，也不得扩展为通用 sanitizer。
 
 删除 REPL 的 bare-word compatibility rewrite；不修改 argparse 的顶层 `models` subcommand，也不改变 slash handler。
 
@@ -609,7 +610,7 @@ UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_cli.py -q
 UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_cli.py tests/test_tools.py tests/test_web_file_tools.py -q
 ```
 
-预期：TTY/non-TTY、autoApprove、Survey 分离、identifier/path 脱敏、裸词目标与 slash command 全部 PASS。
+预期：TTY/non-TTY、autoApprove、Survey 分离、identifier/path 脱敏、literal-safe 单行确认、裸词目标与 slash command 全部 PASS。
 
 - [ ] **Step 5: 提交 CLI 收口**
 
@@ -1015,11 +1016,11 @@ git commit -m "test: add executable golden validation runner"
 
 - [ ] **Step 1: 把现有 G01/G05/G13 迁移为共享 case**
 
-case 必须创建自己的输入，执行 Task，并显式检查：G01 sum=60/mean=20；G05 side effect 一次且 state=42/output=50；G13 failed tool 与 successful tool 轮都携带提前 completed，最终第三轮独立完成。
+case 必须创建自己的输入，执行 Task，并显式检查：G01 sum=60/mean=20；G05 除 state=42/output=50 与 side effect 恰好一次外，还用运行时插桩断言第二块确实调用 `get_state()` 且取得第一块值，硬编码 50 必须失败；G13 failed tool 与 successful tool 轮都携带提前 completed，最终第三轮独立完成。
 
 - [ ] **Step 2: 实现其余 7 项通用 offline case**
 
-逐项判定固定为：G03 深层 JSON 字段和值精确匹配；G08 给定失败测试转 PASS；G11 合并去重集合与顺序匹配；G15 block version+1 且 old 消失/new 出现；G17 join 后键集合与字段值匹配；G27 给定回归测试从 FAIL 到 PASS；G43 Top-N 词和计数精确匹配。
+逐项判定固定为：G03 将嵌套 JSON 按指定映射生成扁平 CSV，并精确核对列名、行数、顺序与每格内容；G08 先证明给定测试 FAIL、修复后 PASS，并比较测试文件 hash 保持不变；G11 合并去重后的行数、主键集合、排序和每行内容精确匹配；G15 证明调用 Edit、版本号 +1、旧版本仍在历史、仅目标位置有 diff、目标值正确且新版本 AST 可解析；G17 inner join 后列集合、行数和每行字段值匹配；G27 证明给定测试从 FAIL 到 PASS且修复通过 Edit 产生版本链，不接受整块替换；G43 Top-N 词和计数精确匹配。
 
 所有 check 使用显式 helper：
 
