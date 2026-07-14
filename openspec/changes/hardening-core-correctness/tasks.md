@@ -31,6 +31,7 @@
 - [x] 4.3 实施必需服务连接失败的启动中止、资源清理和 CLI 非零退出测试
 - [ ] 4.4 为正常关闭、无响应子进程、部分关闭失败、重复 close、daemon thread join 超时 warning 和延迟停止后的二次清理建立确定性测试并确定有证据的超时上限
 - [ ] 4.5 使 `MCPManager.close()` 有界且幂等，为 loop thread 设置固定名称，在 manager 保存 shutdown future，由 loop coroutine 独占 holder wait/cancel 且只移除 done entries，future 超时时使用只读 fallback 并保留全部 pending 资源引用，允许重复 close 仅重试 cancel/stop/join，并保证关闭错误不覆盖任务结果或原始启动错误
+- [ ] 4.6 将 enable/disable/close 重构为 loop-owned generation-safe reconcile，以 `(name, generation, object)` 约束 holder/session 所有权；实现 publication-gated startup transaction，并用 timed-out disable→enable、旧代 finally、close overlap 和 gate-release 控制异常回归验证无 replacement/loop 泄漏
 
 ## 5. 黄金验证核心
 

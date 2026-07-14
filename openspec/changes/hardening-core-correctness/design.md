@@ -54,7 +54,11 @@ ForgeAgent 专用显式代理契约只在文档中定义为未来能力，运行
 
 MCP 配置在每个服务上增加布尔字段 `required`，默认 `false`。可选服务连接失败时记录可诊断信息并从可用工具集合移除；任一必需服务连接失败时，CLI 启动失败并返回非零状态，同时清理已启动服务。
 
-`MCPManager.close()` 使用单一 absolute deadline 约束 holder wait、cancel 和 thread join，允许重复调用，收集或记录关闭错误但不替换已有任务结果或启动错误。内部 shutdown 与 join 上限已在深度设计中确定，并由确定性测试锁定。主线程把 shutdown future 保存在 manager 上；loop coroutine 独占 Task wait/cancel，只移除已经完成的 holder，并返回 pending server names。future 超时时主线程 cancel 但保留 future，使用提交前的只读 holder-name fallback，不与仍活跃的 loop thread 竞态修改 holders/sessions。loop thread 使用固定名称；warning 记录 thread name/ident、alive 状态和 pending server 名称，不记录 arguments、env 或 server 内容。daemon thread 若被同步代码完全卡死，可能暂时保有 transport、file descriptor 或 MCP child process；Python 没有安全强杀线程的 API且 manager 没有 SDK child handle，CLI 必须优先按 deadline 返回并明确报告 shutdown incomplete。此时保留 shutdown future、holders、sessions、loop、thread 引用，重复 close 只重试 cancel/stop/join，并在线程停止后关闭 loop、清除引用。
+`MCPManager.close()` 使用单一 absolute deadline 约束 holder wait、cancel 和 thread join，允许重复调用，收集或记录关闭错误但不替换已有任务结果或启动错误。内部 shutdown 与 join 上限已在深度设计中确定，并由确定性测试锁定。主线程把 shutdown future 保存在 manager 上；loop coroutine 独占 Task wait/cancel，只按精确 generation 移除已经完成的 holder，并返回 pending server names。future 超时时主线程 cancel 但保留 future，使用提交前的只读 fallback，不与仍活跃的 loop thread 竞态修改 holders/sessions。loop thread 使用固定名称；warning 记录 thread name/ident、alive 状态和 pending server 名称，不记录 arguments、env 或 server 内容。daemon thread 若被同步代码完全卡死，可能暂时保有 transport、file descriptor 或 MCP child process；Python 没有安全强杀线程的 API且 manager 没有 SDK child handle，CLI 必须优先按 deadline 返回并明确报告 shutdown incomplete。此时保留 shutdown future、holders、sessions、loop、thread 引用；重复 close 只请求既有 drain/stop 和 bounded join，只有 cleanup completion 已证明且线程停止后才关闭 loop、清除引用。
+
+实施期两轮并发审查证明 holder 不能仅以 server name 表示所有权。重设计采用 loop-owned reconcile 与 generation token：`_holders` 和 `_sessions` 都保存 `(generation, object)` slot，generation 只在 loop thread 真正启动 holder 时递增；disable teardown 完成前 slot 始终可见，enable 在旧代 tearing down 时只更新 desired enabled，旧代 finally 按精确 generation 清理后再由 loop reconcile 启动 replacement。close snapshot/cancel 的也是精确 `(name, generation, task)`，manager closed 后禁止 replacement。这样 timed-out disable、立即 re-enable、并发 close 和旧 finally 无法互相误删新代资源。
+
+Loop startup 同样是 transaction。局部 worker 在 publication gate 前不得进入 `run_forever()`；manager refs 与 started state 发布成功后才 release。start、publication 或 gate release 抛出控制异常时，cancel/release gate，必要时请求 loop stop，bounded join；线程停止后 close loop并 rollback 为可重试状态，线程仍活则保留 refs、置 closed并记录 sanitized incomplete warning。原 `KeyboardInterrupt`/`SystemExit` 始终原样传播。不得在 still-alive 分支清空 refs，否则会制造无法诊断的隐藏 daemon thread。
 
 备选方案“所有服务失败即启动失败”破坏可选集成，“所有服务静默降级”则无法表达生产必需依赖，因此采用服务级策略。
 
@@ -84,6 +88,8 @@ FileWrite 使用 canonical target，因此替换原始 symlink alias 不能改�
 - [commonpath 修正会改变 FileRead/FileList 失败文本] → 这是有意的安全收紧；成功结果和允许范围不变，专项测试锁定新的固定消息。
 - [realpath 与 pathname open 之间仍有 symlink ancestor-swap 竞态] → 明确分档和攻击前提；本 change 不用重复检查伪装修复，也不以平台专用 fd API扩大实现范围。
 - [event-loop thread 完全卡死时可能暂留 MCP 子进程或文件描述符] → deadline 优先保证 CLI 可返回；保留引用、允许有界重试并输出无敏感信息的 incomplete-shutdown 诊断，不声称 Python 能安全强杀线程。
+- [generation-safe slot 会改变 MCPManager 内部 holder/session 形状] → 只在 manager 内部使用 `(generation, object)`，不扩大 YAML 或工具 API；call/enable/disable/close 专项测试共同锁定读取和清理语义。
+- [startup rollback 自身遭遇控制异常时可能进入 partial-start] → worker 在 publication gate 前不能运行 loop；正常 rollback 后恢复可重试状态，极端仍活分支保留 refs/closed warning，禁止清空后制造隐藏线程。
 - [20 项核心不能代表全部任务空间] → 报告明确分离“核心已验证”与“候选未验证”，后续按风险增量扩展。
 - [单一 change 范围较大] → tasks 按能力分组、每组独立测试，黄金核心作为最终统一验收，不引入跨组抽象。
 
