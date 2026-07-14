@@ -271,24 +271,69 @@ class MCPManager:
             self._started = True
             return
         loop = asyncio.new_event_loop()
+        startup_gate = threading.Event()
+        startup_cancelled = threading.Event()
+
+        def run_loop_after_publication() -> None:
+            startup_gate.wait()
+            if not startup_cancelled.is_set():
+                loop.run_forever()
+
         thread = threading.Thread(
-            target=loop.run_forever,
+            target=run_loop_after_publication,
             name=_LOOP_THREAD_NAME,
             daemon=True,
         )
         try:
             thread.start()
+            self._loop = loop
+            self._thread = thread
+            self._started = True
+            startup_gate.set()
         except BaseException:
+            startup_cancelled.set()
+            startup_gate.set()
             try:
-                loop.close()
+                if thread.ident is not None:
+                    thread.join(timeout=self._thread_join_timeout)
             except Exception as exc:  # noqa: BLE001 - preserve the start failure
                 logger.warning(
-                    "MCP loop cleanup after start failure failed: %s", type(exc).__name__
+                    "MCP loop thread cleanup after start failure failed: %s",
+                    type(exc).__name__,
                 )
+
+            try:
+                thread_alive = thread.is_alive()
+            except Exception as exc:  # noqa: BLE001 - retain references conservatively
+                thread_alive = True
+                logger.warning(
+                    "MCP loop thread state after start failure failed: %s",
+                    type(exc).__name__,
+                )
+
+            if thread_alive:
+                self._loop = loop
+                self._thread = thread
+                self._closed = True
+                self._shutdown_complete.set()
+                logger.warning(
+                    "MCP loop startup cleanup incomplete; resources may remain: "
+                    "thread=%s ident=%s alive=True",
+                    _LOOP_THREAD_NAME,
+                    thread.ident,
+                )
+            else:
+                self._loop = None
+                self._thread = None
+                try:
+                    loop.close()
+                except Exception as exc:  # noqa: BLE001 - preserve the start failure
+                    logger.warning(
+                        "MCP loop cleanup after start failure failed: %s",
+                        type(exc).__name__,
+                    )
+            self._started = thread_alive
             raise
-        self._loop = loop
-        self._thread = thread
-        self._started = True
         self._submit(self._start_holders(enabled), timeout=self._connect_timeout * len(enabled) + 5)
 
     def list_tools(self) -> list[MCPToolInfo]:
@@ -405,9 +450,11 @@ class MCPManager:
         async def _stop_one() -> None:
             if state.stop is not None:
                 state.stop.set()
-            holder = self._holders.pop(server, None)
+            holder = self._holders.get(server)
             if holder is not None:
                 await asyncio.gather(holder, return_exceptions=True)
+                if self._holders.get(server) is holder:
+                    self._holders.pop(server, None)
 
         if self._loop is not None:
             self._submit(_stop_one(), timeout=self._connect_timeout + 5)

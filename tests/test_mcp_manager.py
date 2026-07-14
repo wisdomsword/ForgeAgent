@@ -347,7 +347,7 @@ def test_close_stops_normal_and_cancel_only_holders_on_loop_thread():
     mgr._loop = loop
     mgr._thread = thread
     cancelled = threading.Event()
-    cleanup_thread_ids: list[int] = []
+    outcomes: list[tuple[str, int]] = []
     thread.start()
 
     async def install_holders() -> None:
@@ -360,8 +360,13 @@ def test_close_stops_normal_and_cancel_only_holders_on_loop_thread():
         async def normal_holder() -> None:
             try:
                 await normal_stop.wait()
+            except asyncio.CancelledError:
+                outcomes.append(("normal-cancelled", threading.get_ident()))
+                raise
+            else:
+                outcomes.append(("normal-stopped", threading.get_ident()))
             finally:
-                cleanup_thread_ids.append(threading.get_ident())
+                outcomes.append(("normal-cleanup", threading.get_ident()))
                 mgr._sessions.pop("normal", None)
 
         async def cancel_only_holder() -> None:
@@ -369,9 +374,10 @@ def test_close_stops_normal_and_cancel_only_holders_on_loop_thread():
                 await asyncio.Event().wait()
             except asyncio.CancelledError:
                 cancelled.set()
+                outcomes.append(("cancel-only-cancelled", threading.get_ident()))
                 raise
             finally:
-                cleanup_thread_ids.append(threading.get_ident())
+                outcomes.append(("cancel-only-cleanup", threading.get_ident()))
                 mgr._sessions.pop("cancel-only", None)
 
         mgr._holders["normal"] = asyncio.create_task(normal_holder())
@@ -400,7 +406,12 @@ def test_close_stops_normal_and_cancel_only_holders_on_loop_thread():
     assert elapsed < 0.56
     assert mgr._closed is True
     assert cancelled.is_set()
-    assert cleanup_thread_ids == [thread.ident, thread.ident]
+    assert outcomes == [
+        ("normal-stopped", thread.ident),
+        ("normal-cleanup", thread.ident),
+        ("cancel-only-cancelled", thread.ident),
+        ("cancel-only-cleanup", thread.ident),
+    ]
     assert mgr._shutdown_future is None
     assert mgr._holders == {}
     assert mgr._sessions == {}
@@ -579,6 +590,51 @@ def test_connect_start_failure_cleans_unpublished_loop_and_preserves_error(monke
         assert mgr._thread is None
         assert loop.is_closed()
     finally:
+        if not loop.is_closed():
+            loop.close()
+
+
+@pytest.mark.parametrize("error", [KeyboardInterrupt(), SystemExit(7)])
+def test_connect_partial_start_interrupt_stops_worker_and_closes_loop(monkeypatch, error):
+    mgr = MCPManager(
+        {"pending": MCPServerConfig(command="unused")},
+        thread_join_timeout=0.2,
+    )
+    loop = asyncio.new_event_loop()
+    started_threads: list[threading.Thread] = []
+    original_start = threading.Thread.start
+    monkeypatch.setattr(mcp_manager_module.asyncio, "new_event_loop", lambda: loop)
+
+    def start_then_interrupt(thread) -> None:
+        original_start(thread)
+        started_threads.append(thread)
+        deadline = time.monotonic() + 0.05
+        while not loop.is_running() and time.monotonic() < deadline:
+            time.sleep(0.001)
+        raise error
+
+    monkeypatch.setattr(mcp_manager_module.threading.Thread, "start", start_then_interrupt)
+
+    try:
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            with pytest.raises(type(error)) as raised:
+                mgr.connect()
+            error.__traceback__ = None
+            gc.collect()
+
+        worker = started_threads[0]
+        assert raised.value is error
+        assert mgr._started is False
+        assert mgr._loop is None
+        assert mgr._thread is None
+        assert not worker.is_alive()
+        assert loop.is_closed()
+        assert not any(isinstance(item.message, RuntimeWarning) for item in caught)
+    finally:
+        if started_threads and started_threads[0].is_alive():
+            loop.call_soon_threadsafe(loop.stop)
+            started_threads[0].join(timeout=1)
         if not loop.is_closed():
             loop.close()
 
@@ -881,6 +937,91 @@ def test_disable_stops_holder_and_drops_from_catalog():
         assert mgr.call_tool("alpha", "echo", {"text": "x"})["text"] == "alpha: x"  # others live
     finally:
         mgr.close()
+
+
+def test_disable_timeout_keeps_holder_visible_until_overlapping_close_finishes_cleanup():
+    mgr = MCPManager(
+        {"pending": MCPServerConfig(command="unused")},
+        connect_timeout=-4.98,
+        shutdown_timeout=0.03,
+        thread_join_timeout=0.02,
+    )
+    loop = asyncio.new_event_loop()
+    thread = threading.Thread(
+        target=loop.run_forever,
+        name="forgeagent-mcp-loop",
+        daemon=True,
+    )
+    cleanup_started = threading.Event()
+    cleanup_cancelled = threading.Event()
+    cleanup_finished = threading.Event()
+    loop_state: dict[str, asyncio.Event] = {}
+    mgr._loop = loop
+    mgr._thread = thread
+    thread.start()
+
+    async def install_holder() -> None:
+        stop = asyncio.Event()
+        cleanup_release = asyncio.Event()
+        loop_state["cleanup_release"] = cleanup_release
+        mgr._states["pending"].stop = stop
+        mgr._sessions["pending"] = object()
+
+        async def holder() -> None:
+            try:
+                await stop.wait()
+            finally:
+                cleanup_started.set()
+                while not cleanup_release.is_set():
+                    try:
+                        await cleanup_release.wait()
+                    except asyncio.CancelledError:
+                        cleanup_cancelled.set()
+                mgr._sessions.pop("pending", None)
+                cleanup_finished.set()
+
+        mgr._holders["pending"] = asyncio.create_task(holder())
+        await asyncio.sleep(0)
+
+    asyncio.run_coroutine_threadsafe(install_holder(), loop).result(timeout=1)
+    holder = mgr._holders["pending"]
+
+    try:
+        with pytest.raises(concurrent.futures.TimeoutError):
+            mgr.disable("pending")
+        assert cleanup_started.wait(timeout=1)
+        assert mgr._holders.get("pending") is holder
+
+        started = time.monotonic()
+        assert mgr.close() is None
+        assert time.monotonic() - started < 0.55
+        assert cleanup_cancelled.wait(timeout=1)
+        assert not cleanup_finished.is_set()
+        assert mgr._holders.get("pending") is holder
+        assert mgr._loop is loop
+        assert mgr._thread is thread
+
+        loop.call_soon_threadsafe(loop_state["cleanup_release"].set)
+        assert cleanup_finished.wait(timeout=1)
+        thread.join(timeout=1)
+        assert not thread.is_alive()
+
+        assert mgr.close() is None
+        assert mgr._shutdown_future is None
+        assert mgr._holders == {}
+        assert mgr._sessions == {}
+        assert mgr._loop is None
+        assert mgr._thread is None
+    finally:
+        if thread.is_alive():
+            loop.call_soon_threadsafe(loop_state["cleanup_release"].set)
+            cleanup_finished.wait(timeout=1)
+        if thread.is_alive():
+            asyncio.run_coroutine_threadsafe(asyncio.sleep(0), loop).result(timeout=1)
+            loop.call_soon_threadsafe(loop.stop)
+            thread.join(timeout=1)
+        if not loop.is_closed():
+            loop.close()
 
 
 def test_mid_call_crash_marks_server_unavailable():
