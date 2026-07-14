@@ -49,6 +49,18 @@ ForgeAgent MUST redact structured secret-key values and known sensitive environm
 - **WHEN** a WebFetch hostname contains a percent-encoded or DNS case-normalized form of a known sensitive environment value
 - **THEN** the confirmer decodes the hostname, performs one longest-first non-overlapping ASCII case-insensitive match pass, safely re-encodes the hostname component, and does not display the sensitive value or reinterpret decoded delimiters as URL structure
 
+#### Scenario: WebFetch hostname contains encoded URL delimiters
+- **WHEN** a hostname contains percent-encoded `@`, `/`, `?`, `#` or `:` that cannot be represented as the original hostname component
+- **THEN** the confirmer returns the fixed malformed-URL summary or safely re-encodes the component without creating userinfo, path, query, fragment or port structure
+
+#### Scenario: WebFetch URL uses IPv6 or a zone identifier
+- **WHEN** a WebFetch URL contains an IPv6 literal or percent-encoded zone identifier
+- **THEN** the confirmer uses the original bracketed netloc to identify IPv6, preserves valid bracket and zone-id encoding, masks known secret material once, and treats an encoded colon in an unbracketed DNS hostname as malformed
+
+#### Scenario: Multiple URL components contain known secrets
+- **WHEN** known secret values appear across hostname, path and query components
+- **THEN** hostname matching and global `mask_secrets()` each operate once on their assigned components, and the rebuilt URL is not globally masked a second time
+
 #### Scenario: FileWrite uses an absolute path and sensitive content
 - **WHEN** FileWrite requests an absolute path and arbitrary content
 - **THEN** the confirmer displays a project-relative path when possible or a basename-only external path, displays only the content character count labeled `characters`, and never displays the content
@@ -78,6 +90,8 @@ ForgeAgent MUST prevent WebFetch failure outcomes and FileWrite success or failu
 
 ### Requirement: File tool path boundaries are root-safe and minimally disclosing
 ForgeAgent MUST evaluate canonical file targets with a containment predicate that accepts the root itself and all real descendants, including when `allowed_root` is the filesystem root, and MUST NOT disclose model or host absolute paths in file-tool failure outcomes.
+
+This requirement prevents static symlink escape by returning and using the canonical target. It does not claim resistance to a hostile host process that replaces a canonical ancestor directory between validation and pathname open.
 
 #### Scenario: Filesystem root is the allowed root
 - **WHEN** a file tool or restricted audit hook evaluates a target below `allowed_root="/"`

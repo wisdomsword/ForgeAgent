@@ -44,12 +44,20 @@ ForgeAgent SHALL document that future proxy routing requires a ForgeAgent-owned 
 - **WHEN** a user configures only system or environment proxy settings
 - **THEN** ForgeAgent continues to use direct guarded connections and documentation states that explicit proxy forwarding is not implemented
 
+#### Scenario: Deployment requires an enterprise proxy
+- **WHEN** WebFetch or `/search` runs where direct egress is unavailable and only environment proxy variables are configured
+- **THEN** the request fails through the normal stable network-failure contract, release documentation marks the behavior as `[SECURITY][BREAKING]`, and documents direct egress, external prefetch plus FileRead, and a user-trusted MCP fetch tool as the available migration paths
+
+#### Scenario: User configures NO_PROXY as a workaround
+- **WHEN** `NO_PROXY` or `no_proxy` is configured while ForgeAgent uses `ProxyHandler({})`
+- **THEN** ForgeAgent remains in direct mode because bypass configuration cannot install or re-enable a proxy handler
+
 ### Requirement: Guarded web consumers contain expected protocol failures
 ForgeAgent MUST convert expected URL, transport, HTTP protocol and response-decoding failures into each consumer's stable result contract and MUST NOT let those failures escape as uncaught exceptions.
 
 #### Scenario: WebFetch receives an incomplete or malformed HTTP response
 - **WHEN** a confirmed WebFetch request raises `http.client.HTTPException` while opening, reading or closing the response
-- **THEN** WebFetch returns the fixed detail `WebFetch request failed` without exception text, URL or hostname
+- **THEN** the base-class handler contains representative subclasses including `InvalidURL`, `BadStatusLine`, `LineTooLong`, `IncompleteRead` and `RemoteDisconnected`, and WebFetch returns the fixed detail `WebFetch request failed` without exception text, URL or hostname
 
 #### Scenario: WebFetch receives an invalid model URL
 - **WHEN** a confirmed WebFetch request raises `ValueError` or `http.client.InvalidURL` while constructing or opening the request

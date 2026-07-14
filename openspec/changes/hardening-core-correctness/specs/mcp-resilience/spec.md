@@ -40,6 +40,10 @@ ForgeAgent MUST return a non-zero CLI startup result when a required MCP server 
 - **WHEN** an MCP child process does not respond during normal shutdown
 - **THEN** ForgeAgent cancels pending holders, bounds event-loop and thread cleanup by an absolute deadline, and returns from close without waiting indefinitely
 
+#### Scenario: Event-loop thread remains alive after join timeout
+- **WHEN** the named MCP loop daemon thread is still alive after the absolute shutdown deadline
+- **THEN** ForgeAgent returns without closing the active loop, records a warning containing thread name, ident, alive state, pending server names and timeout, and excludes MCP arguments, environment values and server-returned content from that warning
+
 #### Scenario: Internal shutdown operation raises unexpectedly
 - **WHEN** an internal holder, event-loop or thread cleanup operation raises an Exception
 - **THEN** `close()` records the failure, keeps the manager closed and does not propagate the shutdown exception to replace the caller's result

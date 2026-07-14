@@ -19,9 +19,9 @@
 - [ ] 3.3 按 TTY 能力为 REPL 和单次 run 自动注入 confirmer，验证非 TTY 默认拒绝且 `--interactive` 仍只控制 Survey
 - [ ] 3.4 增加工具成功、工具失败、解析错误与 `completed: true` 组合的 Step 状态转换测试
 - [ ] 3.5 实施严格两阶段完成门控，只有后续无工具、无解析错误的独立响应可完成任务
-- [ ] 3.6 为 percent-encoded/大小写变化/重叠的 hostname secret、decoded delimiter 重建、Unicode content character count、WebFetch guard/network 失败和 FileWrite 成功/写入失败结果增加泄漏回归测试
+- [ ] 3.6 为 percent-encoded/大小写变化/重叠的 hostname secret、encoded delimiter、IPv6/zone-id、组件级 mask 交互、Unicode content character count、WebFetch guard/network 失败和 FileWrite 成功/写入失败结果增加泄漏回归测试
 - [ ] 3.7 实施固定安全 WebFetch 失败消息与 FileWrite project-relative 成功/固定失败消息，并验证 Step feedback 不再暴露原始 URL、hostname 或宿主绝对路径
-- [ ] 3.8 为 HTTP protocol/invalid URL、WebFetch artifact 写入、search 未知 charset、`allowed_root="/"`、非法路径及 FileRead/FileList 失败文本增加行为探针和回归测试
+- [ ] 3.8 为 InvalidURL/BadStatusLine/LineTooLong/IncompleteRead/RemoteDisconnected、WebFetch artifact 写入、search 未知 charset、`allowed_root="/"`、非法路径及 FileRead/FileList 失败文本增加行为探针和回归测试
 - [ ] 3.9 实施 WebFetch/search 消费端异常收敛、canonical commonpath 文件边界和 FileRead/FileList 固定失败消息，并验证 CLI outcome 渲染不泄漏敏感路径
 
 ## 4. MCP 韧性与生命周期
@@ -29,8 +29,8 @@
 - [ ] 4.1 在 MCP 服务配置模型中增加默认 `false` 的 `required` 字段及兼容性解析测试
 - [ ] 4.2 实施可选服务连接失败降级，验证失败服务工具被排除且诊断包含服务名和原因
 - [ ] 4.3 实施必需服务连接失败的启动中止、资源清理和 CLI 非零退出测试
-- [ ] 4.4 为正常关闭、无响应子进程、部分关闭失败和重复 close 建立确定性测试并确定有证据的超时上限
-- [ ] 4.5 使 `MCPManager.close()` 有界且幂等，并保证关闭错误不覆盖任务结果或原始启动错误
+- [ ] 4.4 为正常关闭、无响应子进程、部分关闭失败、重复 close 和 daemon thread join 超时 warning 建立确定性测试并确定有证据的超时上限
+- [ ] 4.5 使 `MCPManager.close()` 有界且幂等，为 loop thread 设置固定名称和无敏感信息的超时诊断，并保证关闭错误不覆盖任务结果或原始启动错误
 
 ## 5. 黄金验证核心
 
@@ -44,7 +44,7 @@
 
 - [ ] 6.1 更新模型客户端契约，准确描述当前 complete/streaming 和多模态支持边界
 - [ ] 6.2 更新文本协议规范，纳入 WebFetch、FileRead/FileWrite 及严格两阶段完成语义
-- [ ] 6.3 更新威胁模型和 CLI 文档，说明默认直连、环境代理禁用、TTY 确认和 MCP `required` 行为
+- [ ] 6.3 更新威胁模型、CLI 和发布说明，说明默认直连、环境代理禁用及企业代理迁移路径、symlink ancestor-swap 残余威胁、TTY 确认和 MCP `required` 行为
 - [ ] 6.4 更新黄金任务说明和 README，将 20 项标为可执行可信核心、其余 360 项标为候选，并说明 5 项真实模型运行不是 CI 门禁
 - [ ] 6.5 按 `MILESTONE_GUIDE.md` 更新 ACTION_PLAN、相关历史状态说明、新加固里程碑文件和 `milestones/latest`，保留实证测试结果
 

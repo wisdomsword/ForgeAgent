@@ -106,17 +106,30 @@ File tools / restricted audit
 
 ### 4.3 未来代理契约
 
-威胁模型和配置文档预留以下未来形态：
+环境代理禁用是当前版本的强制安全行为，不提供隐藏开关或环境变量回退：
+
+- `ProxyHandler({})` 不安装任何 proxy handler，因此 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY` 和大小写变体均不会参与路由。
+- `NO_PROXY`/`no_proxy` 只能告诉一个已经启用的代理 handler 哪些目标绕过代理，不能重新启用被空 mapping 移除的代理；它不是临时规避方法。
+- 依赖企业代理才能出网的部署会在 WebFetch 和 `/search` 上直连失败。当前可用的迁移方式只有：在允许直连的网络运行、由用户在 ForgeAgent 外预取文件后通过 FileRead 处理，或显式配置一个由用户信任且自行承担代理策略的 MCP fetch 工具。最后一种方式不是 WebFetch 的透明代理，也不改变 WebFetch 的 SSRF 契约。
+- CLI 对普通网络失败继续使用稳定失败类别，不根据错误文本猜测“可能需要代理”；README、威胁模型和 `[SECURITY][BREAKING]` 发布说明必须直接列出上述行为和替代路径。
+
+未来代理支持不能简单恢复默认 `ProxyHandler`。常规 forward proxy 会在代理端重新解析目标，使 ForgeAgent 无法证明实际连接地址仍是本地校验过的 IP。未来设计必须显式选择并记录以下一种信任模型：
+
+1. **trusted forward proxy**：用户显式把代理声明为受信任的出网/SSRF 执行边界，ForgeAgent 只校验代理端点与配置，不声称自己验证最终目标 IP。
+2. **guarded tunnel proxy**：ForgeAgent 逐跳解析并校验目标，把精确 vetted IP 交给 CONNECT/tunnel，同时保留原 hostname 用于 TLS SNI、证书和 Host 校验。该模式兼容性更窄，但保留当前 SSRF 不变量。
+
+未来配置形态只能作为占位示例：
 
 ```yaml
 network:
+  mode: direct  # future: trusted_proxy | guarded_tunnel
   proxy:
     url: http://proxy.example:8080
     no_proxy:
       - example.internal
 ```
 
-这只是未来契约说明。当前版本不解析这些字段，不实现代理，不读取 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`、`NO_PROXY` 或大小写变体。实现依赖显式空 ProxyHandler 屏蔽环境代理，不会通过 `os.environ.pop()` 修改进程全局环境；后者会影响并发调用方并制造新的竞态。文档必须明确配置该片段当前不会启用转发。
+当前版本不解析这些字段，也没有任何可用 proxy mode。实现依赖显式空 ProxyHandler 屏蔽环境代理，不会通过 `os.environ.pop()` 修改进程全局环境；后者会影响并发调用方并制造新的竞态。
 
 ### 4.4 消费端异常收敛
 
@@ -127,6 +140,8 @@ network:
 - `/search` 将 `OSError` 和 `http.client.HTTPException` 收敛为既有 `ERROR_UNAVAILABLE`。远端声明未知 charset 时不把可用响应判为网络故障，而是退回 UTF-8 `errors="replace"` 解码。
 - 不使用覆盖整个工具主体的 `except Exception`。断言错误、类型错误和实现缺陷仍应在测试中显式暴露。
 
+捕获 `http.client.HTTPException` 基类是有意的：Python 3.11+ 中 `IncompleteRead`、`BadStatusLine`、`InvalidURL`、`LineTooLong`、`UnknownProtocol`、`UnknownTransferEncoding` 和 connection-state errors 均继承该类且多数不继承 `OSError`；`RemoteDisconnected` 同时落入 `OSError` 和 HTTP 异常体系。测试不逐一伪造所有内部状态类，而是覆盖可由本调用路径产生的代表性叶子：open 阶段 `InvalidURL`、status/header 阶段 `BadStatusLine`/`LineTooLong`、body 阶段 `IncompleteRead`、disconnect 阶段 `RemoteDisconnected`，并用继承断言锁定这些类别仍被基类捕获。
+
 ## 5. 工具确认设计
 
 ### 5.1 保留现有接口
@@ -134,11 +149,13 @@ network:
 `Confirmer = Callable[[BaseModel], bool]` 保持不变。CLI 内部增加一个小型 formatter，由 `make_console_confirmer()` 调用：
 
 - `MCPArgs`：显示 `server:tool`。arguments 递归遍历 dict/list；键名匹配现有 `is_secret_name()` 时，无论值长度都显示 `<redacted>`；其他字符串再用 `mask_secrets(..., sensitive_env_values())` 替换已知环境 secret value。
-- `WebFetchArgs`：通过 `urllib.parse` 清除 URL userinfo 和 fragment，替换敏感 query key 的值，再用 `mask_secrets()` 处理已知 secret value。path 在匹配前 percent-decode。hostname 先 percent-decode，再以 ASCII DNS 大小写不敏感语义执行一次从左到右、非重叠替换；候选 secret 按长度降序排列，确保同一位置优先匹配最长值。替换只作用于 hostname component，不对原始 URL 做正则改写。重建前重新编码 hostname；percent-decode 后产生的 `@`、`/`、`?`、`#` 等结构字符不得直接进入 netloc，无合法 hostname 表示时返回 `<redacted malformed URL>`。IPv6 字面量保留结构化方括号处理。
+- `WebFetchArgs`：通过 `urllib.parse` 清除 URL userinfo 和 fragment，替换敏感 query key 的值，再用 `mask_secrets()` 处理已知 secret value。path 在匹配前 percent-decode。hostname 先 percent-decode，再以 ASCII DNS 大小写不敏感语义执行一次从左到右、非重叠替换；候选 secret 按长度降序排列，确保同一位置优先匹配最长值。替换只作用于 hostname component，不对原始 URL 做正则改写。重建前重新编码 hostname；percent-decode 后产生的 `@`、`/`、`?`、`#` 等结构字符不得直接进入 netloc，无合法 hostname 表示时返回 `<redacted malformed URL>`。IPv6 身份由原始 netloc 是否使用方括号决定：只有原始 bracketed host 才允许解码后的 `:`，普通 DNS hostname 中 encoded `:` 视为 malformed；合法 IPv6 和 RFC 6874 zone-id 保留结构化方括号与编码。
 - `FileWriteArgs`：不回显 content。绝对路径在 cwd 内时显示项目相对路径，在 cwd 外时只显示 `.../<basename>`；相对路径保持规范化相对形式。提示同时显示 `len(content)` 计算的字符数，并固定标记为 `characters`，不得误标为 bytes。
 - 其他 `BaseModel`：只显示类型名，避免访问不存在的字段或意外回显敏感数据。
 
 全局 `mask_secrets()` 的既有契约保持不变：它按敏感环境变量名收集长度至少 8 的值，再做最长值优先替换。结构化键脱敏只属于 confirmer formatter，避免改变 executor/MCP output 的既有行为和误报面。
+
+WebFetch formatter 在一次调用开始时只读取一次 `sensitive_env_values()`，并按组件执行：先丢弃 userinfo/fragment，再处理 hostname、path、query。hostname 只经过局部 case-insensitive helper；path 和非敏感 query key/value 继续使用全局 case-sensitive `mask_secrets()`；敏感 query key 的 value 直接替换。重建后不再对完整 URL 做第二次 `mask_secrets()`，避免跨组件匹配、重复编码或对 redaction marker 二次替换。
 
 输入仍只接受 `y`/`yes`。EOF、空输入和其他值全部拒绝。
 
@@ -160,7 +177,7 @@ network:
 - FileRead/FileList 的路径校验和文件系统失败分别返回固定 `FileRead failed` / `FileList failed`，不回显异常文本、模型提供的绝对路径或 canonical root。MCP 结果契约和全局 `mask_secrets()` 行为保持不变。
 - 不新增通用 result sanitizer。固定消息牺牲部分底层诊断细节，以避免平台相关异常字符串重新引入 URL、hostname 或宿主绝对路径泄漏。
 
-测试必须覆盖：percent-encoded、大小写变化和重叠的 hostname secret；decode 后结构字符不改变 URL 组件；携带原始 URL/hostname 的 WebFetch guard/network/HTTP protocol 异常；WebFetch artifact 写入异常包含绝对路径；FileWrite 使用绝对路径和相对 `allowed_root="."` 时只回显 canonical project-relative 路径；FileRead/FileWrite/FileList 的越界、非法路径和文件系统异常不回显宿主路径。失败结果还需通过现有 Step feedback 与 CLI `render_outcome()` 路径验证不再泄漏。
+测试必须覆盖：percent-encoded、大小写变化和重叠的 hostname secret；encoded `@`、`/`、`?`、`#`、`:`；普通 IPv6 与 zone-id 字面量；userinfo/fragment 丢弃；hostname 局部 helper 与 path/query 全局 `mask_secrets()` 不重复或漏脱敏；携带原始 URL/hostname 的 WebFetch guard/network/HTTP protocol 异常；WebFetch artifact 写入异常包含绝对路径；FileWrite 使用绝对路径和相对 `allowed_root="."` 时只回显 canonical project-relative 路径；FileRead/FileWrite/FileList 的越界、非法路径和文件系统异常不回显宿主路径。失败结果还需通过现有 Step feedback 与 CLI `render_outcome()` 路径验证不再泄漏。
 
 ### 5.4 共享路径边界
 
@@ -171,7 +188,11 @@ network:
 3. 比较时遵循平台路径语义，允许 root 自身和任意真实子路径，因此 `allowed_root="/"` 不再错误拒绝 `/tmp/...`。
 4. 安全边界异常不携带输入路径或 root。工具层转换为上述固定失败消息；restricted worker 保留 `PermissionError` 类型，但消息只说明访问位于 allowed root 外。
 
-这仍是 realpath 后的应用层检查，不声称解决可写目录中所有 symlink 竞态；本 change 只修复已证明的 root predicate、非法路径逃逸和失败文本泄漏。
+`_validate_path()` 返回 canonical target，因此校验后替换模型最初提供的 symlink alias 不会改变实际写入目标。仍存在一个更窄但真实的 TOCTOU：外部并发写者若在校验后、打开前把 canonical target 的某个祖先目录整体替换为指向外部的 symlink，后续按 pathname 打开仍可能越界。实证 probe 已复现该 ancestor-swap 情况。
+
+本 change 不用“再做一次 realpath/lstat”伪装成修复，因为检查与打开之间仍有竞态；也不引入 POSIX-only 的逐组件 `openat(dir_fd, O_NOFOLLOW)`、Linux `openat2(RESOLVE_BENEATH)` 或平台专用 fd-path 反查。完整消除需要重写 FileRead/Write/List 的文件描述符接口并处理 Windows 兼容，超出本次最小加固。
+
+残余威胁按档位记录：restricted/container 的模型执行块在工具调用前已经结束，不能靠普通模型代码保留一个并发线程稳定制造竞态；但 trusted 同进程代码、用户配置的 MCP 进程或宿主其他进程仍可能并发修改目录。当前保证是阻止静态 symlink 逃逸、修复 root predicate、收敛非法路径和错误文本；不把 File 工具描述为抵抗恶意宿主并发写者的 OS 级边界。
 
 ## 6. 完成状态设计
 
@@ -239,11 +260,11 @@ manager 构造参数增加仅供内部/测试注入的 `shutdown_timeout=10.0` �
 5. cancel 仍 pending 的 holder，并用 `remaining - join_reserve` 作为第二阶段预算。预算为 0 时不再等待。
 6. 清空 holder/session；任何单 holder 异常被收集而不传播。
 7. `loop.call_soon_threadsafe(loop.stop)`，`thread.join()` 使用 `min(thread_join_timeout, remaining)`，不会越过同一个绝对 deadline。
-8. 线程已停止时关闭 loop；仍存活时记录 warning，不对活跃 loop 调用 close。
+8. 线程已停止时关闭 loop；仍存活时记录结构化 warning，不对活跃 loop 调用 close。loop thread 在创建时使用固定名称 `forgeagent-mcp-loop`；warning 至少包含 thread name、ident、alive 状态、未完成 holder 的 server 名称和已耗尽的 timeout，不输出 MCP arguments、env 或 server 返回内容。
 9. 公开 `close()` 边界在 closed state 设置后用 `try/except Exception/finally` 包围内部操作。Exception 只记录 warning，finally 尽最大可能执行 loop stop、join 和引用清理；KeyboardInterrupt/SystemExit 不被吞掉。
 10. 返回 None，不向调用方传播关闭异常。
 
-正常和无响应 fixture 必须证明 SDK 的进程树清理可以在上限内结束子进程。极端情况下 Python daemon thread 可能在 join 上限后仍存活；CLI 仍能返回，warning 保留诊断证据。
+正常和无响应 fixture 必须证明 SDK 的进程树清理可以在上限内结束子进程。极端情况下 Python daemon thread 可能在 join 上限后仍存活并暂时保有 event-loop transport/file descriptor；Python 不提供安全强杀线程的 API，因此 CLI 仍按 deadline 返回，warning 保留上述诊断证据。默认不抓取线程堆栈：`sys._current_frames()` 是 CPython 私有诊断接口，输出冗长且可能包含宿主路径；固定线程身份和 pending holder 足以定位本层问题。
 
 ## 8. 测试环境隔离
 
@@ -325,13 +346,13 @@ runner 本里程碑明确顺序执行，不承诺多个进程同时写同一个 
 | 能力 | 关键测试 | 主要证据 |
 | --- | --- | --- |
 | 代理/SSRF | 大小写 proxy env、loopback、private、NAT64、redirect private、11 跳、FTP/file redirect | 实际校验 host 是目标而非代理；blocked target 未连接；redirect limit/scheme 明确拒绝 |
-| 网络消费端错误 | WebFetch invalid URL/IncompleteRead/BadStatusLine/close error/artifact OSError；search protocol error/unknown charset | 工具级异常不逃逸；固定消息不含 URL/hostname/path；search 返回 unavailable 或 UTF-8 fallback |
-| confirmer 与结果最小披露 | MCP/WebFetch/FileWrite formatter、EOF、空输入、带空白的 yes/no、嵌套 secret key、encoded/case hostname、URL/path mask、WebFetch 失败、FileWrite 成功/失败 outcome | 无属性错误；prompt、ToolOutcome、Step feedback 不回显敏感 URL/hostname/宿主绝对路径；TTY 与非 TTY 原因正确 |
+| 网络消费端错误 | WebFetch InvalidURL/BadStatusLine/LineTooLong/IncompleteRead/RemoteDisconnected/close error/artifact OSError；search representative protocol error/unknown charset | HTTPException 基类覆盖代表性叶子；工具级异常不逃逸；固定消息不含 URL/hostname/path；search 返回 unavailable 或 UTF-8 fallback |
+| confirmer 与结果最小披露 | MCP/WebFetch/FileWrite formatter、EOF、空输入、带空白的 yes/no、嵌套 secret key、encoded/case/overlap hostname、encoded delimiters、IPv6/zone id、URL component mask、WebFetch 失败、FileWrite 成功/失败 outcome | 无属性错误；无跨组件或双重脱敏；prompt、ToolOutcome、Step feedback 不回显敏感 URL/hostname/宿主绝对路径；TTY 与非 TTY 原因正确 |
 | 文件路径边界 | root allowed_root、相对 root、NUL、越界、symlink resolve、FileRead/List/Write OSError、restricted audit | commonpath 正确接受 root 子路径并拒绝越界；无 ValueError 逃逸；固定失败消息无绝对路径 |
 | CLI 注入 | REPL、TTY run、非 TTY run、`--interactive` | confirmer 与 MCP 解耦；Survey 语义不漂移 |
 | 完成门控 | 工具成功/失败/parse error + completed；后续独立完成 | 同轮不完成；反馈后完成；max_rounds 诚实 |
 | MCP 配置 | required 默认、enabled/disabled required | optional 降级；required 启动失败；禁用项不阻断 |
-| MCP close | 正常、完全忽略 stop、内部异常、重复 close、结果保留 | 绝对 deadline 内返回；cancel/join 分支执行；PID 消失；原结果不被覆盖 |
+| MCP close | 正常、完全忽略 stop、内部异常、重复 close、结果保留、thread join 超时 warning | 绝对 deadline 内返回；cancel/join 分支执行；PID 消失；warning 含固定 thread identity/pending servers 且无敏感参数；原结果不被覆盖 |
 | 测试隔离 | 真实 home 放置恶意 mcp.yaml 后运行 suite | 测试只读取临时 home，结果不变 |
 | 黄金 runner | manifest 变异、20 pass、单项 fail、preflight fail | ID/数量锁定；JSON/Markdown 同源；退出码 0/1/2 |
 | 真实模型入口 | 缺配置、有效单模型 | 缺配置无报告且退出 2；只执行 5 项 |
@@ -347,7 +368,7 @@ runner 本里程碑明确顺序执行，不承诺多个进程同时写同一个 
 - `docs/golden-tasks-seed.md` 与 README：20 项可信核心、360 项候选、5 项 opt-in 真实模型和报告命令。
 - ACTION_PLAN、加固里程碑和 `milestones/latest`：只记录实证运行结果；不改写用户已有 M11/M12 规划内容，里程碑编号在收尾时按现有空位和 `MILESTONE_GUIDE.md` 确定。
 
-迁移无需数据转换。MCP 新字段默认 false，旧配置兼容。环境代理被禁用属于 `[SECURITY][BREAKING]` 安全加固：发布说明必须提示依赖企业代理的用户当前会直连失败，且本里程碑没有可用的显式代理替代。
+迁移无需数据转换。MCP 新字段默认 false，旧配置兼容。环境代理被禁用属于 `[SECURITY][BREAKING]` 安全加固：发布说明必须提示依赖企业代理的用户当前会直连失败，`NO_PROXY` 不能恢复代理，本里程碑没有透明代理替代。发布说明同时列出三条可操作路径：允许该进程直连、外部预取后用 FileRead、或使用用户显式信任的 MCP fetch 工具；不得建议重新启用环境 ProxyHandler。
 
 ## 12. 实施顺序
 
