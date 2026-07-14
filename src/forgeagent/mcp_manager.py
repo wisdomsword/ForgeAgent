@@ -542,10 +542,21 @@ class MCPManager:
             if state is None:
                 return {"ok": False, "text": f"unknown MCP server {server!r}"}
             return {"ok": False, "text": f"MCP server {server!r} is {state.status}"}
-        return self._submit(
-            self._call_tool_on_loop(server, tool, arguments),
-            timeout=self._call_timeout + 5,  # outer > SDK read timeout so SDK's fires first
-        )
+        try:
+            return self._submit(
+                self._call_tool_on_loop(server, tool, arguments),
+                timeout=self._call_timeout + 5,  # outer > SDK read timeout so SDK's fires first
+            )
+        except Exception as exc:  # noqa: BLE001 - preserve structured MCP failure contract
+            # The loop wrapper may still be running after an outer facade timeout. Do not
+            # mutate session state from this thread; its loop-owned generation check owns
+            # invalidation when the call eventually finishes.
+            return {
+                "ok": False,
+                "text": mask_secrets(
+                    f"MCP call failed: {type(exc).__name__}: {exc}", self._secret_values
+                ),
+            }
 
     async def _call_tool_on_loop(self, server: str, tool: str, arguments: dict) -> dict:
         """Select the current session generation on the loop immediately before calling."""

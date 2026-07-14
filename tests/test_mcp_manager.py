@@ -1368,6 +1368,27 @@ def test_call_selection_occurs_on_loop_for_current_generation(monkeypatch):
             loop.close()
 
 
+def test_call_outer_timeout_returns_structured_failure_without_invalidating_session(monkeypatch):
+    mgr = MCPManager({"pending": MCPServerConfig(command="unused")})
+    session = _SessionProbe("still live")
+    mgr._loop = object()
+    mgr._states["pending"].status = "available"
+    mgr._states["pending"].generation = 1
+    mgr._sessions["pending"] = (1, session)
+
+    def timeout_submit(coro, timeout):
+        coro.close()
+        raise concurrent.futures.TimeoutError
+
+    monkeypatch.setattr(mgr, "_submit", timeout_submit)
+
+    result = mgr.call_tool("pending", "echo", {})
+
+    assert result["ok"] is False
+    assert "MCP call failed: TimeoutError" in result["text"]
+    assert mgr._sessions["pending"] == (1, session)
+
+
 def test_enable_racing_failed_holder_finalizer_starts_one_replacement():
     mgr = MCPManager({"pending": MCPServerConfig(command="unused")}, connect_timeout=0.05)
     loop = asyncio.new_event_loop()
