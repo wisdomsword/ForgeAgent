@@ -55,13 +55,20 @@ def _install_audit_hook(allowed_root: str) -> None:
             if not isinstance(path, (str, bytes)):
                 return
             p = os.fsdecode(path) if isinstance(path, bytes) else path
-            rp = os.path.realpath(p)
+            try:
+                rp = os.path.realpath(p)
+            except ValueError:
+                raise PermissionError(
+                    "restricted: file access outside allowed root denied"
+                ) from None
             for base in allowed:
-                if rp == base or rp.startswith(base + os.sep):
+                try:
+                    common = os.path.commonpath((base, rp))
+                except ValueError:
+                    continue
+                if os.path.normcase(common) == os.path.normcase(base):
                     return
-            raise PermissionError(
-                f"restricted: file access outside allowed root denied: {p}"
-            )
+            raise PermissionError("restricted: file access outside allowed root denied")
         elif event in _BLOCKED_SOCKET_EVENTS:
             raise PermissionError(f"restricted: network access denied ({event})")
         elif event in _BLOCKED_SPAWN_EVENTS:
@@ -129,9 +136,12 @@ def main() -> None:
             exec(compile(payload["code"], "<forgeagent-block>", "exec"), namespace)  # noqa: S102
     except BaseException as exc:  # noqa: BLE001 - capture everything, report structured
         result["success"] = False
-        result["error"] = "".join(
-            traceback.format_exception(type(exc), exc, exc.__traceback__)
-        ).strip()
+        if isinstance(exc, PermissionError) and str(exc).startswith("restricted:"):
+            result["error"] = str(exc)
+        else:
+            result["error"] = "".join(
+                traceback.format_exception(type(exc), exc, exc.__traceback__)
+            ).strip()
     result["stdout"] = out.getvalue()
     result["stderr"] = err.getvalue()
     safe_state, dropped_state_keys = _json_safe(runtime.state)

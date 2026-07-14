@@ -28,6 +28,7 @@ from forgeagent.tools import (
     FileWriteTool,
     ToolContext,
     WebFetchTool,
+    _validate_path,
 )
 
 
@@ -271,7 +272,56 @@ def test_file_read_escaping_root_is_blocked(tmp_path):
     outcome = FileReadTool().run(FileReadArgs(path="../../etc/passwd"), ctx)
 
     assert outcome.success is False
-    assert "escapes project root" in outcome.detail
+    assert outcome.detail == "FileRead failed"
+    assert str(tmp_path) not in outcome.detail
+
+
+def test_validate_path_accepts_descendant_when_allowed_root_is_filesystem_root(tmp_path):
+    assert _validate_path(str(tmp_path / "file.txt"), os.path.abspath(os.sep)) == (
+        tmp_path / "file.txt"
+    ).resolve()
+
+
+@pytest.mark.parametrize(
+    ("tool", "args", "detail"),
+    [
+        (FileReadTool(), FileReadArgs(path="bad\x00path"), "FileRead failed"),
+        (FileWriteTool(), FileWriteArgs(path="bad\x00path", content="x"), "FileWrite failed"),
+        (FileListTool(), FileListArgs(path="bad\x00path"), "FileList failed"),
+    ],
+)
+def test_file_tools_contain_invalid_path_value_error(tool, args, detail, tmp_path):
+    outcome = tool.run(args, _file_ctx(allowed_root=str(tmp_path)))
+
+    assert outcome.success is False
+    assert outcome.detail == detail
+
+
+@pytest.mark.parametrize(
+    ("tool", "args", "detail", "operation"),
+    [
+        (FileReadTool(), FileReadArgs(path="inside.txt"), "FileRead failed", "read_text"),
+        (
+            FileWriteTool(),
+            FileWriteArgs(path="inside.txt", content="x"),
+            "FileWrite failed",
+            "write_text",
+        ),
+        (FileListTool(), FileListArgs(path="."), "FileList failed", "iterdir"),
+    ],
+)
+def test_file_tool_os_errors_do_not_disclose_paths(
+    tool, args, detail, operation, tmp_path, monkeypatch
+):
+    def fail(*args, **kwargs):
+        raise OSError(f"host failure at {tmp_path}")
+
+    monkeypatch.setattr(Path, operation, fail)
+    outcome = tool.run(args, _file_ctx(allowed_root=str(tmp_path)))
+
+    assert outcome.success is False
+    assert outcome.detail == detail
+    assert str(tmp_path) not in outcome.detail
 
 
 def test_file_write_within_root_is_unmasked(tmp_path, monkeypatch):
@@ -285,6 +335,38 @@ def test_file_write_within_root_is_unmasked(tmp_path, monkeypatch):
 
     assert outcome.success is True
     assert (tmp_path / "out.txt").read_text() == "token=supersecretvalue123"
+
+
+@pytest.mark.parametrize("allowed_root", [".", "absolute"])
+def test_file_write_success_uses_canonical_project_relative_path(
+    tmp_path, monkeypatch, allowed_root
+):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "nested").mkdir()
+    root = "." if allowed_root == "." else str(tmp_path)
+
+    outcome = FileWriteTool().run(
+        FileWriteArgs(path=str(tmp_path / "nested" / "file.txt"), content="x"),
+        _file_ctx(allowed_root=root),
+    )
+
+    assert outcome.success is True
+    assert outcome.detail == "wrote nested/file.txt"
+
+
+def test_file_write_static_symlink_escape_is_blocked(tmp_path):
+    outside = tmp_path.parent / "private-secrets"
+    outside.mkdir(exist_ok=True)
+    link = tmp_path / "link"
+    link.symlink_to(outside, target_is_directory=True)
+
+    outcome = FileWriteTool().run(
+        FileWriteArgs(path="link/escape.txt", content="x"), _file_ctx(allowed_root=str(tmp_path))
+    )
+
+    assert outcome.success is False
+    assert outcome.detail == "FileWrite path is outside project root"
+    assert not (outside / "escape.txt").exists()
 
 
 def test_file_write_escaping_root_is_blocked(tmp_path):
@@ -369,4 +451,5 @@ def test_file_list_escaping_root_is_blocked(tmp_path):
     outcome = FileListTool().run(FileListArgs(path=".."), ctx)
 
     assert outcome.success is False
-    assert "escapes project root" in outcome.detail
+    assert outcome.detail == "FileList failed"
+    assert str(tmp_path) not in outcome.detail

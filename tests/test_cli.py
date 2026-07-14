@@ -397,6 +397,26 @@ def test_render_outcome_discloses_only_fixed_webfetch_failure_detail():
     assert secret_url not in rendered
 
 
+def test_render_outcome_discloses_only_fixed_file_failure_detail():
+    host_path = "/host/private/secret.txt"
+    console = _console()
+    outcome = TaskOutcome(
+        status=TaskStatus(completed=False, reason=Termination.MAX_ROUNDS),
+        rounds=[
+            RoundResult(
+                text="",
+                outcomes=[ToolOutcome(tool="FileList", success=False, detail="FileList failed")],
+            )
+        ],
+    )
+
+    render_outcome(outcome, console)
+
+    rendered = console.export_text()
+    assert "FileList failed" in rendered
+    assert host_path not in rendered
+
+
 def test_run_once_renders_plain_text_answer_without_exec():
     # A model can answer in prose and signal completion without ever calling Exec
     # (e.g. gpt-5.4-mini answering "60" directly). render_outcome must still show

@@ -6,6 +6,7 @@ creates outside allowed_root. Slower than in-process tests but this is the secur
 boundary, so it must be exercised for real.
 """
 
+import os
 import sys
 
 import pytest
@@ -67,8 +68,21 @@ def test_read_outside_allowed_root_denied(tmp_path):
         result = backend.execute(f"print(open({str(secret)!r}).read())", Runtime())
         assert result.success is False
         assert "restricted" in (result.error or "") or "PermissionError" in (result.error or "")
+        assert str(secret) not in (result.error or "")
     finally:
         secret.unlink(missing_ok=True)
+
+
+def test_filesystem_root_allows_tmp_file(tmp_path):
+    target = tmp_path / "inside-filesystem-root.txt"
+    target.write_text("ok")
+
+    result = RestrictedBackend(allowed_root=os.path.abspath(os.sep)).execute(
+        f"print(open({str(target)!r}).read())", Runtime()
+    )
+
+    assert result.success is True
+    assert result.stdout.strip() == "ok"
 
 
 def test_read_outside_via_pathlib_also_denied(tmp_path):

@@ -360,11 +360,18 @@ def _validate_path(path: str, allowed_root: str) -> Path:
     realpath to be allowed_root itself or nested under it. Mirrors the predicate in
     _sandbox_worker.py's audit hook; implemented independently here since File tools
     run in the main process, not inside the sandboxed executor (docs/m10 §3.5)."""
-    base = os.path.realpath(allowed_root)
-    candidate = path if os.path.isabs(path) else os.path.join(allowed_root, path)
-    resolved = os.path.realpath(candidate)
-    if resolved != base and not resolved.startswith(base + os.sep):
-        raise PermissionError(f"path {path!r} escapes project root {allowed_root!r}")
+    try:
+        base = os.path.realpath(allowed_root)
+        candidate = path if os.path.isabs(path) else os.path.join(allowed_root, path)
+        resolved = os.path.realpath(candidate)
+    except ValueError:
+        raise ValueError("invalid file path") from None
+    try:
+        common = os.path.commonpath((base, resolved))
+    except ValueError:
+        raise PermissionError("path outside allowed root") from None
+    if os.path.normcase(common) != os.path.normcase(base):
+        raise PermissionError("path outside allowed root")
     return Path(resolved)
 
 
@@ -385,8 +392,8 @@ class FileReadTool(Tool):
         try:
             resolved = _validate_path(args.path, ctx.allowed_root)
             content = resolved.read_text(encoding="utf-8", errors="replace")
-        except (PermissionError, OSError) as exc:
-            return ToolOutcome(tool="FileRead", success=False, detail=str(exc))
+        except (PermissionError, OSError, ValueError):
+            return ToolOutcome(tool="FileRead", success=False, detail="FileRead failed")
         masked = mask_secrets(content, sensitive_env_values())
         return ToolOutcome(tool="FileRead", success=True, detail=masked)
 
@@ -424,11 +431,15 @@ class FileWriteTool(Tool):
                 tool="FileWrite", success=False,
                 detail="FileWrite path is outside project root",
             )
+        except (OSError, ValueError):
+            return ToolOutcome(tool="FileWrite", success=False, detail="FileWrite failed")
         try:
             resolved.write_text(args.content, encoding="utf-8")
-        except OSError as exc:
-            return ToolOutcome(tool="FileWrite", success=False, detail=str(exc))
-        return ToolOutcome(tool="FileWrite", success=True, detail=f"wrote {args.path}")
+        except (OSError, ValueError):
+            return ToolOutcome(tool="FileWrite", success=False, detail="FileWrite failed")
+        base = Path(os.path.realpath(ctx.allowed_root))
+        relative = resolved.relative_to(base).as_posix()
+        return ToolOutcome(tool="FileWrite", success=True, detail=f"wrote {relative}")
 
 
 class FileListTool(Tool):
@@ -445,10 +456,10 @@ class FileListTool(Tool):
         assert isinstance(args, FileListArgs)
         try:
             resolved = _validate_path(args.path, ctx.allowed_root)
-            base = os.path.realpath(ctx.allowed_root)
+            base = Path(os.path.realpath(ctx.allowed_root))
             entries = sorted(p.relative_to(base).as_posix() for p in resolved.iterdir())
-        except (PermissionError, OSError) as exc:
-            return ToolOutcome(tool="FileList", success=False, detail=str(exc))
+        except (PermissionError, OSError, ValueError):
+            return ToolOutcome(tool="FileList", success=False, detail="FileList failed")
         return ToolOutcome(tool="FileList", success=True, detail="\n".join(entries))
 
 

@@ -155,6 +155,19 @@ def test_webfetch_fixed_failure_detail_is_safe_in_step_feedback():
     assert secret_url not in feedback
 
 
+def test_file_read_fixed_failure_detail_is_safe_in_step_feedback():
+    host_path = "/host/private/secret.txt"
+    feedback = _step([])._render_feedback(
+        RoundResult(
+            text="",
+            outcomes=[ToolOutcome(tool="FileRead", success=False, detail="FileRead failed")],
+        )
+    )
+
+    assert feedback == "[FileRead None] FAILED: FileRead failed"
+    assert host_path not in feedback
+
+
 def test_max_rounds_stops():
     # Every round runs code that always produces feedback -> never completes.
     step = Step(
