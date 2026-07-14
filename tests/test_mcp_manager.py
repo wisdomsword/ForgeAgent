@@ -78,6 +78,12 @@ def test_user_config_merges_and_parses_aliased_fields(tmp_path):
     assert fs.enabled is False
 
 
+def test_required_defaults_to_false_when_omitted():
+    config = MCPServerConfig(command="example-mcp")
+
+    assert config.required is False
+
+
 def test_user_entry_overrides_builtin_by_name(tmp_path):
     builtin = tmp_path / "builtin.yaml"
     builtin.write_text("mcpServers:\n  fs:\n    command: builtin-cmd\n")
@@ -169,6 +175,28 @@ def test_disabled_server_not_connected_or_advertised():
         mgr.connect()
         assert mgr.has_enabled_servers is False
         assert mgr.list_tools() == []
+    finally:
+        mgr.close()
+
+
+def test_disabled_required_server_does_not_report_startup_failure():
+    mgr = MCPManager({"off": _server("off", enabled=False, required=True)})
+    try:
+        mgr.connect()
+
+        assert mgr.required_failures() == {}
+    finally:
+        mgr.close()
+
+
+def test_optional_unavailable_server_degrades_without_required_failure():
+    unavailable = MCPServerConfig(command="/nonexistent/forge_optional_mcp", args=[])
+    mgr = MCPManager({"optional": unavailable})
+    try:
+        mgr.connect()
+
+        assert mgr.server_status()["optional"].startswith("unavailable")
+        assert mgr.required_failures() == {}
     finally:
         mgr.close()
 

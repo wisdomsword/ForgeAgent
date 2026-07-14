@@ -516,6 +516,92 @@ def test_main_run_returns_one_when_not_completed():
     assert code == 1
 
 
+class _RequiredStartupFailureManager:
+    instances: list["_RequiredStartupFailureManager"] = []
+
+    def __init__(self, servers):
+        self.closed = False
+        self.connected = False
+        self.__class__.instances.append(self)
+
+    @property
+    def has_enabled_servers(self):
+        return True
+
+    def connect(self):
+        self.connected = True
+
+    def required_failures(self):
+        return {
+            "zeta": "unavailable: connection refused",
+            "alpha": "unavailable: handshake failed",
+        }
+
+    def server_status(self):
+        return self.required_failures()
+
+    def close(self):
+        self.closed = True
+
+
+def test_build_mcp_manager_closes_and_raises_for_required_failures(monkeypatch):
+    import forgeagent.cli as cli_module
+
+    _RequiredStartupFailureManager.instances.clear()
+    monkeypatch.setattr(cli_module, "load_mcp_config", lambda: {"required": object()})
+    monkeypatch.setattr(cli_module, "MCPManager", _RequiredStartupFailureManager)
+
+    with pytest.raises(RuntimeError) as error:
+        cli_module.build_mcp_manager(_console())
+
+    assert _RequiredStartupFailureManager.instances[0].closed is True
+    message = str(error.value)
+    assert message.index("alpha: unavailable: handshake failed") < message.index(
+        "zeta: unavailable: connection refused"
+    )
+
+
+def test_main_reports_required_mcp_startup_error_without_running_task(monkeypatch):
+    import forgeagent.cli as cli_module
+
+    console = _console()
+    ran_task: list[bool] = []
+    _RequiredStartupFailureManager.instances.clear()
+    monkeypatch.setattr(cli_module, "Console", lambda: console)
+    monkeypatch.setattr(cli_module, "load_mcp_config", lambda: {"required": object()})
+    monkeypatch.setattr(cli_module, "MCPManager", _RequiredStartupFailureManager)
+
+    def run_once(*args, **kwargs):
+        from types import SimpleNamespace
+
+        ran_task.append(True)
+        return SimpleNamespace(status=SimpleNamespace(solved=True))
+
+    monkeypatch.setattr(cli_module, "run_once", run_once)
+
+    assert cli_module.main(["run", "goal"], client_factory=_factory([])) == 2
+    assert ran_task == []
+    assert "MCP startup error" in console.export_text()
+
+
+def test_required_mcp_startup_error_uses_only_server_status(monkeypatch):
+    import forgeagent.cli as cli_module
+
+    secret = "opaque-secret-value"
+    _RequiredStartupFailureManager.instances.clear()
+    monkeypatch.setattr(
+        cli_module,
+        "load_mcp_config",
+        lambda: {"required": {"env": {"TOKEN": secret}}},
+    )
+    monkeypatch.setattr(cli_module, "MCPManager", _RequiredStartupFailureManager)
+
+    with pytest.raises(RuntimeError) as error:
+        cli_module.build_mcp_manager(_console())
+
+    assert secret not in str(error.value)
+
+
 def test_main_run_wires_confirmer_only_with_terminal_console_and_tty_stdin(monkeypatch):
     import forgeagent.cli as cli_module
 
@@ -956,6 +1042,9 @@ class _FakeMCP:
             return True
         return False
 
+    def close(self):
+        pass
+
 
 def test_handle_mcp_command_status_enable_disable():
     from forgeagent.cli import _handle_mcp_command
@@ -977,6 +1066,25 @@ def test_handle_mcp_command_no_manager_is_noop():
     console = _console()
     _handle_mcp_command("mcp status", None, console)
     assert "no MCP servers configured" in console.export_text()
+
+
+def test_repl_runtime_toggle_of_required_server_keeps_session_running(monkeypatch):
+    import forgeagent.cli as cli_module
+
+    fake = _FakeMCP()
+    fake.required = True
+    inputs = iter(["/mcp disable fs", "/mcp enable fs", "quit"])
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda console: fake)
+
+    cli_module.repl(
+        tier="trusted",
+        model="claude-sonnet-5",
+        client_factory=_factory([]),
+        console=_console(),
+        read_line=lambda prompt: next(inputs),
+    )
+
+    assert fake.actions == [("disable", "fs"), ("enable", "fs")]
 
 
 def test_repl_reload_command_reports_model_count():

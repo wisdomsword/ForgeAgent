@@ -52,6 +52,7 @@ class MCPServerConfig(BaseModel):
     # Child env; values may use ${VAR} to pull from os.environ (never a literal secret).
     env: dict[str, str] = Field(default_factory=dict)
     enabled: bool = True
+    required: bool = False
     # Tool names that skip the confirmation gate (read-only tools only).
     auto_approve: list[str] = Field(default_factory=list, alias="autoApprove")
     # Optional allowlist: advertise only these tools to the model (default: all).
@@ -264,6 +265,14 @@ class MCPManager:
     def server_status(self) -> dict[str, str]:
         """server name -> status ("available" or "unavailable: <reason>")."""
         return {name: state.status for name, state in self._states.items()}
+
+    def required_failures(self) -> dict[str, str]:
+        """Enabled required servers that did not become available at startup."""
+        return {
+            name: state.status
+            for name, state in self._states.items()
+            if state.config.enabled and state.config.required and state.status != "available"
+        }
 
     def tools_prompt(self) -> str:
         """Markdown describing the available MCP tools, grouped by server, for injection

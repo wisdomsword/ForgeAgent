@@ -52,6 +52,11 @@ from .web_search import ERROR_BLOCKED, ERROR_UNAVAILABLE, search_with_status
 
 DEFAULT_MODEL = "claude-sonnet-5"
 
+
+class MCPStartupError(RuntimeError):
+    """Required MCP services were unavailable during CLI startup."""
+
+
 # Injectable client factory: (model) -> ModelClient. Default builds a real client from
 # the environment; tests pass a factory returning a MockClient.
 ClientFactory = Callable[[str], ModelClient]
@@ -648,6 +653,13 @@ def build_mcp_manager(console: Console) -> MCPManager | None:
     if not manager.has_enabled_servers:
         return None
     manager.connect()
+    failures = manager.required_failures()
+    if failures:
+        manager.close()
+        diagnostics = ", ".join(
+            f"{name}: {status}" for name, status in sorted(failures.items())
+        )
+        raise MCPStartupError(diagnostics)
     for name, status in manager.server_status().items():
         colour = "green" if status == "available" else "yellow"
         console.print(f"[{colour}]MCP[/{colour}] {name}: {status}")
@@ -759,6 +771,9 @@ def main(
         return 2
     except ContainerRuntimeError as exc:
         console.print(f"[red]container error[/red]: {exc}")
+        return 2
+    except MCPStartupError as exc:
+        console.print(f"[red]MCP startup error[/red]: {exc}")
         return 2
 
 
