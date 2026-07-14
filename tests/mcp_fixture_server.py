@@ -13,12 +13,17 @@ Behaviour is selected by env vars so one script can play the servers the tests n
 from __future__ import annotations
 
 import os
+import signal
+import time
 from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 
 NAME = os.environ.get("FORGE_TEST_MCP_NAME", "fixture")
 MODE = os.environ.get("FORGE_TEST_MCP_MODE", "normal")
+
+if MODE == "ignore_shutdown":
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
 
 pid_file = os.environ.get("FORGE_TEST_MCP_PID_FILE")
 if pid_file:
@@ -43,3 +48,6 @@ def add(a: int, b: int) -> int:
 
 if __name__ == "__main__":
     server.run()
+    if MODE == "ignore_shutdown":
+        while True:
+            time.sleep(1)

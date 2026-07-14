@@ -11,13 +11,18 @@ Each MCPManager test closes its manager in a finally so no background loop/threa
 
 from __future__ import annotations
 
+import asyncio
+import concurrent.futures
+import logging
 import os
 import sys
+import threading
 import time
 from pathlib import Path
 
 import pytest
 
+import forgeagent.mcp_manager as mcp_manager_module
 from forgeagent.mcp_manager import (
     DEFAULT_USER_MCP_PATH,
     MCPManager,
@@ -27,6 +32,87 @@ from forgeagent.mcp_manager import (
 from forgeagent.secret_policy import REDACTED
 
 _FIXTURE = str(Path(__file__).with_name("mcp_fixture_server.py"))
+
+
+class _FutureProbe:
+    def __init__(
+        self,
+        *,
+        result: set[str] | None = None,
+        error: BaseException | None = None,
+        wait_for_timeout: bool = False,
+    ):
+        self._result = set() if result is None else result
+        self._error = error
+        self._wait_for_timeout = wait_for_timeout
+        self.result_timeouts: list[float] = []
+        self.cancel_calls = 0
+
+    def result(self, timeout: float) -> set[str]:
+        self.result_timeouts.append(timeout)
+        if self._wait_for_timeout:
+            time.sleep(timeout)
+            raise concurrent.futures.TimeoutError
+        if self._error is not None:
+            raise self._error
+        return self._result
+
+    def cancel(self) -> bool:
+        self.cancel_calls += 1
+        return True
+
+
+class _LoopProbe:
+    def __init__(
+        self,
+        *,
+        stop_error: Exception | None = None,
+        close_error: Exception | None = None,
+    ):
+        self._stop_error = stop_error
+        self._close_error = close_error
+        self.stop_calls = 0
+        self.close_calls = 0
+
+    def stop(self) -> None:
+        self.stop_calls += 1
+
+    def call_soon_threadsafe(self, callback) -> None:
+        if self._stop_error is not None:
+            raise self._stop_error
+        callback()
+
+    def close(self) -> None:
+        self.close_calls += 1
+        if self._close_error is not None:
+            raise self._close_error
+
+
+class _ThreadProbe:
+    name = "forgeagent-mcp-loop"
+    ident = 31415
+
+    def __init__(
+        self,
+        *,
+        alive: bool,
+        wait_for_timeout: bool = False,
+        join_error: Exception | None = None,
+    ):
+        self.alive = alive
+        self._wait_for_timeout = wait_for_timeout
+        self._join_error = join_error
+        self.join_timeouts: list[float] = []
+
+    def join(self, timeout: float) -> None:
+        self.join_timeouts.append(timeout)
+        if self._wait_for_timeout and self.alive:
+            time.sleep(timeout)
+        if self._join_error is not None:
+            raise self._join_error
+
+    def is_alive(self) -> bool:
+        return self.alive
 
 
 def _server(
@@ -205,14 +291,10 @@ def test_optional_unavailable_server_degrades_without_required_failure():
 def test_required_failures_mask_secret_bearing_status(monkeypatch):
     secret = "mcp-required-secret-value"
     monkeypatch.setattr("forgeagent.mcp_manager.sensitive_env_values", lambda: {secret})
-    mgr = MCPManager(
-        {"required": MCPServerConfig(command="unused", args=[], required=True)}
-    )
+    mgr = MCPManager({"required": MCPServerConfig(command="unused", args=[], required=True)})
     mgr._states["required"].status = f"unavailable: RuntimeError: {secret}"
 
-    assert mgr.required_failures() == {
-        "required": f"unavailable: RuntimeError: {REDACTED}"
-    }
+    assert mgr.required_failures() == {"required": f"unavailable: RuntimeError: {REDACTED}"}
 
 
 def test_tools_prompt_groups_by_server_and_flags_external():
@@ -242,18 +324,297 @@ def test_auto_approve_reported_per_server_tool():
 # --- Phase-6 review fixes (regression guards) --------------------------------
 
 
-def test_close_terminates_child_processes_no_leak(tmp_path):
+def test_close_stops_normal_and_cancel_only_holders_on_loop_thread():
+    mgr = MCPManager(
+        {
+            "normal": MCPServerConfig(command="unused"),
+            "cancel-only": MCPServerConfig(command="unused"),
+        },
+        shutdown_timeout=0.04,
+        thread_join_timeout=0.02,
+    )
+    loop = asyncio.new_event_loop()
+    thread = threading.Thread(
+        target=loop.run_forever,
+        name="forgeagent-mcp-loop",
+        daemon=True,
+    )
+    mgr._loop = loop
+    mgr._thread = thread
+    cancelled = threading.Event()
+    cleanup_thread_ids: list[int] = []
+    thread.start()
+
+    async def install_holders() -> None:
+        normal_stop = asyncio.Event()
+        cancel_only_stop = asyncio.Event()
+        mgr._states["normal"].stop = normal_stop
+        mgr._states["cancel-only"].stop = cancel_only_stop
+        mgr._sessions.update({"normal": object(), "cancel-only": object()})
+
+        async def normal_holder() -> None:
+            try:
+                await normal_stop.wait()
+            finally:
+                cleanup_thread_ids.append(threading.get_ident())
+                mgr._sessions.pop("normal", None)
+
+        async def cancel_only_holder() -> None:
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                cancelled.set()
+                raise
+            finally:
+                cleanup_thread_ids.append(threading.get_ident())
+                mgr._sessions.pop("cancel-only", None)
+
+        mgr._holders["normal"] = asyncio.create_task(normal_holder())
+        mgr._holders["cancel-only"] = asyncio.create_task(cancel_only_holder())
+
+    asyncio.run_coroutine_threadsafe(install_holders(), loop).result(timeout=1)
+    started = time.monotonic()
+    try:
+        assert mgr.close() is None
+    finally:
+        if thread.is_alive():
+
+            async def cancel_test_holders() -> None:
+                holders = list(mgr._holders.values())
+                for holder in holders:
+                    holder.cancel()
+                await asyncio.gather(*holders, return_exceptions=True)
+
+            asyncio.run_coroutine_threadsafe(cancel_test_holders(), loop).result(timeout=1)
+            loop.call_soon_threadsafe(loop.stop)
+            thread.join(timeout=1)
+        if not thread.is_alive() and not loop.is_closed():
+            loop.close()
+
+    elapsed = time.monotonic() - started
+    assert elapsed < 0.56
+    assert mgr._closed is True
+    assert cancelled.is_set()
+    assert cleanup_thread_ids == [thread.ident, thread.ident]
+    assert mgr._shutdown_future is None
+    assert mgr._holders == {}
+    assert mgr._sessions == {}
+    assert mgr._loop is None
+    assert mgr._thread is None
+
+
+def test_close_hard_stuck_loop_is_bounded_and_retries_without_resubmit(monkeypatch, caplog):
+    secret = "shutdown-secret-content"
+    mgr = MCPManager(
+        {
+            "pending": MCPServerConfig(
+                command="/secret/server/path",
+                args=["--secret-argument"],
+                env={"TOKEN": "secret-env-value"},
+            )
+        },
+        shutdown_timeout=0.03,
+        thread_join_timeout=0.02,
+    )
+    loop = _LoopProbe()
+    thread = _ThreadProbe(alive=True, wait_for_timeout=True)
+    future = _FutureProbe(wait_for_timeout=True)
+    holder = object()
+    session = object()
+    submissions = 0
+    mgr._loop = loop
+    mgr._thread = thread
+    mgr._holders["pending"] = holder
+    mgr._sessions["pending"] = session
+    mgr._states["pending"].status = f"available: {secret}"
+
+    def submit(coro, submitted_loop):
+        nonlocal submissions
+        submissions += 1
+        assert submitted_loop is loop
+        coro.close()
+        return future
+
+    monkeypatch.setattr(mcp_manager_module.asyncio, "run_coroutine_threadsafe", submit)
+    caplog.set_level(logging.WARNING, logger="forgeagent.mcp_manager")
+
+    started = time.monotonic()
+    assert mgr.close() is None
+    first_elapsed = time.monotonic() - started
+
+    assert first_elapsed < 0.55
+    assert mgr._closed is True
+    assert submissions == 1
+    assert future.cancel_calls == 1
+    assert mgr._shutdown_future is future
+    assert mgr._holders == {"pending": holder}
+    assert mgr._sessions == {"pending": session}
+    assert mgr._loop is loop
+    assert mgr._thread is thread
+    assert future.result_timeouts[0] + thread.join_timeouts[0] <= 0.055
+    warning = caplog.text
+    assert "forgeagent-mcp-loop" in warning
+    assert "ident=31415" in warning
+    assert "alive=True" in warning
+    assert "pending=['pending']" in warning
+    assert "timeout=" in warning
+    assert "shutdown incomplete; resources may remain" in warning
+    assert secret not in warning
+    assert "/secret/server/path" not in warning
+    assert "--secret-argument" not in warning
+    assert "secret-env-value" not in warning
+
+    started = time.monotonic()
+    assert mgr.close() is None
+    retry_elapsed = time.monotonic() - started
+
+    assert retry_elapsed < 0.52
+    assert submissions == 1
+    assert future.cancel_calls == 2
+    assert len(future.result_timeouts) == 1
+    assert len(thread.join_timeouts) == 2
+    assert thread.join_timeouts[1] > 0.015
+    assert mgr._holders == {"pending": holder}
+    assert mgr._sessions == {"pending": session}
+
+    thread.alive = False
+    assert mgr.close() is None
+    assert submissions == 1
+    assert future.cancel_calls == 3
+    assert loop.close_calls == 1
+    assert mgr._shutdown_future is None
+    assert mgr._holders == {}
+    assert mgr._sessions == {}
+    assert mgr._loop is None
+    assert mgr._thread is None
+
+
+def test_close_internal_failure_keeps_finalization_best_effort(monkeypatch, caplog):
+    secret = "internal-shutdown-secret"
+    mgr = MCPManager(
+        {"pending": MCPServerConfig(command="unused")},
+        shutdown_timeout=0.03,
+        thread_join_timeout=0.02,
+    )
+    loop = _LoopProbe(
+        stop_error=RuntimeError(f"stop {secret}"),
+        close_error=OSError(f"close {secret}"),
+    )
+    thread = _ThreadProbe(
+        alive=False,
+        join_error=RuntimeError(f"join {secret}"),
+    )
+    future = _FutureProbe(error=RuntimeError(f"future {secret}"))
+    mgr._loop = loop
+    mgr._thread = thread
+    mgr._holders["pending"] = object()
+    mgr._sessions["pending"] = object()
+
+    def submit(coro, submitted_loop):
+        assert submitted_loop is loop
+        coro.close()
+        return future
+
+    monkeypatch.setattr(mcp_manager_module.asyncio, "run_coroutine_threadsafe", submit)
+    caplog.set_level(logging.WARNING, logger="forgeagent.mcp_manager")
+
+    assert mgr.close() is None
+
+    assert mgr._closed is True
+    assert future.cancel_calls == 1
+    assert len(thread.join_timeouts) == 1
+    assert loop.close_calls == 1
+    assert mgr._shutdown_future is None
+    assert mgr._holders == {}
+    assert mgr._sessions == {}
+    assert mgr._loop is None
+    assert mgr._thread is None
+    assert "MCP shutdown failed: RuntimeError" in caplog.text
+    assert "MCP loop stop failed: RuntimeError" in caplog.text
+    assert "MCP loop thread join failed: RuntimeError" in caplog.text
+    assert "MCP loop close failed: OSError" in caplog.text
+    assert secret not in caplog.text
+
+
+@pytest.mark.parametrize("interrupt", [KeyboardInterrupt(), SystemExit(7)])
+def test_close_preserves_process_control_exceptions(monkeypatch, interrupt):
+    mgr = MCPManager(
+        {"pending": MCPServerConfig(command="unused")},
+        shutdown_timeout=0.03,
+        thread_join_timeout=0.02,
+    )
+    loop = _LoopProbe()
+    thread = _ThreadProbe(alive=False)
+    future = _FutureProbe(error=interrupt)
+    mgr._loop = loop
+    mgr._thread = thread
+
+    def submit(coro, submitted_loop):
+        assert submitted_loop is loop
+        coro.close()
+        return future
+
+    monkeypatch.setattr(mcp_manager_module.asyncio, "run_coroutine_threadsafe", submit)
+
+    with pytest.raises(type(interrupt)):
+        mgr.close()
+
+    assert mgr._closed is True
+    assert loop.stop_calls == 1
+    assert len(thread.join_timeouts) == 1
+    assert loop.close_calls == 1
+    assert mgr._loop is None
+    assert mgr._thread is None
+
+
+def test_close_without_loop_is_idempotent_and_clears_empty_resources():
+    mgr = MCPManager({}, shutdown_timeout=0.03, thread_join_timeout=0.02)
+
+    assert mgr.close() is None
+    assert mgr.close() is None
+
+    assert mgr._closed is True
+    assert mgr._shutdown_future is None
+    assert mgr._holders == {}
+    assert mgr._sessions == {}
+    assert mgr._loop is None
+    assert mgr._thread is None
+
+
+@pytest.mark.parametrize("mode", ["normal", "ignore_shutdown"])
+def test_close_terminates_child_processes_no_leak(tmp_path, monkeypatch, mode):
     # Review finding #1: close() must await holders (so each async-with __aexit__ runs
     # and terminates the child) before stopping the loop — else children leak.
-    pid_file = tmp_path / "alpha.pid"
-    mgr = MCPManager({"alpha": _server("alpha", pid_file=pid_file)})
+    import mcp.client.stdio as mcp_stdio
+
+    original_terminate = mcp_stdio._terminate_process_tree
+
+    async def terminate_quickly(process) -> None:
+        await original_terminate(process, timeout_seconds=0.05)
+
+    monkeypatch.setattr(mcp_stdio, "PROCESS_TERMINATION_TIMEOUT", 0.05)
+    monkeypatch.setattr(mcp_stdio, "_terminate_process_tree", terminate_quickly)
+    pid_file = tmp_path / f"{mode}.pid"
+    mgr = MCPManager({"alpha": _server("alpha", mode=mode, pid_file=pid_file)})
     try:
         mgr.connect()
+        assert mgr._thread is not None
+        assert mgr._thread.name == "forgeagent-mcp-loop"
         pid = int(pid_file.read_text(encoding="utf-8"))
         os.kill(pid, 0)
     finally:
+        started = time.monotonic()
         mgr.close()
-    deadline = time.monotonic() + 5
+        elapsed = time.monotonic() - started
+    assert elapsed < mgr._shutdown_timeout + mgr._thread_join_timeout + 0.5
+    assert mgr._closed is True
+    assert mgr._shutdown_future is None
+    assert mgr._holders == {}
+    assert mgr._sessions == {}
+    assert mgr._loop is None
+    assert mgr._thread is None
+
+    deadline = time.monotonic() + 0.5
     while time.monotonic() < deadline:
         try:
             os.kill(pid, 0)

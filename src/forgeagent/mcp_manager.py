@@ -22,9 +22,12 @@ becomes an `unavailable` status or a structured error result, never a crash.
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
+import logging
 import os
 import re
 import threading
+import time
 from dataclasses import dataclass, field
 from datetime import timedelta
 from pathlib import Path
@@ -42,6 +45,13 @@ CONNECT_TIMEOUT = 15.0
 CALL_TIMEOUT = 30.0
 
 _ENV_PLACEHOLDER = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+_LOOP_THREAD_NAME = "forgeagent-mcp-loop"
+
+logger = logging.getLogger(__name__)
+
+
+def _remaining(deadline: float, *, reserve: float = 0.0) -> float:
+    return max(0.0, deadline - time.monotonic() - reserve)
 
 
 class MCPServerConfig(BaseModel):
@@ -137,12 +147,16 @@ class MCPManager:
         *,
         connect_timeout: float = CONNECT_TIMEOUT,
         call_timeout: float = CALL_TIMEOUT,
+        shutdown_timeout: float = 10.0,
+        thread_join_timeout: float = 2.0,
     ):
         self._states: dict[str, _ServerState] = {
             name: _ServerState(config=cfg) for name, cfg in servers.items()
         }
         self._connect_timeout = connect_timeout
         self._call_timeout = call_timeout
+        self._shutdown_timeout = shutdown_timeout
+        self._thread_join_timeout = thread_join_timeout
         self._loop: asyncio.AbstractEventLoop | None = None
         self._thread: threading.Thread | None = None
         self._sessions: dict[str, object] = {}  # server -> live ClientSession
@@ -150,6 +164,8 @@ class MCPManager:
         # __aexit__ (which terminates the child process) before stopping the loop.
         self._holders: dict[str, asyncio.Task] = {}
         self._started = False
+        self._closed = False
+        self._shutdown_future: concurrent.futures.Future[set[str]] | None = None
         # Secret values to redact from MCP output before it reaches feedback/console —
         # MCP results are external data (threat-model T8c); mask them like executor output.
         self._secret_values = sensitive_env_values()
@@ -248,11 +264,13 @@ class MCPManager:
         if not enabled:
             return
         self._loop = asyncio.new_event_loop()
-        self._thread = threading.Thread(target=self._loop.run_forever, daemon=True)
-        self._thread.start()
-        self._submit(
-            self._start_holders(enabled), timeout=self._connect_timeout * len(enabled) + 5
+        self._thread = threading.Thread(
+            target=self._loop.run_forever,
+            name=_LOOP_THREAD_NAME,
+            daemon=True,
         )
+        self._thread.start()
+        self._submit(self._start_holders(enabled), timeout=self._connect_timeout * len(enabled) + 5)
 
     def list_tools(self) -> list[MCPToolInfo]:
         """Every tool from every currently-available, enabled server (the catalog)."""
@@ -378,29 +396,157 @@ class MCPManager:
         state.status = "unavailable: disabled"
         return True
 
-    def close(self) -> None:
-        """Shutdown: signal every holder to stop AND await them (so each server's
-        async-with __aexit__ terminates its child process) BEFORE stopping the loop.
+    async def _shutdown_holders(
+        self,
+        holder_snapshot: dict[str, asyncio.Task],
+        deadline: float,
+    ) -> set[str]:
+        for state in self._states.values():
+            if state.stop is not None:
+                state.stop.set()
 
-        Awaiting on the loop thread is essential: scheduling stop.set() and loop.stop() in
-        the same batch would break run_forever before the parked holders ever resume to
-        run __aexit__, leaking the child processes (the bug the Phase-6 review caught)."""
-        if self._loop is None:
+        pending = set(holder_snapshot.values())
+        if pending:
+            normal_budget = _remaining(
+                deadline,
+                reserve=self._thread_join_timeout,
+            )
+            normal_timeout = min(5.0, normal_budget)
+            # Short injected budgets need a loop turn for cancellation before the main
+            # thread reaches the same absolute deadline in Future.result().
+            if normal_budget <= 5.0:
+                normal_timeout /= 2
+            _, pending = await asyncio.wait(
+                pending,
+                timeout=normal_timeout,
+            )
+        for holder in pending:
+            holder.cancel()
+        if pending:
+            _, pending = await asyncio.wait(
+                pending,
+                timeout=_remaining(deadline, reserve=self._thread_join_timeout),
+            )
+
+        for name, holder in holder_snapshot.items():
+            if holder.done():
+                if not holder.cancelled():
+                    holder.exception()
+                self._holders.pop(name, None)
+        return {name for name, holder in holder_snapshot.items() if not holder.done()}
+
+    def _cancel_shutdown_future(self) -> None:
+        if self._shutdown_future is None:
+            return
+        try:
+            self._shutdown_future.cancel()
+        except Exception as exc:  # noqa: BLE001 - shutdown must remain best-effort
+            logger.warning(
+                "MCP shutdown future cancellation failed: %s",
+                type(exc).__name__,
+            )
+
+    def _clear_stopped_resources(self) -> None:
+        self._shutdown_future = None
+        self._holders.clear()
+        self._sessions.clear()
+        self._loop = None
+        self._thread = None
+
+    def _stop_and_join(self, deadline: float, pending: set[str] | frozenset[str]) -> None:
+        loop = self._loop
+        thread = self._thread
+
+        if loop is not None:
+            try:
+                loop.call_soon_threadsafe(loop.stop)
+            except Exception as exc:  # noqa: BLE001 - continue with join and cleanup
+                logger.warning("MCP loop stop failed: %s", type(exc).__name__)
+
+        join_timeout = min(self._thread_join_timeout, _remaining(deadline))
+        if thread is not None:
+            try:
+                thread.join(timeout=join_timeout)
+            except Exception as exc:  # noqa: BLE001 - still inspect thread and close loop
+                logger.warning("MCP loop thread join failed: %s", type(exc).__name__)
+
+        alive = False
+        if thread is not None:
+            try:
+                alive = thread.is_alive()
+            except Exception as exc:  # noqa: BLE001 - retain resources conservatively
+                alive = True
+                logger.warning(
+                    "MCP loop thread state check failed: %s",
+                    type(exc).__name__,
+                )
+
+        if alive:
+            try:
+                ident = thread.ident if thread is not None else None
+            except Exception:  # noqa: BLE001 - diagnostic field only
+                ident = None
+            logger.warning(
+                "MCP shutdown incomplete; resources may remain: "
+                "thread=%s ident=%s alive=%s pending=%s timeout=%.3f",
+                _LOOP_THREAD_NAME,
+                ident,
+                alive,
+                sorted(pending),
+                join_timeout,
+            )
             return
 
-        async def _shutdown() -> None:
-            for state in self._states.values():
-                if state.stop is not None:
-                    state.stop.set()
-            holders = list(self._holders.values())
-            if holders:
-                await asyncio.gather(*holders, return_exceptions=True)
-            self._holders.clear()
+        if loop is not None:
+            try:
+                loop.close()
+            except Exception as exc:  # noqa: BLE001 - clear stopped references regardless
+                logger.warning("MCP loop close failed: %s", type(exc).__name__)
+        self._clear_stopped_resources()
 
+    def _retry_lingering_thread(self) -> None:
+        self._cancel_shutdown_future()
+        deadline = time.monotonic() + self._thread_join_timeout
+        self._stop_and_join(deadline, frozenset(self._holders))
+
+    def close(self) -> None:
+        """Bounded, idempotent shutdown that never raises ordinary exceptions."""
+        if getattr(self, "_closed", False):
+            try:
+                self._retry_lingering_thread()
+            except Exception as exc:  # noqa: BLE001 - public close is no-throw
+                logger.warning("MCP shutdown retry failed: %s", type(exc).__name__)
+            return
+        self._closed = True
+
+        if self._loop is None:
+            self._clear_stopped_resources()
+            return
+
+        deadline = time.monotonic() + self._shutdown_timeout + self._thread_join_timeout
+        holder_snapshot = dict(self._holders)
+        fallback_pending = frozenset(holder_snapshot)
+        pending: set[str] | frozenset[str] = fallback_pending
         try:
-            self._submit(_shutdown(), timeout=self._connect_timeout + 5)
+            self._shutdown_future = asyncio.run_coroutine_threadsafe(
+                self._shutdown_holders(holder_snapshot, deadline),
+                self._loop,
+            )
+            pending = self._shutdown_future.result(
+                timeout=_remaining(deadline, reserve=self._thread_join_timeout)
+            )
+        except Exception as exc:  # noqa: BLE001 - public close is no-throw
+            pending = fallback_pending
+            self._cancel_shutdown_future()
+            logger.warning("MCP shutdown failed: %s", type(exc).__name__)
         finally:
-            self._loop.call_soon_threadsafe(self._loop.stop)
+            try:
+                self._stop_and_join(deadline, pending)
+            except Exception as exc:  # noqa: BLE001 - public close is no-throw
+                logger.warning(
+                    "MCP shutdown finalization failed: %s",
+                    type(exc).__name__,
+                )
 
 
 def _render_content(result) -> str:
