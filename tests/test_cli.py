@@ -14,10 +14,12 @@ from rich.console import Console
 
 from forgeagent.cli import build_parser, main, render_outcome, run_once
 from forgeagent.client import MockClient
+from forgeagent.executor import TrustedBackend
 from forgeagent.model_registry import RegistryError
 from forgeagent.models import AssistantMessage, StreamEvent, StreamEventKind, TokenUsage
-from forgeagent.protocol import FileWriteArgs, MCPArgs, WebFetchArgs
-from forgeagent.step import RoundResult, Termination
+from forgeagent.protocol import FileListArgs, FileWriteArgs, MCPArgs, ToolCall, WebFetchArgs
+from forgeagent.runtime import Runtime
+from forgeagent.step import RoundResult, Step, Termination
 from forgeagent.task import TaskOutcome, TaskStatus
 from forgeagent.tools import ToolOutcome
 
@@ -397,15 +399,34 @@ def test_render_outcome_discloses_only_fixed_webfetch_failure_detail():
     assert secret_url not in rendered
 
 
-def test_render_outcome_discloses_only_fixed_file_failure_detail():
-    host_path = "/host/private/secret.txt"
-    console = _console()
+def test_render_outcome_discloses_only_real_filelist_failure_detail(tmp_path):
+    outside_path = tmp_path.parent / f"{tmp_path.name}-private"
+    outside_path.mkdir()
+    step = Step(
+        MockClient([]),
+        TrustedBackend(),
+        Runtime(),
+        tier="trusted",
+        allowed_root=str(tmp_path),
+    )
+    file_list_outcome = step._dispatch(
+        ToolCall(
+            id="list-outside",
+            name="FileList",
+            arguments=FileListArgs(path=str(outside_path)),
+        )
+    )
+    console = Console(
+        record=True,
+        width=max(100, len(str(outside_path)) + 80),
+        force_terminal=False,
+    )
     outcome = TaskOutcome(
         status=TaskStatus(completed=False, reason=Termination.MAX_ROUNDS),
         rounds=[
             RoundResult(
                 text="",
-                outcomes=[ToolOutcome(tool="FileList", success=False, detail="FileList failed")],
+                outcomes=[file_list_outcome],
             )
         ],
     )
@@ -413,8 +434,9 @@ def test_render_outcome_discloses_only_fixed_file_failure_detail():
     render_outcome(outcome, console)
 
     rendered = console.export_text()
+    assert file_list_outcome.success is False
     assert "FileList failed" in rendered
-    assert host_path not in rendered
+    assert str(outside_path) not in rendered
 
 
 def test_run_once_renders_plain_text_answer_without_exec():

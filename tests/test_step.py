@@ -18,7 +18,7 @@ from forgeagent.models import (
     StreamEventKind,
     TokenUsage,
 )
-from forgeagent.protocol import EditArgs
+from forgeagent.protocol import EditArgs, FileReadArgs, ToolCall
 from forgeagent.runtime import Runtime
 from forgeagent.step import RoundResult, Step, _apply_edit
 from forgeagent.tools import ToolOutcome
@@ -155,17 +155,30 @@ def test_webfetch_fixed_failure_detail_is_safe_in_step_feedback():
     assert secret_url not in feedback
 
 
-def test_file_read_fixed_failure_detail_is_safe_in_step_feedback():
-    host_path = "/host/private/secret.txt"
-    feedback = _step([])._render_feedback(
-        RoundResult(
-            text="",
-            outcomes=[ToolOutcome(tool="FileRead", success=False, detail="FileRead failed")],
+def test_real_file_read_failure_has_fixed_detail_in_step_feedback(tmp_path):
+    outside_path = tmp_path.parent / f"{tmp_path.name}-private" / "secret.txt"
+    attempted_path = str(outside_path)
+    outside_path.parent.mkdir()
+    outside_path.write_text("do not disclose this file", encoding="utf-8")
+    step = Step(
+        MockClient([]),
+        TrustedBackend(),
+        Runtime(),
+        tier="trusted",
+        allowed_root=str(tmp_path),
+    )
+    outcome = step._dispatch(
+        ToolCall(
+            id="read-outside",
+            name="FileRead",
+            arguments=FileReadArgs(path=attempted_path),
         )
     )
+    feedback = step._render_feedback(RoundResult(text="", outcomes=[outcome]))
 
+    assert outcome.success is False
     assert feedback == "[FileRead None] FAILED: FileRead failed"
-    assert host_path not in feedback
+    assert attempted_path not in feedback
 
 
 def test_max_rounds_stops():
