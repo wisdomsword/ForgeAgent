@@ -43,3 +43,22 @@ ForgeAgent SHALL document that future proxy routing requires a ForgeAgent-owned 
 #### Scenario: User needs proxy routing during this milestone
 - **WHEN** a user configures only system or environment proxy settings
 - **THEN** ForgeAgent continues to use direct guarded connections and documentation states that explicit proxy forwarding is not implemented
+
+### Requirement: Guarded web consumers contain expected protocol failures
+ForgeAgent MUST convert expected URL, transport, HTTP protocol and response-decoding failures into each consumer's stable result contract and MUST NOT let those failures escape as uncaught exceptions.
+
+#### Scenario: WebFetch receives an incomplete or malformed HTTP response
+- **WHEN** a confirmed WebFetch request raises `http.client.HTTPException` while opening, reading or closing the response
+- **THEN** WebFetch returns the fixed detail `WebFetch request failed` without exception text, URL or hostname
+
+#### Scenario: WebFetch receives an invalid model URL
+- **WHEN** a confirmed WebFetch request raises `ValueError` or `http.client.InvalidURL` while constructing or opening the request
+- **THEN** WebFetch returns the fixed detail `WebFetch request failed` without propagating the exception
+
+#### Scenario: Search receives an HTTP protocol failure
+- **WHEN** `/search` encounters `OSError` or `http.client.HTTPException` while opening, reading or closing the response
+- **THEN** it returns the existing unavailable status instead of raising
+
+#### Scenario: Search receives an unknown response charset
+- **WHEN** a successful search response declares a charset unavailable to Python
+- **THEN** ForgeAgent decodes the response with UTF-8 replacement semantics and continues best-effort parsing

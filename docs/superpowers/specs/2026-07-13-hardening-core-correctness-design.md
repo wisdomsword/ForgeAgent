@@ -18,13 +18,17 @@ CodeGraph 和实证测试确认了以下当前路径：
 - `MCPManager.connect()` 并发启动每个 enabled server，并把服务级失败收敛为 unavailable；配置中没有 `required`。`close()` 会等待所有 holder，但同步 facade 没有独立 shutdown deadline、取消阶段和线程 join。
 - MCP SDK 的 stdio transport 已提供进程级清理：关闭 stdin，等待 2 秒，随后执行进程树 SIGTERM/SIGKILL 升级。ForgeAgent 需要补齐的是其外层 holder、event loop 和线程的有界收尾。
 - `docs/golden-tasks-seed.md` 列出 G01-G380，但 `tests/test_mock_replay_e2e.py` 只为少量场景提供直接 pytest 回放，没有统一 manifest、runner、机器报告或可信通过率。
+- 2026-07-14 的主 Agent 复审进一步证明：`http.client.HTTPException` 系列不继承 `OSError`，WebFetch 和 `/search` 的现有捕获边界会让 `IncompleteRead`、`BadStatusLine` 等异常逃出；WebFetch 落盘错误也位于捕获区外。
+- `_validate_path()` 与 restricted audit hook 共用的 `realpath + startswith(base + os.sep)` 判定在 `allowed_root="/"` 时错误拒绝所有子路径；非法 NUL 路径会抛出未收敛的 `ValueError`，FileRead/FileList 失败文本还会回显宿主绝对路径。
 
 ## 2. 目标与非目标
 
 ### 2.1 目标
 
 - 让 SSRF 校验地址与实际连接地址保持一致，默认网络路径不受环境代理影响。
+- 让 WebFetch 和 `/search` 将预期的 URL、传输、HTTP 协议、响应解码和 WebFetch 落盘失败收敛为稳定结果，不让工具级异常逃出。
 - 让 MCP、WebFetch、FileWrite 共用类型安全且终端行为一致的 confirmer。
+- 让 FileRead/FileWrite/FileList 与 restricted audit hook 使用 root-safe 的路径包含判定，并让文件工具失败结果不暴露宿主绝对路径。
 - 让完成状态只来自模型已经看到工具/解析反馈后的独立最终响应。
 - 让 MCP 服务按 criticality 降级或阻断启动，并让关闭有界、幂等且不污染原结果。
 - 建立 20 项完全离线、自动判定、可报告的黄金可信核心，以及 5 项显式 opt-in 真实模型子集。
@@ -34,6 +38,7 @@ CodeGraph 和实证测试确认了以下当前路径：
 
 - 不实现代理转发、代理认证、PAC、系统代理兼容或 `NO_PROXY` 行为。
 - 不增加审批策略对象、运行时安全总线、MCP supervisor 或通用评测框架。
+- 不增加通用异常翻译器、结果 sanitizer 或共享路径策略模块；各现有边界使用标准库和固定局部消息完成收敛。
 - 不改变 MCP 协议、工具发现方式、`autoApprove` 语义或运行期 enable/disable 权限。
 - 不一次性工程化其余 360 个候选任务，也不把真实模型验证设为基础 CI 门禁。
 - 不修改 `resource/agent/`，不增加厂商端点、凭证或依赖。
@@ -65,6 +70,18 @@ WebFetch / search
      ├─ guarded HTTP/HTTPS handler
      ├─ resolve and reject every blocked address
      └─ connect exact vetted sockaddr on every redirect hop
+
+WebFetch / search consumers
+ ├─ SSRFGuardError -> blocked category
+ ├─ expected URL/transport/HTTP failures -> stable consumer failure category
+ ├─ unknown search charset -> UTF-8 replacement fallback
+ └─ WebFetch artifact write failure -> fixed safe save-failure detail
+
+File tools / restricted audit
+ ├─ realpath both root and target
+ ├─ commonpath containment, including allowed_root="/"
+ ├─ invalid path -> structured failure, never an escaping ValueError
+ └─ failure details never include model path or host root
 ```
 
 产品代码不新增跨模块策略对象。新的结构只存在于测试侧的 `tests/golden/`，用于表达固定的验证清单和报告协议。
@@ -101,6 +118,15 @@ network:
 
 这只是未来契约说明。当前版本不解析这些字段，不实现代理，不读取 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`、`NO_PROXY` 或大小写变体。实现依赖显式空 ProxyHandler 屏蔽环境代理，不会通过 `os.environ.pop()` 修改进程全局环境；后者会影响并发调用方并制造新的竞态。文档必须明确配置该片段当前不会启用转发。
 
+### 4.4 消费端异常收敛
+
+`guarded_urlopen()` 继续只负责 scheme、代理、重定向和连接地址边界，不吞掉调用方读取响应时发生的错误。两个消费者分别维护自己的稳定结果契约：
+
+- WebFetch 在打开、读取和关闭响应的同一 `try` 边界内处理 `SSRFGuardError`、`OSError`、`http.client.HTTPException` 和非法模型 URL 产生的 `ValueError`。SSRF 拒绝返回 `WebFetch blocked by network policy`；其余请求/协议失败返回 `WebFetch request failed`。
+- WebFetch 完成响应读取后，单独包围 artifact `write_text()`；写入 `OSError` 返回 `WebFetch response save failed`。不得把一次成功请求误报为网络请求失败。
+- `/search` 将 `OSError` 和 `http.client.HTTPException` 收敛为既有 `ERROR_UNAVAILABLE`。远端声明未知 charset 时不把可用响应判为网络故障，而是退回 UTF-8 `errors="replace"` 解码。
+- 不使用覆盖整个工具主体的 `except Exception`。断言错误、类型错误和实现缺陷仍应在测试中显式暴露。
+
 ## 5. 工具确认设计
 
 ### 5.1 保留现有接口
@@ -108,8 +134,8 @@ network:
 `Confirmer = Callable[[BaseModel], bool]` 保持不变。CLI 内部增加一个小型 formatter，由 `make_console_confirmer()` 调用：
 
 - `MCPArgs`：显示 `server:tool`。arguments 递归遍历 dict/list；键名匹配现有 `is_secret_name()` 时，无论值长度都显示 `<redacted>`；其他字符串再用 `mask_secrets(..., sensitive_env_values())` 替换已知环境 secret value。
-- `WebFetchArgs`：通过 `urllib.parse` 清除 URL userinfo 和 fragment，替换敏感 query key 的值，再用 `mask_secrets()` 处理已知 secret value。hostname 和 path 在匹配前先 percent-decode；hostname 按 DNS 大小写不敏感语义匹配，再结构化重建显示 URL。不得用字符串正则直接改写 URL 结构。
-- `FileWriteArgs`：不回显 content。绝对路径在 cwd 内时显示项目相对路径，在 cwd 外时只显示 `.../<basename>`；相对路径保持规范化相对形式。提示同时显示 content 字符数。
+- `WebFetchArgs`：通过 `urllib.parse` 清除 URL userinfo 和 fragment，替换敏感 query key 的值，再用 `mask_secrets()` 处理已知 secret value。path 在匹配前 percent-decode。hostname 先 percent-decode，再以 ASCII DNS 大小写不敏感语义执行一次从左到右、非重叠替换；候选 secret 按长度降序排列，确保同一位置优先匹配最长值。替换只作用于 hostname component，不对原始 URL 做正则改写。重建前重新编码 hostname；percent-decode 后产生的 `@`、`/`、`?`、`#` 等结构字符不得直接进入 netloc，无合法 hostname 表示时返回 `<redacted malformed URL>`。IPv6 字面量保留结构化方括号处理。
+- `FileWriteArgs`：不回显 content。绝对路径在 cwd 内时显示项目相对路径，在 cwd 外时只显示 `.../<basename>`；相对路径保持规范化相对形式。提示同时显示 `len(content)` 计算的字符数，并固定标记为 `characters`，不得误标为 bytes。
 - 其他 `BaseModel`：只显示类型名，避免访问不存在的字段或意外回显敏感数据。
 
 全局 `mask_secrets()` 的既有契约保持不变：它按敏感环境变量名收集长度至少 8 的值，再做最长值优先替换。结构化键脱敏只属于 confirmer formatter，避免改变 executor/MCP output 的既有行为和误报面。
@@ -128,12 +154,24 @@ network:
 
 实施期 thorough review 发现确认后的工具结果同样会进入 Step feedback 和 CLI console。用户于 2026-07-13 选择把该问题纳入当前 change，并批准固定安全结果消息方案：
 
-- WebFetch 捕获 `SSRFGuardError` 时返回固定 `WebFetch blocked by network policy`，捕获 `OSError` 时返回固定 `WebFetch request failed`。不得把底层异常、原始 URL 或 hostname 写入 `ToolOutcome.detail`。
-- FileWrite 通过 project-root 校验并成功写入后，只返回由已解析目标相对 `allowed_root` 计算出的 project-relative 路径；不复用模型提供的原始绝对路径。
-- FileWrite 写入阶段发生 `OSError` 时返回固定 `FileWrite failed`。越界、无交互通道和用户拒绝继续使用既有固定消息。
-- 不新增通用 result sanitizer，不修改 FileRead/FileList/MCP 的结果契约，也不改变全局 `mask_secrets()` 行为。固定消息牺牲部分底层诊断细节，以避免平台相关异常字符串重新引入 URL、hostname 或宿主绝对路径泄漏。
+- WebFetch 捕获 `SSRFGuardError` 时返回固定 `WebFetch blocked by network policy`；打开、读取或关闭响应时发生 `OSError`、`http.client.HTTPException` 或非法 URL `ValueError` 时返回固定 `WebFetch request failed`；artifact 写入 `OSError` 返回固定 `WebFetch response save failed`。不得把底层异常、原始 URL、hostname 或宿主路径写入 `ToolOutcome.detail`。
+- FileWrite 通过 project-root 校验并成功写入后，只返回由已解析目标相对 canonical `allowed_root` 计算出的 project-relative 路径：`base = Path(os.path.realpath(ctx.allowed_root))`，再对 `_validate_path()` 返回的 `resolved` 使用 `relative_to(base)`。不复用模型提供的原始路径，也不假定 `ctx.allowed_root` 已经是绝对路径。
+- FileWrite 写入阶段发生 `OSError` 或路径语法产生 `ValueError` 时返回固定 `FileWrite failed`。越界、无交互通道和用户拒绝继续使用既有固定消息。
+- FileRead/FileList 的路径校验和文件系统失败分别返回固定 `FileRead failed` / `FileList failed`，不回显异常文本、模型提供的绝对路径或 canonical root。MCP 结果契约和全局 `mask_secrets()` 行为保持不变。
+- 不新增通用 result sanitizer。固定消息牺牲部分底层诊断细节，以避免平台相关异常字符串重新引入 URL、hostname 或宿主绝对路径泄漏。
 
-测试必须覆盖：percent-encoded 且大小写变化的 hostname secret；携带原始 URL/hostname 的 WebFetch guard/network 异常；FileWrite 使用绝对 cwd 内路径成功时只回显 project-relative 路径；FileWrite 写入异常包含绝对路径时结果仍为固定消息。以上结果还需通过现有 Step feedback 渲染路径验证不再泄漏。
+测试必须覆盖：percent-encoded、大小写变化和重叠的 hostname secret；decode 后结构字符不改变 URL 组件；携带原始 URL/hostname 的 WebFetch guard/network/HTTP protocol 异常；WebFetch artifact 写入异常包含绝对路径；FileWrite 使用绝对路径和相对 `allowed_root="."` 时只回显 canonical project-relative 路径；FileRead/FileWrite/FileList 的越界、非法路径和文件系统异常不回显宿主路径。失败结果还需通过现有 Step feedback 与 CLI `render_outcome()` 路径验证不再泄漏。
+
+### 5.4 共享路径边界
+
+`_validate_path()` 与 `_sandbox_worker._install_audit_hook()` 保持独立实现，避免为了两处小判定引入共享模块，但使用同一不变量：
+
+1. 用 `os.path.realpath()` 得到 canonical root 和 target。
+2. 用 `os.path.commonpath((root, target))` 判断包含关系；`realpath()` 或 `commonpath()` 因不同驱动器、NUL 等非法路径抛出的 `ValueError` 视为不允许。
+3. 比较时遵循平台路径语义，允许 root 自身和任意真实子路径，因此 `allowed_root="/"` 不再错误拒绝 `/tmp/...`。
+4. 安全边界异常不携带输入路径或 root。工具层转换为上述固定失败消息；restricted worker 保留 `PermissionError` 类型，但消息只说明访问位于 allowed root 外。
+
+这仍是 realpath 后的应用层检查，不声称解决可写目录中所有 symlink 竞态；本 change 只修复已证明的 root predicate、非法路径逃逸和失败文本泄漏。
 
 ## 6. 完成状态设计
 
@@ -287,7 +325,9 @@ runner 本里程碑明确顺序执行，不承诺多个进程同时写同一个 
 | 能力 | 关键测试 | 主要证据 |
 | --- | --- | --- |
 | 代理/SSRF | 大小写 proxy env、loopback、private、NAT64、redirect private、11 跳、FTP/file redirect | 实际校验 host 是目标而非代理；blocked target 未连接；redirect limit/scheme 明确拒绝 |
+| 网络消费端错误 | WebFetch invalid URL/IncompleteRead/BadStatusLine/close error/artifact OSError；search protocol error/unknown charset | 工具级异常不逃逸；固定消息不含 URL/hostname/path；search 返回 unavailable 或 UTF-8 fallback |
 | confirmer 与结果最小披露 | MCP/WebFetch/FileWrite formatter、EOF、空输入、带空白的 yes/no、嵌套 secret key、encoded/case hostname、URL/path mask、WebFetch 失败、FileWrite 成功/失败 outcome | 无属性错误；prompt、ToolOutcome、Step feedback 不回显敏感 URL/hostname/宿主绝对路径；TTY 与非 TTY 原因正确 |
+| 文件路径边界 | root allowed_root、相对 root、NUL、越界、symlink resolve、FileRead/List/Write OSError、restricted audit | commonpath 正确接受 root 子路径并拒绝越界；无 ValueError 逃逸；固定失败消息无绝对路径 |
 | CLI 注入 | REPL、TTY run、非 TTY run、`--interactive` | confirmer 与 MCP 解耦；Survey 语义不漂移 |
 | 完成门控 | 工具成功/失败/parse error + completed；后续独立完成 | 同轮不完成；反馈后完成；max_rounds 诚实 |
 | MCP 配置 | required 默认、enabled/disabled required | optional 降级；required 启动失败；禁用项不阻断 |
@@ -313,7 +353,7 @@ runner 本里程碑明确顺序执行，不承诺多个进程同时写同一个 
 
 1. 固化回归与测试 home/PID 隔离。
 2. 修复 ProxyHandler 和 SSRF 测试。
-3. 修复 confirmer formatter、TTY 注入和完成门控。
+3. 修复 confirmer formatter、TTY 注入、网络消费端异常、文件路径边界和完成门控。
 4. 增加 MCP required、启动错误和 bounded close。
 5. 建立 20 项 golden manifest/cases/runner/report。
 6. 同步协议、威胁模型、README 和里程碑文档。
@@ -336,4 +376,6 @@ runner 本里程碑明确顺序执行，不承诺多个进程同时写同一个 
 - 20 项离线黄金核心生成 20/20 机器和 Markdown 报告，退出 0。
 - required MCP 失败、close deadline、代理环境和严格完成专项测试通过。
 - redirect 第 11 跳与非 HTTP/HTTPS scheme 在 guard 层被明确拒绝。
+- WebFetch/search 的预期 URL、HTTP 协议、解码和 artifact 写入失败均被稳定收敛，没有工具级异常逃逸。
+- 文件工具与 restricted audit 的 commonpath 判定正确处理 filesystem root；非法和失败路径不进入模型反馈或 CLI 输出。
 - CodeGraph 复审确认所有受影响调用方已覆盖，文档不再声称未执行的 380 项已验证。

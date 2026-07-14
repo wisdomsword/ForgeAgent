@@ -47,11 +47,11 @@ ForgeAgent MUST redact structured secret-key values and known sensitive environm
 
 #### Scenario: WebFetch hostname encodes a known secret
 - **WHEN** a WebFetch hostname contains a percent-encoded or DNS case-normalized form of a known sensitive environment value
-- **THEN** the confirmer decodes and matches the hostname using DNS case-insensitive semantics and does not display the sensitive value
+- **THEN** the confirmer decodes the hostname, performs one longest-first non-overlapping ASCII case-insensitive match pass, safely re-encodes the hostname component, and does not display the sensitive value or reinterpret decoded delimiters as URL structure
 
 #### Scenario: FileWrite uses an absolute path and sensitive content
 - **WHEN** FileWrite requests an absolute path and arbitrary content
-- **THEN** the confirmer displays a project-relative path when possible or a basename-only external path, displays only content length, and never displays the content
+- **THEN** the confirmer displays a project-relative path when possible or a basename-only external path, displays only the content character count labeled `characters`, and never displays the content
 
 ### Requirement: Restricted tool outcomes minimize sensitive exposure
 ForgeAgent MUST prevent WebFetch failure outcomes and FileWrite success or failure outcomes from reintroducing raw URLs, hostnames, content or host absolute paths after confirmation.
@@ -61,16 +61,35 @@ ForgeAgent MUST prevent WebFetch failure outcomes and FileWrite success or failu
 - **THEN** the tool returns the fixed detail `WebFetch blocked by network policy` without the original URL, hostname or exception text
 
 #### Scenario: WebFetch fails at the network layer
-- **WHEN** a confirmed WebFetch request fails with `OSError`
+- **WHEN** a confirmed WebFetch request fails with `OSError`, `http.client.HTTPException` or an invalid-URL `ValueError`
 - **THEN** the tool returns the fixed detail `WebFetch request failed` without the original URL, hostname or exception text
+
+#### Scenario: WebFetch cannot save the fetched response
+- **WHEN** a confirmed WebFetch request reads the response successfully but writing the artifact raises `OSError`
+- **THEN** the tool returns the fixed detail `WebFetch response save failed` without the artifact's absolute path or exception text
 
 #### Scenario: FileWrite succeeds with an absolute project path
 - **WHEN** a confirmed FileWrite request resolves inside `allowed_root` and succeeds
 - **THEN** the tool result identifies the target only by its project-relative path and does not include the model-provided absolute path or content
 
 #### Scenario: FileWrite fails during the write operation
-- **WHEN** a confirmed FileWrite request passes project-root validation but the filesystem write raises `OSError`
+- **WHEN** a confirmed FileWrite request passes project-root validation but the filesystem write raises `OSError`, or the model path raises `ValueError` during validation
 - **THEN** the tool returns the fixed detail `FileWrite failed` without the absolute path, content or exception text
+
+### Requirement: File tool path boundaries are root-safe and minimally disclosing
+ForgeAgent MUST evaluate canonical file targets with a containment predicate that accepts the root itself and all real descendants, including when `allowed_root` is the filesystem root, and MUST NOT disclose model or host absolute paths in file-tool failure outcomes.
+
+#### Scenario: Filesystem root is the allowed root
+- **WHEN** a file tool or restricted audit hook evaluates a target below `allowed_root="/"`
+- **THEN** the target is treated as contained instead of being rejected by a doubled-separator prefix check
+
+#### Scenario: A file tool receives an invalid path
+- **WHEN** FileRead, FileWrite or FileList receives a syntactically invalid path such as one containing NUL
+- **THEN** the tool returns its structured fixed failure outcome and does not propagate `ValueError`
+
+#### Scenario: FileRead or FileList fails on a host path
+- **WHEN** FileRead or FileList rejects an out-of-root target or receives a filesystem error whose text contains an absolute path
+- **THEN** it returns the fixed detail `FileRead failed` or `FileList failed` without the model path, canonical root or exception text
 
 ### Requirement: Survey interaction remains separately controlled
 ForgeAgent MUST keep `--interactive` scoped to Survey behavior and SHALL NOT require that flag for automatic TTY confirmation of WebFetch, FileWrite or MCP.
