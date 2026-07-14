@@ -1266,7 +1266,7 @@ class MCPManager:
                     shutdown_coro,
                     self._loop,
                 )
-            except BaseException:
+            except BaseException as primary:
                 try:
                     shutdown_coro.close()
                 except BaseException as cleanup:
@@ -1281,6 +1281,10 @@ class MCPManager:
                         "MCP shutdown fallback cleanup failed: %s",
                         type(cleanup).__name__,
                     )
+                    if isinstance(cleanup, (KeyboardInterrupt, SystemExit)) and not isinstance(
+                        primary, (KeyboardInterrupt, SystemExit)
+                    ):
+                        raise
                 raise
             pending = self._shutdown_future.result(
                 timeout=_remaining(deadline, reserve=self._thread_join_timeout)

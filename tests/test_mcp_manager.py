@@ -1699,6 +1699,126 @@ def test_close_submission_control_exception_survives_fallback_cleanup_error(monk
         mgr._thread = None
 
 
+@pytest.mark.parametrize(
+    "fallback",
+    [KeyboardInterrupt("fallback secret"), SystemExit("fallback secret")],
+)
+def test_close_submission_error_propagates_fallback_control_exception(
+    monkeypatch,
+    caplog,
+    fallback,
+):
+    mgr = MCPManager(
+        {"pending": MCPServerConfig(command="unused")},
+        shutdown_timeout=0.03,
+        thread_join_timeout=0.02,
+    )
+    primary = RuntimeError("submission secret")
+    loop = _LoopProbe()
+    thread = _ThreadProbe(alive=True, alive_results=[True, False])
+    holder_slot = (1, object(), object())
+    session_slot = (1, object())
+    submitted = []
+    fallback_calls = 0
+    mgr._loop = loop
+    mgr._thread = thread
+    mgr._holders["pending"] = holder_slot
+    mgr._sessions["pending"] = session_slot
+
+    def reject(coro, submitted_loop):
+        submitted.append(coro)
+        assert submitted_loop is loop
+        raise primary
+
+    def fail_fallback(deadline):
+        nonlocal fallback_calls
+        fallback_calls += 1
+        if fallback_calls == 1:
+            raise fallback
+        raise RuntimeError("secondary cleanup secret")
+
+    monkeypatch.setattr(mcp_manager_module.asyncio, "run_coroutine_threadsafe", reject)
+    monkeypatch.setattr(mgr, "_request_shutdown_retry", fail_fallback)
+    caplog.set_level(logging.WARNING, logger="forgeagent.mcp_manager")
+
+    try:
+        with pytest.raises(type(fallback)) as raised:
+            mgr.close()
+
+        assert raised.value is fallback
+        assert submitted and submitted[0].cr_frame is None
+        assert fallback_calls == 2
+        assert len(thread.join_timeouts) == 1
+        assert not mgr._shutdown_complete.is_set()
+        assert mgr._holders == {"pending": holder_slot}
+        assert mgr._sessions == {"pending": session_slot}
+        assert mgr._loop is loop
+        assert mgr._thread is thread
+        assert "submission secret" not in caplog.text
+        assert "fallback secret" not in caplog.text
+        assert "secondary cleanup secret" not in caplog.text
+    finally:
+        primary.__traceback__ = None
+        fallback.__traceback__ = None
+        mgr._holders.clear()
+        mgr._sessions.clear()
+        mgr._loop = None
+        mgr._thread = None
+
+
+def test_close_submission_and_fallback_errors_remain_public_no_throw(monkeypatch, caplog):
+    mgr = MCPManager(
+        {"pending": MCPServerConfig(command="unused")},
+        shutdown_timeout=0.03,
+        thread_join_timeout=0.02,
+    )
+    primary = RuntimeError("submission secret")
+    fallback = OSError("fallback secret")
+    loop = _LoopProbe()
+    thread = _ThreadProbe(alive=True, alive_results=[True, False])
+    holder_slot = (1, object(), object())
+    session_slot = (1, object())
+    submitted = []
+    mgr._loop = loop
+    mgr._thread = thread
+    mgr._holders["pending"] = holder_slot
+    mgr._sessions["pending"] = session_slot
+
+    def reject(coro, submitted_loop):
+        submitted.append(coro)
+        assert submitted_loop is loop
+        raise primary
+
+    def fail_fallback(deadline):
+        raise fallback
+
+    monkeypatch.setattr(mcp_manager_module.asyncio, "run_coroutine_threadsafe", reject)
+    monkeypatch.setattr(mgr, "_request_shutdown_retry", fail_fallback)
+    caplog.set_level(logging.WARNING, logger="forgeagent.mcp_manager")
+
+    try:
+        assert mgr.close() is None
+
+        assert submitted and submitted[0].cr_frame is None
+        assert len(thread.join_timeouts) == 1
+        assert not mgr._shutdown_complete.is_set()
+        assert mgr._holders == {"pending": holder_slot}
+        assert mgr._sessions == {"pending": session_slot}
+        assert mgr._loop is loop
+        assert mgr._thread is thread
+        assert "MCP shutdown fallback cleanup failed: OSError" in caplog.text
+        assert "MCP shutdown failed: RuntimeError" in caplog.text
+        assert "submission secret" not in caplog.text
+        assert "fallback secret" not in caplog.text
+    finally:
+        primary.__traceback__ = None
+        fallback.__traceback__ = None
+        mgr._holders.clear()
+        mgr._sessions.clear()
+        mgr._loop = None
+        mgr._thread = None
+
+
 def test_close_on_already_closed_loop_has_no_unawaited_coroutine_warning():
     mgr = MCPManager({}, shutdown_timeout=0.03, thread_join_timeout=0.02)
     loop = asyncio.new_event_loop()
