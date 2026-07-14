@@ -13,11 +13,13 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import gc
 import logging
 import os
 import sys
 import threading
 import time
+import warnings
 from pathlib import Path
 
 import pytest
@@ -96,10 +98,12 @@ class _ThreadProbe:
         self,
         *,
         alive: bool,
+        alive_results: list[bool] | None = None,
         wait_for_timeout: bool = False,
         join_error: Exception | None = None,
     ):
         self.alive = alive
+        self._alive_results = iter(alive_results or [])
         self._wait_for_timeout = wait_for_timeout
         self._join_error = join_error
         self.join_timeouts: list[float] = []
@@ -112,6 +116,7 @@ class _ThreadProbe:
             raise self._join_error
 
     def is_alive(self) -> bool:
+        self.alive = next(self._alive_results, self.alive)
         return self.alive
 
 
@@ -403,7 +408,7 @@ def test_close_stops_normal_and_cancel_only_holders_on_loop_thread():
     assert mgr._thread is None
 
 
-def test_close_hard_stuck_loop_is_bounded_and_retries_without_resubmit(monkeypatch, caplog):
+def test_close_blocked_loop_drains_cancellation_before_stop_and_retry(monkeypatch, caplog):
     secret = "shutdown-secret-content"
     mgr = MCPManager(
         {
@@ -416,9 +421,262 @@ def test_close_hard_stuck_loop_is_bounded_and_retries_without_resubmit(monkeypat
         shutdown_timeout=0.03,
         thread_join_timeout=0.02,
     )
-    loop = _LoopProbe()
-    thread = _ThreadProbe(alive=True, wait_for_timeout=True)
-    future = _FutureProbe(wait_for_timeout=True)
+    loop = asyncio.new_event_loop()
+    thread = threading.Thread(
+        target=loop.run_forever,
+        name="forgeagent-mcp-loop",
+        daemon=True,
+    )
+    session = object()
+    blocked = threading.Event()
+    release = threading.Event()
+    cancellation_cleanup = threading.Event()
+    cleanup_thread_ids: list[int] = []
+    submissions = 0
+    mgr._loop = loop
+    mgr._thread = thread
+    mgr._states["pending"].status = f"available: {secret}"
+    thread.start()
+
+    async def install_holder() -> None:
+        mgr._states["pending"].stop = asyncio.Event()
+        mgr._sessions["pending"] = session
+
+        async def holder() -> None:
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                cancellation_cleanup.set()
+                raise
+            finally:
+                cleanup_thread_ids.append(threading.get_ident())
+                mgr._sessions.pop("pending", None)
+
+        mgr._holders["pending"] = asyncio.create_task(holder())
+
+    original_submit = asyncio.run_coroutine_threadsafe
+    original_submit(install_holder(), loop).result(timeout=1)
+    holder = mgr._holders["pending"]
+
+    def block_loop_thread() -> None:
+        blocked.set()
+        release.wait(timeout=1)
+
+    loop.call_soon_threadsafe(block_loop_thread)
+    assert blocked.wait(timeout=1)
+
+    def submit(coro, submitted_loop):
+        nonlocal submissions
+        submissions += 1
+        assert submitted_loop is loop
+        return original_submit(coro, submitted_loop)
+
+    monkeypatch.setattr(mcp_manager_module.asyncio, "run_coroutine_threadsafe", submit)
+    caplog.set_level(logging.WARNING, logger="forgeagent.mcp_manager")
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        started = time.monotonic()
+        try:
+            assert mgr.close() is None
+            first_elapsed = time.monotonic() - started
+
+            assert first_elapsed < 0.55
+            assert mgr._closed is True
+            assert submissions == 1
+            future = mgr._shutdown_future
+            assert future is not None
+            assert future.cancelled()
+            assert mgr._holders == {"pending": holder}
+            assert mgr._sessions == {"pending": session}
+            assert mgr._loop is loop
+            assert mgr._thread is thread
+            warning = caplog.text
+            assert "forgeagent-mcp-loop" in warning
+            assert f"ident={thread.ident}" in warning
+            assert "alive=True" in warning
+            assert "pending=['pending']" in warning
+            assert "timeout=" in warning
+            assert "shutdown incomplete; resources may remain" in warning
+            assert secret not in warning
+            assert "/secret/server/path" not in warning
+            assert "--secret-argument" not in warning
+            assert "secret-env-value" not in warning
+
+            release.set()
+            thread.join(timeout=1)
+            assert cancellation_cleanup.wait(timeout=0.5)
+            assert cleanup_thread_ids == [thread.ident]
+            assert not thread.is_alive()
+            assert mgr._holders == {}
+            assert mgr._sessions == {}
+
+            caplog.clear()
+            assert mgr.close() is None
+
+            assert submissions == 1
+            assert "shutdown incomplete" not in caplog.text
+            assert mgr._shutdown_future is None
+            assert mgr._holders == {}
+            assert mgr._sessions == {}
+            assert mgr._loop is None
+            assert mgr._thread is None
+            gc.collect()
+            assert "Task was destroyed but it is pending" not in caplog.text
+            assert not any("never awaited" in str(item.message) for item in caught)
+        finally:
+            release.set()
+            if thread.is_alive():
+                loop.call_soon_threadsafe(loop.stop)
+                thread.join(timeout=1)
+            if not loop.is_closed():
+                loop.close()
+
+
+def test_repeated_close_recreates_join_deadline_from_current_clock(monkeypatch):
+    mgr = MCPManager({}, shutdown_timeout=0.03, thread_join_timeout=0.02)
+    mgr._closed = True
+    mgr._loop = _LoopProbe()
+    mgr._thread = _ThreadProbe(alive=True)
+    mgr._shutdown_future = _FutureProbe()
+    deadlines: list[tuple[float, frozenset[str]]] = []
+    clock = iter([100.0, 250.0])
+
+    monkeypatch.setattr(mcp_manager_module.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(
+        mgr,
+        "_stop_and_join",
+        lambda deadline, pending: deadlines.append((deadline, pending)),
+    )
+
+    mgr.close()
+    mgr.close()
+
+    assert deadlines == [(100.02, frozenset()), (250.02, frozenset())]
+    assert mgr._shutdown_future.cancel_calls == 2
+
+
+@pytest.mark.parametrize(
+    "error",
+    [RuntimeError("thread start"), KeyboardInterrupt(), SystemExit(7)],
+)
+def test_connect_start_failure_cleans_unpublished_loop_and_preserves_error(monkeypatch, error):
+    mgr = MCPManager({"pending": MCPServerConfig(command="unused")})
+    loop = asyncio.new_event_loop()
+    monkeypatch.setattr(mcp_manager_module.asyncio, "new_event_loop", lambda: loop)
+
+    def fail_start(self) -> None:
+        raise error
+
+    monkeypatch.setattr(mcp_manager_module.threading.Thread, "start", fail_start)
+
+    try:
+        with pytest.raises(type(error)):
+            mgr.connect()
+
+        assert mgr._started is False
+        assert mgr._loop is None
+        assert mgr._thread is None
+        assert loop.is_closed()
+    finally:
+        if not loop.is_closed():
+            loop.close()
+
+
+@pytest.mark.parametrize(
+    "error",
+    [RuntimeError("submission"), KeyboardInterrupt(), SystemExit(7)],
+)
+def test_close_submission_rejection_closes_coroutine_and_preserves_error(monkeypatch, error):
+    mgr = MCPManager({}, shutdown_timeout=0.03, thread_join_timeout=0.02)
+    mgr._loop = _LoopProbe()
+    mgr._thread = _ThreadProbe(alive=True, alive_results=[True, False])
+    submitted = []
+
+    def reject(coro, submitted_loop):
+        submitted.append(coro)
+        assert submitted_loop is mgr._loop
+        raise error
+
+    monkeypatch.setattr(mcp_manager_module.asyncio, "run_coroutine_threadsafe", reject)
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        if isinstance(error, Exception):
+            assert mgr.close() is None
+        else:
+            with pytest.raises(type(error)):
+                mgr.close()
+        shutdown_coro = submitted[0]
+        try:
+            assert shutdown_coro.cr_frame is None
+        finally:
+            shutdown_coro.close()
+        submitted.clear()
+        error.__traceback__ = None
+        gc.collect()
+
+    assert not any("never awaited" in str(item.message) for item in caught)
+
+
+def test_close_on_already_closed_loop_has_no_unawaited_coroutine_warning():
+    mgr = MCPManager({}, shutdown_timeout=0.03, thread_join_timeout=0.02)
+    loop = asyncio.new_event_loop()
+    loop.close()
+    mgr._loop = loop
+    mgr._thread = _ThreadProbe(alive=False)
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        assert mgr.close() is None
+        gc.collect()
+
+    assert mgr._loop is None
+    assert mgr._thread is None
+    assert not any("never awaited" in str(item.message) for item in caught)
+
+
+def test_close_on_stopped_loop_without_holders_does_not_queue_coroutine():
+    mgr = MCPManager({}, shutdown_timeout=0.03, thread_join_timeout=0.02)
+    loop = asyncio.new_event_loop()
+    thread = threading.Thread(target=loop.run_forever, daemon=True)
+    mgr._loop = loop
+    mgr._thread = thread
+    thread.start()
+    loop.call_soon_threadsafe(loop.stop)
+    thread.join(timeout=1)
+    assert not thread.is_alive()
+
+    try:
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            assert mgr.close() is None
+            gc.collect()
+
+        assert loop.is_closed()
+        assert mgr._shutdown_future is None
+        assert mgr._loop is None
+        assert mgr._thread is None
+        assert not any("never awaited" in str(item.message) for item in caught)
+    finally:
+        if not loop.is_closed():
+            recovery = threading.Thread(target=loop.run_forever, daemon=True)
+            recovery.start()
+            recovery.join(timeout=1)
+            if recovery.is_alive():
+                loop.call_soon_threadsafe(loop.stop)
+                recovery.join(timeout=1)
+            loop.close()
+
+
+def test_close_dead_thread_retains_incomplete_resources_without_submission(monkeypatch, caplog):
+    mgr = MCPManager(
+        {"pending": MCPServerConfig(command="unused")},
+        shutdown_timeout=0.03,
+        thread_join_timeout=0.02,
+    )
+    loop = asyncio.new_event_loop()
+    thread = threading.Thread(target=loop.run_forever, daemon=True)
     holder = object()
     session = object()
     submissions = 0
@@ -426,67 +684,37 @@ def test_close_hard_stuck_loop_is_bounded_and_retries_without_resubmit(monkeypat
     mgr._thread = thread
     mgr._holders["pending"] = holder
     mgr._sessions["pending"] = session
-    mgr._states["pending"].status = f"available: {secret}"
 
-    def submit(coro, submitted_loop):
+    def reject_submission(coro, submitted_loop):
         nonlocal submissions
         submissions += 1
         assert submitted_loop is loop
         coro.close()
-        return future
+        raise RuntimeError("stopped loop must not receive shutdown work")
 
-    monkeypatch.setattr(mcp_manager_module.asyncio, "run_coroutine_threadsafe", submit)
+    monkeypatch.setattr(
+        mcp_manager_module.asyncio,
+        "run_coroutine_threadsafe",
+        reject_submission,
+    )
     caplog.set_level(logging.WARNING, logger="forgeagent.mcp_manager")
 
-    started = time.monotonic()
-    assert mgr.close() is None
-    first_elapsed = time.monotonic() - started
+    try:
+        assert mgr.close() is None
 
-    assert first_elapsed < 0.55
-    assert mgr._closed is True
-    assert submissions == 1
-    assert future.cancel_calls == 1
-    assert mgr._shutdown_future is future
-    assert mgr._holders == {"pending": holder}
-    assert mgr._sessions == {"pending": session}
-    assert mgr._loop is loop
-    assert mgr._thread is thread
-    assert future.result_timeouts[0] + thread.join_timeouts[0] <= 0.055
-    warning = caplog.text
-    assert "forgeagent-mcp-loop" in warning
-    assert "ident=31415" in warning
-    assert "alive=True" in warning
-    assert "pending=['pending']" in warning
-    assert "timeout=" in warning
-    assert "shutdown incomplete; resources may remain" in warning
-    assert secret not in warning
-    assert "/secret/server/path" not in warning
-    assert "--secret-argument" not in warning
-    assert "secret-env-value" not in warning
-
-    started = time.monotonic()
-    assert mgr.close() is None
-    retry_elapsed = time.monotonic() - started
-
-    assert retry_elapsed < 0.52
-    assert submissions == 1
-    assert future.cancel_calls == 2
-    assert len(future.result_timeouts) == 1
-    assert len(thread.join_timeouts) == 2
-    assert thread.join_timeouts[1] > 0.015
-    assert mgr._holders == {"pending": holder}
-    assert mgr._sessions == {"pending": session}
-
-    thread.alive = False
-    assert mgr.close() is None
-    assert submissions == 1
-    assert future.cancel_calls == 3
-    assert loop.close_calls == 1
-    assert mgr._shutdown_future is None
-    assert mgr._holders == {}
-    assert mgr._sessions == {}
-    assert mgr._loop is None
-    assert mgr._thread is None
+        assert submissions == 0
+        assert mgr._shutdown_future is None
+        assert mgr._holders == {"pending": holder}
+        assert mgr._sessions == {"pending": session}
+        assert mgr._loop is loop
+        assert mgr._thread is thread
+        assert "alive=False" in caplog.text
+        assert "pending=['pending']" in caplog.text
+        assert "shutdown incomplete; resources may remain" in caplog.text
+    finally:
+        mgr._holders.clear()
+        mgr._sessions.clear()
+        loop.close()
 
 
 def test_close_internal_failure_keeps_finalization_best_effort(monkeypatch, caplog):
@@ -501,7 +729,8 @@ def test_close_internal_failure_keeps_finalization_best_effort(monkeypatch, capl
         close_error=OSError(f"close {secret}"),
     )
     thread = _ThreadProbe(
-        alive=False,
+        alive=True,
+        alive_results=[True, False],
         join_error=RuntimeError(f"join {secret}"),
     )
     future = _FutureProbe(error=RuntimeError(f"future {secret}"))
@@ -509,6 +738,7 @@ def test_close_internal_failure_keeps_finalization_best_effort(monkeypatch, capl
     mgr._thread = thread
     mgr._holders["pending"] = object()
     mgr._sessions["pending"] = object()
+    mgr._shutdown_complete.set()
 
     def submit(coro, submitted_loop):
         assert submitted_loop is loop
@@ -544,10 +774,11 @@ def test_close_preserves_process_control_exceptions(monkeypatch, interrupt):
         thread_join_timeout=0.02,
     )
     loop = _LoopProbe()
-    thread = _ThreadProbe(alive=False)
+    thread = _ThreadProbe(alive=True, alive_results=[True, False])
     future = _FutureProbe(error=interrupt)
     mgr._loop = loop
     mgr._thread = thread
+    mgr._shutdown_complete.set()
 
     def submit(coro, submitted_loop):
         assert submitted_loop is loop
