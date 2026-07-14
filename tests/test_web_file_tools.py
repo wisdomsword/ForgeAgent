@@ -159,6 +159,20 @@ def test_webfetch_http_protocol_failures_are_fixed_and_do_not_raise(stage, exc, 
     assert outcome.detail == "WebFetch request failed"
 
 
+def test_webfetch_invalid_url_value_error_is_fixed_and_does_not_raise(monkeypatch):
+    def fake_open(url, **kwargs):
+        raise ValueError("invalid URL")
+
+    monkeypatch.setattr("forgeagent.tools.guarded_urlopen", fake_open)
+
+    outcome = WebFetchTool().run(
+        WebFetchArgs(url="https://secret-host.invalid/"), _webfetch_ctx()
+    )
+
+    assert outcome.success is False
+    assert outcome.detail == "WebFetch request failed"
+
+
 def test_webfetch_artifact_write_failure_is_fixed_and_does_not_raise(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "forgeagent.tools.guarded_urlopen", lambda url, **kwargs: _FakeResponse(b"body")
