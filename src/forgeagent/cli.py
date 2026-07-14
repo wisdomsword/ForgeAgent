@@ -655,10 +655,13 @@ def build_mcp_manager(console: Console) -> MCPManager | None:
     manager.connect()
     failures = manager.required_failures()
     if failures:
-        manager.close()
         diagnostics = ", ".join(
             f"{name}: {status}" for name, status in sorted(failures.items())
         )
+        try:
+            manager.close()
+        except Exception:
+            pass
         raise MCPStartupError(diagnostics)
     for name, status in manager.server_status().items():
         colour = "green" if status == "available" else "yellow"

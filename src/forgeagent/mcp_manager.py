@@ -269,7 +269,7 @@ class MCPManager:
     def required_failures(self) -> dict[str, str]:
         """Enabled required servers that did not become available at startup."""
         return {
-            name: state.status
+            name: mask_secrets(state.status, self._secret_values)
             for name, state in self._states.items()
             if state.config.enabled and state.config.required and state.status != "available"
         }

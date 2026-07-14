@@ -24,6 +24,7 @@ from forgeagent.mcp_manager import (
     MCPServerConfig,
     load_mcp_config,
 )
+from forgeagent.secret_policy import REDACTED
 
 _FIXTURE = str(Path(__file__).with_name("mcp_fixture_server.py"))
 
@@ -199,6 +200,19 @@ def test_optional_unavailable_server_degrades_without_required_failure():
         assert mgr.required_failures() == {}
     finally:
         mgr.close()
+
+
+def test_required_failures_mask_secret_bearing_status(monkeypatch):
+    secret = "mcp-required-secret-value"
+    monkeypatch.setattr("forgeagent.mcp_manager.sensitive_env_values", lambda: {secret})
+    mgr = MCPManager(
+        {"required": MCPServerConfig(command="unused", args=[], required=True)}
+    )
+    mgr._states["required"].status = f"unavailable: RuntimeError: {secret}"
+
+    assert mgr.required_failures() == {
+        "required": f"unavailable: RuntimeError: {REDACTED}"
+    }
 
 
 def test_tools_prompt_groups_by_server_and_flags_external():

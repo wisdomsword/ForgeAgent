@@ -544,6 +544,14 @@ class _RequiredStartupFailureManager:
         self.closed = True
 
 
+class _CleanupFailureRequiredStartupManager(_RequiredStartupFailureManager):
+    cleanup_error: type[BaseException] = RuntimeError
+
+    def close(self):
+        super().close()
+        raise self.cleanup_error("cleanup failed")
+
+
 def test_build_mcp_manager_closes_and_raises_for_required_failures(monkeypatch):
     import forgeagent.cli as cli_module
 
@@ -559,6 +567,34 @@ def test_build_mcp_manager_closes_and_raises_for_required_failures(monkeypatch):
     assert message.index("alpha: unavailable: handshake failed") < message.index(
         "zeta: unavailable: connection refused"
     )
+
+
+def test_build_mcp_manager_preserves_startup_error_when_cleanup_raises(monkeypatch):
+    import forgeagent.cli as cli_module
+
+    _CleanupFailureRequiredStartupManager.instances.clear()
+    monkeypatch.setattr(_CleanupFailureRequiredStartupManager, "cleanup_error", RuntimeError)
+    monkeypatch.setattr(cli_module, "load_mcp_config", lambda: {"required": object()})
+    monkeypatch.setattr(cli_module, "MCPManager", _CleanupFailureRequiredStartupManager)
+
+    with pytest.raises(cli_module.MCPStartupError) as error:
+        cli_module.build_mcp_manager(_console())
+
+    assert _CleanupFailureRequiredStartupManager.instances[0].closed is True
+    assert str(error.value).startswith("alpha: unavailable: handshake failed")
+
+
+@pytest.mark.parametrize("cleanup_error", [KeyboardInterrupt, SystemExit])
+def test_build_mcp_manager_does_not_swallow_base_cleanup_errors(monkeypatch, cleanup_error):
+    import forgeagent.cli as cli_module
+
+    _CleanupFailureRequiredStartupManager.instances.clear()
+    monkeypatch.setattr(_CleanupFailureRequiredStartupManager, "cleanup_error", cleanup_error)
+    monkeypatch.setattr(cli_module, "load_mcp_config", lambda: {"required": object()})
+    monkeypatch.setattr(cli_module, "MCPManager", _CleanupFailureRequiredStartupManager)
+
+    with pytest.raises(cleanup_error, match="cleanup failed"):
+        cli_module.build_mcp_manager(_console())
 
 
 def test_main_reports_required_mcp_startup_error_without_running_task(monkeypatch):
