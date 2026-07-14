@@ -276,3 +276,10 @@
 - Rewritten plan: Task 6 is split into `6A` generation-safe holder/session ownership, `6B` transactional startup and lifecycle waiters, and `6C` one loop-owned absolute-deadline shutdown drain.
 - Plan self-review: OpenSpec `4.4-4.6` map to `6A-6C`; all 38 tasks remain represented; placeholder and type/signature scans are clean.
 - Execution mode remains subagent-driven, TDD, thorough review. The two preserved failing regressions are the first RED evidence and must not be weakened.
+
+### Task 6A Complete
+
+- Implementation commits: `d7ebecd` generation-safe ownership; `819074e` structured outer-timeout fix.
+- GREEN evidence: `tests/test_mcp_manager.py` -> `52 passed, 1 skipped`; preserved regressions -> `3 passed`; Ruff check/format and diff check clean.
+- Review result: approved after one fix round. Accepted Important: outer facade timeout escaped `call_tool()`; fixed without caller-thread session invalidation. Rejected scope expansion: fixed raw MCP call messages are not required because the approved design preserves the existing masked MCP outcome contract.
+- Deferred by design to 6B/6C: shared ready deadline, cancel-aware lifecycle waiters, gate-before-set rollback, public status sanitization, and unique shielded shutdown drain.

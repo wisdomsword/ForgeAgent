@@ -710,7 +710,7 @@ git commit -m "feat: support required MCP services"
 - Produces: `_ServerState.generation`、`tearing_down_generation`、`restart_after_generation`；`_holders: dict[str, tuple[int, asyncio.Task, asyncio.Event]]`；`_sessions: dict[str, tuple[int, object]]`；loop-owned `_start_holder()`、`_finalize_holder_slot()` 和 generation-aware `_holder()`。
 - Consumes: existing `MCPServerConfig`, `MCPToolInfo`, `mask_secrets()`, `_render_content()` and synchronous manager API.
 
-- [ ] **Step 1: Add the preserved RED regressions and generation-specific RED cases**
+- [x] **Step 1: Add the preserved RED regressions and generation-specific RED cases**
 
 Keep these existing assertions unchanged:
 
@@ -723,7 +723,7 @@ UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest \
 
 Add tests for `test_re_enable_old_holder_finally_does_not_delete_replacement_session`, `test_call_failure_does_not_invalidate_replacement_session`, `test_call_selection_occurs_on_loop_for_current_generation`, `test_enable_racing_failed_holder_finalizer_starts_one_replacement`, `test_enable_after_failed_holder_finalized_starts_one_generation`, and `test_disable_during_holder_initialization_never_publishes_available`. Make each test assert the externally visible status/tools/session behavior, not only private dict shape. Run the focused file and confirm the new tests fail against the name-keyed implementation.
 
-- [ ] **Step 2: Replace name-only state with exact generation slots**
+- [x] **Step 2: Replace name-only state with exact generation slots**
 
 Change `_ServerState` and manager fields to the exact shapes above. Remove all uses of `_ServerState.stop` and direct main-thread `_sessions.pop()`/`_holders.pop()`. Allocate `state.generation + 1` only inside loop-owned `_start_holder()`. Create `(generation, task, stop)` before the task can run, and close the coroutine if task creation fails; that failure sets a fixed unavailable status and an already-set ready event without leaving a partial slot.
 
@@ -731,21 +731,21 @@ Implement `_finalize_holder_slot(name, generation, task)` as the only holder-slo
 
 Update the existing pre-Task-6C shutdown code and all test fixtures to unpack exact holder slots instead of assuming dict values are bare tasks. This is a compatibility bridge only: keep its existing deadline behavior until Task 6C, but all stop/cancel/finalize operations must already use the slot generation and stop event so the generation tests can pass without a mixed representation.
 
-- [ ] **Step 3: Make holder publication and failure cleanup generation-safe**
+- [x] **Step 3: Make holder publication and failure cleanup generation-safe**
 
 Change the holder signature to receive `generation`, `ready`, and its generation-specific `stop`. After every initialize/list-tools await, verify the exact slot, enabled desired state, stop flag and closing barrier before publishing the session tuple, tools and `available` status. On failure, expose only `unavailable: <ExceptionType>`, set ready, and do not include exception text. In `finally`, remove only the matching `(generation, session)` and never overwrite a newer generation. Active call failure must mark the exact generation unavailable and stop it, but must not set `restart_after_generation`; explicit `enable()` is required for retry.
 
-- [ ] **Step 4: Route enable/disable/retry through loop-owned reconcile**
+- [x] **Step 4: Route enable/disable/retry through loop-owned reconcile**
 
 When the loop exists, `enable()` and `disable()` submit loop coroutines; they do not mutate config, slots, sessions or status from the caller thread. `enable()` starts a holder when no slot exists even if `config.enabled` was already true; for an unavailable/finishing exact slot it sets desired enabled, `tearing_down_generation`, `restart_after_generation`, status `restarting`, clears tools, and signals only that stop event. `disable()` sets desired disabled, clears restart intent, keeps the holder slot until its task is done, clears catalog state and signals only that generation. Before initial connect, direct config mutation remains allowed; an all-disabled `connect()` leaves the manager pre-start with no loop.
 
 Close the already-preserved publication-gate RED in this task by requesting `loop.stop()` before the rollback join when gate release throws after the worker entered `run_forever()`. Preserve the primary `KeyboardInterrupt`/`SystemExit` object. Task 6B will extend this from the current set-then-raise case to gate failure before set and the full startup transaction.
 
-- [ ] **Step 5: Make call selection loop-owned and verify generation behavior**
+- [x] **Step 5: Make call selection loop-owned and verify generation behavior**
 
 Implement a loop-owned call wrapper that selects the current `(generation, session)` immediately before invoking `session.call_tool(...)`. The synchronous facade only submits that wrapper and receives the existing structured result contract. A call exception invalidates only the captured matching session/status/tools and signals its exact holder; it cannot remove or mark a replacement. Preserve the SDK inner read timeout before the outer facade timeout.
 
-- [ ] **Step 6: Run the generation-focused GREEN suite and commit**
+- [x] **Step 6: Run the generation-focused GREEN suite and commit**
 
 ```bash
 UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_mcp_manager.py -q -W error::RuntimeWarning
