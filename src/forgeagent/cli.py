@@ -111,8 +111,7 @@ def render_outcome(outcome: TaskOutcome, console: Console) -> None:
         # Solved, but the model answered in prose rather than executing code, so the
         # result is unverified — flag that distinction instead of a plain "completed".
         console.print(
-            "[bold green]completed[/bold green] "
-            "[dim](answered in prose, not executed)[/dim]"
+            "[bold green]completed[/bold green] [dim](answered in prose, not executed)[/dim]"
         )
     else:
         console.print(f"[bold yellow]stopped[/bold yellow]: {status.reason}")
@@ -153,9 +152,7 @@ def _print_usage(total: TokenUsage, console: Console) -> None:
     )
 
 
-def make_console_asker(
-    console: Console, read_line: Callable[[str], str] = input
-) -> Asker:
+def make_console_asker(console: Console, read_line: Callable[[str], str] = input) -> Asker:
     """Console-based `Asker` for the Survey tool: print the question (+ options if any)
     and return the user's typed answer. Empty input / EOF returns None so Survey ends
     the task with NEEDS_INFO cleanly (per docs/m7-tools-mcp-survey.md §3.5)."""
@@ -177,8 +174,7 @@ def make_console_asker(
 def _redact_confirmation_value(value):
     if isinstance(value, dict):
         return {
-            str(key): "<redacted>" if is_secret_name(str(key))
-            else _redact_confirmation_value(item)
+            str(key): "<redacted>" if is_secret_name(str(key)) else _redact_confirmation_value(item)
             for key, item in value.items()
         }
     if isinstance(value, list):
@@ -229,8 +225,7 @@ def _redact_confirmation_url(url: str) -> str:
         [
             (
                 mask_secrets(key, secret_values),
-                "REDACTED" if is_secret_name(key)
-                else mask_secrets(value, secret_values),
+                "REDACTED" if is_secret_name(key) else mask_secrets(value, secret_values),
             )
             for key, value in parse_qsl(parts.query, keep_blank_values=True)
         ]
@@ -265,9 +260,7 @@ def _confirmation_summary(args: BaseModel) -> str:
     return type(args).__name__
 
 
-def make_console_confirmer(
-    console: Console, read_line: Callable[[str], str] = input
-) -> Confirmer:
+def make_console_confirmer(console: Console, read_line: Callable[[str], str] = input) -> Confirmer:
     """Console-based `Confirmer` for side-effecting calls with minimal disclosure."""
 
     def _confirm(args: BaseModel) -> bool:
@@ -317,8 +310,13 @@ def run_once(
     if stream and console.is_terminal:
         live, on_stream_text = _make_stream_callback(console)
     task = Task(
-        client, tier=tier, asker=asker, mcp=mcp, confirmer=confirmer,
-        container_image=container_image, on_stream_text=on_stream_text,
+        client,
+        tier=tier,
+        asker=asker,
+        mcp=mcp,
+        confirmer=confirmer,
+        container_image=container_image,
+        on_stream_text=on_stream_text,
     )
     try:
         if live is not None:
@@ -424,9 +422,7 @@ def _handle_search_command(goal: str, console: Console) -> None:
             console.print(f"     {result.snippet}")
 
 
-def _handle_image_command(
-    goal: str, console: Console
-) -> tuple[list[ImageItem] | None, str | None]:
+def _handle_image_command(goal: str, console: Console) -> tuple[list[ImageItem] | None, str | None]:
     """`/image <path> [goal...]` — load image(s) from a file or directory (design doc
     §3.4/§3.5, shared logic with `image_input.load_images`). With a goal, returns
     (images, goal) so the caller runs it immediately with the images attached; with
@@ -551,8 +547,13 @@ def repl(
                 goal = inline_goal
                 staged_images = None
                 run_once(
-                    goal, tier=tier, model=model, client_factory=client_factory,
-                    console=console, asker=asker, mcp=mcp,
+                    goal,
+                    tier=tier,
+                    model=model,
+                    client_factory=client_factory,
+                    console=console,
+                    asker=asker,
+                    mcp=mcp,
                     confirmer=confirmer,
                     container_image=container_image,
                     usage_total=usage_total,
@@ -581,8 +582,13 @@ def repl(
                 _print_command_menu(console)
                 continue
             run_once(
-                goal, tier=tier, model=model, client_factory=client_factory,
-                console=console, asker=asker, mcp=mcp,
+                goal,
+                tier=tier,
+                model=model,
+                client_factory=client_factory,
+                console=console,
+                asker=asker,
+                mcp=mcp,
                 confirmer=confirmer,
                 container_image=container_image,
                 usage_total=usage_total,
@@ -652,16 +658,25 @@ def build_mcp_manager(console: Console) -> MCPManager | None:
     manager = MCPManager(servers)
     if not manager.has_enabled_servers:
         return None
-    manager.connect()
-    failures = manager.required_failures()
-    if failures:
-        diagnostics = ", ".join(
-            f"{name}: {status}" for name, status in sorted(failures.items())
-        )
+    try:
+        manager.connect()
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except Exception as exc:
         try:
             manager.close()
-        except Exception:
-            pass
+        except BaseException as cleanup:
+            if isinstance(cleanup, (KeyboardInterrupt, SystemExit)):
+                raise
+        raise MCPStartupError(f"MCP manager startup failed: {type(exc).__name__}") from None
+    failures = manager.required_failures()
+    if failures:
+        diagnostics = ", ".join(f"{name}: {status}" for name, status in sorted(failures.items()))
+        try:
+            manager.close()
+        except BaseException as cleanup:
+            if isinstance(cleanup, (KeyboardInterrupt, SystemExit)):
+                raise
         raise MCPStartupError(diagnostics)
     for name, status in manager.server_status().items():
         colour = "green" if status == "available" else "yellow"
@@ -684,30 +699,52 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="forgeagent", description="Lightweight code-as-action agent."
     )
-    parser.add_argument("--tier", choices=("trusted", "restricted", "container"),
-                        default="restricted",
-                        help="sandbox tier (default: restricted; container requires docker)")
-    parser.add_argument("--container-image", default=None, metavar="IMAGE",
-                        help="container tier image (default: python:3.11-slim)")
-    parser.add_argument("--model", default=DEFAULT_MODEL,
-                        help=f"model id (default: {DEFAULT_MODEL})")
-    parser.add_argument("--stream", action="store_true",
-                        help="render responses live as they arrive "
-                             "(auto-disabled when not attached to a terminal)")
+    parser.add_argument(
+        "--tier",
+        choices=("trusted", "restricted", "container"),
+        default="restricted",
+        help="sandbox tier (default: restricted; container requires docker)",
+    )
+    parser.add_argument(
+        "--container-image",
+        default=None,
+        metavar="IMAGE",
+        help="container tier image (default: python:3.11-slim)",
+    )
+    parser.add_argument(
+        "--model", default=DEFAULT_MODEL, help=f"model id (default: {DEFAULT_MODEL})"
+    )
+    parser.add_argument(
+        "--stream",
+        action="store_true",
+        help="render responses live as they arrive (auto-disabled when not attached to a terminal)",
+    )
     sub = parser.add_subparsers(dest="command")
     run_p = sub.add_parser("run", help="run a single goal and exit")
     run_p.add_argument("goal", help="the task goal")
-    run_p.add_argument("--interactive", action="store_true",
-                       help="allow mid-task Survey questions (prompts on the terminal)")
-    run_p.add_argument("--image", default=None, metavar="PATH",
-                       help="attach image(s) at PATH (a file, or a directory of images)")
+    run_p.add_argument(
+        "--interactive",
+        action="store_true",
+        help="allow mid-task Survey questions (prompts on the terminal)",
+    )
+    run_p.add_argument(
+        "--image",
+        default=None,
+        metavar="PATH",
+        help="attach image(s) at PATH (a file, or a directory of images)",
+    )
     sub.add_parser("models", help="list available models and their aliases")
     smoke_p = sub.add_parser("smoke", help="run a live smoke check against real models")
-    smoke_p.add_argument("--include-fable", action="store_true",
-                        help="also run claude-fable-5 (opt-in: extra cost + refusal risk)")
-    smoke_p.add_argument("--include-openai-compatible", action="store_true",
-                        help="also run gpt-5.4-mini/glm-5.2/deepseek-v4-flash "
-                             "(opt-in: separate API keys required)")
+    smoke_p.add_argument(
+        "--include-fable",
+        action="store_true",
+        help="also run claude-fable-5 (opt-in: extra cost + refusal risk)",
+    )
+    smoke_p.add_argument(
+        "--include-openai-compatible",
+        action="store_true",
+        help="also run gpt-5.4-mini/glm-5.2/deepseek-v4-flash (opt-in: separate API keys required)",
+    )
     return parser
 
 
@@ -743,7 +780,10 @@ def main(
                     else None
                 )
                 outcome = run_once(
-                    args.goal, tier=args.tier, model=args.model, client_factory=client_factory,
+                    args.goal,
+                    tier=args.tier,
+                    model=args.model,
+                    client_factory=client_factory,
                     console=console,
                     asker=make_console_asker(console) if args.interactive else None,
                     mcp=mcp,
@@ -766,8 +806,14 @@ def main(
                 tier=args.tier, models=models, client_factory=client_factory, console=console
             )
             return 0 if ok else 1
-        repl(tier=args.tier, model=args.model, client_factory=client_factory, console=console,
-             container_image=args.container_image, stream=args.stream)
+        repl(
+            tier=args.tier,
+            model=args.model,
+            client_factory=client_factory,
+            console=console,
+            container_image=args.container_image,
+            stream=args.stream,
+        )
         return 0
     except RegistryError as exc:
         console.print(f"[red]config error[/red]: {exc}")

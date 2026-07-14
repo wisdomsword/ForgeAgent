@@ -28,9 +28,11 @@ import os
 import re
 import threading
 import time
+from collections.abc import Coroutine
 from dataclasses import dataclass, field
 from datetime import timedelta
 from pathlib import Path
+from typing import Any
 
 import yaml
 from pydantic import BaseModel, Field
@@ -45,6 +47,7 @@ CONNECT_TIMEOUT = 15.0
 CALL_TIMEOUT = 30.0
 
 _ENV_PLACEHOLDER = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+_UNAVAILABLE_CAUSE = re.compile(r"^unavailable: ([A-Za-z_][A-Za-z0-9_]*)")
 _LOOP_THREAD_NAME = "forgeagent-mcp-loop"
 
 logger = logging.getLogger(__name__)
@@ -52,6 +55,20 @@ logger = logging.getLogger(__name__)
 
 def _remaining(deadline: float, *, reserve: float = 0.0) -> float:
     return max(0.0, deadline - time.monotonic() - reserve)
+
+
+def _public_status(status: str) -> str:
+    """Reduce internal status to a fixed category or exception type."""
+    if status in {
+        "available",
+        "restarting",
+        "unavailable",
+        "unavailable: connect timeout",
+        "unavailable: disabled",
+    }:
+        return status
+    cause = _UNAVAILABLE_CAUSE.match(status)
+    return f"unavailable: {cause.group(1)}" if cause else "unavailable"
 
 
 class MCPServerConfig(BaseModel):
@@ -90,6 +107,15 @@ class _ServerState:
     generation: int = 0
     tearing_down_generation: int | None = None
     restart_after_generation: int | None = None
+
+
+@dataclass
+class _LoopOwnedOperation:
+    """One lifecycle intent whose owner task is independent from its sync waiter."""
+
+    coroutine: Coroutine[Any, Any, Any] | None
+    task: asyncio.Task | None = None
+    start_error: BaseException | None = None
 
 
 def _resolve_env(env: dict[str, str]) -> dict[str, str]:
@@ -161,12 +187,18 @@ class MCPManager:
         # server -> (generation, holder Task, stop Event), so close()/disable() can await a
         # holder's async-with __aexit__ (which terminates the child process) before stopping.
         self._holders: dict[str, tuple[int, asyncio.Task, asyncio.Event]] = {}
+        self._lifecycle_tasks: set[asyncio.Task] = set()
         self._started = False
         self._closed = False
         self._closing = False
         self._shutdown_future: concurrent.futures.Future[set[str]] | None = None
+        self._shutdown_task: asyncio.Task | None = None
+        self._shutdown_retry: asyncio.Event | None = None
+        self._shutdown_snapshot: dict[str, tuple[int, asyncio.Task, asyncio.Event]] | None = None
+        self._shutdown_lifecycle_snapshot: frozenset[asyncio.Task] | None = None
+        self._shutdown_deadline: float | None = None
+        self._shutdown_pending: frozenset[str] = frozenset()
         self._shutdown_complete = threading.Event()
-        self._shutdown_started = False
         # Secret values to redact from MCP output before it reaches feedback/console —
         # MCP results are external data (threat-model T8c); mask them like executor output.
         self._secret_values = sensitive_env_values()
@@ -175,14 +207,123 @@ class MCPManager:
     def has_enabled_servers(self) -> bool:
         return any(s.config.enabled for s in self._states.values())
 
-    def _submit(self, coro, timeout: float):
-        assert self._loop is not None
+    def _consume_owned_operation_result(self, task: asyncio.Task) -> None:
+        self._lifecycle_tasks.discard(task)
+        if task.cancelled():
+            return
         try:
-            future = asyncio.run_coroutine_threadsafe(coro, self._loop)
+            task.exception()
+        except BaseException as exc:  # result observation must not affect loop progress
+            logger.warning("MCP lifecycle result observation failed: %s", type(exc).__name__)
+
+    def _start_owned_operation(self, operation: _LoopOwnedOperation) -> None:
+        if operation.task is not None or operation.start_error is not None:
+            return
+        coroutine = operation.coroutine
+        if coroutine is None:
+            return
+        try:
+            task = asyncio.create_task(coroutine)
+        except BaseException as exc:
+            operation.start_error = exc
+            logger.warning("MCP lifecycle operation start failed: %s", type(exc).__name__)
+            try:
+                coroutine.close()
+            except BaseException as cleanup:
+                logger.warning(
+                    "MCP lifecycle coroutine cleanup failed: %s",
+                    type(cleanup).__name__,
+                )
+            operation.coroutine = None
+            return
+        operation.coroutine = None
+        operation.task = task
+        self._lifecycle_tasks.add(task)
+        task.add_done_callback(self._consume_owned_operation_result)
+
+    async def _wait_for_owned_operation(self, operation: _LoopOwnedOperation):
+        self._start_owned_operation(operation)
+        if operation.start_error is not None:
+            raise operation.start_error
+        if operation.task is None:
+            raise RuntimeError("MCP lifecycle operation did not start")
+        return await asyncio.shield(operation.task)
+
+    def _ensure_owned_operation(self, operation: _LoopOwnedOperation) -> None:
+        if operation.task is not None or operation.start_error is not None:
+            return
+        loop = self._loop
+        if loop is None:
+            coroutine = operation.coroutine
+            operation.coroutine = None
+            if coroutine is not None:
+                coroutine.close()
+            return
+        try:
+            loop.call_soon_threadsafe(self._start_owned_operation, operation)
+        except BaseException as exc:
+            coroutine = operation.coroutine
+            operation.coroutine = None
+            if coroutine is not None:
+                try:
+                    coroutine.close()
+                except BaseException as cleanup:
+                    logger.warning(
+                        "MCP lifecycle coroutine cleanup failed: %s",
+                        type(cleanup).__name__,
+                    )
+            logger.warning("MCP lifecycle scheduling failed: %s", type(exc).__name__)
+
+    def _submit(self, coro, timeout: float, *, cancel_on_timeout: bool = True):
+        assert self._loop is not None
+        operation = _LoopOwnedOperation(coro) if cancel_on_timeout else None
+        submitted_coro = (
+            self._wait_for_owned_operation(operation) if operation is not None else coro
+        )
+        try:
+            future = asyncio.run_coroutine_threadsafe(submitted_coro, self._loop)
         except BaseException:
-            coro.close()
+            try:
+                submitted_coro.close()
+            except BaseException as cleanup:
+                logger.warning(
+                    "MCP rejected coroutine cleanup failed: %s",
+                    type(cleanup).__name__,
+                )
+            if operation is not None and operation.coroutine is not None:
+                try:
+                    operation.coroutine.close()
+                except BaseException as cleanup:
+                    logger.warning(
+                        "MCP lifecycle coroutine cleanup failed: %s",
+                        type(cleanup).__name__,
+                    )
+                operation.coroutine = None
             raise
-        return future.result(timeout=timeout)
+        try:
+            return future.result(timeout=timeout)
+        except concurrent.futures.TimeoutError:
+            if not cancel_on_timeout:
+                raise
+            try:
+                future.cancel()
+            except BaseException as exc:  # preserve the caller's primary exception
+                logger.warning("MCP lifecycle waiter cancellation failed: %s", type(exc).__name__)
+            assert operation is not None
+            self._ensure_owned_operation(operation)
+            raise
+        except (KeyboardInterrupt, SystemExit):
+            try:
+                future.cancel()
+            except BaseException as exc:  # preserve the caller's primary exception
+                logger.warning("MCP lifecycle waiter cancellation failed: %s", type(exc).__name__)
+            if operation is not None:
+                self._ensure_owned_operation(operation)
+            raise
+        except BaseException:
+            if operation is not None:
+                self._ensure_owned_operation(operation)
+            raise
 
     def _holder_slot_matches(
         self,
@@ -303,18 +444,33 @@ class MCPManager:
 
     def _start_holder(self, name: str) -> asyncio.Event:
         """On the loop thread: allocate and start one holder generation."""
+        ready = asyncio.Event()
+        if self._closed or self._closing:
+            ready.set()
+            return ready
         state = self._states[name]
         state.generation += 1
         generation = state.generation
-        ready = asyncio.Event()
         stop = asyncio.Event()
         holder_coro = self._holder(name, generation, ready, stop)
         try:
             task = asyncio.create_task(holder_coro)
         except BaseException as exc:
-            holder_coro.close()
+            try:
+                holder_coro.close()
+            except BaseException as cleanup:
+                logger.warning(
+                    "MCP holder coroutine cleanup failed: %s",
+                    type(cleanup).__name__,
+                )
+            if not isinstance(exc, Exception):
+                raise
             state.tools = []
             state.status = f"unavailable: {type(exc).__name__}"
+            ready.set()
+            return ready
+        if self._closed or self._closing:
+            task.cancel()
             ready.set()
             return ready
         self._holders[name] = (generation, task, stop)
@@ -373,26 +529,45 @@ class MCPManager:
 
     async def _start_holders(self, names: list[str]) -> None:
         """On the loop thread: start a holder task per name and wait for each to become
-        ready (available or unavailable), bounded per server so one slow server does not
-        block the others. Holder tasks are tracked in self._holders for clean shutdown."""
-        readies: dict[str, asyncio.Event] = {}
+        ready (available or unavailable) within one shared startup deadline."""
+        if self._closed or self._closing:
+            return
+        readies: dict[str, tuple[int, asyncio.Event]] = {}
         for name in names:
+            if self._closed or self._closing:
+                break
             state = self._states[name]
             if not state.config.enabled or name in self._holders:
                 continue
-            readies[name] = self._start_holder(name)
-        for name, ready in readies.items():
+            ready = self._start_holder(name)
+            readies[name] = (state.generation, ready)
+
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + max(0.0, self._connect_timeout)
+
+        async def wait_until_ready(name: str, generation: int, ready: asyncio.Event) -> None:
             try:
-                await asyncio.wait_for(ready.wait(), timeout=self._connect_timeout)
+                await asyncio.wait_for(ready.wait(), timeout=max(0.0, deadline - loop.time()))
             except TimeoutError:
+                if ready.is_set():
+                    return
                 state = self._states[name]
+                if state.generation != generation:
+                    return
                 slot = self._holders.get(name)
-                if slot is not None:
-                    generation, _task, stop = slot
+                if slot is not None and slot[0] == generation:
+                    _generation, _task, stop = slot
                     state.tearing_down_generation = generation
                     stop.set()
                 state.tools = []
                 state.status = "unavailable: connect timeout"
+
+        await asyncio.gather(
+            *(
+                wait_until_ready(name, generation, ready)
+                for name, (generation, ready) in readies.items()
+            )
+        )
 
     def connect(self) -> None:
         """Start the background loop and eagerly connect every enabled server, concurrently.
@@ -400,18 +575,21 @@ class MCPManager:
         Idempotent-ish: call once per manager. A server that fails to connect within
         connect_timeout is left `unavailable` and does not block the others.
         """
+        if self._closed:
+            return
         if self._started:
             return
         enabled = [n for n, s in self._states.items() if s.config.enabled]
         if not enabled:
-            self._started = True
             return
         loop = asyncio.new_event_loop()
         startup_gate = threading.Event()
         startup_cancelled = threading.Event()
 
         def run_loop_after_publication() -> None:
-            startup_gate.wait()
+            while not startup_cancelled.is_set():
+                if startup_gate.wait(0.01):
+                    break
             if not startup_cancelled.is_set():
                 loop.run_forever()
 
@@ -427,12 +605,24 @@ class MCPManager:
             self._started = True
             startup_gate.set()
         except BaseException:
-            startup_cancelled.set()
-            startup_gate.set()
             try:
-                if loop.is_running():
+                startup_cancelled.set()
+            except BaseException as exc:  # preserve the start failure
+                logger.warning(
+                    "MCP startup cancellation marker failed: %s",
+                    type(exc).__name__,
+                )
+            try:
+                startup_gate.set()
+            except BaseException as exc:  # preserve the start failure
+                logger.warning(
+                    "MCP publication gate cleanup after start failure failed: %s",
+                    type(exc).__name__,
+                )
+            try:
+                if thread.ident is not None:
                     loop.call_soon_threadsafe(loop.stop)
-            except Exception as exc:  # noqa: BLE001 - preserve the start failure
+            except BaseException as exc:  # preserve the start failure
                 logger.warning(
                     "MCP loop stop after start failure failed: %s",
                     type(exc).__name__,
@@ -440,7 +630,7 @@ class MCPManager:
             try:
                 if thread.ident is not None:
                     thread.join(timeout=self._thread_join_timeout)
-            except Exception as exc:  # noqa: BLE001 - preserve the start failure
+            except BaseException as exc:  # preserve the start failure
                 logger.warning(
                     "MCP loop thread cleanup after start failure failed: %s",
                     type(exc).__name__,
@@ -448,7 +638,7 @@ class MCPManager:
 
             try:
                 thread_alive = thread.is_alive()
-            except Exception as exc:  # noqa: BLE001 - retain references conservatively
+            except BaseException as exc:  # retain references conservatively
                 thread_alive = True
                 logger.warning(
                     "MCP loop thread state after start failure failed: %s",
@@ -471,14 +661,41 @@ class MCPManager:
                 self._thread = None
                 try:
                     loop.close()
-                except Exception as exc:  # noqa: BLE001 - preserve the start failure
+                except BaseException as exc:  # preserve the start failure
                     logger.warning(
                         "MCP loop cleanup after start failure failed: %s",
                         type(exc).__name__,
                     )
+                self._closed = False
+                self._closing = False
+                self._shutdown_future = None
+                self._shutdown_task = None
+                self._shutdown_retry = None
+                self._shutdown_snapshot = None
+                self._shutdown_lifecycle_snapshot = None
+                self._shutdown_deadline = None
+                self._shutdown_pending = frozenset()
+                self._shutdown_complete.clear()
             self._started = thread_alive
             raise
-        self._submit(self._start_holders(enabled), timeout=self._connect_timeout * len(enabled) + 5)
+        try:
+            self._submit(
+                self._start_holders(enabled),
+                timeout=max(0.0, self._connect_timeout) + 5,
+            )
+        except BaseException as primary:
+            try:
+                self.close()
+            except BaseException as cleanup:
+                primary_is_control = isinstance(primary, (KeyboardInterrupt, SystemExit))
+                cleanup_is_control = isinstance(cleanup, (KeyboardInterrupt, SystemExit))
+                if cleanup_is_control and not primary_is_control:
+                    raise
+                logger.warning(
+                    "MCP startup cleanup failed: %s",
+                    type(cleanup).__name__,
+                )
+            raise
 
     def list_tools(self) -> list[MCPToolInfo]:
         """Every tool from every currently-available, enabled server (the catalog)."""
@@ -490,12 +707,15 @@ class MCPManager:
 
     def server_status(self) -> dict[str, str]:
         """server name -> status ("available" or "unavailable: <reason>")."""
-        return {name: state.status for name, state in self._states.items()}
+        return {
+            name: mask_secrets(_public_status(state.status), self._secret_values)
+            for name, state in self._states.items()
+        }
 
     def required_failures(self) -> dict[str, str]:
         """Enabled required servers that did not become available at startup."""
         return {
-            name: mask_secrets(state.status, self._secret_values)
+            name: mask_secrets(_public_status(state.status), self._secret_values)
             for name, state in self._states.items()
             if state.config.enabled and state.config.required and state.status != "available"
         }
@@ -546,6 +766,7 @@ class MCPManager:
             return self._submit(
                 self._call_tool_on_loop(server, tool, arguments),
                 timeout=self._call_timeout + 5,  # outer > SDK read timeout so SDK's fires first
+                cancel_on_timeout=False,
             )
         except Exception as exc:  # noqa: BLE001 - preserve structured MCP failure contract
             # The loop wrapper may still be running after an outer facade timeout. Do not
@@ -569,18 +790,25 @@ class MCPManager:
         if session_slot is None:
             return {"ok": False, "text": f"MCP server {server!r} has no live session"}
         generation, session = session_slot
+        if state.generation != generation or not self._holder_slot_matches(server, generation):
+            return {"ok": False, "text": f"MCP server {server!r} has no live session"}
         try:
             result = await session.call_tool(
                 tool, arguments, read_timeout_seconds=timedelta(seconds=self._call_timeout)
             )
         except Exception as exc:  # noqa: BLE001 - structured error into the feedback loop
             # An errored call means only this captured generation can no longer be trusted.
-            if self._session_slot_matches(server, generation, session):
+            if (
+                state.generation == generation
+                and self._holder_slot_matches(server, generation)
+                and self._session_slot_matches(server, generation, session)
+            ):
                 self._sessions.pop(server, None)
                 state.tools = []
                 state.status = f"unavailable: {type(exc).__name__}"
+                state.tearing_down_generation = generation
                 holder_slot = self._holders.get(server)
-                if holder_slot is not None and holder_slot[0] == generation:
+                if holder_slot is not None:
                     holder_slot[2].set()
             return {
                 "ok": False,
@@ -617,7 +845,6 @@ class MCPManager:
 
     async def _disable_on_loop(self, server: str) -> None:
         state = self._states[server]
-        was_available = state.status == "available"
         state.config.enabled = False
         state.restart_after_generation = None
         state.tools = []
@@ -627,9 +854,8 @@ class MCPManager:
             generation, holder, stop = slot
             state.tearing_down_generation = generation
             stop.set()
-            if was_available:
-                await asyncio.gather(holder, return_exceptions=True)
-                self._finalize_holder_slot(server, generation, holder)
+            await asyncio.shield(holder)
+            self._finalize_holder_slot(server, generation, holder)
         session_slot = self._sessions.get(server)
         if session_slot is not None and (slot is None or session_slot[0] == slot[0]):
             self._sessions.pop(server, None)
@@ -668,98 +894,235 @@ class MCPManager:
             state.status = "unavailable: disabled"
         return True
 
-    async def _shutdown_holders(
-        self,
-        holder_snapshot: dict[str, tuple[int, asyncio.Task, asyncio.Event]],
-        deadline: float,
-    ) -> set[str]:
-        if self._shutdown_started:
-            return set()
-        self._shutdown_started = True
+    def _shutdown_pending_names(self) -> frozenset[str]:
+        snapshot = self._shutdown_snapshot or {}
+        pending = {
+            name
+            for name, (generation, task, _stop) in snapshot.items()
+            if not task.done()
+            or name in self._holders
+            or ((session := self._sessions.get(name)) is not None and session[0] == generation)
+        }
+        pending.update(self._holders)
+        pending.update(self._sessions)
+        return frozenset(pending)
+
+    def _shutdown_invariants_hold(self) -> bool:
+        snapshot = self._shutdown_snapshot or {}
+        return (
+            all(task.done() for _generation, task, _stop in snapshot.values())
+            and not self._holders
+            and not self._sessions
+            and not self._lifecycle_tasks
+        )
+
+    @staticmethod
+    def _consume_shutdown_task_result(task: asyncio.Task) -> None:
+        if task.cancelled():
+            return
+        try:
+            error = task.exception()
+        except BaseException as exc:
+            logger.warning("MCP shutdown result observation failed: %s", type(exc).__name__)
+            return
+        if error is not None:
+            logger.warning("MCP authoritative shutdown failed: %s", type(error).__name__)
+
+    def _ensure_shutdown_task(self, deadline: float) -> asyncio.Task:
+        """On the loop: publish the closing barrier, exact snapshot and sole drain task."""
+        if self._shutdown_task is not None:
+            current = self._shutdown_deadline
+            self._shutdown_deadline = deadline if current is None else max(current, deadline)
+            if self._shutdown_retry is not None:
+                self._shutdown_retry.set()
+            return self._shutdown_task
+
         self._closing = True
-        pending = {task for _generation, task, _stop in holder_snapshot.values()}
+        self._shutdown_deadline = deadline
+        self._shutdown_retry = asyncio.Event()
+        self._shutdown_snapshot = dict(self._holders)
+        self._shutdown_lifecycle_snapshot = frozenset(self._lifecycle_tasks)
+        self._shutdown_pending = frozenset(self._shutdown_snapshot)
+        for state in self._states.values():
+            state.restart_after_generation = None
+
+        drain_coro = self._drain_shutdown()
         try:
-            for _generation, _task, stop in holder_snapshot.values():
-                stop.set()
-
-            if pending:
-                normal_budget = _remaining(
-                    deadline,
-                    reserve=self._thread_join_timeout,
-                )
-                normal_timeout = min(5.0, normal_budget)
-                # Preserve cancellation time for short injected shutdown budgets.
-                if normal_budget <= 5.0:
-                    normal_timeout /= 2
-                _, pending = await asyncio.wait(
-                    pending,
-                    timeout=normal_timeout,
-                )
-            for holder in pending:
-                holder.cancel()
-            if pending:
-                _, pending = await asyncio.wait(
-                    pending,
-                    timeout=_remaining(deadline, reserve=self._thread_join_timeout),
-                )
-        except asyncio.CancelledError:
-            # Future timeout cancellation is a request to accelerate holder cleanup, not
-            # permission to stop the loop before async context finalizers have run.
-            pass
-        finally:
-            pending = {
-                task for _generation, task, _stop in holder_snapshot.values() if not task.done()
-            }
-            for holder in pending:
-                holder.cancel()
-            while pending:
-                try:
-                    _, pending = await asyncio.wait(pending)
-                except asyncio.CancelledError:
-                    for holder in pending:
-                        holder.cancel()
-
-            for name, (generation, holder, _stop) in holder_snapshot.items():
-                if not holder.cancelled():
-                    holder.exception()
-                current = self._holders.get(name)
-                if current is not None and current[0] == generation and current[1] is holder:
-                    self._holders.pop(name, None)
-                session_slot = self._sessions.get(name)
-                if session_slot is not None and session_slot[0] == generation:
-                    self._sessions.pop(name, None)
-            self._shutdown_complete.set()
-            asyncio.get_running_loop().call_soon_threadsafe(asyncio.get_running_loop().stop)
-        return set()
-
-    def _start_shutdown_drain(
-        self,
-        holder_snapshot: dict[str, tuple[int, asyncio.Task, asyncio.Event]],
-        deadline: float,
-    ) -> None:
-        if self._shutdown_started:
-            return
-        shutdown_coro = self._shutdown_holders(holder_snapshot, deadline)
-        try:
-            task = asyncio.create_task(shutdown_coro)
+            task = asyncio.create_task(drain_coro)
         except BaseException:
-            shutdown_coro.close()
+            try:
+                drain_coro.close()
+            except BaseException as cleanup:
+                logger.warning(
+                    "MCP shutdown coroutine cleanup failed: %s",
+                    type(cleanup).__name__,
+                )
             raise
-        task.add_done_callback(lambda done: None if done.cancelled() else done.exception())
+        self._shutdown_task = task
+        task.add_done_callback(self._consume_shutdown_task_result)
+        return task
 
-    def _request_shutdown_drain(
-        self,
-        holder_snapshot: dict[str, tuple[int, asyncio.Task, asyncio.Event]],
-        deadline: float,
-    ) -> None:
-        if self._loop is None or self._shutdown_complete.is_set():
+    async def _wait_for_shutdown(self, deadline: float) -> set[str]:
+        task = self._ensure_shutdown_task(deadline)
+        await asyncio.shield(task)
+        return set(self._shutdown_pending)
+
+    async def _drain_shutdown(self) -> None:
+        snapshot = self._shutdown_snapshot or {}
+        lifecycle_snapshot = self._shutdown_lifecycle_snapshot or frozenset()
+        retry = self._shutdown_retry
+        assert retry is not None
+
+        def cancel_task(task: asyncio.Task, resource: str) -> None:
+            try:
+                task.cancel()
+            except Exception as exc:  # noqa: BLE001 - isolate the authoritative drain
+                logger.warning("MCP %s cancellation failed: %s", resource, type(exc).__name__)
+
+        for name, (_generation, _task, stop) in snapshot.items():
+            try:
+                stop.set()
+            except Exception as exc:  # noqa: BLE001 - isolate exact holder cleanup
+                logger.warning("MCP holder stop failed for %s: %s", name, type(exc).__name__)
+        for lifecycle_task in lifecycle_snapshot:
+            cancel_task(lifecycle_task, "lifecycle")
+
+        holder_pending = {task for _generation, task, _stop in snapshot.values() if not task.done()}
+        lifecycle_pending = {task for task in lifecycle_snapshot if not task.done()}
+        if holder_pending:
+            deadline = self._shutdown_deadline or time.monotonic()
+            normal_budget = _remaining(deadline, reserve=self._thread_join_timeout)
+            normal_timeout = min(5.0, normal_budget)
+            if normal_budget <= 5.0:
+                normal_timeout /= 2
+            if normal_timeout > 0:
+                try:
+                    _, holder_pending = await asyncio.wait(
+                        holder_pending,
+                        timeout=normal_timeout,
+                    )
+                except asyncio.CancelledError:
+                    holder_pending = {
+                        task for _generation, task, _stop in snapshot.values() if not task.done()
+                    }
+
+        while True:
+            for holder in holder_pending:
+                cancel_task(holder, "holder")
+            for lifecycle_task in lifecycle_pending:
+                cancel_task(lifecycle_task, "lifecycle")
+
+            while holder_pending or lifecycle_pending:
+                self._shutdown_pending = self._shutdown_pending_names()
+                retry_wait = asyncio.create_task(retry.wait())
+                try:
+                    done, _ = await asyncio.wait(
+                        holder_pending | lifecycle_pending | {retry_wait},
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                except asyncio.CancelledError:
+                    retry_wait.cancel()
+                    await asyncio.gather(retry_wait, return_exceptions=True)
+                    for holder in holder_pending:
+                        cancel_task(holder, "holder")
+                    for lifecycle_task in lifecycle_pending:
+                        cancel_task(lifecycle_task, "lifecycle")
+                    continue
+
+                if retry_wait in done:
+                    retry.clear()
+                    holder_pending = {
+                        task for _generation, task, _stop in snapshot.values() if not task.done()
+                    }
+                    lifecycle_pending = {task for task in lifecycle_snapshot if not task.done()}
+                    for holder in holder_pending:
+                        cancel_task(holder, "holder")
+                    for lifecycle_task in lifecycle_pending:
+                        cancel_task(lifecycle_task, "lifecycle")
+                    continue
+
+                retry_wait.cancel()
+                await asyncio.gather(retry_wait, return_exceptions=True)
+                holder_pending = {
+                    task for _generation, task, _stop in snapshot.values() if not task.done()
+                }
+                lifecycle_pending = {task for task in lifecycle_snapshot if not task.done()}
+
+            for lifecycle_task in lifecycle_snapshot:
+                self._lifecycle_tasks.discard(lifecycle_task)
+                if not lifecycle_task.cancelled():
+                    try:
+                        lifecycle_task.exception()
+                    except Exception as exc:  # noqa: BLE001 - result observation only
+                        logger.warning(
+                            "MCP lifecycle result failed: %s",
+                            type(exc).__name__,
+                        )
+
+            for name, (generation, holder, _stop) in snapshot.items():
+                if not holder.cancelled():
+                    try:
+                        error = holder.exception()
+                    except Exception as exc:  # noqa: BLE001 - keep draining other slots
+                        logger.warning(
+                            "MCP holder result failed for %s: %s",
+                            name,
+                            type(exc).__name__,
+                        )
+                    else:
+                        if isinstance(error, Exception):
+                            logger.debug(
+                                "MCP holder shutdown result for %s: %s",
+                                name,
+                                type(error).__name__,
+                            )
+                try:
+                    self._finalize_holder_slot(name, generation, holder)
+                except Exception as exc:  # noqa: BLE001 - retry exact invariant later
+                    logger.warning(
+                        "MCP holder finalization failed for %s: %s",
+                        name,
+                        type(exc).__name__,
+                    )
+
+            self._shutdown_pending = self._shutdown_pending_names()
+            if self._shutdown_invariants_hold():
+                self._shutdown_pending = frozenset()
+                self._shutdown_complete.set()
+                asyncio.create_task(self._stop_loop_after_facades())
+                return
+
+            retry.clear()
+            try:
+                await retry.wait()
+            except asyncio.CancelledError:
+                continue
+            retry.clear()
+            holder_pending = {
+                task for _generation, task, _stop in snapshot.values() if not task.done()
+            }
+            lifecycle_pending = {task for task in lifecycle_snapshot if not task.done()}
+
+    @staticmethod
+    async def _stop_loop_after_facades() -> None:
+        # Let shield callbacks publish the authoritative task result before run_forever exits.
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        asyncio.get_running_loop().stop()
+
+    def _request_shutdown_retry(self, deadline: float) -> None:
+        loop = self._loop
+        if loop is None or self._shutdown_complete.is_set():
             return
+
+        def ensure_and_signal() -> None:
+            try:
+                self._ensure_shutdown_task(deadline)
+            except Exception as exc:  # noqa: BLE001 - close remains best-effort
+                logger.warning("MCP shutdown drain start failed: %s", type(exc).__name__)
+
         try:
-            self._loop.call_soon_threadsafe(
-                self._start_shutdown_drain,
-                holder_snapshot,
-                deadline,
-            )
+            loop.call_soon_threadsafe(ensure_and_signal)
         except Exception as exc:  # noqa: BLE001 - shutdown remains best-effort
             logger.warning("MCP shutdown drain scheduling failed: %s", type(exc).__name__)
 
@@ -776,8 +1139,15 @@ class MCPManager:
 
     def _clear_stopped_resources(self) -> None:
         self._shutdown_future = None
+        self._shutdown_task = None
+        self._shutdown_retry = None
+        self._shutdown_snapshot = None
+        self._shutdown_lifecycle_snapshot = None
+        self._shutdown_deadline = None
+        self._shutdown_pending = frozenset()
         self._holders.clear()
         self._sessions.clear()
+        self._lifecycle_tasks.clear()
         self._loop = None
         self._thread = None
 
@@ -809,19 +1179,21 @@ class MCPManager:
                     "MCP loop thread state check failed: %s",
                     type(exc).__name__,
                 )
+        cleanup_complete = self._shutdown_complete.is_set()
 
         if alive or not cleanup_complete:
             try:
                 ident = thread.ident if thread is not None else None
             except Exception:  # noqa: BLE001 - diagnostic field only
                 ident = None
+            safe_pending = sorted(mask_secrets(name, self._secret_values) for name in pending)
             logger.warning(
                 "MCP shutdown incomplete; resources may remain: "
                 "thread=%s ident=%s alive=%s pending=%s timeout=%.3f",
                 _LOOP_THREAD_NAME,
                 ident,
                 alive,
-                sorted(pending),
+                safe_pending,
                 join_timeout,
             )
             return
@@ -829,24 +1201,16 @@ class MCPManager:
         if loop is not None:
             try:
                 loop.close()
-            except Exception as exc:  # noqa: BLE001 - clear stopped references regardless
+            except Exception as exc:  # noqa: BLE001 - retain evidence for a later close
                 logger.warning("MCP loop close failed: %s", type(exc).__name__)
+                return
         self._clear_stopped_resources()
-
-    def _retry_lingering_thread(self) -> None:
-        self._cancel_shutdown_future()
-        deadline = time.monotonic() + self._thread_join_timeout
-        self._stop_and_join(deadline, frozenset(self._holders))
 
     def close(self) -> None:
         """Bounded, idempotent shutdown that never raises ordinary exceptions."""
-        if getattr(self, "_closed", False):
-            try:
-                self._retry_lingering_thread()
-            except Exception as exc:  # noqa: BLE001 - public close is no-throw
-                logger.warning("MCP shutdown retry failed: %s", type(exc).__name__)
-            return
-        self._closed = True
+        first_close = not getattr(self, "_closed", False)
+        if first_close:
+            self._closed = True
 
         if self._loop is None:
             self._shutdown_complete.set()
@@ -854,8 +1218,7 @@ class MCPManager:
             return
 
         deadline = time.monotonic() + self._shutdown_timeout + self._thread_join_timeout
-        holder_snapshot = dict(self._holders)
-        fallback_pending = frozenset(holder_snapshot)
+        fallback_pending = frozenset(self._holders)
         pending: set[str] | frozenset[str] = fallback_pending
 
         thread_alive = False
@@ -868,8 +1231,6 @@ class MCPManager:
                     type(exc).__name__,
                 )
         if not thread_alive:
-            if not holder_snapshot:
-                self._shutdown_complete.set()
             try:
                 self._stop_and_join(deadline, pending)
             except Exception as exc:  # noqa: BLE001 - public close is no-throw
@@ -879,7 +1240,19 @@ class MCPManager:
                 )
             return
 
-        shutdown_coro = self._shutdown_holders(holder_snapshot, deadline)
+        if not first_close:
+            try:
+                self._request_shutdown_retry(deadline)
+                self._shutdown_complete.wait(
+                    timeout=_remaining(deadline, reserve=self._thread_join_timeout)
+                )
+                pending = self._shutdown_pending or fallback_pending
+                self._stop_and_join(deadline, pending)
+            except Exception as exc:  # noqa: BLE001 - public close is no-throw
+                logger.warning("MCP shutdown retry failed: %s", type(exc).__name__)
+            return
+
+        shutdown_coro = self._wait_for_shutdown(deadline)
         try:
             try:
                 self._shutdown_future = asyncio.run_coroutine_threadsafe(
@@ -887,28 +1260,51 @@ class MCPManager:
                     self._loop,
                 )
             except BaseException:
-                shutdown_coro.close()
-                if not holder_snapshot:
-                    self._shutdown_complete.set()
+                try:
+                    shutdown_coro.close()
+                except BaseException as cleanup:
+                    logger.warning(
+                        "MCP shutdown facade cleanup failed: %s",
+                        type(cleanup).__name__,
+                    )
+                try:
+                    if not self._holders and not self._sessions and not self._lifecycle_tasks:
+                        self._shutdown_complete.set()
+                    else:
+                        self._request_shutdown_retry(deadline)
+                except BaseException as cleanup:
+                    logger.warning(
+                        "MCP shutdown fallback cleanup failed: %s",
+                        type(cleanup).__name__,
+                    )
                 raise
             pending = self._shutdown_future.result(
                 timeout=_remaining(deadline, reserve=self._thread_join_timeout)
             )
-            self._shutdown_future = None
+        except (KeyboardInterrupt, SystemExit):
+            try:
+                self._cancel_shutdown_future()
+                self._request_shutdown_retry(deadline)
+            except BaseException as cleanup:
+                logger.warning("MCP shutdown control cleanup failed: %s", type(cleanup).__name__)
+            try:
+                self._stop_and_join(deadline, self._shutdown_pending or fallback_pending)
+            except BaseException as cleanup:
+                logger.warning("MCP shutdown finalization failed: %s", type(cleanup).__name__)
+            raise
         except Exception as exc:  # noqa: BLE001 - public close is no-throw
-            pending = fallback_pending
+            pending = self._shutdown_pending or fallback_pending
             self._cancel_shutdown_future()
             if self._shutdown_future is not None:
-                self._request_shutdown_drain(holder_snapshot, deadline)
+                self._request_shutdown_retry(deadline)
             logger.warning("MCP shutdown failed: %s", type(exc).__name__)
-        finally:
-            try:
-                self._stop_and_join(deadline, pending)
-            except Exception as exc:  # noqa: BLE001 - public close is no-throw
-                logger.warning(
-                    "MCP shutdown finalization failed: %s",
-                    type(exc).__name__,
-                )
+        try:
+            self._stop_and_join(deadline, pending)
+        except Exception as exc:  # noqa: BLE001 - public close is no-throw
+            logger.warning(
+                "MCP shutdown finalization failed: %s",
+                type(exc).__name__,
+            )
 
 
 def _render_content(result) -> str:

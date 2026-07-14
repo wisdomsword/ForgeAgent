@@ -5,6 +5,7 @@ CLI logic under test is argument handling, run/REPL flow, outcome rendering, and
 config-error behavior.
 """
 
+import asyncio
 import sys
 from urllib.parse import parse_qsl, unquote, urlsplit
 
@@ -90,9 +91,7 @@ def test_confirmation_summary_masks_known_secret_in_url_hostname(monkeypatch):
     secret = "opaque-value-12345"
     monkeypatch.setattr("forgeagent.cli.sensitive_env_values", lambda: {secret})
 
-    summary = _confirmation_summary(
-        WebFetchArgs(url=f"https://{secret}.example.com/public")
-    )
+    summary = _confirmation_summary(WebFetchArgs(url=f"https://{secret}.example.com/public"))
 
     assert secret not in summary
     assert "example.com/public" in summary
@@ -106,9 +105,7 @@ def test_confirmation_summary_masks_known_secret_in_url_hostname(monkeypatch):
         ("opaque-value-12345", "https://%6fpaque-value-12345.example.com/public"),
     ],
 )
-def test_confirmation_summary_masks_case_and_percent_encoded_hostname(
-    secret, url, monkeypatch
-):
+def test_confirmation_summary_masks_case_and_percent_encoded_hostname(secret, url, monkeypatch):
     from forgeagent.cli import _confirmation_summary
 
     monkeypatch.setattr("forgeagent.cli.sensitive_env_values", lambda: {secret})
@@ -134,10 +131,7 @@ def test_confirmation_summary_handles_ipv6_zone_and_masks_each_component_once(mo
     monkeypatch.setattr("forgeagent.cli.sensitive_env_values", lambda: {secret})
     summary = _confirmation_summary(
         WebFetchArgs(
-            url=(
-                "https://[fe80::1%25en0]/opaque-value-12345"
-                "?q=opaque-value-12345#discard-me"
-            )
+            url=("https://[fe80::1%25en0]/opaque-value-12345?q=opaque-value-12345#discard-me")
         )
     )
     rendered = unquote(summary)
@@ -156,9 +150,7 @@ def test_confirmation_summary_prefers_longest_overlapping_hostname_secret(monkey
         lambda: {"opaque-value-12345", "value-12345"},
     )
     rendered = unquote(
-        _confirmation_summary(
-            WebFetchArgs(url="https://opaque-value-12345.example.com/public")
-        )
+        _confirmation_summary(WebFetchArgs(url="https://opaque-value-12345.example.com/public"))
     )
 
     assert rendered.count("***REDACTED***") == 1
@@ -205,9 +197,7 @@ def test_confirmation_summary_preserves_duplicate_query_order(monkeypatch):
     monkeypatch.setattr("forgeagent.cli.sensitive_env_values", lambda: {secret})
 
     summary = _confirmation_summary(
-        WebFetchArgs(
-            url=f"https://example.com/public?{secret}=first&token=hidden&{secret}=second"
-        )
+        WebFetchArgs(url=f"https://example.com/public?{secret}=first&token=hidden&{secret}=second")
     )
 
     assert parse_qsl(urlsplit(summary.removeprefix("WebFetch ")).query) == [
@@ -384,9 +374,7 @@ def test_render_outcome_discloses_only_fixed_webfetch_failure_detail():
             RoundResult(
                 text="",
                 outcomes=[
-                    ToolOutcome(
-                        tool="WebFetch", success=False, detail="WebFetch request failed"
-                    )
+                    ToolOutcome(tool="WebFetch", success=False, detail="WebFetch request failed")
                 ],
             )
         ],
@@ -584,6 +572,27 @@ def test_build_mcp_manager_preserves_startup_error_when_cleanup_raises(monkeypat
     assert str(error.value).startswith("alpha: unavailable: handshake failed")
 
 
+def test_build_mcp_manager_preserves_required_startup_error_when_cleanup_is_cancelled(
+    monkeypatch,
+):
+    import forgeagent.cli as cli_module
+
+    _CleanupFailureRequiredStartupManager.instances.clear()
+    monkeypatch.setattr(
+        _CleanupFailureRequiredStartupManager,
+        "cleanup_error",
+        asyncio.CancelledError,
+    )
+    monkeypatch.setattr(cli_module, "load_mcp_config", lambda: {"required": object()})
+    monkeypatch.setattr(cli_module, "MCPManager", _CleanupFailureRequiredStartupManager)
+
+    with pytest.raises(cli_module.MCPStartupError) as error:
+        cli_module.build_mcp_manager(_console())
+
+    assert _CleanupFailureRequiredStartupManager.instances[0].closed is True
+    assert str(error.value).startswith("alpha: unavailable: handshake failed")
+
+
 @pytest.mark.parametrize("cleanup_error", [KeyboardInterrupt, SystemExit])
 def test_build_mcp_manager_does_not_swallow_base_cleanup_errors(monkeypatch, cleanup_error):
     import forgeagent.cli as cli_module
@@ -595,6 +604,118 @@ def test_build_mcp_manager_does_not_swallow_base_cleanup_errors(monkeypatch, cle
 
     with pytest.raises(cleanup_error, match="cleanup failed"):
         cli_module.build_mcp_manager(_console())
+
+
+def test_optional_status_does_not_expose_secret_exception_text(monkeypatch):
+    import forgeagent.cli as cli_module
+    import forgeagent.mcp_manager as mcp_manager_module
+    from forgeagent.mcp_manager import MCPManager, MCPServerConfig
+
+    secret = "optional-status-secret"
+    command = "/tmp/optional-secret-command"
+    argument = "--token=optional-secret-argument"
+    raw_status = (
+        f"unavailable: RuntimeError: {secret} command={command} "
+        f"args={argument} env=optional-secret-env"
+    )
+
+    class OptionalSecretStatusManager(MCPManager):
+        def connect(self):
+            self._states["optional"].status = raw_status
+
+    monkeypatch.setattr(mcp_manager_module, "sensitive_env_values", lambda: {secret})
+    monkeypatch.setattr(
+        cli_module,
+        "load_mcp_config",
+        lambda: {"optional": MCPServerConfig(command="unused")},
+    )
+    monkeypatch.setattr(cli_module, "MCPManager", OptionalSecretStatusManager)
+
+    console = _console()
+    manager = cli_module.build_mcp_manager(console)
+    assert manager is not None
+    try:
+        repl_console = _console()
+        cli_module._handle_mcp_command("mcp status", manager, repl_console)
+    finally:
+        manager.close()
+
+    rendered = console.export_text() + repl_console.export_text()
+    assert "optional: unavailable: RuntimeError" in rendered
+    for secret_text in (secret, command, argument, "optional-secret-env"):
+        assert secret_text not in rendered
+
+
+def test_build_mcp_manager_maps_connect_infrastructure_error_after_cleanup(monkeypatch):
+    import forgeagent.cli as cli_module
+
+    startup_error = RuntimeError("startup-secret command=/tmp/secret --token=secret")
+
+    class InfrastructureFailureManager:
+        instance = None
+
+        def __init__(self, servers):
+            self.closed = False
+            self.__class__.instance = self
+
+        @property
+        def has_enabled_servers(self):
+            return True
+
+        def connect(self):
+            raise startup_error
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setattr(cli_module, "load_mcp_config", lambda: {"required": object()})
+    monkeypatch.setattr(cli_module, "MCPManager", InfrastructureFailureManager)
+
+    with pytest.raises(cli_module.MCPStartupError) as raised:
+        cli_module.build_mcp_manager(_console())
+
+    assert InfrastructureFailureManager.instance.closed is True
+    assert str(raised.value) == "MCP manager startup failed: RuntimeError"
+    assert "startup-secret" not in str(raised.value)
+
+
+@pytest.mark.parametrize(
+    ("cleanup_error", "expected_error"),
+    [
+        (asyncio.CancelledError, None),
+        (KeyboardInterrupt, KeyboardInterrupt),
+        (SystemExit, SystemExit),
+    ],
+)
+def test_build_mcp_manager_connect_cleanup_only_propagates_process_control(
+    monkeypatch, cleanup_error, expected_error
+):
+    import forgeagent.cli as cli_module
+
+    class InfrastructureFailureManager:
+        def __init__(self, servers):
+            pass
+
+        @property
+        def has_enabled_servers(self):
+            return True
+
+        def connect(self):
+            raise RuntimeError("primary startup failure")
+
+        def close(self):
+            raise cleanup_error("cleanup failure")
+
+    monkeypatch.setattr(cli_module, "load_mcp_config", lambda: {"required": object()})
+    monkeypatch.setattr(cli_module, "MCPManager", InfrastructureFailureManager)
+
+    if expected_error is None:
+        with pytest.raises(cli_module.MCPStartupError) as raised:
+            cli_module.build_mcp_manager(_console())
+        assert str(raised.value) == "MCP manager startup failed: RuntimeError"
+    else:
+        with pytest.raises(expected_error, match="cleanup failure"):
+            cli_module.build_mcp_manager(_console())
 
 
 def test_main_reports_required_mcp_startup_error_without_running_task(monkeypatch):
@@ -674,9 +795,7 @@ def test_main_run_omits_confirmer_without_terminal_console(monkeypatch):
         seen.append(kwargs["confirmer"])
         return real_run_once(*args, **kwargs)
 
-    monkeypatch.setattr(
-        cli_module, "Console", lambda: Console(record=True, force_terminal=False)
-    )
+    monkeypatch.setattr(cli_module, "Console", lambda: Console(record=True, force_terminal=False))
     monkeypatch.setattr(cli_module, "build_mcp_manager", lambda console: _MCP())
     monkeypatch.setattr(cli_module, "run_once", spy_run_once)
     monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
