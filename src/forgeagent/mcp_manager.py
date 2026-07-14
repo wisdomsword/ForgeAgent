@@ -87,7 +87,9 @@ class _ServerState:
     config: MCPServerConfig
     status: str = "unavailable"  # "available" | "unavailable: <reason>"
     tools: list[MCPToolInfo] = field(default_factory=list)
-    stop: asyncio.Event | None = None
+    generation: int = 0
+    tearing_down_generation: int | None = None
+    restart_after_generation: int | None = None
 
 
 def _resolve_env(env: dict[str, str]) -> dict[str, str]:
@@ -134,12 +136,8 @@ class MCPManager:
     layer calls. Construct with server configs; call `connect()` once to spin up the loop
     and eagerly connect enabled servers, then `list_tools`/`call_tool`/`close`.
 
-    Thread model: `_states`/`_sessions`/`_holders` are written by the holder coroutines
-    (loop thread) and read/written by the caller thread (call_tool/enable/disable). On
-    CPython these are single dict/attr ops guarded by the GIL, so there is no corruption;
-    the one real TOCTOU (a session popped between call_tool's status check and its
-    `_sessions.get`) is caught by the `session is None` guard. No explicit lock is used —
-    if this ever runs under a free-threaded interpreter, add one around these three."""
+    Thread model: live holder/session state is owned by the loop thread. The synchronous
+    facade submits reconciliation/call coroutines and reads only status snapshots."""
 
     def __init__(
         self,
@@ -159,12 +157,13 @@ class MCPManager:
         self._thread_join_timeout = thread_join_timeout
         self._loop: asyncio.AbstractEventLoop | None = None
         self._thread: threading.Thread | None = None
-        self._sessions: dict[str, object] = {}  # server -> live ClientSession
-        # server -> holder Task, so close()/disable() can await a holder's async-with
-        # __aexit__ (which terminates the child process) before stopping the loop.
-        self._holders: dict[str, asyncio.Task] = {}
+        self._sessions: dict[str, tuple[int, object]] = {}  # server -> (generation, session)
+        # server -> (generation, holder Task, stop Event), so close()/disable() can await a
+        # holder's async-with __aexit__ (which terminates the child process) before stopping.
+        self._holders: dict[str, tuple[int, asyncio.Task, asyncio.Event]] = {}
         self._started = False
         self._closed = False
+        self._closing = False
         self._shutdown_future: concurrent.futures.Future[set[str]] | None = None
         self._shutdown_complete = threading.Event()
         self._shutdown_started = False
@@ -185,8 +184,52 @@ class MCPManager:
             raise
         return future.result(timeout=timeout)
 
-    async def _holder(self, name: str, ready: asyncio.Event) -> None:
-        """Keep one server's session alive until stop; publish it on success.
+    def _holder_slot_matches(
+        self,
+        name: str,
+        generation: int,
+        task: asyncio.Task | None = None,
+        stop: asyncio.Event | None = None,
+    ) -> bool:
+        slot = self._holders.get(name)
+        if slot is None:
+            return False
+        current_generation, current_task, current_stop = slot
+        if current_generation != generation:
+            return False
+        if task is not None and current_task is not task:
+            return False
+        return stop is None or current_stop is stop
+
+    def _session_slot_matches(self, name: str, generation: int, session: object) -> bool:
+        slot = self._sessions.get(name)
+        return slot is not None and slot[0] == generation and slot[1] is session
+
+    def _holder_can_publish(
+        self,
+        name: str,
+        generation: int,
+        stop: asyncio.Event,
+    ) -> bool:
+        state = self._states[name]
+        task = asyncio.current_task()
+        return (
+            task is not None
+            and self._holder_slot_matches(name, generation, task, stop)
+            and state.config.enabled
+            and not stop.is_set()
+            and not self._closed
+            and not self._closing
+        )
+
+    async def _holder(
+        self,
+        name: str,
+        generation: int,
+        ready: asyncio.Event,
+        stop: asyncio.Event,
+    ) -> None:
+        """Keep one generation's session alive until stop; publish it on success.
 
         `except BaseException` (not Exception) is deliberate: asyncio's CancelledError is
         a BaseException, and a holder dying must never leak out to kill the loop or the
@@ -199,8 +242,6 @@ class MCPManager:
 
         state = self._states[name]
         cfg = state.config
-        stop = asyncio.Event()
-        state.stop = stop
         # The child always inherits os.environ plus the config's resolved ${VAR}s — a
         # server with no `env:` block must still see PATH/NODE_PATH/DOCKER_HOST/etc. or
         # `npx`/`docker`/`node` break. (Uniform per docs/m7 §八; the code sandbox scrubs
@@ -210,23 +251,38 @@ class MCPManager:
             args=cfg.args,
             env={**os.environ, **_resolve_env(cfg.env)},
         )
+        session: object | None = None
         try:
             async with stdio_client(params) as (read, write):
                 async with ClientSession(read, write) as session:
                     await session.initialize()
+                    if not self._holder_can_publish(name, generation, stop):
+                        ready.set()
+                        return
                     listed = await session.list_tools()
+                    if not self._holder_can_publish(name, generation, stop):
+                        ready.set()
+                        return
                     state.tools = self._filter_tools(name, cfg, listed.tools)
-                    self._sessions[name] = session
-                    state.status = "available"
+                    self._sessions[name] = (generation, session)
+                    if self._holder_can_publish(name, generation, stop):
+                        state.status = "available"
+                    else:
+                        state.tools = []
+                        if self._session_slot_matches(name, generation, session):
+                            self._sessions.pop(name, None)
                     ready.set()
                     await stop.wait()  # hold both async-with scopes open
         except BaseException as exc:  # noqa: BLE001 - isolate: never leak past this holder
-            state.status = f"unavailable: {type(exc).__name__}: {exc}"
+            if self._holder_slot_matches(name, generation, stop=stop) and not self._closing:
+                state.tools = []
+                state.status = f"unavailable: {type(exc).__name__}"
             ready.set()
         finally:
             # Whether we stopped normally or errored, this session is gone once the
             # async-with scopes have exited — never leave a stale handle in _sessions.
-            self._sessions.pop(name, None)
+            if session is not None and self._session_slot_matches(name, generation, session):
+                self._sessions.pop(name, None)
 
     @staticmethod
     def _filter_tools(server: str, cfg: MCPServerConfig, tools) -> list[MCPToolInfo]:
@@ -245,18 +301,98 @@ class MCPManager:
             )
         return infos
 
+    def _start_holder(self, name: str) -> asyncio.Event:
+        """On the loop thread: allocate and start one holder generation."""
+        state = self._states[name]
+        state.generation += 1
+        generation = state.generation
+        ready = asyncio.Event()
+        stop = asyncio.Event()
+        holder_coro = self._holder(name, generation, ready, stop)
+        try:
+            task = asyncio.create_task(holder_coro)
+        except BaseException as exc:
+            holder_coro.close()
+            state.tools = []
+            state.status = f"unavailable: {type(exc).__name__}"
+            ready.set()
+            return ready
+        self._holders[name] = (generation, task, stop)
+
+        def finalize(
+            done: asyncio.Task,
+            *,
+            server: str = name,
+            holder_generation: int = generation,
+        ):
+            if not done.cancelled():
+                try:
+                    exc = done.exception()
+                except asyncio.CancelledError:
+                    exc = None
+                if exc is not None and isinstance(exc, Exception):
+                    logger.debug(
+                        "MCP holder ended with %s for server %s generation %s",
+                        type(exc).__name__,
+                        server,
+                        holder_generation,
+                    )
+            self._finalize_holder_slot(server, holder_generation, done)
+
+        task.add_done_callback(finalize)
+        return ready
+
+    def _finalize_holder_slot(self, name: str, generation: int, task: asyncio.Task) -> None:
+        """Remove exactly the holder slot that owns this finished task."""
+        slot = self._holders.get(name)
+        if slot is None:
+            return
+        current_generation, current_task, stop = slot
+        if current_generation != generation or current_task is not task:
+            return
+
+        state = self._states[name]
+        self._holders.pop(name, None)
+        session_slot = self._sessions.get(name)
+        if session_slot is not None and session_slot[0] == generation:
+            self._sessions.pop(name, None)
+        state.tools = []
+        if state.tearing_down_generation == generation:
+            state.tearing_down_generation = None
+
+        restart = state.restart_after_generation == generation
+        if restart:
+            state.restart_after_generation = None
+        if restart and state.config.enabled and not self._closed and not self._closing:
+            self._start_holder(name)
+        elif state.config.enabled and not self._closed and not self._closing:
+            if state.status == "available":
+                state.status = "unavailable"
+        else:
+            stop.set()
+
     async def _start_holders(self, names: list[str]) -> None:
         """On the loop thread: start a holder task per name and wait for each to become
         ready (available or unavailable), bounded per server so one slow server does not
         block the others. Holder tasks are tracked in self._holders for clean shutdown."""
-        readies = {n: asyncio.Event() for n in names}
-        for name, ready in readies.items():
-            self._holders[name] = asyncio.ensure_future(self._holder(name, ready))
+        readies: dict[str, asyncio.Event] = {}
+        for name in names:
+            state = self._states[name]
+            if not state.config.enabled or name in self._holders:
+                continue
+            readies[name] = self._start_holder(name)
         for name, ready in readies.items():
             try:
                 await asyncio.wait_for(ready.wait(), timeout=self._connect_timeout)
             except TimeoutError:
-                self._states[name].status = "unavailable: connect timeout"
+                state = self._states[name]
+                slot = self._holders.get(name)
+                if slot is not None:
+                    generation, _task, stop = slot
+                    state.tearing_down_generation = generation
+                    stop.set()
+                state.tools = []
+                state.status = "unavailable: connect timeout"
 
     def connect(self) -> None:
         """Start the background loop and eagerly connect every enabled server, concurrently.
@@ -293,6 +429,14 @@ class MCPManager:
         except BaseException:
             startup_cancelled.set()
             startup_gate.set()
+            try:
+                if loop.is_running():
+                    loop.call_soon_threadsafe(loop.stop)
+            except Exception as exc:  # noqa: BLE001 - preserve the start failure
+                logger.warning(
+                    "MCP loop stop after start failure failed: %s",
+                    type(exc).__name__,
+                )
             try:
                 if thread.ident is not None:
                     thread.join(timeout=self._thread_join_timeout)
@@ -393,28 +537,40 @@ class MCPManager:
         """Call `tool` on `server`. Returns a structured result dict:
         {"ok": bool, "text": str} — never raises for a server-side failure (dead/slow
         server, unknown tool) so the Step loop can feed the outcome back to the model."""
+        if self._loop is None:
+            state = self._states.get(server)
+            if state is None:
+                return {"ok": False, "text": f"unknown MCP server {server!r}"}
+            return {"ok": False, "text": f"MCP server {server!r} is {state.status}"}
+        return self._submit(
+            self._call_tool_on_loop(server, tool, arguments),
+            timeout=self._call_timeout + 5,  # outer > SDK read timeout so SDK's fires first
+        )
+
+    async def _call_tool_on_loop(self, server: str, tool: str, arguments: dict) -> dict:
+        """Select the current session generation on the loop immediately before calling."""
         state = self._states.get(server)
         if state is None:
             return {"ok": False, "text": f"unknown MCP server {server!r}"}
         if state.status != "available":
             return {"ok": False, "text": f"MCP server {server!r} is {state.status}"}
-        session = self._sessions.get(server)
-        if session is None:
+        session_slot = self._sessions.get(server)
+        if session_slot is None:
             return {"ok": False, "text": f"MCP server {server!r} has no live session"}
+        generation, session = session_slot
         try:
-            result = self._submit(
-                session.call_tool(
-                    tool, arguments, read_timeout_seconds=timedelta(seconds=self._call_timeout)
-                ),
-                timeout=self._call_timeout + 5,  # outer > SDK read timeout so SDK's fires first
+            result = await session.call_tool(
+                tool, arguments, read_timeout_seconds=timedelta(seconds=self._call_timeout)
             )
         except Exception as exc:  # noqa: BLE001 - structured error into the feedback loop
-            # An errored call means this session can no longer be trusted (a mid-call crash
-            # leaves the holder parked on stop.wait(), so it never pops the dead session on
-            # its own — do it here). Mark unavailable so it drops out of the catalog and
-            # later rounds don't keep paying a failed round-trip to a dead process (D3).
-            self._sessions.pop(server, None)
-            state.status = f"unavailable: {type(exc).__name__}"
+            # An errored call means only this captured generation can no longer be trusted.
+            if self._session_slot_matches(server, generation, session):
+                self._sessions.pop(server, None)
+                state.tools = []
+                state.status = f"unavailable: {type(exc).__name__}"
+                holder_slot = self._holders.get(server)
+                if holder_slot is not None and holder_slot[0] == generation:
+                    holder_slot[2].set()
             return {
                 "ok": False,
                 "text": mask_secrets(
@@ -423,6 +579,49 @@ class MCPManager:
             }
         ok = not getattr(result, "isError", False)
         return {"ok": ok, "text": mask_secrets(_render_content(result), self._secret_values)}
+
+    async def _enable_on_loop(self, server: str) -> None:
+        state = self._states[server]
+        state.config.enabled = True
+        if self._closed or self._closing:
+            return
+        slot = self._holders.get(server)
+        if slot is None:
+            await self._start_holders([server])
+            return
+
+        generation, task, stop = slot
+        if task.done():
+            self._finalize_holder_slot(server, generation, task)
+            if server not in self._holders:
+                await self._start_holders([server])
+            return
+
+        if state.status != "available" or stop.is_set():
+            state.tearing_down_generation = generation
+            state.restart_after_generation = generation
+            state.status = "restarting"
+            state.tools = []
+            stop.set()
+
+    async def _disable_on_loop(self, server: str) -> None:
+        state = self._states[server]
+        was_available = state.status == "available"
+        state.config.enabled = False
+        state.restart_after_generation = None
+        state.tools = []
+        state.status = "unavailable: disabled"
+        slot = self._holders.get(server)
+        if slot is not None:
+            generation, holder, stop = slot
+            state.tearing_down_generation = generation
+            stop.set()
+            if was_available:
+                await asyncio.gather(holder, return_exceptions=True)
+                self._finalize_holder_slot(server, generation, holder)
+        session_slot = self._sessions.get(server)
+        if session_slot is not None and (slot is None or session_slot[0] == slot[0]):
+            self._sessions.pop(server, None)
 
     def enable(self, server: str) -> bool:
         """Enable a configured server and connect it now if the loop is running.
@@ -434,9 +633,13 @@ class MCPManager:
         state = self._states.get(server)
         if state is None:
             return False
-        state.config.enabled = True
-        if self._loop is not None and server not in self._holders:
-            self._submit(self._start_holders([server]), timeout=self._connect_timeout + 5)
+        if self._loop is None:
+            state.config.enabled = True
+            return True
+        try:
+            self._submit(self._enable_on_loop(server), timeout=self._connect_timeout + 5)
+        except concurrent.futures.TimeoutError:
+            return True
         return True
 
     def disable(self, server: str) -> bool:
@@ -445,36 +648,28 @@ class MCPManager:
         state = self._states.get(server)
         if state is None:
             return False
-        state.config.enabled = False
-
-        async def _stop_one() -> None:
-            if state.stop is not None:
-                state.stop.set()
-            holder = self._holders.get(server)
-            if holder is not None:
-                await asyncio.gather(holder, return_exceptions=True)
-                if self._holders.get(server) is holder:
-                    self._holders.pop(server, None)
-
         if self._loop is not None:
-            self._submit(_stop_one(), timeout=self._connect_timeout + 5)
-        self._sessions.pop(server, None)
-        state.status = "unavailable: disabled"
+            self._submit(self._disable_on_loop(server), timeout=self._connect_timeout + 5)
+        else:
+            state.config.enabled = False
+            state.restart_after_generation = None
+            state.tools = []
+            state.status = "unavailable: disabled"
         return True
 
     async def _shutdown_holders(
         self,
-        holder_snapshot: dict[str, asyncio.Task],
+        holder_snapshot: dict[str, tuple[int, asyncio.Task, asyncio.Event]],
         deadline: float,
     ) -> set[str]:
         if self._shutdown_started:
             return set()
         self._shutdown_started = True
-        pending = set(holder_snapshot.values())
+        self._closing = True
+        pending = {task for _generation, task, _stop in holder_snapshot.values()}
         try:
-            for state in self._states.values():
-                if state.stop is not None:
-                    state.stop.set()
+            for _generation, _task, stop in holder_snapshot.values():
+                stop.set()
 
             if pending:
                 normal_budget = _remaining(
@@ -501,7 +696,9 @@ class MCPManager:
             # permission to stop the loop before async context finalizers have run.
             pass
         finally:
-            pending = {holder for holder in holder_snapshot.values() if not holder.done()}
+            pending = {
+                task for _generation, task, _stop in holder_snapshot.values() if not task.done()
+            }
             for holder in pending:
                 holder.cancel()
             while pending:
@@ -511,17 +708,22 @@ class MCPManager:
                     for holder in pending:
                         holder.cancel()
 
-            for name, holder in holder_snapshot.items():
+            for name, (generation, holder, _stop) in holder_snapshot.items():
                 if not holder.cancelled():
                     holder.exception()
-                self._holders.pop(name, None)
+                current = self._holders.get(name)
+                if current is not None and current[0] == generation and current[1] is holder:
+                    self._holders.pop(name, None)
+                session_slot = self._sessions.get(name)
+                if session_slot is not None and session_slot[0] == generation:
+                    self._sessions.pop(name, None)
             self._shutdown_complete.set()
             asyncio.get_running_loop().call_soon_threadsafe(asyncio.get_running_loop().stop)
         return set()
 
     def _start_shutdown_drain(
         self,
-        holder_snapshot: dict[str, asyncio.Task],
+        holder_snapshot: dict[str, tuple[int, asyncio.Task, asyncio.Event]],
         deadline: float,
     ) -> None:
         if self._shutdown_started:
@@ -536,7 +738,7 @@ class MCPManager:
 
     def _request_shutdown_drain(
         self,
-        holder_snapshot: dict[str, asyncio.Task],
+        holder_snapshot: dict[str, tuple[int, asyncio.Task, asyncio.Event]],
         deadline: float,
     ) -> None:
         if self._loop is None or self._shutdown_complete.is_set():

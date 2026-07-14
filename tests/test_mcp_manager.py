@@ -29,6 +29,7 @@ from forgeagent.mcp_manager import (
     DEFAULT_USER_MCP_PATH,
     MCPManager,
     MCPServerConfig,
+    MCPToolInfo,
     load_mcp_config,
 )
 from forgeagent.secret_policy import REDACTED
@@ -118,6 +119,52 @@ class _ThreadProbe:
     def is_alive(self) -> bool:
         self.alive = next(self._alive_results, self.alive)
         return self.alive
+
+
+class _TextContent:
+    type = "text"
+
+    def __init__(self, text: str):
+        self.text = text
+
+
+class _CallResult:
+    isError = False
+
+    def __init__(self, text: str):
+        self.content = [_TextContent(text)]
+
+
+class _SessionProbe:
+    def __init__(self, text: str, *, error: Exception | None = None, before_error=None):
+        self.text = text
+        self.error = error
+        self.before_error = before_error
+        self.call_count = 0
+        self.thread_ids: list[int] = []
+        self.read_timeouts = []
+
+    def call_tool(self, tool: str, arguments: dict, *, read_timeout_seconds):
+        self.call_count += 1
+        self.thread_ids.append(threading.get_ident())
+        self.read_timeouts.append(read_timeout_seconds)
+
+        async def run():
+            if self.before_error is not None:
+                self.before_error()
+            if self.error is not None:
+                raise self.error
+            return _CallResult(self.text)
+
+        return run()
+
+
+def _tool(server: str = "pending") -> MCPToolInfo:
+    return MCPToolInfo(server=server, name="echo", description="Echo")
+
+
+async def _park_until(stop: asyncio.Event) -> None:
+    await stop.wait()
 
 
 def _server(
@@ -353,9 +400,9 @@ def test_close_stops_normal_and_cancel_only_holders_on_loop_thread():
     async def install_holders() -> None:
         normal_stop = asyncio.Event()
         cancel_only_stop = asyncio.Event()
-        mgr._states["normal"].stop = normal_stop
-        mgr._states["cancel-only"].stop = cancel_only_stop
-        mgr._sessions.update({"normal": object(), "cancel-only": object()})
+        mgr._states["normal"].generation = 1
+        mgr._states["cancel-only"].generation = 1
+        mgr._sessions.update({"normal": (1, object()), "cancel-only": (1, object())})
 
         async def normal_holder() -> None:
             try:
@@ -380,8 +427,12 @@ def test_close_stops_normal_and_cancel_only_holders_on_loop_thread():
                 outcomes.append(("cancel-only-cleanup", threading.get_ident()))
                 mgr._sessions.pop("cancel-only", None)
 
-        mgr._holders["normal"] = asyncio.create_task(normal_holder())
-        mgr._holders["cancel-only"] = asyncio.create_task(cancel_only_holder())
+        mgr._holders["normal"] = (1, asyncio.create_task(normal_holder()), normal_stop)
+        mgr._holders["cancel-only"] = (
+            1,
+            asyncio.create_task(cancel_only_holder()),
+            cancel_only_stop,
+        )
 
     asyncio.run_coroutine_threadsafe(install_holders(), loop).result(timeout=1)
     started = time.monotonic()
@@ -391,7 +442,7 @@ def test_close_stops_normal_and_cancel_only_holders_on_loop_thread():
         if thread.is_alive():
 
             async def cancel_test_holders() -> None:
-                holders = list(mgr._holders.values())
+                holders = [slot[1] for slot in mgr._holders.values()]
                 for holder in holders:
                     holder.cancel()
                 await asyncio.gather(*holders, return_exceptions=True)
@@ -450,8 +501,9 @@ def test_close_blocked_loop_drains_cancellation_before_stop_and_retry(monkeypatc
     thread.start()
 
     async def install_holder() -> None:
-        mgr._states["pending"].stop = asyncio.Event()
-        mgr._sessions["pending"] = session
+        stop = asyncio.Event()
+        mgr._states["pending"].generation = 1
+        mgr._sessions["pending"] = (1, session)
 
         async def holder() -> None:
             try:
@@ -463,7 +515,7 @@ def test_close_blocked_loop_drains_cancellation_before_stop_and_retry(monkeypatc
                 cleanup_thread_ids.append(threading.get_ident())
                 mgr._sessions.pop("pending", None)
 
-        mgr._holders["pending"] = asyncio.create_task(holder())
+        mgr._holders["pending"] = (1, asyncio.create_task(holder()), stop)
 
     original_submit = asyncio.run_coroutine_threadsafe
     original_submit(install_holder(), loop).result(timeout=1)
@@ -499,7 +551,7 @@ def test_close_blocked_loop_drains_cancellation_before_stop_and_retry(monkeypatc
             assert future is not None
             assert future.cancelled()
             assert mgr._holders == {"pending": holder}
-            assert mgr._sessions == {"pending": session}
+            assert mgr._sessions == {"pending": (1, session)}
             assert mgr._loop is loop
             assert mgr._thread is thread
             warning = caplog.text
@@ -639,6 +691,62 @@ def test_connect_partial_start_interrupt_stops_worker_and_closes_loop(monkeypatc
             loop.close()
 
 
+@pytest.mark.parametrize("error", [KeyboardInterrupt(), SystemExit(7)])
+def test_connect_interrupt_releasing_publication_gate_stops_running_loop(monkeypatch, error):
+    mgr = MCPManager(
+        {"pending": MCPServerConfig(command="unused")},
+        thread_join_timeout=0.2,
+    )
+    loop = asyncio.new_event_loop()
+    original_event = threading.Event
+
+    class InterruptingGate:
+        def __init__(self) -> None:
+            self._event = original_event()
+            self._interrupted = False
+
+        def wait(self) -> None:
+            self._event.wait()
+
+        def set(self) -> None:
+            self._event.set()
+            if self._interrupted:
+                return
+            self._interrupted = True
+            deadline = time.monotonic() + 0.2
+            while not loop.is_running() and time.monotonic() < deadline:
+                time.sleep(0.001)
+            raise error
+
+    gate = InterruptingGate()
+    event_calls = 0
+
+    def event_factory():
+        nonlocal event_calls
+        event_calls += 1
+        return gate if event_calls == 1 else original_event()
+
+    monkeypatch.setattr(mcp_manager_module.asyncio, "new_event_loop", lambda: loop)
+    monkeypatch.setattr(mcp_manager_module.threading, "Event", event_factory)
+
+    try:
+        with pytest.raises(type(error)) as raised:
+            mgr.connect()
+
+        assert raised.value is error
+        assert mgr._started is False
+        assert mgr._loop is None
+        assert mgr._thread is None
+        assert loop.is_closed()
+    finally:
+        error.__traceback__ = None
+        if mgr._thread is not None and mgr._thread.is_alive():
+            loop.call_soon_threadsafe(loop.stop)
+            mgr._thread.join(timeout=1)
+        if not loop.is_closed():
+            loop.close()
+
+
 @pytest.mark.parametrize(
     "error",
     [RuntimeError("submission"), KeyboardInterrupt(), SystemExit(7)],
@@ -733,13 +841,16 @@ def test_close_dead_thread_retains_incomplete_resources_without_submission(monke
     )
     loop = asyncio.new_event_loop()
     thread = threading.Thread(target=loop.run_forever, daemon=True)
-    holder = object()
+    stop = asyncio.Event()
+    holder = loop.create_task(asyncio.sleep(3600))
+    holder_slot = (1, holder, stop)
     session = object()
+    session_slot = (1, session)
     submissions = 0
     mgr._loop = loop
     mgr._thread = thread
-    mgr._holders["pending"] = holder
-    mgr._sessions["pending"] = session
+    mgr._holders["pending"] = holder_slot
+    mgr._sessions["pending"] = session_slot
 
     def reject_submission(coro, submitted_loop):
         nonlocal submissions
@@ -760,8 +871,8 @@ def test_close_dead_thread_retains_incomplete_resources_without_submission(monke
 
         assert submissions == 0
         assert mgr._shutdown_future is None
-        assert mgr._holders == {"pending": holder}
-        assert mgr._sessions == {"pending": session}
+        assert mgr._holders == {"pending": holder_slot}
+        assert mgr._sessions == {"pending": session_slot}
         assert mgr._loop is loop
         assert mgr._thread is thread
         assert "alive=False" in caplog.text
@@ -770,6 +881,8 @@ def test_close_dead_thread_retains_incomplete_resources_without_submission(monke
     finally:
         mgr._holders.clear()
         mgr._sessions.clear()
+        holder.cancel()
+        loop.run_until_complete(asyncio.gather(holder, return_exceptions=True))
         loop.close()
 
 
@@ -792,8 +905,8 @@ def test_close_internal_failure_keeps_finalization_best_effort(monkeypatch, capl
     future = _FutureProbe(error=RuntimeError(f"future {secret}"))
     mgr._loop = loop
     mgr._thread = thread
-    mgr._holders["pending"] = object()
-    mgr._sessions["pending"] = object()
+    mgr._holders["pending"] = (1, object(), object())
+    mgr._sessions["pending"] = (1, object())
     mgr._shutdown_complete.set()
 
     def submit(coro, submitted_loop):
@@ -964,8 +1077,10 @@ def test_disable_timeout_keeps_holder_visible_until_overlapping_close_finishes_c
         stop = asyncio.Event()
         cleanup_release = asyncio.Event()
         loop_state["cleanup_release"] = cleanup_release
-        mgr._states["pending"].stop = stop
-        mgr._sessions["pending"] = object()
+        mgr._states["pending"].generation = 1
+        mgr._states["pending"].status = "available"
+        session = object()
+        mgr._sessions["pending"] = (1, session)
 
         async def holder() -> None:
             try:
@@ -977,10 +1092,11 @@ def test_disable_timeout_keeps_holder_visible_until_overlapping_close_finishes_c
                         await cleanup_release.wait()
                     except asyncio.CancelledError:
                         cleanup_cancelled.set()
-                mgr._sessions.pop("pending", None)
+                if mgr._sessions.get("pending") == (1, session):
+                    mgr._sessions.pop("pending", None)
                 cleanup_finished.set()
 
-        mgr._holders["pending"] = asyncio.create_task(holder())
+        mgr._holders["pending"] = (1, asyncio.create_task(holder()), stop)
         await asyncio.sleep(0)
 
     asyncio.run_coroutine_threadsafe(install_holder(), loop).result(timeout=1)
@@ -1018,6 +1134,409 @@ def test_disable_timeout_keeps_holder_visible_until_overlapping_close_finishes_c
             cleanup_finished.wait(timeout=1)
         if thread.is_alive():
             asyncio.run_coroutine_threadsafe(asyncio.sleep(0), loop).result(timeout=1)
+            loop.call_soon_threadsafe(loop.stop)
+            thread.join(timeout=1)
+        if not loop.is_closed():
+            loop.close()
+
+
+def test_enable_during_timed_out_disable_restarts_after_old_holder_cleanup():
+    mgr = MCPManager(
+        {"pending": MCPServerConfig(command="unused")},
+        connect_timeout=-4.98,
+    )
+    loop = asyncio.new_event_loop()
+    thread = threading.Thread(target=loop.run_forever, daemon=True)
+    cleanup_started = threading.Event()
+    replacement_started = threading.Event()
+    loop_state: dict[str, asyncio.Event] = {}
+    mgr._loop = loop
+    mgr._thread = thread
+    thread.start()
+
+    async def replacement_holder(
+        name: str,
+        generation: int,
+        ready: asyncio.Event,
+        stop: asyncio.Event,
+    ) -> None:
+        mgr._states[name].status = "available"
+        mgr._sessions[name] = (generation, object())
+        ready.set()
+        replacement_started.set()
+        try:
+            await stop.wait()
+        finally:
+            if mgr._sessions.get(name, (None,))[0] == generation:
+                mgr._sessions.pop(name, None)
+
+    mgr._holder = replacement_holder
+
+    async def install_old_holder() -> None:
+        stop = asyncio.Event()
+        cleanup_release = asyncio.Event()
+        loop_state["cleanup_release"] = cleanup_release
+        mgr._states["pending"].generation = 1
+        mgr._states["pending"].status = "available"
+        session = object()
+        mgr._sessions["pending"] = (1, session)
+
+        async def old_holder() -> None:
+            try:
+                await stop.wait()
+            finally:
+                cleanup_started.set()
+                await cleanup_release.wait()
+                if mgr._sessions.get("pending") == (1, session):
+                    mgr._sessions.pop("pending", None)
+
+        mgr._holders["pending"] = (1, asyncio.create_task(old_holder()), stop)
+        await asyncio.sleep(0)
+
+    asyncio.run_coroutine_threadsafe(install_old_holder(), loop).result(timeout=1)
+    old_holder = mgr._holders["pending"]
+
+    try:
+        with pytest.raises(concurrent.futures.TimeoutError):
+            mgr.disable("pending")
+        assert cleanup_started.wait(timeout=1)
+        assert mgr.enable("pending") is True
+
+        loop.call_soon_threadsafe(loop_state["cleanup_release"].set)
+        assert replacement_started.wait(timeout=0.5)
+        assert mgr._holders["pending"] is not old_holder
+        assert mgr._states["pending"].config.enabled is True
+        assert mgr._states["pending"].status == "available"
+        assert "pending" in mgr._sessions
+    finally:
+        mgr.close()
+        if thread.is_alive():
+            loop.call_soon_threadsafe(loop_state["cleanup_release"].set)
+            loop.call_soon_threadsafe(loop.stop)
+            thread.join(timeout=1)
+        if not loop.is_closed():
+            loop.close()
+
+
+def test_re_enable_old_holder_finally_does_not_delete_replacement_session():
+    mgr = MCPManager({"pending": MCPServerConfig(command="unused")}, call_timeout=0.05)
+    loop = asyncio.new_event_loop()
+    thread = threading.Thread(target=loop.run_forever, daemon=True)
+    mgr._loop = loop
+    mgr._thread = thread
+    thread.start()
+
+    async def install_replacement_and_run_stale_finalizer() -> asyncio.Event:
+        old_task = asyncio.create_task(asyncio.sleep(0))
+        await asyncio.sleep(0)
+        replacement_stop = asyncio.Event()
+        replacement_task = asyncio.create_task(_park_until(replacement_stop))
+        mgr._states["pending"].generation = 2
+        mgr._states["pending"].status = "available"
+        mgr._states["pending"].tools = [_tool()]
+        mgr._sessions["pending"] = (2, _SessionProbe("replacement: ok"))
+        mgr._holders["pending"] = (2, replacement_task, replacement_stop)
+        mgr._finalize_holder_slot("pending", 1, old_task)
+        return replacement_stop
+
+    try:
+        asyncio.run_coroutine_threadsafe(
+            install_replacement_and_run_stale_finalizer(), loop
+        ).result(timeout=1)
+
+        assert mgr.server_status()["pending"] == "available"
+        assert {tool.server for tool in mgr.list_tools()} == {"pending"}
+        assert mgr.call_tool("pending", "echo", {"text": "x"})["text"] == "replacement: ok"
+    finally:
+        mgr.close()
+        if thread.is_alive():
+            loop.call_soon_threadsafe(loop.stop)
+            thread.join(timeout=1)
+        if not loop.is_closed():
+            loop.close()
+
+
+def test_call_failure_does_not_invalidate_replacement_session():
+    mgr = MCPManager({"pending": MCPServerConfig(command="unused")}, call_timeout=0.05)
+    loop = asyncio.new_event_loop()
+    thread = threading.Thread(target=loop.run_forever, daemon=True)
+    mgr._loop = loop
+    mgr._thread = thread
+    thread.start()
+
+    old_stop_holder: dict[str, asyncio.Event] = {}
+    replacement_session = _SessionProbe("replacement: ok")
+
+    async def install_old_generation() -> None:
+        old_stop = asyncio.Event()
+        old_stop_holder["stop"] = old_stop
+        old_task = asyncio.create_task(_park_until(old_stop))
+        mgr._states["pending"].generation = 1
+        mgr._states["pending"].status = "available"
+        mgr._states["pending"].tools = [_tool()]
+        mgr._holders["pending"] = (1, old_task, old_stop)
+
+        def install_replacement_before_failure() -> None:
+            old_stop.set()
+            replacement_stop = asyncio.Event()
+            replacement_task = asyncio.create_task(_park_until(replacement_stop))
+            mgr._states["pending"].generation = 2
+            mgr._states["pending"].status = "available"
+            mgr._states["pending"].tools = [_tool()]
+            mgr._holders["pending"] = (2, replacement_task, replacement_stop)
+            mgr._sessions["pending"] = (2, replacement_session)
+
+        failing_session = _SessionProbe(
+            "old",
+            error=RuntimeError("old generation failed"),
+            before_error=install_replacement_before_failure,
+        )
+        mgr._sessions["pending"] = (1, failing_session)
+
+    try:
+        asyncio.run_coroutine_threadsafe(install_old_generation(), loop).result(timeout=1)
+
+        result = mgr.call_tool("pending", "echo", {"text": "boom"})
+
+        assert result["ok"] is False
+        assert mgr.server_status()["pending"] == "available"
+        assert {tool.server for tool in mgr.list_tools()} == {"pending"}
+        assert mgr.call_tool("pending", "echo", {"text": "x"})["text"] == "replacement: ok"
+        assert replacement_session.call_count == 1
+    finally:
+        if "stop" in old_stop_holder:
+            loop.call_soon_threadsafe(old_stop_holder["stop"].set)
+        mgr.close()
+        if thread.is_alive():
+            loop.call_soon_threadsafe(loop.stop)
+            thread.join(timeout=1)
+        if not loop.is_closed():
+            loop.close()
+
+
+def test_call_selection_occurs_on_loop_for_current_generation(monkeypatch):
+    mgr = MCPManager({"pending": MCPServerConfig(command="unused")}, call_timeout=0.05)
+    loop = asyncio.new_event_loop()
+    thread = threading.Thread(target=loop.run_forever, daemon=True)
+    mgr._loop = loop
+    mgr._thread = thread
+    thread.start()
+    old_session = _SessionProbe("old")
+    new_session = _SessionProbe("new")
+
+    async def install_old_generation() -> asyncio.Event:
+        old_stop = asyncio.Event()
+        old_task = asyncio.create_task(_park_until(old_stop))
+        mgr._states["pending"].generation = 1
+        mgr._states["pending"].status = "available"
+        mgr._states["pending"].tools = [_tool()]
+        mgr._holders["pending"] = (1, old_task, old_stop)
+        mgr._sessions["pending"] = (1, old_session)
+        return old_stop
+
+    old_stop = asyncio.run_coroutine_threadsafe(install_old_generation(), loop).result(timeout=1)
+    original_submit = mgr._submit
+
+    def submit_after_replacement(coro, timeout: float):
+        async def swap_then_run():
+            old_stop.set()
+            replacement_stop = asyncio.Event()
+            replacement_task = asyncio.create_task(_park_until(replacement_stop))
+            mgr._states["pending"].generation = 2
+            mgr._states["pending"].status = "available"
+            mgr._states["pending"].tools = [_tool()]
+            mgr._holders["pending"] = (2, replacement_task, replacement_stop)
+            mgr._sessions["pending"] = (2, new_session)
+            return await coro
+
+        return original_submit(swap_then_run(), timeout)
+
+    monkeypatch.setattr(mgr, "_submit", submit_after_replacement)
+
+    try:
+        result = mgr.call_tool("pending", "echo", {"text": "x"})
+
+        assert result == {"ok": True, "text": "new"}
+        assert old_session.call_count == 0
+        assert new_session.thread_ids == [thread.ident]
+    finally:
+        mgr.close()
+        if thread.is_alive():
+            loop.call_soon_threadsafe(loop.stop)
+            thread.join(timeout=1)
+        if not loop.is_closed():
+            loop.close()
+
+
+def test_enable_racing_failed_holder_finalizer_starts_one_replacement():
+    mgr = MCPManager({"pending": MCPServerConfig(command="unused")}, connect_timeout=0.05)
+    loop = asyncio.new_event_loop()
+    thread = threading.Thread(target=loop.run_forever, daemon=True)
+    starts: list[int] = []
+    mgr._loop = loop
+    mgr._thread = thread
+    thread.start()
+
+    async def replacement_holder(
+        name: str,
+        generation: int,
+        ready: asyncio.Event,
+        stop: asyncio.Event,
+    ):
+        starts.append(generation)
+        mgr._states[name].status = "available"
+        mgr._states[name].tools = [_tool(name)]
+        mgr._sessions[name] = (generation, _SessionProbe(f"generation {generation}"))
+        ready.set()
+        await stop.wait()
+
+    mgr._holder = replacement_holder
+
+    async def install_failed_slot() -> None:
+        stop = asyncio.Event()
+
+        async def failed_holder() -> None:
+            raise RuntimeError("holder failed")
+
+        task = asyncio.create_task(failed_holder())
+        await asyncio.sleep(0)
+        task.exception()
+        mgr._states["pending"].generation = 1
+        mgr._states["pending"].status = "unavailable: RuntimeError"
+        mgr._holders["pending"] = (1, task, stop)
+
+    try:
+        asyncio.run_coroutine_threadsafe(install_failed_slot(), loop).result(timeout=1)
+
+        assert mgr.enable("pending") is True
+
+        assert starts == [2]
+        assert mgr.server_status()["pending"] == "available"
+        assert mgr.call_tool("pending", "echo", {})["text"] == "generation 2"
+    finally:
+        mgr.close()
+        if thread.is_alive():
+            loop.call_soon_threadsafe(loop.stop)
+            thread.join(timeout=1)
+        if not loop.is_closed():
+            loop.close()
+
+
+def test_enable_after_failed_holder_finalized_starts_one_generation():
+    mgr = MCPManager({"pending": MCPServerConfig(command="unused")}, connect_timeout=0.05)
+    loop = asyncio.new_event_loop()
+    thread = threading.Thread(target=loop.run_forever, daemon=True)
+    starts: list[int] = []
+    mgr._loop = loop
+    mgr._thread = thread
+    thread.start()
+    mgr._states["pending"].generation = 3
+    mgr._states["pending"].status = "unavailable: RuntimeError"
+
+    async def replacement_holder(
+        name: str,
+        generation: int,
+        ready: asyncio.Event,
+        stop: asyncio.Event,
+    ):
+        starts.append(generation)
+        mgr._states[name].status = "available"
+        mgr._states[name].tools = [_tool(name)]
+        mgr._sessions[name] = (generation, _SessionProbe(f"generation {generation}"))
+        ready.set()
+        await stop.wait()
+
+    mgr._holder = replacement_holder
+
+    try:
+        assert mgr.enable("pending") is True
+        assert mgr.enable("pending") is True
+
+        assert starts == [4]
+        assert mgr.server_status()["pending"] == "available"
+        assert mgr.call_tool("pending", "echo", {})["text"] == "generation 4"
+    finally:
+        mgr.close()
+        if thread.is_alive():
+            loop.call_soon_threadsafe(loop.stop)
+            thread.join(timeout=1)
+        if not loop.is_closed():
+            loop.close()
+
+
+def test_disable_during_holder_initialization_never_publishes_available(monkeypatch):
+    import mcp
+    import mcp.client.stdio as mcp_stdio
+
+    mgr = MCPManager({"pending": MCPServerConfig(command="unused")}, connect_timeout=0.2)
+    loop = asyncio.new_event_loop()
+    thread = threading.Thread(target=loop.run_forever, daemon=True)
+    initialize_started = threading.Event()
+    release_initialize = threading.Event()
+    mgr._loop = loop
+    mgr._thread = thread
+    thread.start()
+
+    class FakeTool:
+        name = "echo"
+        description = "Echo"
+        inputSchema = {}
+
+    class FakeToolList:
+        tools = [FakeTool()]
+
+    class FakeSession:
+        def __init__(self, *args):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def initialize(self):
+            initialize_started.set()
+            while not release_initialize.is_set():
+                await asyncio.sleep(0.001)
+
+        async def list_tools(self):
+            return FakeToolList()
+
+        def call_tool(self, tool: str, arguments: dict, *, read_timeout_seconds):
+            async def run():
+                return _CallResult("should not publish")
+
+            return run()
+
+    class FakeStdioClient:
+        async def __aenter__(self):
+            return object(), object()
+
+        async def __aexit__(self, *args):
+            return None
+
+    monkeypatch.setattr(mcp, "ClientSession", FakeSession)
+    monkeypatch.setattr(mcp_stdio, "stdio_client", lambda params: FakeStdioClient())
+
+    async def start_holder() -> asyncio.Event:
+        return mgr._start_holder("pending")
+
+    try:
+        ready = asyncio.run_coroutine_threadsafe(start_holder(), loop).result(timeout=1)
+        assert initialize_started.wait(timeout=1)
+
+        assert mgr.disable("pending") is True
+        release_initialize.set()
+        asyncio.run_coroutine_threadsafe(ready.wait(), loop).result(timeout=1)
+
+        assert mgr.server_status()["pending"] == "unavailable: disabled"
+        assert mgr.list_tools() == []
+        assert mgr.call_tool("pending", "echo", {})["ok"] is False
+    finally:
+        release_initialize.set()
+        mgr.close()
+        if thread.is_alive():
             loop.call_soon_threadsafe(loop.stop)
             thread.join(timeout=1)
         if not loop.is_closed():
