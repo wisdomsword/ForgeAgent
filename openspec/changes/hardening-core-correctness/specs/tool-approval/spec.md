@@ -23,8 +23,12 @@ ForgeAgent SHALL attach the generic confirmer to restricted WebFetch, FileWrite 
 - **THEN** ForgeAgent asks the user to approve or reject the operation before execution
 
 #### Scenario: REPL operation
-- **WHEN** a restricted tool is requested from the REPL
+- **WHEN** a restricted tool is requested from a REPL whose stdin and stdout are both TTYs
 - **THEN** ForgeAgent asks for confirmation before execution
+
+#### Scenario: Non-interactive REPL operation
+- **WHEN** a restricted tool is requested from a REPL whose stdin or stdout is not a TTY
+- **THEN** ForgeAgent rejects the operation without invoking the confirmation input reader
 
 #### Scenario: Non-interactive input
 - **WHEN** WebFetch, FileWrite or an MCP call that still requires human confirmation is requested while stdin or stdout is not a TTY
@@ -40,6 +44,10 @@ ForgeAgent MUST redact structured secret-key values and known sensitive environm
 #### Scenario: MCP arguments contain nested sensitive keys
 - **WHEN** MCP arguments contain values under keys matching the existing secret-name policy at any nesting level
 - **THEN** the confirmer replaces those values with a redaction marker and does not print the original values
+
+#### Scenario: MCP identifiers contain a known secret
+- **WHEN** an MCP server or tool identifier contains a known sensitive environment value
+- **THEN** the confirmer masks the identifier value as well as sensitive argument values
 
 #### Scenario: WebFetch URL contains credentials or sensitive query fields
 - **WHEN** a WebFetch URL contains user information, known secret values or query keys matching the existing secret-name policy
@@ -64,6 +72,21 @@ ForgeAgent MUST redact structured secret-key values and known sensitive environm
 #### Scenario: FileWrite uses an absolute path and sensitive content
 - **WHEN** FileWrite requests an absolute path and arbitrary content
 - **THEN** the confirmer displays a project-relative path when possible or a basename-only external path, displays only the content character count labeled `characters`, and never displays the content
+
+#### Scenario: FileWrite display path contains a known secret
+- **WHEN** the project-relative path or external basename contains a known sensitive environment value
+- **THEN** the confirmer masks that value in the displayed safe path without revealing the content or host directory
+
+### Requirement: REPL command routing is explicit after compatibility expiry
+ForgeAgent SHALL interpret only slash-prefixed REPL inputs as embedded commands after the M9 one-milestone compatibility period, while retaining the top-level `forgeagent models` CLI subcommand.
+
+#### Scenario: Former bare-word aliases are ordinary goals
+- **WHEN** a REPL user enters `models`, `reload`, `mcp` or an input beginning with `mcp ` without a leading slash
+- **THEN** ForgeAgent sends the complete input to the task loop and does not emit a deprecation notice or invoke an embedded command handler
+
+#### Scenario: Slash commands remain routed
+- **WHEN** a REPL user enters `/model`, `/reload` or `/mcp`
+- **THEN** ForgeAgent invokes the corresponding embedded command handler without sending that command text to the model
 
 ### Requirement: Restricted tool outcomes minimize sensitive exposure
 ForgeAgent MUST prevent WebFetch failure outcomes and FileWrite success or failure outcomes from reintroducing raw URLs, hostnames, content or host absolute paths after confirmation.

@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Golden core contains exactly twenty offline scenarios
-ForgeAgent SHALL maintain a trusted core manifest containing exactly G01, G03, G05, G06, G08, G11, G13, G14, G15, G17, G27, G43, G58, G59, G324, G329, G330, G332, G333 and G355. Every scenario SHALL execute with MockClient and local fixtures without network access, Docker, vendor credentials or user configuration.
+ForgeAgent SHALL maintain a trusted core manifest containing exactly G01, G03, G05, G06, G08, G11, G13, G14, G15, G17, G27, G43, G58, G59, G324, G329, G330, G332, G333 and G355. Every scenario SHALL execute offline with local fixtures and without network access, Docker, vendor credentials or user configuration. Agent-loop scenarios SHALL use MockClient; boundary scenarios MAY directly exercise CLI, Tool, RestrictedBackend, guarded URL or local stdio MCP fixtures.
 
 #### Scenario: Base CI runs the golden core
 - **WHEN** the golden core command runs in an isolated environment with no network or model credentials
@@ -31,7 +31,7 @@ Exactly G01, G03, G08, G11 and G43 SHALL be tagged as compatible with an explici
 
 #### Scenario: No real-model option is supplied
 - **WHEN** the base golden command runs without a real-model selection
-- **THEN** all scenarios use MockClient and no external model request is made
+- **THEN** Agent-loop scenarios use MockClient, direct boundary scenarios use only local fixtures, and no external model request is made
 
 #### Scenario: Real-model execution is requested
 - **WHEN** a user supplies the explicit real-model command and valid model configuration

@@ -38,7 +38,9 @@ ForgeAgent 专用显式代理契约只在文档中定义为未来能力，运行
 
 ### 2. 扩展现有 confirmer，而非新增审批子系统
 
-保留当前 callable confirmer 注入方式，使其能够格式化 `MCPArgs`、`WebFetchArgs` 和 `FileWriteArgs`。CLI 是否提供交互 confirmer 由终端能力决定，而不再依赖是否配置 MCP：stdin/stdout 为 TTY 时自动询问；非 TTY 时返回拒绝且不读取输入。`--interactive` 只保留 Survey 语义。
+保留当前 callable confirmer 注入方式，使其能够格式化 `MCPArgs`、`WebFetchArgs` 和 `FileWriteArgs`。CLI 是否提供交互 confirmer 由终端能力决定，而不再依赖是否配置 MCP：单次 run 和 REPL 都只有在 stdin/stdout 为 TTY 时自动询问；非 TTY 时返回拒绝且不读取确认输入。`--interactive` 只保留 Survey 语义。MCP server/tool 标识和 FileWrite 安全路径摘要也必须经过已知环境 secret 脱敏，不能把它们当作可信元数据。
+
+M9 规定的一个里程碑裸词兼容期已经结束。REPL 只路由 slash-prefixed 内嵌命令；裸 `models`、`reload`、`mcp` 和 `mcp ...` 恢复为普通模型目标。顶层 `forgeagent models` 子命令保持不变。
 
 2026-07-13 至 2026-07-14 的实施期审查进一步确认，仅保护确认提示不足以覆盖同一数据流：WebFetch 的底层异常和 FileWrite 的成功/失败结果也会进入 Step feedback 与 CLI console；FileRead/FileList 失败文本还会回显宿主路径。用户已确认扩展当前 change。扩展仍不引入统一 sanitizer：WebFetch 的 SSRF、请求/协议和 artifact 保存失败使用固定安全类别消息；FileWrite 成功只返回 canonical `allowed_root` 内的 project-relative 路径，文件工具失败使用固定消息。确认 URL 的 hostname 在已知 secret 匹配前先 percent-decode，并以最长优先、单次非重叠、ASCII DNS 大小写不敏感语义匹配后重新编码；hostname helper 与 path/query 的全局 `mask_secrets()` 按组件各执行一次，不对重建 URL 二次全局脱敏。
 
@@ -56,17 +58,17 @@ MCP 配置在每个服务上增加布尔字段 `required`，默认 `false`。可
 
 `MCPManager.close()` 使用单一 absolute deadline 约束公开 holder wait、cancel 和 thread join，允许重复调用，收集或记录关闭错误但不替换已有任务结果或启动错误。主线程保存的 concurrent shutdown future 只是首次 bounded waiting facade；loop thread 保存唯一 generation-aware shutdown task，outer await 用 shield，future timeout/cancel 不得取消或复制权威 drain。公开 deadline 到达后，若 async context finalizer 尚未完成，drain 继续在 live loop 上清理，不能提前 stop loop；普通内部异常按 slot 隔离，只有最终 cleanup 不变量成立才发布 completion，否则同一 task 等待 repeated-close retry signal，不结束也不 busy-loop。loop task 独占 barrier、slot snapshot、Task wait/cancel 和 conditional remove。主线程使用 pre-submit name fallback 诊断，不与活跃 loop 竞态修改 holders/sessions。loop thread 使用固定名称；warning 记录 thread name/ident、alive 状态和脱敏 pending server 名称，不记录 arguments、env 或 server 内容。daemon thread 若被同步代码完全卡死，可能暂时保有 transport、file descriptor 或 MCP child process；Python 没有安全强杀线程的 API且 manager 没有 SDK child handle，CLI 必须优先按 deadline 返回并明确报告 shutdown incomplete。此时保留 shutdown future/task、holders、sessions、loop、thread 引用；重复 close 唤醒既有 drain并用线程安全 completion event 消费新 shutdown 预算，再 bounded stop/join，不创建第二个 facade/task。只有 cleanup completion 已证明且线程停止后才关闭 loop、清除引用。
 
-实施期两轮并发审查证明 holder 不能仅以 server name 表示所有权。重设计采用 loop-owned reconcile 与 generation token：`_holders` 保存 `(generation, task, stop_event)`，`_sessions` 保存 `(generation, session)`；generation 只在 loop thread 真正启动 holder 时递增，`restart_after_generation` 将 replacement intent 与 teardown state 分开。disable teardown 完成前 holder slot 始终可见，enable 在旧代 tearing down 或 unavailable-finalizing 时只记录本代 restart intent，task done 后由 generation-conditional finalizer 摘除旧 slot，再由 loop reconcile 启动至多一个 replacement。call failure 清理当前代但不隐式自动重连，保留显式 enable 重试语义。holder 的 status/tools/session 写入和 call failure handling 都必须验证 generation；`call_tool()` 由 loop wrapper 在执行时选择 current session，main thread 不缓存 ClientSession。enable/disable/connect 的 concurrent future 只是可取消 waiter，disable 用 shield 保证 timeout 不取消 holder cleanup。close 先设置 closing barrier，再在 loop thread 原子 snapshot 精确 slot；manager closed/closing 后禁止 replacement。这样 timed-out disable、立即 re-enable、并发 close、旧 finally、旧 call failure 和 pending lifecycle waiter 都无法误删或污染新代资源。
+实施期并发审查证明 holder 不能仅以 server name 表示所有权，也证明不能把 `run_coroutine_threadsafe()` 的 future 直接当成纯 waiter：loop 尚未开始 coroutine 时取消 future 会丢失 reconcile intent。重设计采用 loop-owned reconcile 与 generation token：`_holders` 保存 `(generation, task, stop_event)`，`_sessions` 保存 `(generation, session)`；generation 只在 loop thread 真正启动 holder 时递增，`restart_after_generation` 将 replacement intent 与 teardown state 分开。disable teardown 完成前 holder slot 始终可见，enable 在旧代 tearing down 或 unavailable-finalizing 时只记录本代 restart intent，task done 后由 generation-conditional finalizer 摘除旧 slot，再由 loop reconcile 启动至多一个 replacement。call failure 清理当前代但不隐式自动重连，保留显式 enable 重试语义。holder 的 status/tools/session 写入和 call failure handling 都必须验证 generation；`call_tool()` 由 loop wrapper 在执行时选择 current session，main thread 不缓存 ClientSession。enable/disable/connect 使用必达的 loop-owned operation 和独立可取消 waiter；timeout 后 loop callback 幂等确保 operation 启动，operation task 进入 lifecycle 集，disable 内部用 shield 保证 holder cleanup 不被取消。close 先设置 closing barrier，再在 loop thread 原子 snapshot 精确 holder 与 lifecycle operation；manager closed/closing 后禁止 replacement，shutdown completion 还要求 lifecycle 集为空。这样 timed-out disable、立即 re-enable、并发 close、旧 finally、旧 call failure 和 pending lifecycle operation 都无法误删或污染新代资源。
 
 Loop startup 同样是 transaction，并持续到 initial holders submission/result 完成。局部 worker 在 publication gate 前不得进入 `run_forever()`，并在短周期 gate wait 中同时检查 cancel，使 gate release 在真正 set 前抛错时也可退出；manager refs 与 started state 发布成功后才 release。start、publication 或 gate release 抛出控制异常时，cancel/release gate，必要时请求 loop stop，bounded join；线程停止后 close loop并 rollback 为可重试状态，线程仍活则保留 refs、置 closed并记录 sanitized incomplete warning。publication 后 initial holder 基础设施失败也必须由 `connect()` 先 bounded close；普通 Exception 再映射为固定 startup error，`KeyboardInterrupt`/`SystemExit` cleanup 后原样传播。不得在 still-alive 分支清空 refs，否则会制造无法诊断的隐藏 daemon thread。
 
-同步 facade 仍按 CLI/Task 的单 caller thread 使用，不承诺多个 OS thread 同时调用 enable/disable/call/close；需要处理的 overlap 是前一个 `_submit` timeout 后 loop coroutine 继续执行、同一 caller 再发下一操作。MCP SDK call 继续由 inner read timeout 先于 outer facade timeout收敛；本次不新增通用 in-flight call registry，event-loop 同步 hard-stuck 时的未完成 call 属于既有 incomplete-shutdown residual。
+同步 facade 仍按 CLI/Task 的单 caller thread 使用，不承诺多个 OS thread 同时调用 enable/disable/call/close；需要处理的 overlap 是前一个 `_submit` timeout 后 loop operation 继续执行、同一 caller 再发下一操作。本次只跟踪 lifecycle operation，不新增通用 tool-call registry。MCP SDK call 继续由 inner read timeout 先于 outer facade timeout 收敛；event-loop 同步 hard-stuck 时的未完成 call 属于既有 incomplete-shutdown residual。
 
 备选方案“所有服务失败即启动失败”破坏可选集成，“所有服务静默降级”则无法表达生产必需依赖，因此采用服务级策略。
 
-### 5. 黄金核心复用 pytest、MockClient 和本地 fixtures
+### 5. 黄金核心复用 pytest 和本地 fixtures
 
-建立单一 manifest 描述 20 个场景的 ID、输入、fixture、预期判定和标签。runner 复用现有 MockClient 与任务入口执行场景，自动判定并输出机器可读结果及人类可读通过率报告。基础 CI 只运行离线 fixture；其中 5 项标记为真实模型兼容，可通过显式命令和模型配置选择性运行，但结果不阻断基础 CI。
+建立单一 manifest 描述 20 个场景的 ID、输入、fixture、预期判定和标签。进入 Agent 循环的场景复用现有 MockClient；CLI、Tool、RestrictedBackend、guarded URL 和本地 stdio MCP 等边界场景允许直接调用对应入口，以本地 fixture 自动判定并输出机器可读结果及人类可读通过率报告。基础 CI 只运行离线 fixture；其中 5 项标记为真实模型兼容，可通过显式命令和模型配置选择性运行，但结果不阻断基础 CI。真实模式与对应离线场景使用同一 fixture 和 judge，只替换 client，不放宽容差；真实模型偏差可以使该次非门禁运行失败。
 
 其余 360 项保留为候选目录，不生成虚假的已验证状态。优先选择覆盖网络拒绝、确认拒绝、完成门控、MCP 降级/失败及代表性成功任务的场景。实现不新增评测框架依赖。
 
@@ -91,7 +93,7 @@ FileWrite 使用 canonical target，因此替换原始 symlink alias 不能改�
 - [realpath 与 pathname open 之间仍有 symlink ancestor-swap 竞态] → 明确分档和攻击前提；本 change 不用重复检查伪装修复，也不以平台专用 fd API扩大实现范围。
 - [event-loop thread 完全卡死时可能暂留 MCP 子进程或文件描述符] → deadline 优先保证 CLI 可返回；保留引用、允许有界重试并输出无敏感信息的 incomplete-shutdown 诊断，不声称 Python 能安全强杀线程。
 - [generation-safe slot 会改变 MCPManager 内部 holder/session 形状] → 只在 manager 内部使用 `(generation, object)`，不扩大 YAML 或工具 API；call/enable/disable/close 专项测试共同锁定读取和清理语义。
-- [可取消 lifecycle waiter 可能误伤 holder cleanup] → waiter 与资源 ownership 分离，disable await 使用 shield；timeout 变异测试证明只取消 facade 且 close 后无 pending waiter。
+- [可取消 lifecycle waiter 可能在 loop 忙时连 intent 一起丢失] → reconcile 使用必达的 loop-owned operation，facade timeout 后以 loop callback 幂等 ensure；operation 集由 shutdown 精确取消/等待，disable await 继续用 shield 保护 holder cleanup。
 - [并发 ready deadline 可能让慢服务更早显示 unavailable] → timeout 仍是同一 per-server 配置，只把计时起点固定到实际并发启动时刻；迟到 publish 仍受 generation/desired/closing 检查。
 - [startup rollback 自身遭遇控制异常时可能进入 partial-start] → worker 在 publication gate 前不能运行 loop；正常 rollback 后恢复可重试状态，极端仍活分支保留 refs/closed warning，禁止清空后制造隐藏线程。
 - [20 项核心不能代表全部任务空间] → 报告明确分离“核心已验证”与“候选未验证”，后续按风险增量扩展。
@@ -108,4 +110,3 @@ FileWrite 使用 canonical target，因此替换原始 symlink alias 不能改�
 ## Open Questions
 
 - 显式代理未来契约采用哪个配置路径和最小字段集合；本里程碑只需文档化且不启用运行时转发。
-- 5 个真实模型兼容场景如何在不改变离线预期的前提下定义容差判定。

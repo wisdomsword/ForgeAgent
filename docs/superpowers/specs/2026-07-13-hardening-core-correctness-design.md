@@ -148,9 +148,9 @@ network:
 
 `Confirmer = Callable[[BaseModel], bool]` 保持不变。CLI 内部增加一个小型 formatter，由 `make_console_confirmer()` 调用：
 
-- `MCPArgs`：显示 `server:tool`。arguments 递归遍历 dict/list；键名匹配现有 `is_secret_name()` 时，无论值长度都显示 `<redacted>`；其他字符串再用 `mask_secrets(..., sensitive_env_values())` 替换已知环境 secret value。
+- `MCPArgs`：显示经过 `mask_secrets()` 的 `server:tool`。arguments 递归遍历 dict/list；键名匹配现有 `is_secret_name()` 时，无论值长度都显示 `<redacted>`；其他字符串再用同一组 `sensitive_env_values()` 替换已知环境 secret value。server/tool 不是可信元数据，不能绕过提示脱敏。
 - `WebFetchArgs`：通过 `urllib.parse` 清除 URL userinfo 和 fragment，替换敏感 query key 的值，再用 `mask_secrets()` 处理已知 secret value。path 在匹配前 percent-decode。hostname 先 percent-decode，再以 ASCII DNS 大小写不敏感语义执行一次从左到右、非重叠替换；候选 secret 按长度降序排列，确保同一位置优先匹配最长值。替换只作用于 hostname component，不对原始 URL 做正则改写。重建前重新编码 hostname；percent-decode 后产生的 `@`、`/`、`?`、`#` 等结构字符不得直接进入 netloc，无合法 hostname 表示时返回 `<redacted malformed URL>`。IPv6 身份由原始 netloc 是否使用方括号决定：只有原始 bracketed host 才允许解码后的 `:`，普通 DNS hostname 中 encoded `:` 视为 malformed；合法 IPv6 和 RFC 6874 zone-id 保留结构化方括号与编码。
-- `FileWriteArgs`：不回显 content。绝对路径在 cwd 内时显示项目相对路径，在 cwd 外时只显示 `.../<basename>`；相对路径保持规范化相对形式。提示同时显示 `len(content)` 计算的字符数，并固定标记为 `characters`，不得误标为 bytes。
+- `FileWriteArgs`：不回显 content。绝对路径在 cwd 内时显示项目相对路径，在 cwd 外时只显示 `.../<basename>`；相对路径保持规范化相对形式。安全路径摘要仍需经过 `mask_secrets()`，避免 basename 或相对路径段携带已知环境 secret。提示同时显示 `len(content)` 计算的字符数，并固定标记为 `characters`，不得误标为 bytes。
 - 其他 `BaseModel`：只显示类型名，避免访问不存在的字段或意外回显敏感数据。
 
 全局 `mask_secrets()` 的既有契约保持不变：它按敏感环境变量名收集长度至少 8 的值，再做最长值优先替换。结构化键脱敏只属于 confirmer formatter，避免改变 executor/MCP output 的既有行为和误报面。
@@ -159,13 +159,14 @@ WebFetch formatter 在一次调用开始时只读取一次 `sensitive_env_values
 
 输入仍只接受 `y`/`yes`。EOF、空输入和其他值全部拒绝。
 
-### 5.2 终端选择
+### 5.2 终端选择与 REPL 路由
 
-- REPL 本身就是交互入口，始终创建并传入 confirmer，不再以 MCP 是否存在为条件。
+- REPL 只有在 stdin 与 stdout 均为 TTY 时才创建并传入 confirmer，不再以 MCP 是否存在为条件。`repl()` 接受 `confirmation_available: bool | None = None`；未指定时从 `sys.stdin.isatty()` 与 `console.is_terminal` 计算，不能因函数名为 REPL 就假定存在交互通道。
 - 单次 `run` 只有在 `sys.stdin.isatty()` 与 `console.is_terminal` 同时为真时传入 confirmer。
-- 非 TTY 不读取 stdin，向 Task 传 `None`。WebFetch/FileWrite 和仍需确认的 MCP 调用返回 `rejected: no interactive confirmation channel available`，与用户在 TTY 中明确回答 no 的 `not approved by the user` 区分。
+- 非 TTY 的 confirmer 不读取确认输入，并向 Task 传 `None`；REPL 自身仍可从管道读取普通 goal。WebFetch/FileWrite 和仍需确认的 MCP 调用返回 `rejected: no interactive confirmation channel available`，与用户在 TTY 中明确回答 no 的 `not approved by the user` 区分。
 - `--interactive` 继续只决定 Survey 是否获得 asker，不参与 confirmer 选择。
 - MCP `autoApprove` 是用户配置中的显式预批准，继续在调用 confirmer 前短路；因此它可以在非 TTY 执行。WebFetch/FileWrite 没有对应例外。
+- M9 声明的一个里程碑裸词兼容期已经结束。REPL 只把 `/model`、`/reload`、`/mcp` 等 slash-prefixed 输入解释为命令；裸 `models`、`reload`、`mcp` 和 `mcp ...` 都作为普通任务目标交给模型。顶层 CLI 子命令 `forgeagent models` 不属于 REPL 兼容层，继续保留。
 
 ### 5.3 执行结果的最小披露
 
@@ -280,6 +281,7 @@ manager 构造参数增加仅供内部/测试注入的 `shutdown_timeout=10.0` �
 - `_ServerState.restart_after_generation: int | None`：只表示用户 enable 已明确要求在该代 cleanup 后 replacement。disable/close 清空它；enable 遇到 tearing-down 或 unavailable-finalizing slot 时设为该代；initial connection failure 和 call failure 本身都不设置，避免永久配置错误或一次工具失败触发未声明的自动重连。
 - `_holders: dict[str, tuple[int, asyncio.Task, asyncio.Event]]`，slot 原子携带 generation、task 和该代专属 stop event；删除 `_ServerState.stop` 单值字段，避免 close/disable signal 到错误代。
 - `_sessions: dict[str, tuple[int, object]]`。`call_tool()` 只使用 generation 与当前 state/holder slot 一致的 session。
+- `_lifecycle_tasks: set[asyncio.Task]` 只跟踪 enable/disable/initial-connect 的 loop-owned operation，不包含 tool call。同步 waiter 可取消，但 operation 必须通过单独的 loop callback 必达启动；task 完成时由 done callback 消费结果并从集合移除。shutdown entry 在 loop 内对该集合取精确快照并取消/等待，最终不变量还要求集合为空，防止停止 loop 时遗留 waiter 背后的 operation。
 - `_shutdown_task: asyncio.Task | None` 只由 loop thread 创建和发布；`_shutdown_future` 只是主线程等待该 task 的 concurrent facade。两者不得混为同一 completion 证据；仅在 loop 已停止且 completion 已证明后，主线程才可随其余引用一起清空它。
 - `config.enabled` 是 desired state。loop 存在时，runtime enable/disable 必须通过提交到 loop 的 reconcile coroutine更新 desired state 和 slot，不从主线程直接替换 `_holders`/`_sessions`；manager closed/closing 后 connect/enable 不得创建 generation。
 - holder 驱动的 `status`、`tools`、session publish/finally，以及 call failure 的 session invalidation，都必须在 loop thread 检查 generation 后执行。同步 `call_tool()` 不从主线程读取或持有 ClientSession；它提交 loop-owned wrapper，由 wrapper 在实际执行时原子选择仍匹配 current holder 的 `(generation, session)`、await SDK call，并在失败时只 invalidation/停止该 generation。旧 session 不会在 replacement 已发布后才被主线程重新提交。
@@ -314,13 +316,13 @@ enable 遇到 status unavailable 且同代 task 正在 finally 时，必须把�
 
 slot finalization 使用单一幂等函数 `_finalize_holder_slot(name, generation, task)`。`_start_holder()` 同步创建 generation、ready、stop、task 和原子 slot，并给 task 注册 done callback；callback 在 loop thread 调 finalizer。task/coroutine 创建任一点失败都要关闭尚未调度的 coroutine、把本代状态收敛为固定 unavailable 类别且不留下半个 slot，并向 initial/runtime waiter 返回立即 ready-failure，不能再消耗一次 `connect_timeout`。shutdown 的 `asyncio.wait()` 不得假设 done callback 已先运行，因此 await snapshot task 后也显式调用同一 finalizer。finalizer 只有在当前 slot 精确匹配时才 pop；只有 `restart_after_generation` 匹配、desired enabled 且 manager 非 closed/closing 时，才清空 restart intent并同步调用 `_start_holder()` 分配下一代，否则不 restart。该函数不 await、不创建未追踪 reconcile task；done callback 还必须消费 task 的普通异常以避免后台 warning。
 
-同步 lifecycle API 的等待同样分成 ownership 与 facade：enable/initial connect 的 waiter 只等 generation-specific ready，disable waiter 用 `asyncio.shield(holder_task)` 等本代退出，holder/slot 本身始终由 loop 拥有。若 `Future.result()` timeout 或 caller 收到控制异常，主线程取消该 concurrent waiter future，但 shield 使 teardown/holder 不被取消；它不构成资源所有权，也不需要新增 manager 级 in-flight registry。同一 caller 随后的 close 排在 waiter cancellation 之后。这样 close 只需 snapshot holder slot，不会在停止 loop 时遗留一个未跟踪的 disable/enable waiter task。initial enabled holders 在第一次 await 前全部创建，ready waits 并发使用同一 start deadline。
+同步 lifecycle API 的等待同样分成 ownership 与 facade，但不能把 `run_coroutine_threadsafe()` 返回的 future 直接等同于纯 waiter：loop 尚未开始 coroutine 时取消该 future 会连 reconcile intent 一起丢失。每次 enable/disable/initial-connect 因此先构造一个 loop-owned operation；同步 facade 只等待一个 shielded wrapper。若 `Future.result()` timeout 或 caller 收到控制异常，主线程取消 concurrent waiter，并用 `call_soon_threadsafe()` 幂等确保 operation 已经或最终会在 loop 启动。enable/initial-connect operation 只等 generation-specific ready，disable operation 用 `asyncio.shield(holder_task)` 等本代退出，holder/slot 始终由 loop 拥有。operation task 进入 `_lifecycle_tasks`，完成回调消费结果并摘除；close 的 loop entry 排在前序 ensure callback 后，先建立 closing barrier 和精确 holder/lifecycle snapshots，再取消 lifecycle operation、signal holder stop 并完成统一 drain。这样 timeout 不丢 desired-state intent，close 也不会在停止 loop 时遗留未跟踪 operation。initial enabled holders 在第一次 await 前全部创建，ready waits 并发使用同一 start deadline。
 
 `close()` 先在主线程置 `_closed=True`，再由 loop-owned shutdown entry 设置 `_closing=True` 并创建 `(name, generation, task, stop)` snapshot。所有已排队 reconcile 在启动 generation 前都检查 closed/closing；shutdown entry 之后的 reconcile 也不得启动。disable teardown 中的 holder 在 task done 前始终留在 `_holders`，因此 snapshot 不会漏掉。stop、cancel 与 conditional remove 都使用 snapshot generation。主线程仅保存 pre-submit name fallback 供 hard-stuck warning，不跨线程复制 Task slot作为权威 snapshot。
 
 `enable()`/`disable()` 仅在 initial connect 之前（`_started=False`、loop 尚未创建、manager 未 closed）可以直接更新配置 desired state；loop 存在时必须走 reconcile。manager closed/closing 后两者可返回“server name known”，但不得重启资源；`connect()` 在 closed manager 上也不得 reopen。增加 enable-after-close 与 close/enable queue-order 回归。全 disabled 配置在 CLI 组装层仍返回 `None`，本 change 不新增“无 manager 的 REPL 动态建 loop”能力。
 
-同步 facade 的线程契约保持不变：CLI/Task 使用单一调用线程，不承诺多个 OS caller thread 同时调用 enable/disable/call/close。这里的 overlap 专指同步 `_submit(...).result(timeout)` 已返回或超时、但先前 loop coroutine 仍在运行，随后同一 caller 发出下一操作。SDK `call_tool` 继续依赖 inner read timeout 早于 outer facade timeout；本重设计不新增通用 in-flight call registry。若 loop 被同步代码完全卡死，未完成 call 与 transport 一并属于 7.3 已记录的 hard-stuck residual。
+同步 facade 的线程契约保持不变：CLI/Task 使用单一调用线程，不承诺多个 OS caller thread 同时调用 enable/disable/call/close。这里的 overlap 专指同步 `_submit(...).result(timeout)` 已返回或超时、但先前 loop operation 仍在运行，随后同一 caller 发出下一操作。只新增 lifecycle operation 集以证明 shutdown 完整性，不增加通用 tool-call registry。SDK `call_tool` 继续依赖 inner read timeout 早于 outer facade timeout；若 loop 被同步代码完全卡死，未完成 call 与 transport 一并属于 7.3 已记录的 hard-stuck residual。
 
 Loop startup 也是 transaction：先创建局部 loop、publication gate、cancel event 和固定名称 thread；worker 用短周期 gate wait 同时检查 cancel，未见 published gate 时不得进入 `run_forever()`，即使 gate release 本身在真正 set 前抛错也能因 cancel 退出。`connect()` 在 closed manager 上直接返回且不得 reopen。只有 manager 的 `_loop/_thread/_started` 发布成功后才 release gate。`Thread.start()`、状态发布或 gate release 任一点抛出 `BaseException` 时：保存第一个原异常对象，设置 cancel 并 best-effort release gate；无论 worker 尚未检查 cancel 还是已经进入 `run_forever()`，都 best-effort `call_soon_threadsafe(loop.stop)`，再在 `thread_join_timeout` 内 join。rollback 内每个 cleanup 操作独立捕获后续 `BaseException`、只记录固定异常类型，最终用裸 `raise` 保留第一个原异常；这不是吞掉 caller 的控制异常，而是防止 cleanup 的第二异常替换根因。线程停止后 close loop、清空 refs、恢复 `_started=False`/`_closed=False` 与未设置的 shutdown state，使 manager 可重试。若线程仍活，不能 close loop或清空 refs；保留 `_loop/_thread`、置 `_started=True/_closed=True`，因该分支没有 holder 而把 startup cleanup 标为 complete，记录 sanitized incomplete-startup warning，再原样重抛，供持有 manager 的调用方做 bounded close retry。
 
@@ -407,7 +409,7 @@ runner preflight 必须验证：
 
 每个场景获得独立临时工作目录。case callable 负责 fixture 创建、Task/CLI/工具调用和显式 judge，并返回标准化 evidence。判定不得依赖 Python `assert`，以免 `python -O` 改变结果；失败通过专用 check error 或结构化结果表达。
 
-离线模式只使用 MockClient、本地文件、测试 double 和本地 MCP fixture。基础运行不得访问公网、Docker、真实模型配置或用户 home。
+离线模式只使用本地 fixture：进入 Agent 循环的场景使用 MockClient；网络、CLI、Tool、RestrictedBackend 和 MCP 生命周期等边界场景可以直接调用对应入口及本地 test double，而不伪造一次无意义的模型轮次。基础运行不得访问公网、Docker、真实模型配置或用户 home。
 
 G13 的离线脚本在工具失败/成功轮携带提前 `completed: true`，同时验证错误反馈环和严格两阶段完成。MCP required/close 的细粒度故障矩阵保留在专项测试；G355 只承担产品级状态/工具目录和 optional 降级冒烟。
 

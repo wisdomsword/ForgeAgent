@@ -82,7 +82,7 @@ ForgeAgent MUST serialize holder desired-state reconciliation on the MCP loop th
 
 #### Scenario: Lifecycle wait times out before holder cleanup
 - **WHEN** an enable, disable or initial-connect facade wait times out while its generation-owned holder work continues
-- **THEN** ForgeAgent cancels only the concurrent waiter, shields holder teardown from that cancellation, and a following close leaves no pending lifecycle waiter task or untracked holder
+- **THEN** ForgeAgent cancels only the concurrent waiter, idempotently ensures the loop-owned lifecycle operation still starts even if the loop had not entered its coroutine, shields holder teardown from waiter cancellation, and a following close snapshots and drains lifecycle operations without leaving a pending task or untracked holder
 
 #### Scenario: Multiple initial holders do not multiply connection timeout
 - **WHEN** multiple enabled MCP servers all fail to signal ready
@@ -132,7 +132,7 @@ ForgeAgent MUST keep a new loop worker behind a publication gate until manager s
 
 #### Scenario: Loop thread stops before cleanup completion is proven
 - **WHEN** the OS thread is no longer alive but the loop-owned cleanup completion signal is not set
-- **THEN** ForgeAgent treats shutdown as incomplete, retains holder/session/loop/thread evidence, and does not clear resources based on thread state alone
+- **THEN** ForgeAgent treats shutdown as incomplete, retains holder/session/lifecycle-operation/loop/thread evidence, and does not clear resources or fabricate completion based on thread state or empty holder/session maps alone
 
 #### Scenario: Internal shutdown operation raises unexpectedly
 - **WHEN** an internal holder, event-loop or thread cleanup operation raises an Exception
