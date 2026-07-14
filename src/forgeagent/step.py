@@ -318,9 +318,13 @@ class Step:
             self.blocks.put(block.name, block.code, block.language)
         for call in parsed.tool_calls:
             rr.outcomes.append(self._dispatch(call))
-        self._apply_declared_status(rr, parsed.task_status)
-        # A tool may signal terminal NEEDS_INFO (Survey without an asker). Declared
-        # front-matter status wins if the model also declared one — the model's own
+        self._apply_declared_status(
+            rr,
+            parsed.task_status,
+            allow_completed=not parsed.tool_calls and not parsed.errors,
+        )
+        # A tool may signal terminal NEEDS_INFO (Survey without an asker). A declared
+        # non-completed status wins if the model also declared one — the model's own
         # signal is more reliable than a tool-side default.
         if rr.stopped_reason is None:
             for o in rr.outcomes:
@@ -330,7 +334,9 @@ class Step:
                     break
         return rr
 
-    def _apply_declared_status(self, rr: RoundResult, status: TaskStatus | None) -> None:
+    def _apply_declared_status(
+        self, rr: RoundResult, status: TaskStatus | None, *, allow_completed: bool
+    ) -> None:
         """Honour a front-matter task_status declaration (see protocol.TaskStatus).
 
         `completed: true` is a verified completion; a `completed: false` with an explicit
@@ -341,8 +347,9 @@ class Step:
         if status is None:
             return
         if status.completed:
-            rr.completed = True
-            rr.stopped_reason = Termination.COMPLETED
+            if allow_completed:
+                rr.completed = True
+                rr.stopped_reason = Termination.COMPLETED
             return
         declared = _DECLARED_STATUS.get(status.status or "")
         if declared is not None:

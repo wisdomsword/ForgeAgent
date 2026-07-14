@@ -127,6 +127,40 @@ def test_error_feedback_drives_next_round():
     assert len(rounds) == 2  # error produced feedback -> a second round happened
 
 
+def test_completed_status_waits_for_successful_tool_feedback():
+    step = _step([_reply(_done() + _exec_call("print('hi')")), _reply(_done())])
+
+    rounds = step.run(_user())
+
+    assert len(rounds) == 2
+    assert rounds[0].completed is False
+    assert rounds[0].outcomes[0].success is True
+    assert rounds[1].stopped_reason == "completed"
+
+
+def test_completed_status_waits_for_failed_tool_feedback():
+    step = _step([_reply(_done() + _exec_call("1/0")), _reply(_done())])
+
+    rounds = step.run(_user())
+
+    assert len(rounds) == 2
+    assert rounds[0].completed is False
+    assert rounds[0].outcomes[0].success is False
+    assert rounds[1].stopped_reason == "completed"
+
+
+def test_completed_status_waits_for_parse_error_feedback():
+    malformed_call = '<!-- ToolCall: {"name": "Exec", "arguments": {"code": "x",}} -->'
+    step = _step([_reply(_done() + malformed_call), _reply(_done())])
+
+    rounds = step.run(_user())
+
+    assert len(rounds) == 2
+    assert rounds[0].completed is False
+    assert rounds[0].parse_errors
+    assert rounds[1].stopped_reason == "completed"
+
+
 def test_long_stdout_is_truncated_in_feedback():
     # A block that prints a lot must not blow up the next round's context; feedback
     # keeps only the tail plus a marker noting how much was cut.
@@ -363,9 +397,9 @@ def test_survey_without_asker_ends_needs_info():
     assert rounds[0].stopped_detail == "which file should I edit?"
 
 
-def test_declared_completion_wins_over_survey_needs_info():
-    # If the model both completes and calls Survey without an asker in one round, the
-    # declared completion is the more reliable signal and takes precedence.
+def test_declared_completion_does_not_override_survey_needs_info():
+    # A tool-bearing response cannot complete, so Survey's existing terminal signal
+    # remains the outcome when no asker is available.
     from forgeagent.step import Step
     from forgeagent.tools import default_registry
 
@@ -378,7 +412,8 @@ def test_declared_completion_wins_over_survey_needs_info():
         registry=default_registry(),
     )
     rounds = step.run(_user())
-    assert rounds[0].stopped_reason == "completed"
+    assert rounds[0].completed is False
+    assert rounds[0].stopped_reason == "needs_info"
 
 
 class _RecordingClient(MockClient):

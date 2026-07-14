@@ -68,6 +68,19 @@ def test_task_exhausts_max_rounds():
     assert outcome.status.reason == "max_rounds"
 
 
+def test_task_does_not_complete_from_tool_bearing_final_round():
+    task = Task(
+        MockClient(script=[_reply(_done() + _tool_call("Exec", code="print(1)"))]),
+        max_rounds=1,
+    )
+
+    outcome = task.run("do one thing")
+
+    assert outcome.status.completed is False
+    assert outcome.status.reason == "max_rounds"
+    assert outcome.rounds[0].outcomes[0].success is True
+
+
 def test_task_client_error_surfaces():
     from forgeagent.models import ClientError
 
