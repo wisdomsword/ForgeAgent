@@ -173,16 +173,17 @@ WebFetch formatter 在一次调用开始时只读取一次 `sensitive_env_values
 实施期 thorough review 发现确认后的工具结果同样会进入 Step feedback 和 CLI console。用户于 2026-07-13 选择把该问题纳入当前 change，并批准固定安全结果消息方案：
 
 - WebFetch 捕获 `SSRFGuardError` 时返回固定 `WebFetch blocked by network policy`；打开、读取或关闭响应时发生 `OSError`、`http.client.HTTPException` 或非法 URL `ValueError` 时返回固定 `WebFetch request failed`；artifact 写入 `OSError` 返回固定 `WebFetch response save failed`。不得把底层异常、原始 URL、hostname 或宿主路径写入 `ToolOutcome.detail`。
+- WebFetch 的可预测 artifact 名称在写入前必须交给 `_validate_path()`，并使用其返回的 canonical target 写入；预置 artifact symlink 或 symlink ancestor 指向 `allowed_root` 外时返回 `WebFetch response save failed`，不得触碰外部目标。该检查与 FileWrite 共享现有函数，不新增 artifact policy 层。
 - FileWrite 通过 project-root 校验并成功写入后，只返回由已解析目标相对 canonical `allowed_root` 计算出的 project-relative 路径：`base = Path(os.path.realpath(ctx.allowed_root))`，再对 `_validate_path()` 返回的 `resolved` 使用 `relative_to(base)`。不复用模型提供的原始路径，也不假定 `ctx.allowed_root` 已经是绝对路径。
 - FileWrite 写入阶段发生 `OSError` 或路径语法产生 `ValueError` 时返回固定 `FileWrite failed`。越界、无交互通道和用户拒绝继续使用既有固定消息。
 - FileRead/FileList 的路径校验和文件系统失败分别返回固定 `FileRead failed` / `FileList failed`，不回显异常文本、模型提供的绝对路径或 canonical root。MCP 结果契约和全局 `mask_secrets()` 行为保持不变。
 - 不新增通用 result sanitizer。固定消息牺牲部分底层诊断细节，以避免平台相关异常字符串重新引入 URL、hostname 或宿主绝对路径泄漏。
 
-测试必须覆盖：percent-encoded、大小写变化和重叠的 hostname secret；encoded `@`、`/`、`?`、`#`、`:`；普通 IPv6 与 zone-id 字面量；userinfo/fragment 丢弃；hostname 局部 helper 与 path/query 全局 `mask_secrets()` 不重复或漏脱敏；携带原始 URL/hostname 的 WebFetch guard/network/HTTP protocol 异常；WebFetch artifact 写入异常包含绝对路径；FileWrite 使用绝对路径和相对 `allowed_root="."` 时只回显 canonical project-relative 路径；FileRead/FileWrite/FileList 的越界、非法路径和文件系统异常不回显宿主路径。失败结果还需通过现有 Step feedback 与 CLI `render_outcome()` 路径验证不再泄漏。
+测试必须覆盖：percent-encoded、大小写变化和重叠的 hostname secret；encoded `@`、`/`、`?`、`#`、`:`；普通 IPv6 与 zone-id 字面量；userinfo/fragment 丢弃；hostname 局部 helper 与 path/query 全局 `mask_secrets()` 不重复或漏脱敏；携带原始 URL/hostname 的 WebFetch guard/network/HTTP protocol 异常；WebFetch artifact 写入异常包含绝对路径；预置 artifact symlink/ancestor 指向 root 外且外部目标不变；FileWrite 使用绝对路径和相对 `allowed_root="."` 时只回显 canonical project-relative 路径；FileRead/FileWrite/FileList 的越界、非法路径和文件系统异常不回显宿主路径。失败结果还需通过现有 Step feedback 与 CLI `render_outcome()` 路径验证不再泄漏。
 
 ### 5.4 共享路径边界
 
-`_validate_path()` 与 `_sandbox_worker._install_audit_hook()` 保持独立实现，避免为了两处小判定引入共享模块，但使用同一不变量：
+WebFetch artifact 与 FileRead/FileWrite/FileList 在主进程内复用 `_validate_path()`；`_sandbox_worker._install_audit_hook()` 保持独立实现，避免为了两个进程边界引入共享模块，但使用同一不变量：
 
 1. 用 `os.path.realpath()` 得到 canonical root 和 target。
 2. 用 `os.path.commonpath((root, target))` 判断包含关系；`realpath()` 或 `commonpath()` 因不同驱动器、NUL 等非法路径抛出的 `ValueError` 视为不允许。
@@ -241,7 +242,7 @@ required: bool = False
 
 1. 加载配置并构造 manager。
 2. 无 enabled server 时返回 `None`。直接使用 `MCPManager` 时，`connect()` 在无 enabled server 的情况下不创建 loop 且保持可在修改 desired config 后再次显式 connect 的 pre-start 状态；`enable()` 本身不隐式创建一个此前不存在的 manager/loop。
-3. 调用 `connect()`。服务级连接失败继续由 holder 收敛为状态；initial holder submission/result 发生普通 manager 基础设施异常时，`connect()` 先对已发布 loop/holder 执行 bounded close，再让组装层转成不含异常文本的 `MCPStartupError`。`KeyboardInterrupt`/`SystemExit` 也必须先 best-effort cleanup，但原样传播。
+3. 调用 `connect()`。服务级连接失败继续由 holder 收敛为状态；initial holder submission/result 发生普通 manager 基础设施异常时，`connect()` 先对已发布 loop/holder 执行 bounded close，再让组装层转成不含异常文本的 `MCPStartupError`。cleanup 抛出的 `asyncio.CancelledError` 等非进程控制 `BaseException` 只能记录固定类型，不能替换 primary startup error；新的 `KeyboardInterrupt`/`SystemExit` 仍按进程控制语义传播。primary 本身是控制异常时也必须先 best-effort cleanup，再原样传播。
 4. 收集 required failures。
 5. 若非空，先调用不会抛出普通 `Exception` 的 `close()`，再抛 `MCPStartupError`，消息只包含服务名和已脱敏的固定状态。`close()` 进入后第一项动作必须是设置 closed state，避免二次错误让启动清理重新进入。
 6. 否则打印全部状态；optional unavailable 使用黄色诊断，返回 manager。
@@ -264,9 +265,10 @@ manager 构造参数增加仅供内部/测试注入的 `shutdown_timeout=10.0` �
 6. `_shutdown_task` 对每个 holder/result/finalizer 的普通 `Exception` 分别收集并只记录固定异常类型，然后执行一次幂等的最终清理检查；普通异常不得让 task 提前失败并绕过其余 holder。只有 snapshot task 全部 done、精确 slot/session 已完成条件清理且没有 replacement 后，才设置 `_shutdown_complete` 并请求 `loop.stop()`。若最终不变量仍不成立，则保留 complete 未设置和全部证据；同一个 task 等待一个 loop-owned retry event，不返回、不 busy-loop。重复 close 的 `_ensure_shutdown_task(new_deadline)` 只唤醒这个既有 task做下一次有界清理尝试，不能创建第二个 task或第二份 snapshot。loop 停止且 completion 已证明后，主线程才可丢弃 `_shutdown_task` 引用，这不属于活跃 loop 上的跨线程 mutation。
 7. 主线程保存 `asyncio.run_coroutine_threadsafe(_wait_for_shutdown(), loop)` 返回的 `_shutdown_future`；`_wait_for_shutdown()` 在 loop 内用 `asyncio.shield(_shutdown_task)`，因此 concurrent future timeout/cancel 不会取消真正的 drain。若 outer coroutine 在 ensure 前即被取消，fallback 只向 loop 提交 `_ensure_shutdown_task` callback；它创建或复用同一 task，绝不重复 snapshot/holder shutdown。主线程 cancel 但保留 `_shutdown_future`，并使用 pre-submit name fallback 作诊断。
 8. 主线程不在 cleanup incomplete 时直接 stop loop。第一次 close 通过 concurrent facade 等待；该 future 一旦取消就不可复用，因此重复 close 在唤醒既有 drain 后，改用线程安全的 `_shutdown_complete.wait(max(0, remaining - thread_join_timeout))` 等待同一 task 的 completion，不创建第二个 coroutine/future/task。随后 `thread.join()` 使用 `min(thread_join_timeout, remaining)`。
-9. 只有 `thread.is_alive() is False` 且 `_shutdown_complete` 已设置，主线程才能 close loop 并清空 shutdown future/task、holders、sessions、loop、thread。thread 已死但 cleanup completion 未被证明时也按 incomplete 处理并保留引用。warning 至少包含固定 thread name、ident、alive 状态、经 secret-value mask 的 snapshot pending server 名称和 timeout，不输出 MCP arguments、env、server content 或 stack。
-10. 公开 `close()` 在设置 closed state 后用 `try/except Exception/finally` 包围内部操作。Exception 只记录 warning并继续 best-effort drain/join；KeyboardInterrupt/SystemExit 不被吞掉。cleanup incomplete 时无论 thread 是否暂时存活，都不得从主线程清空 loop-owned slot/session 引用。
-11. 返回 None，不向调用方传播普通关闭异常。
+9. 只有 `thread.is_alive() is False` 且 `_shutdown_complete` 已由 loop-owned drain 或已批准的 pre-holder startup rollback 设置，主线程才能 close loop 并清空 shutdown future/task、holders、sessions、lifecycle operations、loop、thread。thread 已死但 completion 未被证明时，即使 holder/session/lifecycle 容器为空或 `_shutdown_task` 为 `None`/done，也按 incomplete 处理并保留 shutdown future、排队 callback 与 loop 引用。warning 至少包含固定 thread name、ident、alive 状态、经 secret-value mask 的 snapshot pending server 名称和 timeout，不输出 MCP arguments、env、server content 或 stack。
+10. `_stop_and_join()` 必须在 join 返回后重新读取 `_shutdown_complete`，不能使用 join 前缓存值；若 drain 在 join 期间完成且线程已经停止，同一次 close 应立即关闭 loop 和清除引用，不得误报 incomplete 或强制用户再调用一次。
+11. 公开 `close()` 在设置 closed state 后用 `try/except Exception/finally` 包围内部操作。Exception 只记录 warning并继续 best-effort drain/join；KeyboardInterrupt/SystemExit 不被吞掉。cleanup incomplete 时无论 thread 是否暂时存活，都不得从主线程清空 loop-owned slot/session 引用。
+12. 返回 None，不向调用方传播普通关闭异常。
 
 正常和 holder 无响应 fixture 必须证明 SDK 的进程树清理可以在上限内结束子进程。更极端的情形是 event-loop thread 本身被同步代码卡死：cancel 和 SDK context exit 可能尚未执行，daemon thread 可能暂时保有 transport、file descriptor，甚至 MCP child process。Python 不提供安全强杀线程的 API，manager 也没有 SDK child handle 可供主线程可靠终止，因此 CLI 仍按 deadline 返回，warning 明确标记 `shutdown incomplete; resources may remain` 并保留上述诊断证据。若线程随后停止，第二次 `close()` 必须关闭遗留 loop 并清除引用；若仍存活，第二次调用仍只能在自己的新 absolute deadline 内等待 completion 与 join。默认不抓取线程堆栈：`sys._current_frames()` 是 CPython 私有诊断接口，输出冗长且可能包含宿主路径；固定线程身份和 pending holder 足以定位本层问题。
 
@@ -312,9 +314,11 @@ tearing_down(gen N)
 
 `disable()` timeout 只表示同步调用方停止等待，不取消 loop-owned holder teardown，也不摘除 slot。随后 `enable()` 看见 tearing-down slot 时不得立即覆盖；它只更新 desired enabled 并为该 generation 记录 restart intent。holder coroutine 的 `finally` 只做 generation-conditional session/status cleanup；task 真正 done 后，loop-owned done finalizer 才移除精确 holder slot并调用 reconcile。reconcile 同时验证最终 desired state 与 restart intent，必要时启动 replacement。测试 `test_enable_during_timed_out_disable_restarts_after_old_holder_cleanup` 锁定该顺序；另加 `test_re_enable_old_holder_finally_does_not_delete_replacement_session`，证明旧 generation 无法删除新 session或把新 status/tools 改为 unavailable。
 
-enable 遇到 status unavailable 且同代 task 正在 finally 时，必须把该 generation 标为 tearing down并设置 `restart_after_generation`，而不是因 slot 尚在就视为幂等成功；task 已 done 时先走同一 finalizer。这样显式 retry 不会在 done-callback 竞态中丢失，也不会自动重试从未成功建立的永久失败服务。当前 active session 的 call failure 在 loop 内清空 tools/session、设置本代 teardown 并 signal 本代 stop，但保持 unavailable 且不自行设置 restart intent；用户随后显式 enable 才触发 replacement，保留既有“调用失败后降级、由用户决定重试”的外部语义。
+enable 遇到 status unavailable 且同代 task 正在 finally 时，必须把该 generation 标为 tearing down并设置 `restart_after_generation`，而不是因 slot 尚在就视为幂等成功；task 已 done 时先走同一 finalizer。这样显式 retry 不会在 done-callback 竞态中丢失，也不会自动重试从未成功建立的永久失败服务。当前 active session 的 call failure 在 loop 内清空 tools/session、设置本代 teardown 并 signal 本代 stop，但保持 unavailable 且不自行设置 restart intent；用户随后显式 enable 才触发 replacement，保留既有“调用失败后降级、由用户决定重试”的外部语义。调用前，session generation 必须同时匹配 `state.generation` 和当前 holder slot generation；任一不一致都返回无 live current session，不调用 stale SDK object。
 
 slot finalization 使用单一幂等函数 `_finalize_holder_slot(name, generation, task)`。`_start_holder()` 同步创建 generation、ready、stop、task 和原子 slot，并给 task 注册 done callback；callback 在 loop thread 调 finalizer。task/coroutine 创建任一点失败都要关闭尚未调度的 coroutine、把本代状态收敛为固定 unavailable 类别且不留下半个 slot，并向 initial/runtime waiter 返回立即 ready-failure，不能再消耗一次 `connect_timeout`。shutdown 的 `asyncio.wait()` 不得假设 done callback 已先运行，因此 await snapshot task 后也显式调用同一 finalizer。finalizer 只有在当前 slot 精确匹配时才 pop；只有 `restart_after_generation` 匹配、desired enabled 且 manager 非 closed/closing 时，才清空 restart intent并同步调用 `_start_holder()` 分配下一代，否则不 restart。该函数不 await、不创建未追踪 reconcile task；done callback 还必须消费 task 的普通异常以避免后台 warning。
+
+shutdown 对 snapshot lifecycle operation 的 `cancel()` 也按 slot 隔离普通 `Exception`；单个自定义 task/future 的 cancel hook 失败不能终止唯一 drain、跳过其余 holder stop/cancel，或使 repeated-close retry event 永远不可达。
 
 同步 lifecycle API 的等待同样分成 ownership 与 facade，但不能把 `run_coroutine_threadsafe()` 返回的 future 直接等同于纯 waiter：loop 尚未开始 coroutine 时取消该 future 会连 reconcile intent 一起丢失。每次 enable/disable/initial-connect 因此先构造一个 loop-owned operation；同步 facade 只等待一个 shielded wrapper。若 `Future.result()` timeout 或 caller 收到控制异常，主线程取消 concurrent waiter，并用 `call_soon_threadsafe()` 幂等确保 operation 已经或最终会在 loop 启动。enable/initial-connect operation 只等 generation-specific ready，disable operation 用 `asyncio.shield(holder_task)` 等本代退出，holder/slot 始终由 loop 拥有。operation task 进入 `_lifecycle_tasks`，完成回调消费结果并摘除；close 的 loop entry 排在前序 ensure callback 后，先建立 closing barrier 和精确 holder/lifecycle snapshots，再取消 lifecycle operation、signal holder stop 并完成统一 drain。这样 timeout 不丢 desired-state intent，close 也不会在停止 loop 时遗留未跟踪 operation。initial enabled holders 在第一次 await 前全部创建，ready waits 并发使用同一 start deadline。
 
@@ -435,15 +439,15 @@ runner 本里程碑明确顺序执行，不承诺多个进程同时写同一个 
 | --- | --- | --- |
 | 代理/SSRF | 大小写 proxy env、loopback、private、NAT64、redirect private、11 跳、FTP/file redirect | 实际校验 host 是目标而非代理；blocked target 未连接；redirect limit/scheme 明确拒绝 |
 | 网络消费端错误 | WebFetch InvalidURL/BadStatusLine/LineTooLong/IncompleteRead/RemoteDisconnected/close error/artifact OSError；search representative protocol error/unknown charset | HTTPException 基类覆盖代表性叶子；工具级异常不逃逸；固定消息不含 URL/hostname/path；search 返回 unavailable 或 UTF-8 fallback |
-| confirmer 与结果最小披露 | MCP/WebFetch/FileWrite formatter、EOF、空输入、带空白的 yes/no、嵌套 secret key、encoded/case/overlap hostname、encoded delimiters、IPv6/zone id、URL component mask、WebFetch 失败、FileWrite 成功/失败 outcome | 无属性错误；无跨组件或双重脱敏；prompt、ToolOutcome、Step feedback 不回显敏感 URL/hostname/宿主绝对路径；TTY 与非 TTY 原因正确 |
+| confirmer 与结果最小披露 | MCP/WebFetch/FileWrite formatter、EOF、空输入、带空白的 yes/no、非 TTY REPL、MCP identifier/FileWrite path secret、嵌套 secret key、encoded/case/overlap hostname、encoded delimiters、IPv6/zone id、URL component mask、WebFetch 失败、artifact symlink escape、FileWrite 成功/失败 outcome、到期裸词路由 | 无属性错误；无跨组件或双重脱敏；prompt、ToolOutcome、Step feedback 不回显敏感 URL/hostname/宿主绝对路径；artifact 不写出 root；TTY 与非 TTY 原因正确；仅 slash command 被路由 |
 | 文件路径边界 | root allowed_root、相对 root、NUL、越界、symlink resolve、FileRead/List/Write OSError、restricted audit | commonpath 正确接受 root 子路径并拒绝越界；无 ValueError 逃逸；固定失败消息无绝对路径 |
 | CLI 注入 | REPL、TTY run、非 TTY run、`--interactive` | confirmer 与 MCP 解耦；Survey 语义不漂移 |
 | 完成门控 | 工具成功/失败/parse error + completed；后续独立完成 | 同轮不完成；反馈后完成；max_rounds 诚实 |
 | MCP 配置 | required 默认、enabled/disabled required、optional/required secret-bearing status | optional 降级；required 启动失败；禁用项不阻断；公共诊断只含脱敏固定类别/异常类型 |
-| MCP lifecycle - generation | timed-out disable→enable replacement、unavailable-finalizer retry、当前 call failure 不自动重连、旧 gen finally/call failure、current-session call、disable+enable+close overlap、enable-after-close | `(gen, task, stop)` slot 在 task done 前可见；replacement 需精确 restart intent 且至多一个；call 在 loop 执行时选择 current session；旧 gen 不能改新 holder/session/status/tools；close 在 loop 内 snapshot 精确 slot |
+| MCP lifecycle - generation | timed-out disable→enable replacement、unavailable-finalizer retry、当前 call failure 不自动重连、旧 gen finally/call failure、state/holder/session mismatch、disable+enable+close overlap、enable-after-close | `(gen, task, stop)` slot 在 task done 前可见；replacement 需精确 restart intent 且至多一个；call 仅使用同时匹配 state 与 holder 的 current session；旧 gen 不能改新 holder/session/status/tools；close 在 loop 内 snapshot 精确 slot |
 | MCP lifecycle - facade wait | enable/disable/connect timeout、timed-out disable 后立即 close | timeout 只取消 concurrent waiter；shielded holder ownership 继续；loop stop 前无 pending lifecycle waiter warning |
 | MCP lifecycle - startup transaction | Thread.start 抛错、start 后 gate release 在 set 前/后抛 KeyboardInterrupt/SystemExit、initial holder submission/result 异常、多个 hung holder、join timeout | cancel-aware gate→loop stop→bounded join；停止后 rollback 为可重试状态；ready timeout 不随 server 数量线性增长；仍活时保留 refs/closed warning；普通异常固定 startup error，原控制异常不被替换 |
-| MCP close | 正常、完全忽略 stop、内部异常、重复 close、结果保留、thread join 超时 warning、公开 deadline 后 finalizer 完成、延迟停止后再次 close | 绝对 deadline 内返回；future timeout cancel 并保留引用；loop drain 可越过 caller deadline但 finalizer 完成后才 stop；普通异常不跳过其他 slot或伪造 completion；cleanup complete + thread stopped 后才 close/clear；PID 消失；warning 无敏感参数；原结果不被覆盖 |
+| MCP close | 正常、完全忽略 stop、lifecycle cancel/内部异常、重复 close、结果保留、thread join 超时 warning、join 期间 completion、公开 deadline 后 finalizer 完成、延迟停止后再次 close | 绝对 deadline 内返回；future timeout cancel 并保留引用；loop drain 可越过 caller deadline但 finalizer 完成后才 stop；单个 cancel/cleanup 异常不跳过其他 slot或伪造 completion；同次 join 后重读 completion；cleanup complete + thread stopped 后才 close/clear；PID 消失；warning 无敏感参数；原结果不被覆盖 |
 | 测试隔离 | 真实 home 放置恶意 mcp.yaml 后运行 suite | 测试只读取临时 home，结果不变 |
 | 黄金 runner | manifest 变异、20 pass、单项 fail、preflight fail | ID/数量锁定；JSON/Markdown 同源；退出码 0/1/2 |
 | 真实模型入口 | 缺配置、有效单模型 | 缺配置无报告且退出 2；只执行 5 项 |

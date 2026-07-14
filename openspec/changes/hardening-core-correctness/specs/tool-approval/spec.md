@@ -103,6 +103,10 @@ ForgeAgent MUST prevent WebFetch failure outcomes and FileWrite success or failu
 - **WHEN** a confirmed WebFetch request reads the response successfully but writing the artifact raises `OSError`
 - **THEN** the tool returns the fixed detail `WebFetch response save failed` without the artifact's absolute path or exception text
 
+#### Scenario: WebFetch artifact path is a symlink escape
+- **WHEN** the predictable WebFetch artifact path or one of its ancestors resolves through a pre-existing symlink outside `allowed_root`
+- **THEN** ForgeAgent rejects the artifact write with `WebFetch response save failed`, leaves the outside target unchanged and does not disclose its path
+
 #### Scenario: FileWrite succeeds with an absolute project path
 - **WHEN** a confirmed FileWrite request resolves inside `allowed_root` and succeeds
 - **THEN** the tool result identifies the target only by its project-relative path and does not include the model-provided absolute path or content
@@ -112,7 +116,7 @@ ForgeAgent MUST prevent WebFetch failure outcomes and FileWrite success or failu
 - **THEN** the tool returns the fixed detail `FileWrite failed` without the absolute path, content or exception text
 
 ### Requirement: File tool path boundaries are root-safe and minimally disclosing
-ForgeAgent MUST evaluate canonical file targets with a containment predicate that accepts the root itself and all real descendants, including when `allowed_root` is the filesystem root, and MUST NOT disclose model or host absolute paths in file-tool failure outcomes.
+ForgeAgent MUST evaluate canonical WebFetch artifact and file-tool targets with a containment predicate that accepts the root itself and all real descendants, including when `allowed_root` is the filesystem root, and MUST NOT disclose model or host absolute paths in failure outcomes.
 
 This requirement prevents static symlink escape by returning and using the canonical target. It does not claim resistance to a hostile host process that replaces a canonical ancestor directory between validation and pathname open.
 

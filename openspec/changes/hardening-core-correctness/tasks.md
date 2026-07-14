@@ -24,6 +24,7 @@
 - [x] 3.8 为 InvalidURL/BadStatusLine/LineTooLong/IncompleteRead/RemoteDisconnected、WebFetch artifact 写入、search 未知 charset、`allowed_root="/"`、非法路径及 FileRead/FileList 失败文本增加行为探针和回归测试
 - [x] 3.9 实施 WebFetch/search 消费端异常收敛、canonical commonpath 文件边界和 FileRead/FileList 固定失败消息，并验证 CLI outcome 渲染不泄漏敏感路径
 - [ ] 3.10 验证并实施非 TTY REPL 不读取确认输入、MCP server/tool 与 FileWrite 展示路径的已知 secret 脱敏，以及 M9 到期裸词命令兼容层移除；顶层 `forgeagent models` 保持不变
+- [ ] 3.11 验证并实施 WebFetch artifact 写入前的 canonical root containment，使预置 artifact symlink/ancestor 指向 root 外时返回固定保存失败且外部目标不变
 
 ## 4. MCP 韧性与生命周期
 
@@ -32,7 +33,7 @@
 - [x] 4.3 实施必需服务连接失败的启动中止、资源清理和 CLI 非零退出测试
 - [ ] 4.4 为正常关闭、无响应子进程、部分关闭失败、重复 close、daemon thread join 超时 warning、公开 deadline 后后台 finalizer 继续运行和延迟停止后的二次清理建立确定性测试，并验证内部异常不跳过其余 slot或伪造 completion
 - [ ] 4.5 使 `MCPManager.close()` 有界且幂等，为 loop thread 设置固定名称；主线程保存首次 bounded concurrent future，loop 保存唯一 shielded shutdown task并独占 closing barrier、generation slot snapshot、holder wait/cancel/finalize；公开 deadline 只限制 caller，未完成 finalizer 继续在 loop drain，清理不变量失败时同一 task 等 repeated-close retry signal，重复 close 用 thread-safe completion event 等待新预算而不创建第二 facade/task；future 超时时使用只读且脱敏的 name fallback并保留全部 pending 资源引用，且关闭错误不覆盖任务结果或原始启动错误
-- [ ] 4.6 将 holder publish/finally、enable/disable/call selection/failure/close 重构为 loop-owned generation-safe reconcile，以 `(name, generation, task, stop)` holder slot、`(name, generation, session)` 和独立 `restart_after_generation` 约束所有权与 replacement intent；用必达的 loop-owned lifecycle operation、可取消 waiter、operation 集和 shield 分离同步等待与 holder ownership，在 loop 内建立 closing barrier 及 holder/lifecycle snapshots，实现共享 ready deadline及覆盖 initial holder submission 的 publication-gated/cancel-aware startup transaction；验证 loop 阻塞时 timeout 不丢 disable intent、initialize 中 disable、timed-out disable→enable→close、unavailable-finalizer/no-slot retry、call failure 不隐式重连、旧代 finally/call failure、current-session call、ready-timeout publication race、holder task creation failure、close overlap、enable-after-close、gate set 前后控制异常、post-publication submission、并发 hung server timeout和 optional/required status secret 不泄漏
+- [ ] 4.6 将 holder publish/finally、enable/disable/call selection/failure/close 重构为 loop-owned generation-safe reconcile，以 `(name, generation, task, stop)` holder slot、`(name, generation, session)` 和独立 `restart_after_generation` 约束所有权与 replacement intent；用必达的 loop-owned lifecycle operation、可取消 waiter、operation 集和 shield 分离同步等待与 holder ownership，在 loop 内建立 closing barrier 及 holder/lifecycle snapshots，实现共享 ready deadline及覆盖 initial holder submission 的 publication-gated/cancel-aware startup transaction；验证 loop 阻塞时 timeout 不丢 disable intent、initialize 中 disable、timed-out disable→enable→close、unavailable-finalizer/no-slot retry、call failure 不隐式重连且设置 teardown generation、旧代 finally/call failure、holder/session/state generation 一致的 current-session call、ready-timeout publication race、holder task creation failure、close overlap、每次 holder 分配前复核 close barrier、dead-thread 不伪造 completion、join 期间完成即时收敛、lifecycle cancel 异常隔离、enable-after-close、gate set 前后控制异常、post-publication submission、cleanup CancelledError 不替换 startup error、并发 hung server timeout和 optional/required status secret 不泄漏
 
 ## 5. 黄金验证核心
 

@@ -58,7 +58,7 @@ ForgeAgent MUST serialize holder desired-state reconciliation on the MCP loop th
 
 #### Scenario: Tool call overlaps a generation change
 - **WHEN** the synchronous caller requests a tool while holder generation ownership can change before the loop executes the request
-- **THEN** a loop-owned wrapper selects and invokes only the current matching `(generation, session)` on the MCP loop, and the main thread does not cache or submit an obsolete ClientSession
+- **THEN** a loop-owned wrapper invokes only a session whose generation matches both the current server state and current holder slot on the MCP loop, and the main thread does not cache or submit an obsolete ClientSession
 
 #### Scenario: Active generation tool call fails
 - **WHEN** the current generation's SDK tool call fails
@@ -137,6 +137,14 @@ ForgeAgent MUST keep a new loop worker behind a publication gate until manager s
 #### Scenario: Internal shutdown operation raises unexpectedly
 - **WHEN** an internal holder, event-loop or thread cleanup operation raises an Exception
 - **THEN** the authoritative drain isolates the ordinary failure, continues best-effort cleanup of the other exact slots, sets completion only if final invariants are true, and otherwise remains the single task waiting for a repeated-close retry signal; `close()` records but does not propagate the shutdown exception to replace the caller's result
+
+#### Scenario: Lifecycle cancellation raises unexpectedly
+- **WHEN** cancelling one snapshotted lifecycle operation raises an ordinary Exception
+- **THEN** the authoritative drain records that fixed failure category, continues signalling and cancelling every remaining lifecycle and holder slot, and remains retryable instead of terminating the sole shutdown task
+
+#### Scenario: Cleanup completes during the bounded thread join
+- **WHEN** loop-owned cleanup publishes its completion signal after the public facade wait but before the same `close()` call finishes its bounded thread join
+- **THEN** that `close()` call re-reads the authoritative completion signal, closes and clears stopped resources immediately, and does not retain stale shutdown references until another call
 
 #### Scenario: Close is called more than once
 - **WHEN** `close()` is invoked after resources have already been closed or a previous close partially failed

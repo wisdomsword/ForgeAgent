@@ -5,6 +5,7 @@
 ## What Changes
 
 - 默认禁用环境代理对 WebFetch 和 `/search` 的影响，确保 SSRF 校验针对实际直连目标；仅记录 ForgeAgent 显式代理配置契约，本里程碑不实现代理功能。
+- WebFetch artifact 与文件工具统一使用 canonical root containment，阻断预置 artifact symlink 指向 `allowed_root` 外部目标，同时明确保留 hostile ancestor swap 的 TOCTOU 残余威胁。
 - 为 WebFetch、FileWrite、MCP 统一确认器；TTY 自动询问，非 TTY 默认拒绝，`--interactive` 继续只控制 Survey。
 - 收口 CLI 交互契约：非 TTY REPL 不读取确认输入；MCP 标识和 FileWrite 展示路径同样脱敏；移除 M9 已到期的 REPL 裸词命令兼容层，仅 slash command 参与内嵌路由。
 - 采用严格两阶段完成语义：含工具调用、工具失败或解析错误的响应不得完成任务；只有后续无工具、无解析错误的独立响应才可声明完成。

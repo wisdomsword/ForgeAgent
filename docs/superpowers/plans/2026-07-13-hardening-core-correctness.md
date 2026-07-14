@@ -618,6 +618,40 @@ git add src/forgeagent/cli.py tests/test_cli.py
 git commit -m "fix: close CLI confirmation and command-routing gaps"
 ```
 
+### Task 3E: 阻断 WebFetch artifact 静态 symlink 逃逸
+
+**Files:**
+- Modify: `src/forgeagent/tools.py`
+- Modify: `tests/test_web_file_tools.py`
+
+**Interfaces:**
+- Produces: WebFetch artifact canonical root containment；固定 `WebFetch response save failed` 越界结果。
+- Consumes: 现有 `_validate_path()`、URL digest artifact name、`ToolContext.allowed_root`。
+
+- [ ] **Step 1: 写 artifact symlink RED 测试**
+
+根据测试 URL 计算现有 digest artifact 文件名，在 `allowed_root` 内预置同名 symlink 指向 root 外文件；fake response 返回已知 body。断言 WebFetch 返回 `WebFetch response save failed`，外部文件内容不变。当前 artifact 直接位于 root，不虚构不存在的中间目录测试；`_validate_path()` 既有 file-tool symlink ancestor 用例继续覆盖通用祖先解析。
+
+- [ ] **Step 2: 运行 RED 测试**
+
+```bash
+UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_web_file_tools.py -q
+```
+
+预期：当前 `Path.write_text()` 跟随预置 symlink，外部目标被覆盖，新增断言 FAIL。
+
+- [ ] **Step 3: 写入前复用 canonical path guard**
+
+仅把生成的相对 artifact filename 交给 `_validate_path(filename, ctx.allowed_root)`，并使用返回的 canonical `Path` 写入。`PermissionError`、`ValueError` 和 write `OSError` 都收敛为既有 `WebFetch response save failed`；不得引入新 helper、随机文件名或平台专用 fd API。
+
+- [ ] **Step 4: 运行 WebFetch/File 回归并提交**
+
+```bash
+UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_web_file_tools.py tests/test_step.py tests/test_cli.py -q
+git add src/forgeagent/tools.py tests/test_web_file_tools.py
+git commit -m "fix: contain WebFetch artifact paths"
+```
+
 ### Task 4: 实施严格两阶段完成门控
 
 **Files:**
@@ -828,7 +862,7 @@ Add `test_timed_out_disable_then_close_leaves_no_lifecycle_waiter`, `test_connec
 
 - [x] **Step 2: Implement cancel-aware publication-gated startup**
 
-Use local `loop`, `startup_gate`, and `startup_cancelled` objects. The worker waits for publication with short timed waits while also checking cancellation; it never enters `run_forever()` before manager `_loop`, `_thread`, and `_started` are published. On any `Thread.start()`, publication, or gate-release `BaseException`, preserve the primary exception, set cancellation, best-effort release the gate, request `loop.stop()` whether the worker has started the loop or not, bounded-join, and close/reset only when the thread is stopped. If still alive, retain refs, set closed/started conservatively, mark startup cleanup complete because no holder was published, and rethrow the primary exception. Cleanup exceptions are logged by type and never replace the primary control exception.
+Use local `loop`, `startup_gate`, and `startup_cancelled` objects. The worker waits for publication with short timed waits while also checking cancellation; it never enters `run_forever()` before manager `_loop`, `_thread`, and `_started` are published. On any `Thread.start()`, publication, or gate-release `BaseException`, preserve the primary exception, set cancellation, best-effort release the gate, request `loop.stop()` whether the worker has started the loop or not, bounded-join, and close/reset only when the thread is stopped. If still alive, retain refs, set closed/started conservatively, mark startup cleanup complete because no holder was published, and rethrow the primary exception. Cleanup exceptions are logged by type and never replace the primary control exception. `build_mcp_manager()` 的 startup/required-failure cleanup 同样只传播新的 `KeyboardInterrupt`/`SystemExit`；`asyncio.CancelledError` 等其他 `BaseException` 不得替换 primary `MCPStartupError`。
 
 - [x] **Step 3: Implement shared initial ready deadline and waiter cancellation**
 
@@ -856,7 +890,9 @@ git commit -m "fix: make MCP startup and lifecycle waits transactional"
 
 **Files:**
 - Modify: `src/forgeagent/mcp_manager.py`
+- Modify: `src/forgeagent/cli.py`
 - Modify: `tests/test_mcp_manager.py`
+- Modify: `tests/test_cli.py`
 - Modify: `tests/mcp_fixture_server.py`
 
 **Interfaces:**
@@ -865,19 +901,19 @@ git commit -m "fix: make MCP startup and lifecycle waits transactional"
 
 - [ ] **Step 1: Add shutdown RED matrix before changing close behavior**
 
-Add/retain tests for normal close, holder ignoring stop until cancel, delayed async context cleanup, loop thread hard-stuck, internal shutdown exception, repeated close after a canceled facade, repeated close after cleanup completion, result preservation, warning sanitization, and exact `(name, generation, task, stop)` snapshot. Use PID files for real fixture process assertions and distinguish graceful-stop and cancel markers. Confirm the focused matrix fails against the existing shutdown implementation without loosening the two preserved regressions.
+Add/retain tests for normal close, holder ignoring stop until cancel, delayed async context cleanup, loop thread hard-stuck, internal shutdown exception, repeated close after a canceled facade, repeated close after cleanup completion, result preservation, warning sanitization, and exact `(name, generation, task, stop)` snapshot. Add targeted RED cases for: dead thread with empty maps but unproven completion/pending facade; close racing a partially-started initial holder loop must not allocate the next generation; lifecycle `cancel()` ordinary failure must not kill the authoritative drain; mismatched holder/session/state generations must not call SDK; current call failure sets teardown generation; timed-out disable overlaps close before holder release; holder stop signal is observed before lifecycle cancellation; drain completion during join is consumed by the same close; startup cleanup `CancelledError` preserves the primary startup error. Use PID files for real fixture process assertions and distinguish graceful-stop and cancel markers. Confirm the focused matrix fails against the existing shutdown implementation without loosening the two preserved regressions.
 
 - [ ] **Step 2: Add shutdown state and exact loop snapshot ownership**
 
-Add `_closing`, `_lifecycle_tasks`, `_shutdown_task`, `_shutdown_retry`, exact holder/lifecycle snapshots, `_shutdown_complete`, and the configured budgets. The first loop-owned shutdown entry sets `_closing` and snapshots every current `(name, generation, task, stop)` plus lifecycle operation before its first await. Every queued reconcile checks `_closed`/`_closing` before starting a generation. Main-thread fallback stores only server names for diagnostics; it never copies or mutates live holder/session containers.
+Add `_closing`, `_lifecycle_tasks`, `_shutdown_task`, `_shutdown_retry`, exact holder/lifecycle snapshots, `_shutdown_complete`, and the configured budgets. The first loop-owned shutdown entry sets `_closing` and snapshots every current `(name, generation, task, stop)` plus lifecycle operation before its first await. Every queued reconcile and every iteration that can call `_start_holder()` rechecks `_closed`/`_closing` before allocating a generation. A call wrapper verifies session generation against both `state.generation` and the current holder slot; active-generation call failure sets `tearing_down_generation` before signalling stop. Main-thread fallback stores only server names for diagnostics; it never copies or mutates live holder/session containers.
 
 - [ ] **Step 3: Implement shielded authoritative drain**
 
-The loop-owned task signals exact snapshot stop events before any potentially blocking lifecycle cleanup, cancels snapshot lifecycle operations and exact pending holders, and waits gracefully using `_remaining(deadline, reserve=thread_join_timeout)`. No unbounded lifecycle gather may prevent holder stop/cancel or make the retry event unreachable. Async context finalizers may continue past the public deadline. The drain invokes the same idempotent generation finalizer after `asyncio.wait()` because done callbacks are not ordered before wait return. Ordinary holder/finalizer exceptions are collected by type; the task does not stop the loop or set completion until all snapshot tasks are done, exact holder/session cleanup holds, and `_lifecycle_tasks` is empty. If an invariant remains false, the same task waits on `_shutdown_retry` without busy looping; repeated close signals that event with a new deadline and never creates a second task or snapshot.
+The loop-owned task signals exact snapshot stop events before any potentially blocking lifecycle cleanup, then cancels snapshot lifecycle operations and exact pending holders, and waits gracefully using `_remaining(deadline, reserve=thread_join_timeout)`. Tests record this order, not merely eventual events. Every stop/cancel/result/finalizer operation isolates ordinary `Exception`; a lifecycle task whose `cancel()` fails cannot terminate the sole drain or prevent retry. No unbounded lifecycle gather may prevent holder stop/cancel or make the retry event unreachable. Async context finalizers may continue past the public deadline. The drain invokes the same idempotent generation finalizer after `asyncio.wait()` because done callbacks are not ordered before wait return. Ordinary holder/finalizer exceptions are collected by type; the task does not stop the loop or set completion until all snapshot tasks are done, exact holder/session cleanup holds, and `_lifecycle_tasks` is empty. If an invariant remains false, the same task waits on `_shutdown_retry` without busy looping; repeated close signals that event with a new deadline and never creates a second task or snapshot.
 
 - [ ] **Step 4: Implement absolute-deadline public close and delayed retry**
 
-First `close()` sets `_closed=True`, creates `deadline = monotonic() + shutdown_timeout + thread_join_timeout`, submits `_wait_for_shutdown()` and shields the authoritative task. Timeout/cancel of the concurrent facade cancels only the facade and retains the future for diagnostics. Repeated close signals the existing retry event, waits on the thread-safe `_shutdown_complete` event for the remaining shutdown budget, then performs bounded `thread.join()`. Only when completion and thread stop are both proven may the main thread close the loop and clear future/task/holder/session/lifecycle/loop/thread refs. A dead thread with empty holder/session maps but pending lifecycle evidence must remain incomplete; `close()` cannot synthesize `_shutdown_complete` from those maps alone. A live or cleanup-incomplete thread keeps all refs and receives a fixed warning containing thread identity, sanitized pending names and timeout, never args/env/content. Catch ordinary `Exception` per operation; do not swallow `KeyboardInterrupt` or `SystemExit`.
+First `close()` sets `_closed=True`, creates `deadline = monotonic() + shutdown_timeout + thread_join_timeout`, submits `_wait_for_shutdown()` and shields the authoritative task. Timeout/cancel of the concurrent facade cancels only the facade and retains the future for diagnostics. Repeated close signals the existing retry event, waits on the thread-safe `_shutdown_complete` event for the remaining shutdown budget, then performs bounded `thread.join()`. Only when completion and thread stop are both proven may the main thread close the loop and clear future/task/holder/session/lifecycle/loop/thread refs. A dead thread with unproven completion remains incomplete even when holder/session/lifecycle maps are empty or `_shutdown_task` is absent/done; `close()` cannot synthesize `_shutdown_complete` from those containers. After join, re-read `_shutdown_complete` so completion during join is cleared in the same close. A live or cleanup-incomplete thread keeps all refs and receives a fixed warning containing thread identity, sanitized pending names and timeout, never args/env/content. Catch ordinary `Exception` per operation; do not swallow `KeyboardInterrupt` or `SystemExit`. Wall-clock assertions use a narrow scheduling allowance, while fake future/thread tests assert the exact facade/join timeout arguments derived from the single deadline.
 
 - [ ] **Step 5: Run full MCP/CLI, fixture PID and static validation**
 
@@ -1102,7 +1138,7 @@ README 的 release-facing compatibility note 必须使用 `[SECURITY][BREAKING]`
 
 README 同时删除“裸 `models`/`reload`/`mcp ...` 仍可用”的过期说明，明确 REPL 内嵌命令必须带 `/`；保留并区分顶层 `forgeagent models` 子命令。
 
-`docs/m10-usage-observability-and-tools.md` 同步 direct-only WebFetch、固定 WebFetch/FileRead/FileWrite/FileList outcome 和 symlink residual；`docs/m7-tools-mcp-survey.md` 加入 `required`、optional degrade、absolute deadline、固定 thread 诊断和 incomplete-shutdown residual。TTY/non-TTY、autoApprove 和不抓取线程堆栈的理由也写入对应边界说明。
+`docs/m10-usage-observability-and-tools.md` 同步 direct-only WebFetch、固定 WebFetch/FileRead/FileWrite/FileList outcome、WebFetch artifact canonical containment、静态 symlink 阻断和 ancestor-swap residual；`docs/m7-tools-mcp-survey.md` 加入 `required`、optional degrade、absolute deadline、固定 thread 诊断和 incomplete-shutdown residual。TTY/non-TTY、autoApprove 和不抓取线程堆栈的理由也写入对应边界说明。
 
 - [ ] **Step 3: 重写黄金验证口径**
 
@@ -1137,7 +1173,7 @@ git commit -m "docs: align runtime contracts and golden validation"
 - Generated only: `artifacts/golden/offline/results.json`, `artifacts/golden/offline/report.md`
 
 **Interfaces:**
-- Produces: 39/39 tasks 勾选、实证里程碑、完整离线报告、可进入 Comet verify 的提交状态。
+- Produces: 40/40 tasks 勾选、实证里程碑、完整离线报告、可进入 Comet verify 的提交状态。
 - Consumes: 所有实现提交、OpenSpec specs、Design Doc、base ref。
 
 - [ ] **Step 1: 运行静态检查**
@@ -1190,9 +1226,9 @@ UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run python -m tests.golden.runner
 2. 对抗性代码评审：用 merge-base 到 HEAD 的完整 review package 派发独立 whole-branch reviewer，覆盖正确性、安全、并发、资源生命周期和测试可信度；Critical/Important 发现必须由单一 fix worker 收敛并重新评审、重跑受影响测试。
 3. 验收证据评审：独立核对 Ruff、专项 pytest、全量 pytest、20 项黄金 JSON/Markdown/exit code 与文档声明，禁止把旧输出或预期值当成实测结果。
 
-- [ ] **Step 7: 创建实证里程碑并回填 39 项 tasks**
+- [ ] **Step 7: 创建实证里程碑并回填 40 项 tasks**
 
-全部门禁通过后，按 `MILESTONE_GUIDE.md` 一次性创建 `milestones/milestone_013.md`，把实际命令、pass/skip 数、黄金通过率和三次评审结论写入文件，并将 `milestones/latest` 更新为唯一一行 `milestone_013.md`。M11/M12 仍是未完成规划，因此 M13 的“前置里程碑”链接写为最后已完成的 `milestone_010.md`，并在正文说明编号跳跃原因。逐条核对本计划末尾映射后，将 `tasks.md` 的 39 个 checkbox 定向改为 `[x]`；不能一次性盲目全选。
+全部门禁通过后，按 `MILESTONE_GUIDE.md` 一次性创建 `milestones/milestone_013.md`，把实际命令、pass/skip 数、黄金通过率和三次评审结论写入文件，并将 `milestones/latest` 更新为唯一一行 `milestone_013.md`。M11/M12 仍是未完成规划，因此 M13 的“前置里程碑”链接写为最后已完成的 `milestone_010.md`，并在正文说明编号跳跃原因。逐条核对本计划末尾映射后，将 `tasks.md` 的 40 个 checkbox 定向改为 `[x]`；不能一次性盲目全选。
 
 - [ ] **Step 8: 提交验证收尾**
 
@@ -1215,6 +1251,7 @@ git commit -m "chore: record hardening verification evidence"
 | 3.6-3.7 | 3A, 3B, 3C |
 | 3.8-3.9 | 3B, 3C |
 | 3.10 | 3D |
+| 3.11 | 3E |
 | 4.1-4.3 | 5 |
 | 4.4-4.6 | 6A, 6B, 6C |
 | 5.1-5.5 | 7, 8, 9 |
@@ -1223,7 +1260,7 @@ git commit -m "chore: record hardening verification evidence"
 
 ## Final Plan Self-Review
 
-- Spec coverage: 五份 capability specs 和 tasks.md 39 项均在 coverage map 中有实施与验证任务。
+- Spec coverage: 五份 capability specs 和 tasks.md 40 项均在 coverage map 中有实施与验证任务。
 - Type consistency: `GoldenScenario`, `GoldenEvidence`, `MCPStartupError`, `required_failures()`, `_GuardedRedirectHandler`, generation holder/session slots, `restart_after_generation` 和完成门控签名在生产者与消费者任务中一致。
 - Scope: 未增加依赖、代理实现、通用策略层、并发 golden runner 或无关重构。
 - Execution safety: 每个行为任务包含 RED、GREEN、定向测试和独立提交；综合验证不使用人工 deselect。

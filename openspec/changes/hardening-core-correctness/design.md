@@ -78,7 +78,7 @@ CLI/MCP 测试必须显式隔离 HOME 或配置根目录，任何测试都不得
 
 ### 7. 文件路径包含判定使用 canonical commonpath
 
-FileRead、FileWrite、FileList 和 restricted audit hook 均先 realpath root/target，再用 `os.path.commonpath()` 判断包含关系。该规则必须正确处理 `allowed_root="/"`、不同驱动器和非法 NUL 路径。安全失败消息不得包含模型提供的绝对路径或宿主 canonical root；不为两处小型判定新增共享策略模块。
+WebFetch 生成的 artifact 与 FileRead、FileWrite、FileList 均通过主进程现有 `_validate_path()` 先 realpath root/target，再用 `os.path.commonpath()` 判断包含关系；restricted audit hook 独立实施同一不变量。该规则必须正确处理 `allowed_root="/"`、不同驱动器、非法 NUL 路径和预置 artifact symlink 指向 root 外的情况。安全失败消息不得包含模型提供的绝对路径或宿主 canonical root；不新增共享策略模块。
 
 FileWrite 使用 canonical target，因此替换原始 symlink alias 不能改变写入位置；但宿主并发写者仍可在检查和打开之间替换 canonical target 的祖先目录。完整消除需要跨平台 descriptor-relative 文件 API 重写，本 change 不采用 POSIX-only `openat/O_NOFOLLOW` 或 Linux-only `openat2`。该竞态作为 trusted 同进程代码、MCP 进程或宿主其他进程可触发的残余威胁记录，不把 File 工具描述为抵抗恶意宿主并发写者的 OS 级边界。
 
@@ -91,6 +91,7 @@ FileWrite 使用 canonical target，因此替换原始 symlink alias 不能改�
 - [固定工具失败消息减少底层诊断] → 为 SSRF、请求、artifact 保存和各文件工具保留可区分的固定类别；不把平台异常文本送入模型反馈或普通 CLI 输出。
 - [commonpath 修正会改变 FileRead/FileList 失败文本] → 这是有意的安全收紧；成功结果和允许范围不变，专项测试锁定新的固定消息。
 - [realpath 与 pathname open 之间仍有 symlink ancestor-swap 竞态] → 明确分档和攻击前提；本 change 不用重复检查伪装修复，也不以平台专用 fd API扩大实现范围。
+- [WebFetch artifact 名称可预测，静态 symlink 可把写入引向 root 外] → 写入前复用 `_validate_path()` 并使用 canonical target；保留与 FileWrite 相同的恶意宿主并发 ancestor-swap 残余，不新增平台专用 API。
 - [event-loop thread 完全卡死时可能暂留 MCP 子进程或文件描述符] → deadline 优先保证 CLI 可返回；保留引用、允许有界重试并输出无敏感信息的 incomplete-shutdown 诊断，不声称 Python 能安全强杀线程。
 - [generation-safe slot 会改变 MCPManager 内部 holder/session 形状] → 只在 manager 内部使用 `(generation, object)`，不扩大 YAML 或工具 API；call/enable/disable/close 专项测试共同锁定读取和清理语义。
 - [可取消 lifecycle waiter 可能在 loop 忙时连 intent 一起丢失] → reconcile 使用必达的 loop-owned operation，facade timeout 后以 loop callback 幂等 ensure；operation 集由 shutdown 精确取消/等待，disable await 继续用 shield 保护 holder cleanup。
