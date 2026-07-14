@@ -190,7 +190,9 @@ class ExecTool(Tool):
         block = ctx.blocks.get(name)
         if block is None:
             return ToolOutcome(
-                tool="Exec", block_name=name, success=False,
+                tool="Exec",
+                block_name=name,
+                success=False,
                 detail=f"block {name!r} not found and no code provided",
             )
         # Static AST layer (advisory): analyze before execution, surface as feedback.
@@ -198,8 +200,12 @@ class ExecTool(Tool):
         static_feedback = ctx.analyzer.feedback(ctx.analyzer.analyze(block.code))
         result = ctx.backend.execute(block.code, ctx.runtime)
         return ToolOutcome(
-            tool="Exec", block_name=name, success=result.success,
-            detail=result.error or "", exec_result=result, static_feedback=static_feedback,
+            tool="Exec",
+            block_name=name,
+            success=result.success,
+            detail=result.error or "",
+            exec_result=result,
+            static_feedback=static_feedback,
         )
 
 
@@ -214,7 +220,9 @@ class EditTool(Tool):
         block = ctx.blocks.get(args.name)
         if block is None:
             return ToolOutcome(
-                tool="Edit", block_name=args.name, success=False,
+                tool="Edit",
+                block_name=args.name,
+                success=False,
                 detail=f"Edit failed: block {args.name!r} does not exist",
             )
         new_code, error = _apply_edit(block.code, args)
@@ -222,7 +230,9 @@ class EditTool(Tool):
             return ToolOutcome(tool="Edit", block_name=args.name, success=False, detail=error)
         updated = ctx.blocks.put(args.name, new_code, block.language)
         return ToolOutcome(
-            tool="Edit", block_name=args.name, success=True,
+            tool="Edit",
+            block_name=args.name,
+            success=True,
             detail=f"block updated to version {updated.version}",
         )
 
@@ -243,12 +253,18 @@ class SurveyTool(Tool):
         assert isinstance(args, SurveyArgs)
         if ctx.asker is None:
             return ToolOutcome(
-                tool="Survey", success=False, needs_info=True, detail=args.question,
+                tool="Survey",
+                success=False,
+                needs_info=True,
+                detail=args.question,
             )
         answer = ctx.asker(args)
         if answer is None:
             return ToolOutcome(
-                tool="Survey", success=False, needs_info=True, detail=args.question,
+                tool="Survey",
+                success=False,
+                needs_info=True,
+                detail=args.question,
             )
         # The answer text becomes the tool's feedback line for the next round.
         return ToolOutcome(tool="Survey", success=True, detail=answer)
@@ -272,23 +288,31 @@ class MCPTool(Tool):
         label = f"{args.server}:{args.tool}"
         if ctx.mcp is None:
             return ToolOutcome(
-                tool="MCP", block_name=label, success=False,
+                tool="MCP",
+                block_name=label,
+                success=False,
                 detail="no MCP servers are configured",
             )
         if not ctx.mcp.is_auto_approved(args.server, args.tool):
             if ctx.confirmer is None:
                 return ToolOutcome(
-                    tool="MCP", block_name=label, success=False,
+                    tool="MCP",
+                    block_name=label,
+                    success=False,
                     detail="rejected: no interactive confirmation channel available",
                 )
             if not ctx.confirmer(args):
                 return ToolOutcome(
-                    tool="MCP", block_name=label, success=False,
+                    tool="MCP",
+                    block_name=label,
+                    success=False,
                     detail=f"MCP call {label} was not approved by the user",
                 )
         result = ctx.mcp.call_tool(args.server, args.tool, args.arguments)
         return ToolOutcome(
-            tool="MCP", block_name=label, success=bool(result.get("ok")),
+            tool="MCP",
+            block_name=label,
+            success=bool(result.get("ok")),
             detail=result.get("text", ""),
         )
 
@@ -313,12 +337,14 @@ class WebFetchTool(Tool):
         if ctx.tier in ("restricted", "container"):
             if ctx.confirmer is None:
                 return ToolOutcome(
-                    tool="WebFetch", success=False,
+                    tool="WebFetch",
+                    success=False,
                     detail="rejected: no interactive confirmation channel available",
                 )
             if not ctx.confirmer(args):
                 return ToolOutcome(
-                    tool="WebFetch", success=False,
+                    tool="WebFetch",
+                    success=False,
                     detail="WebFetch was not approved by the user",
                 )
         try:
@@ -338,11 +364,12 @@ class WebFetchTool(Tool):
         masked = mask_secrets(raw.decode("utf-8", errors="replace"), sensitive_env_values())
         digest = hashlib.sha256(args.url.encode()).hexdigest()[:12]
         ext = _EXT_BY_CONTENT_TYPE.get(content_type, ".fetch")
-        dest = Path(ctx.allowed_root) / f"webfetch_{digest}{ext}"
+        filename = f"webfetch_{digest}{ext}"
         truncated_note = " (truncated at 1MB)" if truncated else ""
         try:
+            dest = _validate_path(filename, ctx.allowed_root)
             dest.write_text(masked, encoding="utf-8", errors="replace")
-        except OSError:
+        except (OSError, ValueError):
             return ToolOutcome(
                 tool="WebFetch", success=False, detail="WebFetch response save failed"
             )
@@ -416,19 +443,22 @@ class FileWriteTool(Tool):
         if ctx.tier in ("restricted", "container"):
             if ctx.confirmer is None:
                 return ToolOutcome(
-                    tool="FileWrite", success=False,
+                    tool="FileWrite",
+                    success=False,
                     detail="rejected: no interactive confirmation channel available",
                 )
             if not ctx.confirmer(args):
                 return ToolOutcome(
-                    tool="FileWrite", success=False,
+                    tool="FileWrite",
+                    success=False,
                     detail="FileWrite was not approved by the user",
                 )
         try:
             resolved = _validate_path(args.path, ctx.allowed_root)
         except PermissionError:
             return ToolOutcome(
-                tool="FileWrite", success=False,
+                tool="FileWrite",
+                success=False,
                 detail="FileWrite path is outside project root",
             )
         except (OSError, ValueError):

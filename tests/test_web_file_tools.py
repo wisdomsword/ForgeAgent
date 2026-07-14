@@ -9,6 +9,7 @@ FileWrite's confirmer gate (UX-only, see FileWriteTool's docstring).
 guard itself is covered by tests/test_ssrf_guard.py.
 """
 
+import hashlib
 import http.client
 import os
 from pathlib import Path
@@ -152,9 +153,7 @@ def test_webfetch_http_protocol_failures_are_fixed_and_do_not_raise(stage, exc, 
 
     monkeypatch.setattr("forgeagent.tools.guarded_urlopen", fake_open)
 
-    outcome = WebFetchTool().run(
-        WebFetchArgs(url="https://secret-host.invalid/"), _webfetch_ctx()
-    )
+    outcome = WebFetchTool().run(WebFetchArgs(url="https://secret-host.invalid/"), _webfetch_ctx())
 
     assert outcome.success is False
     assert outcome.detail == "WebFetch request failed"
@@ -166,9 +165,7 @@ def test_webfetch_invalid_url_value_error_is_fixed_and_does_not_raise(monkeypatc
 
     monkeypatch.setattr("forgeagent.tools.guarded_urlopen", fake_open)
 
-    outcome = WebFetchTool().run(
-        WebFetchArgs(url="https://secret-host.invalid/"), _webfetch_ctx()
-    )
+    outcome = WebFetchTool().run(WebFetchArgs(url="https://secret-host.invalid/"), _webfetch_ctx())
 
     assert outcome.success is False
     assert outcome.detail == "WebFetch request failed"
@@ -189,11 +186,33 @@ def test_webfetch_artifact_write_failure_is_fixed_and_does_not_raise(tmp_path, m
     assert outcome.detail == "WebFetch response save failed"
 
 
+def test_webfetch_artifact_symlink_escape_is_blocked(tmp_path, monkeypatch):
+    url = "https://example.com/static-artifact"
+    body = b"fetched body"
+    allowed_root = tmp_path / "allowed"
+    allowed_root.mkdir()
+    outside = tmp_path / "outside.txt"
+    outside.write_text("original")
+    digest = hashlib.sha256(url.encode()).hexdigest()[:12]
+    artifact = allowed_root / f"webfetch_{digest}.txt"
+    artifact.symlink_to(outside)
+    monkeypatch.setattr(
+        "forgeagent.tools.guarded_urlopen", lambda requested_url, **kwargs: _FakeResponse(body)
+    )
+
+    outcome = WebFetchTool().run(
+        WebFetchArgs(url=url), _webfetch_ctx(allowed_root=str(allowed_root))
+    )
+
+    assert outside.read_text() == "original"
+    assert outcome.success is False
+    assert outcome.detail == "WebFetch response save failed"
+
+
 def test_webfetch_restricted_tier_confirmer_denial_blocks_fetch(monkeypatch):
     calls = []
     secret_url = (
-        "https://alice:password-value@example.com/private"
-        "?token=query-secret#fragment-secret"
+        "https://alice:password-value@example.com/private?token=query-secret#fragment-secret"
     )
     monkeypatch.setattr(
         "forgeagent.tools.guarded_urlopen",
@@ -240,9 +259,7 @@ def test_webfetch_restricted_tier_confirmer_approval_allows_fetch(tmp_path, monk
 
 
 def test_webfetch_trusted_tier_skips_confirmer(tmp_path, monkeypatch):
-    monkeypatch.setattr(
-        "forgeagent.tools.guarded_urlopen", lambda url, **kw: _FakeResponse(b"ok")
-    )
+    monkeypatch.setattr("forgeagent.tools.guarded_urlopen", lambda url, **kw: _FakeResponse(b"ok"))
     # A confirmer that always denies — trusted tier must never consult it.
     ctx = _webfetch_ctx(tier="trusted", confirmer=lambda args: False, allowed_root=str(tmp_path))
 
@@ -277,9 +294,10 @@ def test_file_read_escaping_root_is_blocked(tmp_path):
 
 
 def test_validate_path_accepts_descendant_when_allowed_root_is_filesystem_root(tmp_path):
-    assert _validate_path(str(tmp_path / "file.txt"), os.path.abspath(os.sep)) == (
-        tmp_path / "file.txt"
-    ).resolve()
+    assert (
+        _validate_path(str(tmp_path / "file.txt"), os.path.abspath(os.sep))
+        == (tmp_path / "file.txt").resolve()
+    )
 
 
 @pytest.mark.parametrize(
@@ -374,9 +392,7 @@ def test_file_write_escaping_root_is_blocked(tmp_path):
     external_path = tmp_path.parent / "private-secrets" / "escape.txt"
     content = "do not disclose this write payload"
 
-    outcome = FileWriteTool().run(
-        FileWriteArgs(path=str(external_path), content=content), ctx
-    )
+    outcome = FileWriteTool().run(FileWriteArgs(path=str(external_path), content=content), ctx)
 
     assert outcome.success is False
     assert outcome.detail == "FileWrite path is outside project root"
@@ -389,9 +405,7 @@ def test_file_write_restricted_tier_confirmer_denial_blocks_write(tmp_path):
     external_path = tmp_path.parent / "private-secrets" / "out.txt"
     content = "do not disclose this write payload"
 
-    outcome = FileWriteTool().run(
-        FileWriteArgs(path=str(external_path), content=content), ctx
-    )
+    outcome = FileWriteTool().run(FileWriteArgs(path=str(external_path), content=content), ctx)
 
     assert outcome.success is False
     assert outcome.detail == "FileWrite was not approved by the user"
