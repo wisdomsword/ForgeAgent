@@ -6,6 +6,7 @@ config-error behavior.
 """
 
 import asyncio
+import logging
 import sys
 from urllib.parse import parse_qsl, unquote, urlsplit
 
@@ -591,6 +592,54 @@ def test_build_mcp_manager_preserves_required_startup_error_when_cleanup_is_canc
 
     assert _CleanupFailureRequiredStartupManager.instances[0].closed is True
     assert str(error.value).startswith("alpha: unavailable: handshake failed")
+
+
+@pytest.mark.parametrize("failure_kind", ["connect", "required"])
+def test_build_mcp_manager_logs_non_control_cleanup_type_without_replacing_primary(
+    monkeypatch,
+    caplog,
+    failure_kind,
+):
+    import forgeagent.cli as cli_module
+
+    secret = "cleanup-warning-secret"
+
+    class CleanupFailureManager:
+        def __init__(self, servers):
+            self.closed = False
+
+        @property
+        def has_enabled_servers(self):
+            return True
+
+        def connect(self):
+            if failure_kind == "connect":
+                raise RuntimeError("primary startup failure")
+
+        def required_failures(self):
+            if failure_kind == "required":
+                return {"required": "unavailable: RuntimeError"}
+            return {}
+
+        def close(self):
+            self.closed = True
+            raise asyncio.CancelledError(f"cleanup failed: {secret}")
+
+    monkeypatch.setattr(cli_module, "load_mcp_config", lambda: {"required": object()})
+    monkeypatch.setattr(cli_module, "MCPManager", CleanupFailureManager)
+    caplog.set_level(logging.WARNING, logger="forgeagent.cli")
+
+    with pytest.raises(cli_module.MCPStartupError) as raised:
+        cli_module.build_mcp_manager(_console())
+
+    expected_primary = (
+        "MCP manager startup failed: RuntimeError"
+        if failure_kind == "connect"
+        else "required: unavailable: RuntimeError"
+    )
+    assert str(raised.value) == expected_primary
+    assert caplog.messages == [f"MCP {failure_kind} cleanup failed: CancelledError"]
+    assert secret not in caplog.text
 
 
 @pytest.mark.parametrize("cleanup_error", [KeyboardInterrupt, SystemExit])

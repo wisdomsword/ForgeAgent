@@ -199,6 +199,7 @@ class MCPManager:
         self._shutdown_deadline: float | None = None
         self._shutdown_pending: frozenset[str] = frozenset()
         self._shutdown_complete = threading.Event()
+        self._lifecycle_barrier = threading.Lock()
         # Secret values to redact from MCP output before it reaches feedback/console —
         # MCP results are external data (threat-model T8c); mask them like executor output.
         self._secret_values = sensitive_env_values()
@@ -445,57 +446,54 @@ class MCPManager:
     def _start_holder(self, name: str) -> asyncio.Event:
         """On the loop thread: allocate and start one holder generation."""
         ready = asyncio.Event()
-        if self._closed or self._closing:
-            ready.set()
-            return ready
-        state = self._states[name]
-        state.generation += 1
-        generation = state.generation
-        stop = asyncio.Event()
-        holder_coro = self._holder(name, generation, ready, stop)
-        try:
-            task = asyncio.create_task(holder_coro)
-        except BaseException as exc:
+        with self._lifecycle_barrier:
+            if self._closed or self._closing:
+                ready.set()
+                return ready
+            state = self._states[name]
+            state.generation += 1
+            generation = state.generation
+            stop = asyncio.Event()
+            holder_coro = self._holder(name, generation, ready, stop)
             try:
-                holder_coro.close()
-            except BaseException as cleanup:
-                logger.warning(
-                    "MCP holder coroutine cleanup failed: %s",
-                    type(cleanup).__name__,
-                )
-            if not isinstance(exc, Exception):
-                raise
-            state.tools = []
-            state.status = f"unavailable: {type(exc).__name__}"
-            ready.set()
-            return ready
-        if self._closed or self._closing:
-            task.cancel()
-            ready.set()
-            return ready
-        self._holders[name] = (generation, task, stop)
-
-        def finalize(
-            done: asyncio.Task,
-            *,
-            server: str = name,
-            holder_generation: int = generation,
-        ):
-            if not done.cancelled():
+                task = asyncio.create_task(holder_coro)
+            except BaseException as exc:
                 try:
-                    exc = done.exception()
-                except asyncio.CancelledError:
-                    exc = None
-                if exc is not None and isinstance(exc, Exception):
-                    logger.debug(
-                        "MCP holder ended with %s for server %s generation %s",
-                        type(exc).__name__,
-                        server,
-                        holder_generation,
+                    holder_coro.close()
+                except BaseException as cleanup:
+                    logger.warning(
+                        "MCP holder coroutine cleanup failed: %s",
+                        type(cleanup).__name__,
                     )
-            self._finalize_holder_slot(server, holder_generation, done)
+                if not isinstance(exc, Exception):
+                    raise
+                state.tools = []
+                state.status = f"unavailable: {type(exc).__name__}"
+                ready.set()
+                return ready
+            self._holders[name] = (generation, task, stop)
 
-        task.add_done_callback(finalize)
+            def finalize(
+                done: asyncio.Task,
+                *,
+                server: str = name,
+                holder_generation: int = generation,
+            ):
+                if not done.cancelled():
+                    try:
+                        exc = done.exception()
+                    except asyncio.CancelledError:
+                        exc = None
+                    if exc is not None and isinstance(exc, Exception):
+                        logger.debug(
+                            "MCP holder ended with %s for server %s generation %s",
+                            type(exc).__name__,
+                            server,
+                            holder_generation,
+                        )
+                self._finalize_holder_slot(server, holder_generation, done)
+
+            task.add_done_callback(finalize)
         return ready
 
     def _finalize_holder_slot(self, name: str, generation: int, task: asyncio.Task) -> None:
@@ -650,6 +648,7 @@ class MCPManager:
                 self._thread = thread
                 self._closed = True
                 self._shutdown_complete.set()
+                self._started = True
                 logger.warning(
                     "MCP loop startup cleanup incomplete; resources may remain: "
                     "thread=%s ident=%s alive=True",
@@ -657,8 +656,6 @@ class MCPManager:
                     thread.ident,
                 )
             else:
-                self._loop = None
-                self._thread = None
                 try:
                     loop.close()
                 except BaseException as exc:  # preserve the start failure
@@ -666,17 +663,26 @@ class MCPManager:
                         "MCP loop cleanup after start failure failed: %s",
                         type(exc).__name__,
                     )
-                self._closed = False
-                self._closing = False
-                self._shutdown_future = None
-                self._shutdown_task = None
-                self._shutdown_retry = None
-                self._shutdown_snapshot = None
-                self._shutdown_lifecycle_snapshot = None
-                self._shutdown_deadline = None
-                self._shutdown_pending = frozenset()
-                self._shutdown_complete.clear()
-            self._started = thread_alive
+                    self._loop = loop
+                    self._thread = thread
+                    self._closed = True
+                    self._closing = False
+                    self._shutdown_complete.set()
+                    self._started = True
+                else:
+                    self._loop = None
+                    self._thread = None
+                    self._closed = False
+                    self._closing = False
+                    self._shutdown_future = None
+                    self._shutdown_task = None
+                    self._shutdown_retry = None
+                    self._shutdown_snapshot = None
+                    self._shutdown_lifecycle_snapshot = None
+                    self._shutdown_deadline = None
+                    self._shutdown_pending = frozenset()
+                    self._shutdown_complete.clear()
+                    self._started = False
             raise
         try:
             self._submit(
@@ -1208,9 +1214,10 @@ class MCPManager:
 
     def close(self) -> None:
         """Bounded, idempotent shutdown that never raises ordinary exceptions."""
-        first_close = not getattr(self, "_closed", False)
-        if first_close:
-            self._closed = True
+        with self._lifecycle_barrier:
+            first_close = not getattr(self, "_closed", False)
+            if first_close:
+                self._closed = True
 
         if self._loop is None:
             self._shutdown_complete.set()
@@ -1268,10 +1275,7 @@ class MCPManager:
                         type(cleanup).__name__,
                     )
                 try:
-                    if not self._holders and not self._sessions and not self._lifecycle_tasks:
-                        self._shutdown_complete.set()
-                    else:
-                        self._request_shutdown_retry(deadline)
+                    self._request_shutdown_retry(deadline)
                 except BaseException as cleanup:
                     logger.warning(
                         "MCP shutdown fallback cleanup failed: %s",

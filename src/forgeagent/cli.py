@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import ipaddress
 import json
+import logging
 import os
 import re
 import sys
@@ -51,6 +52,8 @@ from .tools import Asker, Confirmer, Tier
 from .web_search import ERROR_BLOCKED, ERROR_UNAVAILABLE, search_with_status
 
 DEFAULT_MODEL = "claude-sonnet-5"
+
+logger = logging.getLogger(__name__)
 
 
 class MCPStartupError(RuntimeError):
@@ -668,6 +671,7 @@ def build_mcp_manager(console: Console) -> MCPManager | None:
         except BaseException as cleanup:
             if isinstance(cleanup, (KeyboardInterrupt, SystemExit)):
                 raise
+            logger.warning("MCP connect cleanup failed: %s", type(cleanup).__name__)
         raise MCPStartupError(f"MCP manager startup failed: {type(exc).__name__}") from None
     failures = manager.required_failures()
     if failures:
@@ -677,6 +681,7 @@ def build_mcp_manager(console: Console) -> MCPManager | None:
         except BaseException as cleanup:
             if isinstance(cleanup, (KeyboardInterrupt, SystemExit)):
                 raise
+            logger.warning("MCP required cleanup failed: %s", type(cleanup).__name__)
         raise MCPStartupError(diagnostics)
     for name, status in manager.server_status().items():
         colour = "green" if status == "available" else "yellow"
