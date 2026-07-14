@@ -110,7 +110,7 @@ File tools / restricted audit
 
 - `ProxyHandler({})` 不安装任何 proxy handler，因此 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY` 和大小写变体均不会参与路由。
 - `NO_PROXY`/`no_proxy` 只能告诉一个已经启用的代理 handler 哪些目标绕过代理，不能重新启用被空 mapping 移除的代理；它不是临时规避方法。
-- 依赖企业代理才能出网的部署会在 WebFetch 和 `/search` 上直连失败。当前可用的迁移方式只有：在允许直连的网络运行、由用户在 ForgeAgent 外预取文件后通过 FileRead 处理，或显式配置一个由用户信任且自行承担代理策略的 MCP fetch 工具。最后一种方式不是 WebFetch 的透明代理，也不改变 WebFetch 的 SSRF 契约。
+- 依赖企业代理才能出网的部署会在 WebFetch 和 `/search` 上直连失败。当前可用的迁移方式只有：在允许直连的网络运行、由用户在 ForgeAgent 外预取并把文件放入 `allowed_root` 后通过 FileRead 处理，或显式配置一个由用户信任且自行承担代理策略的 MCP fetch 工具。最后一种方式不是 WebFetch 的透明代理，也不改变 WebFetch 的 SSRF 契约。
 - CLI 对普通网络失败继续使用稳定失败类别，不根据错误文本猜测“可能需要代理”；README、威胁模型和 `[SECURITY][BREAKING]` 发布说明必须直接列出上述行为和替代路径。
 
 未来代理支持不能简单恢复默认 `ProxyHandler`。常规 forward proxy 会在代理端重新解析目标，使 ForgeAgent 无法证明实际连接地址仍是本地校验过的 IP。未来设计必须显式选择并记录以下一种信任模型：
@@ -253,18 +253,18 @@ manager 构造参数增加仅供内部/测试注入的 `shutdown_timeout=10.0` �
 
 `close()` 顺序：
 
-1. 用 `getattr(self, "_closed", False)` 检查重复调用；否则立即置真，保证后续任意异常都不会重新进入关闭状态机。
+1. manager 增加内部 `_shutdown_future` 引用。用 `getattr(self, "_closed", False)` 检查重复调用。首次调用立即置真并执行完整 holder shutdown；重复调用不得重新提交 shutdown coroutine 或重新等待 holders，但可以再次 cancel 已保存的 future，并在 `thread_join_timeout` 内重新发出 loop stop、join，在线程已经停止时关闭 loop并清理引用。
 2. 未创建 loop 时直接清理引用并返回。
 3. 用 `time.monotonic()` 建立唯一绝对 deadline：当前时间加 `shutdown_timeout + thread_join_timeout`。所有阶段只读取 `remaining = max(0, deadline - monotonic())`，不累计相对 timeout。
-4. 在 loop 上运行 `_shutdown()` 并向全部 state.stop 发信号。正常 holder 阶段最多消费 5 秒，但必须为 thread join 保留最多 `thread_join_timeout`；若提前完成，未使用额度自动留给 cancel 阶段。
-5. cancel 仍 pending 的 holder，并用 `remaining - join_reserve` 作为第二阶段预算。预算为 0 时不再等待。
-6. 清空 holder/session；任何单 holder 异常被收集而不传播。
+4. 主线程在提交 coroutine 前保存只读 `holder_snapshot = dict(self._holders)` 和 `fallback_pending = set(holder_snapshot)`。`_shutdown(holder_snapshot)` 只在 loop thread 内操作这些 Task：向全部 state.stop 发信号，正常 holder 阶段最多消费 5 秒，并为 thread join 保留最多 `thread_join_timeout`。
+5. `_shutdown()` 用 `asyncio.wait()` 得到 done/pending，cancel pending holders，再用 `remaining - join_reserve` 作为第二阶段预算；预算为 0 时不再等待。它只从 `_holders` 删除已经完成的 entries；对应 session 由 holder `finally` 正常移除。第二阶段后仍 pending 的 holder/session 必须保留引用，直到 thread 停止或 coroutine 后续真正完成。coroutine 返回最终未完成的 server name set；任何单 holder 异常被收集而不传播。
+6. 主线程直接把 `asyncio.run_coroutine_threadsafe(...)` 的结果保存到 `self._shutdown_future`，不通过只返回 result 的 `_submit()`。future 在预算内完成时使用其返回的精确 pending names并清空 `_shutdown_future`；若 `.result()` 超时或抛出基础设施异常，则调用 future.cancel()、保留该引用，并使用 `fallback_pending` 作保守诊断。主线程与 loop thread 不共享可变 pending set。
 7. `loop.call_soon_threadsafe(loop.stop)`，`thread.join()` 使用 `min(thread_join_timeout, remaining)`，不会越过同一个绝对 deadline。
-8. 线程已停止时关闭 loop；仍存活时记录结构化 warning，不对活跃 loop 调用 close。loop thread 在创建时使用固定名称 `forgeagent-mcp-loop`；warning 至少包含 thread name、ident、alive 状态、未完成 holder 的 server 名称和已耗尽的 timeout，不输出 MCP arguments、env 或 server 返回内容。
-9. 公开 `close()` 边界在 closed state 设置后用 `try/except Exception/finally` 包围内部操作。Exception 只记录 warning，finally 尽最大可能执行 loop stop、join 和引用清理；KeyboardInterrupt/SystemExit 不被吞掉。
+8. 线程已停止时关闭 loop，并由主线程最终清空 shutdown future、holders、sessions、loop、thread 引用。线程仍存活时记录结构化 warning，不对活跃 loop 调用 close，也不从主线程清空可能仍被 shutdown coroutine 使用的 future/holders/sessions。loop thread 在创建时使用固定名称 `forgeagent-mcp-loop`；warning 至少包含 thread name、ident、alive 状态、未完成 holder 的 server 名称和已耗尽的 timeout，不输出 MCP arguments、env 或 server 返回内容。
+9. 公开 `close()` 边界在 closed state 设置后用 `try/except Exception/finally` 包围内部操作。Exception 只记录 warning，finally 尽最大可能执行 future cancel、loop stop 和 join；只有确认 thread 已停止后才能关闭 loop 并把资源引用置空。thread 仍存活时保留 shutdown future、holders、sessions、loop、thread 引用，供诊断和重复 close 的有界 cancel/stop/join 重试使用；KeyboardInterrupt/SystemExit 不被吞掉。
 10. 返回 None，不向调用方传播关闭异常。
 
-正常和无响应 fixture 必须证明 SDK 的进程树清理可以在上限内结束子进程。极端情况下 Python daemon thread 可能在 join 上限后仍存活并暂时保有 event-loop transport/file descriptor；Python 不提供安全强杀线程的 API，因此 CLI 仍按 deadline 返回，warning 保留上述诊断证据。默认不抓取线程堆栈：`sys._current_frames()` 是 CPython 私有诊断接口，输出冗长且可能包含宿主路径；固定线程身份和 pending holder 足以定位本层问题。
+正常和 holder 无响应 fixture 必须证明 SDK 的进程树清理可以在上限内结束子进程。更极端的情形是 event-loop thread 本身被同步代码卡死：cancel 和 SDK context exit 可能尚未执行，daemon thread 可能暂时保有 transport、file descriptor，甚至 MCP child process。Python 不提供安全强杀线程的 API，manager 也没有 SDK child handle 可供主线程可靠终止，因此 CLI 仍按 deadline 返回，warning 明确标记 `shutdown incomplete; resources may remain` 并保留上述诊断证据。若线程随后停止，第二次 `close()` 必须关闭遗留 loop 并清除引用；若仍存活，第二次调用也只能消耗自己的 `thread_join_timeout`。默认不抓取线程堆栈：`sys._current_frames()` 是 CPython 私有诊断接口，输出冗长且可能包含宿主路径；固定线程身份和 pending holder 足以定位本层问题。
 
 ## 8. 测试环境隔离
 
@@ -352,7 +352,7 @@ runner 本里程碑明确顺序执行，不承诺多个进程同时写同一个 
 | CLI 注入 | REPL、TTY run、非 TTY run、`--interactive` | confirmer 与 MCP 解耦；Survey 语义不漂移 |
 | 完成门控 | 工具成功/失败/parse error + completed；后续独立完成 | 同轮不完成；反馈后完成；max_rounds 诚实 |
 | MCP 配置 | required 默认、enabled/disabled required | optional 降级；required 启动失败；禁用项不阻断 |
-| MCP close | 正常、完全忽略 stop、内部异常、重复 close、结果保留、thread join 超时 warning | 绝对 deadline 内返回；cancel/join 分支执行；PID 消失；warning 含固定 thread identity/pending servers 且无敏感参数；原结果不被覆盖 |
+| MCP close | 正常、完全忽略 stop、内部异常、重复 close、结果保留、thread join 超时 warning、延迟停止后再次 close | 绝对 deadline 内返回；future timeout 会 cancel 并保留引用；pending names 由 coroutine 返回或使用只读 fallback；coroutine 只移除 done holders；主线程不与活跃 loop 竞态清空容器；活跃 thread 保留全部资源引用，停止后第二次 close 关闭 loop；PID 消失；warning 无敏感参数；原结果不被覆盖 |
 | 测试隔离 | 真实 home 放置恶意 mcp.yaml 后运行 suite | 测试只读取临时 home，结果不变 |
 | 黄金 runner | manifest 变异、20 pass、单项 fail、preflight fail | ID/数量锁定；JSON/Markdown 同源；退出码 0/1/2 |
 | 真实模型入口 | 缺配置、有效单模型 | 缺配置无报告且退出 2；只执行 5 项 |
@@ -368,7 +368,7 @@ runner 本里程碑明确顺序执行，不承诺多个进程同时写同一个 
 - `docs/golden-tasks-seed.md` 与 README：20 项可信核心、360 项候选、5 项 opt-in 真实模型和报告命令。
 - ACTION_PLAN、加固里程碑和 `milestones/latest`：只记录实证运行结果；不改写用户已有 M11/M12 规划内容，里程碑编号在收尾时按现有空位和 `MILESTONE_GUIDE.md` 确定。
 
-迁移无需数据转换。MCP 新字段默认 false，旧配置兼容。环境代理被禁用属于 `[SECURITY][BREAKING]` 安全加固：发布说明必须提示依赖企业代理的用户当前会直连失败，`NO_PROXY` 不能恢复代理，本里程碑没有透明代理替代。发布说明同时列出三条可操作路径：允许该进程直连、外部预取后用 FileRead、或使用用户显式信任的 MCP fetch 工具；不得建议重新启用环境 ProxyHandler。
+迁移无需数据转换。MCP 新字段默认 false，旧配置兼容。环境代理被禁用属于 `[SECURITY][BREAKING]` 安全加固：发布说明必须提示依赖企业代理的用户当前会直连失败，`NO_PROXY` 不能恢复代理，本里程碑没有透明代理替代。发布说明同时列出三条可操作路径：允许该进程直连、外部预取到 `allowed_root` 后用 FileRead、或使用用户显式信任的 MCP fetch 工具；不得建议重新启用环境 ProxyHandler。
 
 ## 12. 实施顺序
 

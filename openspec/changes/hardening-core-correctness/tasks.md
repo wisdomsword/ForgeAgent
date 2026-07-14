@@ -29,8 +29,8 @@
 - [ ] 4.1 在 MCP 服务配置模型中增加默认 `false` 的 `required` 字段及兼容性解析测试
 - [ ] 4.2 实施可选服务连接失败降级，验证失败服务工具被排除且诊断包含服务名和原因
 - [ ] 4.3 实施必需服务连接失败的启动中止、资源清理和 CLI 非零退出测试
-- [ ] 4.4 为正常关闭、无响应子进程、部分关闭失败、重复 close 和 daemon thread join 超时 warning 建立确定性测试并确定有证据的超时上限
-- [ ] 4.5 使 `MCPManager.close()` 有界且幂等，为 loop thread 设置固定名称和无敏感信息的超时诊断，并保证关闭错误不覆盖任务结果或原始启动错误
+- [ ] 4.4 为正常关闭、无响应子进程、部分关闭失败、重复 close、daemon thread join 超时 warning 和延迟停止后的二次清理建立确定性测试并确定有证据的超时上限
+- [ ] 4.5 使 `MCPManager.close()` 有界且幂等，为 loop thread 设置固定名称，在 manager 保存 shutdown future，由 loop coroutine 独占 holder wait/cancel 且只移除 done entries，future 超时时使用只读 fallback 并保留全部 pending 资源引用，允许重复 close 仅重试 cancel/stop/join，并保证关闭错误不覆盖任务结果或原始启动错误
 
 ## 5. 黄金验证核心
 
@@ -44,7 +44,7 @@
 
 - [ ] 6.1 更新模型客户端契约，准确描述当前 complete/streaming 和多模态支持边界
 - [ ] 6.2 更新文本协议规范，纳入 WebFetch、FileRead/FileWrite 及严格两阶段完成语义
-- [ ] 6.3 更新威胁模型、CLI 和发布说明，说明默认直连、环境代理禁用及企业代理迁移路径、symlink ancestor-swap 残余威胁、TTY 确认和 MCP `required` 行为
+- [ ] 6.3 更新威胁模型、CLI 和发布说明，说明默认直连、环境代理禁用及企业代理迁移路径、symlink ancestor-swap 与 MCP incomplete-shutdown 残余威胁、TTY 确认和 MCP `required` 行为
 - [ ] 6.4 更新黄金任务说明和 README，将 20 项标为可执行可信核心、其余 360 项标为候选，并说明 5 项真实模型运行不是 CI 门禁
 - [ ] 6.5 按 `MILESTONE_GUIDE.md` 更新 ACTION_PLAN、相关历史状态说明、新加固里程碑文件和 `milestones/latest`，保留实证测试结果
 

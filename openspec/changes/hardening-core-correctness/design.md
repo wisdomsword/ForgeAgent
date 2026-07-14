@@ -32,7 +32,7 @@ WebFetch 与 `/search` 使用禁用代理的 opener/handler，忽略 `HTTP_PROXY
 
 ForgeAgent 专用显式代理契约只在文档中定义为未来能力，运行时本里程碑不接受代理转发。选择这一方案，是因为在没有可验证的“代理解析最终目标”机制前，启用代理会再次分离校验地址与连接地址。备选方案“信任系统代理”和“校验代理地址”均无法满足当前威胁模型。
 
-该行为是 `[SECURITY][BREAKING]`：依赖企业环境代理的部署会直连失败，`NO_PROXY` 不能重新启用被空 `ProxyHandler` 移除的代理。当前迁移路径只包括允许进程直连、外部预取后通过 FileRead 处理，或使用用户显式信任并自行承担代理边界的 MCP fetch 工具。未来代理能力必须显式选择 trusted-forward-proxy 或 guarded-tunnel 信任模型，不能静默恢复环境 ProxyHandler。
+该行为是 `[SECURITY][BREAKING]`：依赖企业环境代理的部署会直连失败，`NO_PROXY` 不能重新启用被空 `ProxyHandler` 移除的代理。当前迁移路径只包括允许进程直连、外部预取到 `allowed_root` 后通过 FileRead 处理，或使用用户显式信任并自行承担代理边界的 MCP fetch 工具。未来代理能力必须显式选择 trusted-forward-proxy 或 guarded-tunnel 信任模型，不能静默恢复环境 ProxyHandler。
 
 `guarded_urlopen()` 只定义网络安全边界，WebFetch 和 `/search` 分别负责将打开、读取、关闭、HTTP 协议和响应解码阶段的预期异常收敛为稳定结果。WebFetch 的网络、SSRF 和 artifact 保存失败使用不同的固定安全消息；`/search` 的协议失败继续映射为 unavailable，未知 charset 回退 UTF-8 replacement decode。不得使用通用 `except Exception` 隐藏实现缺陷。
 
@@ -54,7 +54,7 @@ ForgeAgent 专用显式代理契约只在文档中定义为未来能力，运行
 
 MCP 配置在每个服务上增加布尔字段 `required`，默认 `false`。可选服务连接失败时记录可诊断信息并从可用工具集合移除；任一必需服务连接失败时，CLI 启动失败并返回非零状态，同时清理已启动服务。
 
-`MCPManager.close()` 使用单一 absolute deadline 约束 holder wait、cancel 和 thread join，允许重复调用，收集或记录关闭错误但不替换已有任务结果或启动错误。内部 shutdown 与 join 上限已在深度设计中确定，并由确定性测试锁定。loop thread 使用固定名称；join 超时 warning 记录 thread name/ident、alive 状态和 pending server 名称，不记录 arguments、env 或 server 内容。daemon thread 仍可能暂时保有 transport/file descriptor，但 Python 没有安全强杀线程的 API，CLI 必须优先按 deadline 返回。
+`MCPManager.close()` 使用单一 absolute deadline 约束 holder wait、cancel 和 thread join，允许重复调用，收集或记录关闭错误但不替换已有任务结果或启动错误。内部 shutdown 与 join 上限已在深度设计中确定，并由确定性测试锁定。主线程把 shutdown future 保存在 manager 上；loop coroutine 独占 Task wait/cancel，只移除已经完成的 holder，并返回 pending server names。future 超时时主线程 cancel 但保留 future，使用提交前的只读 holder-name fallback，不与仍活跃的 loop thread 竞态修改 holders/sessions。loop thread 使用固定名称；warning 记录 thread name/ident、alive 状态和 pending server 名称，不记录 arguments、env 或 server 内容。daemon thread 若被同步代码完全卡死，可能暂时保有 transport、file descriptor 或 MCP child process；Python 没有安全强杀线程的 API且 manager 没有 SDK child handle，CLI 必须优先按 deadline 返回并明确报告 shutdown incomplete。此时保留 shutdown future、holders、sessions、loop、thread 引用，重复 close 只重试 cancel/stop/join，并在线程停止后关闭 loop、清除引用。
 
 备选方案“所有服务失败即启动失败”破坏可选集成，“所有服务静默降级”则无法表达生产必需依赖，因此采用服务级策略。
 
@@ -83,6 +83,7 @@ FileWrite 使用 canonical target，因此替换原始 symlink alias 不能改�
 - [固定工具失败消息减少底层诊断] → 为 SSRF、请求、artifact 保存和各文件工具保留可区分的固定类别；不把平台异常文本送入模型反馈或普通 CLI 输出。
 - [commonpath 修正会改变 FileRead/FileList 失败文本] → 这是有意的安全收紧；成功结果和允许范围不变，专项测试锁定新的固定消息。
 - [realpath 与 pathname open 之间仍有 symlink ancestor-swap 竞态] → 明确分档和攻击前提；本 change 不用重复检查伪装修复，也不以平台专用 fd API扩大实现范围。
+- [event-loop thread 完全卡死时可能暂留 MCP 子进程或文件描述符] → deadline 优先保证 CLI 可返回；保留引用、允许有界重试并输出无敏感信息的 incomplete-shutdown 诊断，不声称 Python 能安全强杀线程。
 - [20 项核心不能代表全部任务空间] → 报告明确分离“核心已验证”与“候选未验证”，后续按风险增量扩展。
 - [单一 change 范围较大] → tasks 按能力分组、每组独立测试，黄金核心作为最终统一验收，不引入跨组抽象。
 
