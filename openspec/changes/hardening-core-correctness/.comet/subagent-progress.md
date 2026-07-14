@@ -183,7 +183,7 @@
 - Review mode: `thorough`
 - Checkoff result: all four Task 4 plan steps and OpenSpec 3.4-3.5 passed exact-text `task-checkoff`.
 
-## Current Task
+## Completed Task 5
 
 - Plan task: `Task 5: 增加 MCP required 启动语义`
 - OpenSpec mappings:
@@ -212,3 +212,44 @@
 - Re-review result: approved with no Critical, Important, or Minor findings.
 - Review mode: `thorough`
 - Checkoff result: all five Task 5 plan steps and OpenSpec 4.1-4.3 passed exact-text `task-checkoff`.
+
+## Current Task
+
+- Plan task: `Task 6: 让 MCP close 使用绝对 deadline 且不抛异常`
+- OpenSpec mappings:
+  - `4.4 为正常关闭、无响应子进程、部分关闭失败、重复 close、daemon thread join 超时 warning 和延迟停止后的二次清理建立确定性测试并确定有证据的超时上限`
+  - `4.5 使 MCPManager.close() 有界且幂等，为 loop thread 设置固定名称，在 manager 保存 shutdown future，由 loop coroutine 独占 holder wait/cancel 且只移除 done entries，future 超时时使用只读 fallback 并保留全部 pending 资源引用，允许重复 close 仅重试 cancel/stop/join，并保证关闭错误不覆盖任务结果或原始启动错误`
+- Stage: `blocked`
+- Base commit: `da5185b`
+- Implementer: `019f5fbe-30ec-7263-9eff-354d79fb1ba1` (`Peirce`)
+- Implementer report: `.superpowers/sdd/task-6-report.md`
+- Implementer status: `DONE`
+- Implementation commit: `541b300`
+- RED evidence: focused close suite `8 failed, 22 deselected`; missing timeout constructors/thread name and real fixture cleanup cases.
+- GREEN evidence: focused close `8 passed`; MCP+CLI `129 passed, 1 skipped`; fixture PID cleanup `2 passed` with both PIDs gone; Ruff check/format clean; no pending-task/runtime warnings.
+- Changed files: `src/forgeagent/mcp_manager.py`, `tests/test_mcp_manager.py`, `tests/mcp_fixture_server.py`
+- Risk signals: concurrency/shared mutable state, subprocess lifecycle, security-sensitive diagnostics, diff over 200 lines, residual hard-stuck daemon resources.
+- Implementer concern: injected shutdown budgets at or below five seconds use a half-budget graceful phase to avoid an observed Future/coroutine absolute-deadline race; default budget retains the approved five-second graceful phase.
+- Reviewer: `019f5fd9-1042-7fe1-8d11-7e6a86e4ca95` (`Hume`)
+- Review package: `.superpowers/sdd/review-da5185b..541b300.diff`
+- Review result: changes requested. Critical cancellation-vs-stop race can clear pending holders after thread stops; Important partial-init unawaited coroutine leak and fake hard-stuck probe; Minor scheduler-sensitive timing assertion. Short-budget split accepted.
+- Review/fix round: `1/2`
+- Fix agent: `019f5fe4-9a06-71d3-824f-1ee2f9761f87` (`Herschel`)
+- Fix commit: `78a17bf`
+- Fix evidence: real loop blocker and partial-init REDs; warning-as-error close `15 passed`; MCP+CLI `139 passed, 1 skipped`; full suite `560 passed, 13 skipped`; PID fixture `2 passed` with both PIDs gone; Ruff and diff checks clean.
+- Fix scope: production changed only `src/forgeagent/mcp_manager.py`; tests changed only `tests/test_mcp_manager.py`; cancellation drain now precedes loop stop and dead/stopped-loop submission is guarded.
+- Re-reviewer: `019f601a-78ae-70a0-82b1-2dae2aaf9aa1` (`Erdos`)
+- Re-review package: `.superpowers/sdd/review-da5185b..78a17bf.diff`
+- Re-review result: changes requested. Important: disable pops holder before await so close can miss in-progress cleanup; partial Thread.start success can leak unpublished live loop. Minor: graceful-vs-cancel test records indistinguishable values.
+- Review/fix round: `2/2`
+- Second fix agent: `019f6025-3c04-7db0-8075-b6b0c4b1a01e` (`Laplace`)
+- Second fix commit: `cd36e31`
+- Second fix evidence before final self-review: lifecycle `25 passed`; MCP+CLI `142 passed, 1 skipped`; full suite `563 passed, 13 skipped`; PID fixture passed with no survivors; Ruff/diff checks passed.
+- Final self-review result: `BLOCKED` before controller re-review. Two new real regressions were added but remain uncommitted because they fail against `cd36e31`.
+- Blocking regressions:
+  - Re-enable after a timed-out `disable()` does not start/retain the replacement holder after old-holder cleanup.
+  - `KeyboardInterrupt`/`SystemExit` while releasing the publication gate can leave `forgeagent-mcp-loop` alive and `_started=True`.
+- Controller reproduction: `UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_mcp_manager.py::test_connect_interrupt_releasing_publication_gate_stops_running_loop tests/test_mcp_manager.py::test_enable_during_timed_out_disable_restarts_after_old_holder_cleanup -q -W error::RuntimeWarning` -> `3 failed`.
+- Uncommitted evidence file: `tests/test_mcp_manager.py` contains only the two failing regressions above; no production file is uncommitted.
+- Stop condition: maximum `thorough` review-fix budget exhausted. Do not dispatch another fix or advance to Task 7 without a new user decision.
+- Review mode: `thorough`
