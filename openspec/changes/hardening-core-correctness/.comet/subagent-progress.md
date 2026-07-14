@@ -127,7 +127,7 @@
 - Review mode: `thorough`
 - Checkoff result: all five Task 3B plan steps passed exact-text `task-checkoff`; shared OpenSpec 3.6-3.9 remain pending until Task 3C completes their file-boundary portions.
 
-## Current Task
+## Completed Task 3C
 
 - Plan task: `Task 3C: 修复文件路径边界和失败披露`
 - OpenSpec mappings:
@@ -158,3 +158,27 @@
 - Re-review result: approved with no Critical, Important, or Minor findings; real tool failures now exercise both renderer boundaries and no temporary production mutation remains.
 - Review mode: `thorough`
 - Checkoff result: all five Task 3C plan steps and OpenSpec 3.6-3.9 passed exact-text `task-checkoff`; the expanded core-correctness outcome scope is complete.
+
+## Current Task
+
+- Plan task: `Task 4: 实施严格两阶段完成门控`
+- OpenSpec mappings:
+  - `3.4 增加工具成功、工具失败、解析错误与 completed: true 组合的 Step 状态转换测试`
+  - `3.5 实施严格两阶段完成门控，只有后续无工具、无解析错误的独立响应可完成任务`
+- Stage: `done`
+- Base commit: `6c62ac4`
+- Implementer: `019f5f6b-3548-71f1-993a-3fb5a23aba35` (`Gauss`)
+- Implementer report: `.superpowers/sdd/task-4-report.md`
+- Implementer status: `DONE`
+- Implementation commit: `be4ff12`
+- RED evidence: Step/Task suite exited 1 with `4 failed, 41 passed` for successful tool, failed tool, parse-error, and max-round completion bypasses.
+- GREEN evidence: Step/Task/replay suite `49 passed`; scoped Ruff `All checks passed!`.
+- Changed files: `src/forgeagent/step.py`, `tests/test_step.py`, `tests/test_task.py`
+- Risk signals: shared Step state-machine semantics and public task termination contract.
+- Failed reviewer: `019f5f7a-bece-7ee1-8ef8-764faa33ab72` (`Descartes`) was closed after remaining unresponsive and returning no verdict; this did not consume a review-fix round.
+- Reviewer: `019f5f87-a2cb-7ce2-b0f8-db79fd9e5763` (`Mill`)
+- Review package: `.superpowers/sdd/review-6c62ac4..be4ff12.diff`
+- Review result: approved with no Critical, Important, or Minor findings.
+- Review/fix round: `0/2`
+- Review mode: `thorough`
+- Checkoff result: all four Task 4 plan steps and OpenSpec 3.4-3.5 passed exact-text `task-checkoff`.

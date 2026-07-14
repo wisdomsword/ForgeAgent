@@ -578,7 +578,7 @@ git commit -m "fix: harden file tool path boundaries"
 - Produces: `_apply_declared_status(..., allow_completed: bool)`。
 - Consumes: `ParseResult.tool_calls/errors`、现有 Termination 和 feedback loop。
 
-- [ ] **Step 1: 写工具成功、失败和 parse error RED 测试**
+- [x] **Step 1: 写工具成功、失败和 parse error RED 测试**
 
 每个测试用两条或三条 MockClient response：第一条携带 `completed: true` 与工具/错误，最后一条是独立完成。断言第一轮 `completed=False`、有 outcome/parse error，最终轮才 `Termination.COMPLETED`。另写 max_rounds=1 断言不伪造完成。
 
@@ -588,7 +588,7 @@ UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_step.py tests/tes
 
 预期：至少同轮工具失败 + completed 测试在现实现上 FAIL。
 
-- [ ] **Step 2: 增加最小资格参数**
+- [x] **Step 2: 增加最小资格参数**
 
 ```python
 self._apply_declared_status(
@@ -619,7 +619,7 @@ def _apply_declared_status(
 
 不得根据工具成功、autoApprove 或 confirmer 状态恢复同轮完成。
 
-- [ ] **Step 3: 运行 Step/Task/回放测试**
+- [x] **Step 3: 运行 Step/Task/回放测试**
 
 ```bash
 UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_step.py tests/test_task.py tests/test_mock_replay_e2e.py -q
@@ -627,7 +627,7 @@ UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_step.py tests/tes
 
 预期：严格门控和现有 prose/refused/need_info/failed 分类全部 PASS。
 
-- [ ] **Step 4: 提交完成语义修复**
+- [x] **Step 4: 提交完成语义修复**
 
 ```bash
 git add src/forgeagent/step.py tests/test_step.py tests/test_task.py
