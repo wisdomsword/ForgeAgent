@@ -104,7 +104,7 @@ ForgeAgent MUST prevent WebFetch failure outcomes and FileWrite success or failu
 - **THEN** the tool returns the fixed detail `WebFetch response save failed` without the artifact's absolute path or exception text
 
 #### Scenario: WebFetch artifact path is a symlink escape
-- **WHEN** the predictable WebFetch artifact path or one of its ancestors resolves through a pre-existing symlink outside `allowed_root`
+- **WHEN** the predictable WebFetch artifact path itself, or a descendant path component below the canonical `allowed_root`, resolves through a pre-existing symlink outside that canonical root
 - **THEN** ForgeAgent rejects the artifact write with `WebFetch response save failed`, leaves the outside target unchanged and does not disclose its path
 
 #### Scenario: FileWrite succeeds with an absolute project path
@@ -118,7 +118,7 @@ ForgeAgent MUST prevent WebFetch failure outcomes and FileWrite success or failu
 ### Requirement: File tool path boundaries are root-safe and minimally disclosing
 ForgeAgent MUST evaluate canonical WebFetch artifact and file-tool targets with a containment predicate that accepts the root itself and all real descendants, including when `allowed_root` is the filesystem root, and MUST NOT disclose model or host absolute paths in failure outcomes.
 
-This requirement prevents static symlink escape by returning and using the canonical target. It does not claim resistance to a hostile host process that replaces a canonical ancestor directory between validation and pathname open.
+This requirement prevents static symlink escape by returning and using the canonical target. It does not claim resistance to a hostile host process that replaces the canonical target itself or one of its ancestor path components between validation and pathname open.
 
 #### Scenario: Filesystem root is the allowed root
 - **WHEN** a file tool or restricted audit hook evaluates a target below `allowed_root="/"`

@@ -24,7 +24,7 @@
 - [x] 3.8 为 InvalidURL/BadStatusLine/LineTooLong/IncompleteRead/RemoteDisconnected、WebFetch artifact 写入、search 未知 charset、`allowed_root="/"`、非法路径及 FileRead/FileList 失败文本增加行为探针和回归测试
 - [x] 3.9 实施 WebFetch/search 消费端异常收敛、canonical commonpath 文件边界和 FileRead/FileList 固定失败消息，并验证 CLI outcome 渲染不泄漏敏感路径
 - [ ] 3.10 验证并实施非 TTY REPL 不读取确认输入、MCP server/tool 与 FileWrite 展示路径的已知 secret 脱敏，以及 M9 到期裸词命令兼容层移除；顶层 `forgeagent models` 保持不变
-- [ ] 3.11 验证并实施 WebFetch artifact 写入前的 canonical root containment，使预置 artifact symlink/ancestor 指向 root 外时返回固定保存失败且外部目标不变
+- [ ] 3.11 验证并实施 WebFetch artifact 写入前的 canonical root containment，使预置 artifact symlink 或 canonical root 下的 descendant symlink component 指向 root 外时返回固定保存失败且外部目标不变
 
 ## 4. MCP 韧性与生命周期
 
@@ -47,7 +47,7 @@
 
 - [ ] 6.1 更新模型客户端契约，准确描述当前 complete/streaming 和多模态支持边界
 - [ ] 6.2 更新文本协议规范，纳入 WebFetch、FileRead/FileWrite 及严格两阶段完成语义
-- [ ] 6.3 更新威胁模型、CLI 和发布说明，说明默认直连、环境代理禁用及企业代理迁移路径、symlink ancestor-swap 与 MCP incomplete-shutdown 残余威胁、TTY 确认和 MCP `required` 行为
+- [ ] 6.3 更新威胁模型、CLI 和发布说明，说明默认直连、环境代理禁用及企业代理迁移路径、symlink target/ancestor-component swap 与 MCP incomplete-shutdown 残余威胁、TTY 确认和 MCP `required` 行为
 - [ ] 6.4 更新黄金任务说明和 README，将 20 项标为可执行可信核心、其余 360 项标为候选，并说明 5 项真实模型运行不是 CI 门禁
 - [ ] 6.5 按 `MILESTONE_GUIDE.md` 更新 ACTION_PLAN、相关历史状态说明、新加固里程碑文件和 `milestones/latest`，保留实证测试结果
 

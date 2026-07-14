@@ -146,6 +146,10 @@ ForgeAgent MUST keep a new loop worker behind a publication gate until manager s
 - **WHEN** loop-owned cleanup publishes its completion signal after the public facade wait but before the same `close()` call finishes its bounded thread join
 - **THEN** that `close()` call re-reads the authoritative completion signal, closes and clears stopped resources immediately, and does not retain stale shutdown references until another call
 
+#### Scenario: Stopped event loop fails to close
+- **WHEN** authoritative cleanup is complete and the loop thread has stopped but closing the event-loop object raises an ordinary Exception
+- **THEN** public `close()` records the fixed failure category without raising, retains the stopped loop and related shutdown evidence, and a repeated `close()` retries loop closure before clearing references
+
 #### Scenario: Close is called more than once
 - **WHEN** `close()` is invoked after resources have already been closed or a previous close partially failed
 - **THEN** the call completes without reopening resources or creating a second loop-owned shutdown task or waiting facade; it signals the existing drain, waits on the thread-safe completion event within the new absolute deadline, performs a bounded stop/join retry, and clears retained references only after cleanup completion and thread stop are both proven

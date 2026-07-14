@@ -173,7 +173,7 @@ WebFetch formatter 在一次调用开始时只读取一次 `sensitive_env_values
 实施期 thorough review 发现确认后的工具结果同样会进入 Step feedback 和 CLI console。用户于 2026-07-13 选择把该问题纳入当前 change，并批准固定安全结果消息方案：
 
 - WebFetch 捕获 `SSRFGuardError` 时返回固定 `WebFetch blocked by network policy`；打开、读取或关闭响应时发生 `OSError`、`http.client.HTTPException` 或非法 URL `ValueError` 时返回固定 `WebFetch request failed`；artifact 写入 `OSError` 返回固定 `WebFetch response save failed`。不得把底层异常、原始 URL、hostname 或宿主路径写入 `ToolOutcome.detail`。
-- WebFetch 的可预测 artifact 名称在写入前必须交给 `_validate_path()`，并使用其返回的 canonical target 写入；预置 artifact symlink 或 symlink ancestor 指向 `allowed_root` 外时返回 `WebFetch response save failed`，不得触碰外部目标。该检查与 FileWrite 共享现有函数，不新增 artifact policy 层。
+- WebFetch 的可预测 artifact 名称在写入前必须交给 `_validate_path()`，并使用其返回的 canonical target 写入；预置 artifact symlink 或 canonical root 之下的后代 symlink component 指向 root 外时返回 `WebFetch response save failed`，不得触碰外部目标。`allowed_root` 自身可以是用户明确配置的 symlink alias，其 `realpath` 才是授权根。该检查与 FileWrite 共享现有函数，不新增 artifact policy 层。
 - FileWrite 通过 project-root 校验并成功写入后，只返回由已解析目标相对 canonical `allowed_root` 计算出的 project-relative 路径：`base = Path(os.path.realpath(ctx.allowed_root))`，再对 `_validate_path()` 返回的 `resolved` 使用 `relative_to(base)`。不复用模型提供的原始路径，也不假定 `ctx.allowed_root` 已经是绝对路径。
 - FileWrite 写入阶段发生 `OSError` 或路径语法产生 `ValueError` 时返回固定 `FileWrite failed`。越界、无交互通道和用户拒绝继续使用既有固定消息。
 - FileRead/FileList 的路径校验和文件系统失败分别返回固定 `FileRead failed` / `FileList failed`，不回显异常文本、模型提供的绝对路径或 canonical root。MCP 结果契约和全局 `mask_secrets()` 行为保持不变。
@@ -190,7 +190,7 @@ WebFetch artifact 与 FileRead/FileWrite/FileList 在主进程内复用 `_valida
 3. 比较时遵循平台路径语义，允许 root 自身和任意真实子路径，因此 `allowed_root="/"` 不再错误拒绝 `/tmp/...`。
 4. 安全边界异常不携带输入路径或 root。工具层转换为上述固定失败消息；restricted worker 保留 `PermissionError` 类型，但消息只说明访问位于 allowed root 外。
 
-`_validate_path()` 返回 canonical target，因此校验后替换模型最初提供的 symlink alias 不会改变实际写入目标。仍存在一个更窄但真实的 TOCTOU：外部并发写者若在校验后、打开前把 canonical target 的某个祖先目录整体替换为指向外部的 symlink，后续按 pathname 打开仍可能越界。实证 probe 已复现该 ancestor-swap 情况。
+`_validate_path()` 返回 canonical target，因此校验后替换模型最初提供的 symlink alias 不会改变实际写入目标。仍存在一个更窄但真实的 TOCTOU：外部并发写者若在校验后、打开前把 canonical target 本身或其某个祖先路径组件替换为指向外部的 symlink，后续按 pathname 打开仍可能越界。实证 probe 已复现 ancestor-component swap；final-target swap 具有同一 pathname race 根因。
 
 本 change 不用“再做一次 realpath/lstat”伪装成修复，因为检查与打开之间仍有竞态；也不引入 POSIX-only 的逐组件 `openat(dir_fd, O_NOFOLLOW)`、Linux `openat2(RESOLVE_BENEATH)` 或平台专用 fd-path 反查。完整消除需要重写 FileRead/Write/List 的文件描述符接口并处理 Windows 兼容，超出本次最小加固。
 
@@ -265,7 +265,7 @@ manager 构造参数增加仅供内部/测试注入的 `shutdown_timeout=10.0` �
 6. `_shutdown_task` 对每个 holder/result/finalizer 的普通 `Exception` 分别收集并只记录固定异常类型，然后执行一次幂等的最终清理检查；普通异常不得让 task 提前失败并绕过其余 holder。只有 snapshot task 全部 done、精确 slot/session 已完成条件清理且没有 replacement 后，才设置 `_shutdown_complete` 并请求 `loop.stop()`。若最终不变量仍不成立，则保留 complete 未设置和全部证据；同一个 task 等待一个 loop-owned retry event，不返回、不 busy-loop。重复 close 的 `_ensure_shutdown_task(new_deadline)` 只唤醒这个既有 task做下一次有界清理尝试，不能创建第二个 task或第二份 snapshot。loop 停止且 completion 已证明后，主线程才可丢弃 `_shutdown_task` 引用，这不属于活跃 loop 上的跨线程 mutation。
 7. 主线程保存 `asyncio.run_coroutine_threadsafe(_wait_for_shutdown(), loop)` 返回的 `_shutdown_future`；`_wait_for_shutdown()` 在 loop 内用 `asyncio.shield(_shutdown_task)`，因此 concurrent future timeout/cancel 不会取消真正的 drain。若 outer coroutine 在 ensure 前即被取消，fallback 只向 loop 提交 `_ensure_shutdown_task` callback；它创建或复用同一 task，绝不重复 snapshot/holder shutdown。主线程 cancel 但保留 `_shutdown_future`，并使用 pre-submit name fallback 作诊断。
 8. 主线程不在 cleanup incomplete 时直接 stop loop。第一次 close 通过 concurrent facade 等待；该 future 一旦取消就不可复用，因此重复 close 在唤醒既有 drain 后，改用线程安全的 `_shutdown_complete.wait(max(0, remaining - thread_join_timeout))` 等待同一 task 的 completion，不创建第二个 coroutine/future/task。随后 `thread.join()` 使用 `min(thread_join_timeout, remaining)`。
-9. 只有 `thread.is_alive() is False` 且 `_shutdown_complete` 已由 loop-owned drain 或已批准的 pre-holder startup rollback 设置，主线程才能 close loop 并清空 shutdown future/task、holders、sessions、lifecycle operations、loop、thread。thread 已死但 completion 未被证明时，即使 holder/session/lifecycle 容器为空或 `_shutdown_task` 为 `None`/done，也按 incomplete 处理并保留 shutdown future、排队 callback 与 loop 引用。warning 至少包含固定 thread name、ident、alive 状态、经 secret-value mask 的 snapshot pending server 名称和 timeout，不输出 MCP arguments、env、server content 或 stack。
+9. 只有 `thread.is_alive() is False` 且 `_shutdown_complete` 已由 loop-owned drain 或已批准的 pre-holder startup rollback 设置，主线程才能尝试 close loop；只有 loop close 成功后才清空 shutdown future/task、holders、sessions、lifecycle operations、loop、thread。loop close 抛普通异常时 public close 只记录固定类型并保留全部 stopped-loop 证据，重复 close 再次尝试。thread 已死但 completion 未被证明时，即使 holder/session/lifecycle 容器为空或 `_shutdown_task` 为 `None`/done，也按 incomplete 处理并保留 shutdown future、排队 callback 与 loop 引用。warning 至少包含固定 thread name、ident、alive 状态、经 secret-value mask 的 snapshot pending server 名称和 timeout，不输出 MCP arguments、env、server content 或 stack。
 10. `_stop_and_join()` 必须在 join 返回后重新读取 `_shutdown_complete`，不能使用 join 前缓存值；若 drain 在 join 期间完成且线程已经停止，同一次 close 应立即关闭 loop 和清除引用，不得误报 incomplete 或强制用户再调用一次。
 11. 公开 `close()` 在设置 closed state 后用 `try/except Exception/finally` 包围内部操作。Exception 只记录 warning并继续 best-effort drain/join；KeyboardInterrupt/SystemExit 不被吞掉。cleanup incomplete 时无论 thread 是否暂时存活，都不得从主线程清空 loop-owned slot/session 引用。
 12. 返回 None，不向调用方传播普通关闭异常。
