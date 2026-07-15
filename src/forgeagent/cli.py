@@ -20,6 +20,7 @@ import logging
 import os
 import re
 import sys
+import unicodedata
 from collections.abc import Callable
 from pathlib import Path
 from urllib.parse import parse_qsl, quote, unquote, urlencode, urlsplit, urlunsplit
@@ -174,16 +175,20 @@ def make_console_asker(console: Console, read_line: Callable[[str], str] = input
     return _ask
 
 
-def _redact_confirmation_value(value):
+def _redact_confirmation_value(value, secret_values: set[str]):
     if isinstance(value, dict):
         return {
-            str(key): "<redacted>" if is_secret_name(str(key)) else _redact_confirmation_value(item)
+            mask_secrets(str(key), secret_values): (
+                "<redacted>"
+                if is_secret_name(str(key))
+                else _redact_confirmation_value(item, secret_values)
+            )
             for key, item in value.items()
         }
     if isinstance(value, list):
-        return [_redact_confirmation_value(item) for item in value]
+        return [_redact_confirmation_value(item, secret_values) for item in value]
     if isinstance(value, str):
-        return mask_secrets(value, sensitive_env_values())
+        return mask_secrets(value, secret_values)
     return value
 
 
@@ -201,7 +206,7 @@ def _mask_confirmation_hostname(hostname: str, secret_values: set[str]) -> str:
     return pattern.sub(REDACTED, hostname)
 
 
-def _redact_confirmation_url(url: str) -> str:
+def _redact_confirmation_url(url: str, secret_values: set[str]) -> str:
     try:
         parts = urlsplit(url)
         if parts.scheme.lower() not in {"http", "https"} or not parts.hostname:
@@ -209,7 +214,6 @@ def _redact_confirmation_url(url: str) -> str:
         port = parts.port
     except ValueError:
         return "<redacted malformed URL>"
-    secret_values = sensitive_env_values()
     raw_authority = parts.netloc.rsplit("@", 1)[-1]
     decoded_hostname = unquote(parts.hostname or "", errors="replace")
     if raw_authority.startswith("["):
@@ -240,34 +244,65 @@ def _redact_confirmation_url(url: str) -> str:
     return urlunsplit((parts.scheme, netloc, path, query, ""))
 
 
-def _confirmation_filewrite_path(path: str) -> str:
+def _confirmation_filewrite_path(path: str, secret_values: set[str]) -> str:
     normalized = Path(os.path.normpath(path))
     if not normalized.is_absolute():
-        return normalized.as_posix()
+        return mask_secrets(normalized.as_posix(), secret_values)
     try:
         relative = normalized.relative_to(Path.cwd())
     except ValueError:
-        return f".../{normalized.name or '.'}"
-    return relative.as_posix()
+        return mask_secrets(f".../{normalized.name or '.'}", secret_values)
+    return mask_secrets(relative.as_posix(), secret_values)
 
 
 def _confirmation_summary(args: BaseModel) -> str:
+    secret_values = sensitive_env_values()
     if isinstance(args, MCPArgs):
-        arguments = json.dumps(_redact_confirmation_value(args.arguments), sort_keys=True)
-        return f"MCP {args.server}:{args.tool} {arguments}"
+        arguments = json.dumps(
+            _redact_confirmation_value(args.arguments, secret_values), sort_keys=True
+        )
+        return (
+            f"MCP {mask_secrets(args.server, secret_values)}:"
+            f"{mask_secrets(args.tool, secret_values)} {arguments}"
+        )
     if isinstance(args, WebFetchArgs):
-        return f"WebFetch {_redact_confirmation_url(args.url)}"
+        return f"WebFetch {_redact_confirmation_url(args.url, secret_values)}"
     if isinstance(args, FileWriteArgs):
-        safe_path = _confirmation_filewrite_path(args.path)
+        safe_path = _confirmation_filewrite_path(args.path, secret_values)
         return f"FileWrite {safe_path} ({len(args.content)} characters)"
     return type(args).__name__
+
+
+def _confirmation_single_line(value: str) -> str:
+    """Escape control and formatting characters in confirmation-only output."""
+    escaped: list[str] = []
+    for character in value:
+        codepoint = ord(character)
+        if (
+            codepoint < 32
+            or 127 <= codepoint <= 159
+            or character in {"\u2028", "\u2029"}
+            or unicodedata.category(character) in {"Cf", "Cs"}
+        ):
+            if codepoint <= 0xFF:
+                escaped.append(f"\\x{codepoint:02x}")
+            elif codepoint <= 0xFFFF:
+                escaped.append(f"\\u{codepoint:04x}")
+            else:
+                escaped.append(f"\\U{codepoint:08x}")
+        else:
+            escaped.append(character)
+    return "".join(escaped)
 
 
 def make_console_confirmer(console: Console, read_line: Callable[[str], str] = input) -> Confirmer:
     """Console-based `Confirmer` for side-effecting calls with minimal disclosure."""
 
     def _confirm(args: BaseModel) -> bool:
-        console.print(f"[bold yellow]approve[/bold yellow] {_confirmation_summary(args)}")
+        prompt = Text("approve", style="bold yellow")
+        prompt.append(" ")
+        prompt.append(_confirmation_single_line(_confirmation_summary(args)))
+        console.print(prompt)
         try:
             answer = read_line("approve? [y/N] ").strip().lower()
         except EOFError:
@@ -495,6 +530,7 @@ def repl(
     client_factory: ClientFactory,
     console: Console | None = None,
     read_line: Callable[[str], str] = input,
+    confirmation_available: bool | None = None,
     container_image: str | None = None,
     stream: bool = False,
 ) -> None:
@@ -506,9 +542,12 @@ def repl(
     console = console or Console()
     console.print("[bold]ForgeAgent[/bold] REPL — enter a goal, blank line or 'quit' to exit.")
     console.print("[dim]type '/' and enter for the command menu, or '/help'[/dim]")
-    # REPL is interactive, so Survey questions and MCP confirmations use the same read_line.
+    # Survey remains available through the injected reader; side-effecting operations need
+    # both a terminal output and terminal input channel unless tests explicitly provide one.
     asker = make_console_asker(console, read_line)
-    confirmer = make_console_confirmer(console, read_line)
+    if confirmation_available is None:
+        confirmation_available = console.is_terminal and sys.stdin.isatty()
+    confirmer = make_console_confirmer(console, read_line) if confirmation_available else None
     mcp = build_mcp_manager(console)
     # One accumulator for the whole REPL session — usage keeps growing across tasks,
     # not reset per goal (docs/m10 §3.2).
@@ -524,18 +563,6 @@ def repl(
                 break
             if not goal or goal in {"quit", "exit"}:
                 break
-            # Compat period (design doc §3.5): old bare words keep working this
-            # milestone, mapped onto the same handlers, with a deprecation notice.
-            # "models" maps to the singular "/model" command (list-models behavior);
-            # "reload"/"mcp ..." map onto their same-named slash command unchanged.
-            if goal in {"models", "reload", "mcp"} or goal.startswith("mcp "):
-                old_word = goal.split()[0]
-                new_prefix = "/model" if old_word == "models" else f"/{old_word}"
-                console.print(
-                    f"[dim]'{old_word}' is deprecated, use "
-                    f"'{new_prefix}' instead — removed next milestone[/dim]"
-                )
-                goal = new_prefix + goal[len(old_word) :]
             if goal == "/":
                 _print_command_menu(console)
                 continue

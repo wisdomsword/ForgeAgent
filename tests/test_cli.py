@@ -337,6 +337,74 @@ def test_console_confirmer_accepts_trimmed_yes():
     assert confirmer(MCPArgs(server="github", tool="create_issue")) is True
 
 
+def test_confirmation_summary_masks_known_secrets_in_identifiers_keys_and_file_paths(monkeypatch):
+    from forgeagent.cli import _confirmation_summary
+
+    secret = "known-secret-value"
+    monkeypatch.setattr("forgeagent.cli.sensitive_env_values", lambda: {secret})
+    summaries = [
+        _confirmation_summary(
+            MCPArgs(
+                server=f"server-{secret}",
+                tool=f"tool-{secret}",
+                arguments={f"key-{secret}": {"safe": secret}},
+            )
+        ),
+        _confirmation_summary(FileWriteArgs(path=f"reports/{secret}.txt", content="hidden")),
+        _confirmation_summary(FileWriteArgs(path=f"/private/{secret}.txt", content="hidden")),
+    ]
+
+    assert all(secret not in summary for summary in summaries)
+    assert "<redacted>" in summaries[0]
+    assert "***REDACTED***" in summaries[1]
+    assert "***REDACTED***" in summaries[2]
+    assert "hidden" not in "\n".join(summaries)
+
+
+@pytest.mark.parametrize(
+    "unsafe",
+    [
+        "bad[/red]",
+        "[bold]fake[/bold]",
+        "\x1b[31mred\x1b[0m",
+        "before\rafter\nnext",
+        "line\u2028separator\u2029end",
+        "rtl\u202evalue",
+        "isolate\u2066value\u2069",
+        "mark\u200evalue",
+        "surrogate\ud800value",
+    ],
+)
+def test_console_confirmer_renders_unsafe_confirmation_values_as_literal_single_lines(unsafe):
+    from forgeagent.cli import make_console_confirmer
+
+    console = Console(record=True, width=1000, force_terminal=False)
+    reads = 0
+
+    def read_line(prompt):
+        nonlocal reads
+        reads += 1
+        return "y"
+
+    mcp_args = MCPArgs.model_construct(
+        server=unsafe,
+        tool=unsafe,
+        arguments={unsafe: {"nested": unsafe}},
+    )
+    filewrite_args = FileWriteArgs.model_construct(path=unsafe, content="not displayed")
+    assert make_console_confirmer(console, read_line)(mcp_args)
+    assert make_console_confirmer(console, read_line)(filewrite_args)
+
+    rendered = console.export_text()
+    expected = unsafe.encode("unicode_escape").decode("ascii")
+    assert reads == 2
+    assert "approve" in rendered
+    assert "not displayed" not in rendered
+    assert expected in rendered
+    assert len(rendered.splitlines()) == 2
+    assert all(ord(char) >= 32 or char == "\n" for char in rendered)
+
+
 # --- single-command run ------------------------------------------------------
 
 
@@ -1132,6 +1200,7 @@ def test_repl_wires_confirmer_without_mcp_manager(monkeypatch):
         client_factory=_factory([_reply(_done())]),
         console=_console(),
         read_line=lambda prompt: next(inputs),
+        confirmation_available=True,
     )
 
     assert callable(seen[0])
@@ -1531,10 +1600,10 @@ def test_repl_runtime_toggle_of_required_server_keeps_session_running(monkeypatc
     assert fake.actions == [("disable", "fs"), ("enable", "fs")]
 
 
-def test_repl_reload_command_reports_model_count():
+def test_repl_reload_slash_command_reports_model_count():
     from forgeagent.cli import repl
 
-    inputs = iter(["reload", "quit"])
+    inputs = iter(["/reload", "quit"])
     console = _console()
     repl(
         tier="trusted",
@@ -1546,15 +1615,15 @@ def test_repl_reload_command_reports_model_count():
     assert "reloaded" in console.export_text()
 
 
-def test_repl_models_command_lists_without_running_a_task():
+def test_repl_model_slash_command_lists_without_running_a_task():
     from forgeagent.cli import repl
 
-    inputs = iter(["models", "quit"])
+    inputs = iter(["/model", "quit"])
     console = _console()
     repl(
         tier="trusted",
         model="claude-sonnet-5",
-        client_factory=_factory([]),  # never called — models/quit run no task
+        client_factory=_factory([]),  # never called — /model/quit run no task
         console=console,
         read_line=lambda prompt: next(inputs),
     )
@@ -1852,39 +1921,109 @@ def test_repl_image_staged_then_consumed_by_next_goal(tmp_path):
     assert "completed" in text
 
 
-def test_repl_compat_models_word_shows_deprecation_and_still_lists():
-    from forgeagent.cli import repl
+@pytest.mark.parametrize("goal", ["models", "reload", "mcp", "mcp status"])
+def test_repl_bare_former_commands_run_as_goals(goal, monkeypatch):
+    import forgeagent.cli as cli_module
 
-    inputs = iter(["models", "quit"])
-    console = _console()
-    repl(
+    seen: list[str] = []
+    inputs = iter([goal, "quit"])
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda console: None)
+    monkeypatch.setattr(
+        cli_module,
+        "run_once",
+        lambda received_goal, **kwargs: seen.append(received_goal),
+    )
+
+    cli_module.repl(
         tier="trusted",
         model="claude-sonnet-5",
         client_factory=_factory([]),
-        console=console,
+        console=_console(),
         read_line=lambda prompt: next(inputs),
+        confirmation_available=False,
     )
-    text = console.export_text()
-    assert "deprecated" in text
-    assert "/model" in text
-    assert "claude-sonnet-5" in text
+
+    assert seen == [goal]
 
 
-def test_repl_compat_bare_mcp_word_shows_deprecation():
-    from forgeagent.cli import repl
+def test_repl_non_tty_rejects_restricted_call_without_reading_confirmation(monkeypatch):
+    import forgeagent.cli as cli_module
 
-    inputs = iter(["mcp", "quit"])
-    console = _console()
-    repl(
+    inputs = iter(["fetch", "second goal", "quit"])
+    seen_goals: list[str] = []
+    confirmation_reads = 0
+
+    def read_line(prompt):
+        nonlocal confirmation_reads
+        if prompt.startswith("approve?"):
+            confirmation_reads += 1
+            raise AssertionError("confirmation reader must not run without a TTY")
+        return next(inputs)
+
+    def run_goal(goal, **kwargs):
+        seen_goals.append(goal)
+        if goal == "fetch":
+            assert kwargs["confirmer"] is None
+            return run_once(
+                goal,
+                tier="restricted",
+                model="claude-sonnet-5",
+                client_factory=_factory(
+                    [
+                        _reply(
+                            '<!-- ToolCall: {"name":"WebFetch","arguments":'
+                            '{"url":"https://example.com"}} -->'
+                        ),
+                        _reply(_done()),
+                    ]
+                ),
+                console=_console(),
+                confirmer=kwargs["confirmer"],
+            )
+        return None
+
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda console: None)
+    monkeypatch.setattr(cli_module, "run_once", run_goal)
+    cli_module.repl(
+        tier="restricted",
+        model="claude-sonnet-5",
+        client_factory=_factory([]),
+        console=_console(),
+        read_line=read_line,
+        confirmation_available=False,
+    )
+
+    assert confirmation_reads == 0
+    assert seen_goals == ["fetch", "second goal"]
+
+
+def test_repl_explicit_tty_confirmation_uses_injected_read_line(monkeypatch):
+    import forgeagent.cli as cli_module
+
+    inputs = iter(["restricted goal", "y", "quit"])
+    prompts: list[str] = []
+
+    def read_line(prompt):
+        prompts.append(prompt)
+        return next(inputs)
+
+    def run_goal(goal, **kwargs):
+        assert kwargs["confirmer"] is not None
+        assert kwargs["confirmer"](MCPArgs(server="server", tool="tool")) is True
+        return None
+
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda console: None)
+    monkeypatch.setattr(cli_module, "run_once", run_goal)
+    cli_module.repl(
         tier="trusted",
         model="claude-sonnet-5",
-        client_factory=_factory([]),  # never called — "mcp" never reaches run_once
-        console=console,
-        read_line=lambda prompt: next(inputs),
+        client_factory=_factory([]),
+        console=_console(),
+        read_line=read_line,
+        confirmation_available=True,
     )
-    text = console.export_text()
-    assert "deprecated" in text
-    assert "/mcp" in text
+
+    assert prompts == ["forge> ", "approve? [y/N] ", "forge> "]
 
 
 def test_repl_goal_starting_with_mcp_substring_runs_as_normal_task():
