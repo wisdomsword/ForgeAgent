@@ -421,7 +421,7 @@ runner preflight 必须验证：
 
 每个场景获得独立临时工作目录。case callable 负责 fixture 创建、Task/CLI/工具调用和显式 judge，并返回标准化 evidence。判定不得依赖 Python `assert`，以免 `python -O` 改变结果；失败通过专用 check error 或结构化结果表达。evidence 只能递归包含 JSON 标准值：`None`、`bool`、`str`、`int`、finite `float`、`list` 和键严格为 `str` 的 `dict`。递归检查使用精确内建类型（`type(value) is ...`，其中 `None` 用 identity），不能用 `isinstance` 接受 `IntEnum`、自定义 scalar 或 list/dict 子类；runner 再用 `json.dumps(..., allow_nan=False)` 做最终编码验证。tuple、非字符串 mapping key、Path/自定义对象、容器子类和非有限浮点都必须在编码前拒绝，不能依赖 encoder 把整数 key或 int 子类静默转换。非法 evidence 转成该场景的固定失败结果并继续其余场景，不能让最终报告阶段整体崩溃。
 
-离线模式只使用本地 fixture：进入 Agent 循环的场景使用 MockClient；网络、CLI、Tool、RestrictedBackend 和 MCP 生命周期等边界场景可以直接调用对应入口及本地 test double，而不伪造一次无意义的模型轮次。基础运行不得访问公网、Docker、真实模型配置或用户 home。
+离线模式只使用本地 fixture：进入 Agent 循环的场景使用 MockClient；网络、CLI、Tool、RestrictedBackend 和 MCP 生命周期等边界场景可以直接调用对应入口及本地 test double，而不伪造一次无意义的模型轮次。基础运行不得访问公网、Docker、真实模型配置或用户 home。`tests/test_golden_runner.py` 必须包含一条不替换 manifest/case 的完整 20 项离线集成测试，使普通 `pytest` 基础 CI 真正执行可信核心，而不只验证 runner 的 fake-suite 合约。
 
 standalone runner 还必须在配置敏感 import 之前建立隔离边界。`tests/golden/__init__.py` 保持无副作用，`runner.py` 顶层只导入标准库；offline `main()` 解析参数后先创建临时 home并临时设置 `HOME`、`USERPROFILE`、`XDG_CONFIG_HOME`，再 local-import manifest、cases、CLI、MCP 和模型配置相关模块，完成 suite/report 后在 `finally` 恢复三个变量的原值或未设置状态。standalone 测试从一个含恶意 `~/.forgeagent/mcp.yaml` 的父环境启动真实子进程，证明该文件既不会被 import-time default path 捕获，也不会影响 20 项结果；另一个 in-process `main()` 测试证明正常返回和 runner 异常路径都恢复环境，不能用“子进程本来就无法修改父环境”替代。临时 home 只属于 offline 分支；显式 `--real-model` 分支保留调用者原始 `HOME`/`USERPROFILE`/`XDG_CONFIG_HOME`，在该环境下 local-import 并解析用户 `~/.forgeagent/models.yaml`/`config.yaml` 与凭证，否则合法的自定义模型会被隔离目录静默隐藏。real opt-in 可以消费显式模型/凭证环境，但不能让 offline 路径提前 import 配置敏感模块。
 

@@ -1088,6 +1088,8 @@ G329 通过 confirmed `WebFetchTool` 调用 private/metadata literal，精确断
 
 - [ ] **Step 4: 运行完整离线 runner**
 
+先在 `tests/test_golden_runner.py` 增加一条不 monkeypatch manifest/case 的基础 CI 集成测试：以独立 `tmp_path` output 调用 offline `main()`，断言 exit 0、20/20、JSON/Markdown summary 同源且没有真实网络/Docker/凭证依赖。该测试必须被普通全量 `pytest` 自动收集，不能只保留下面的手工命令。
+
 ```bash
 UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run python -m tests.golden.runner
 ```
