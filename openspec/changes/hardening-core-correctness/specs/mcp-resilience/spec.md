@@ -100,9 +100,9 @@ ForgeAgent MUST serialize holder desired-state reconciliation on the MCP loop th
 - **WHEN** a synchronous lifecycle facade has an ordinary primary failure or timeout and closing/cancelling its waiter or scheduling its must-deliver operation then raises `KeyboardInterrupt` or `SystemExit`
 - **THEN** ForgeAgent continues bounded ownership cleanup, transports any loop-owned process-control failure as data rather than throwing it through the asyncio Task, and propagates the first process-control object only on the synchronous caller thread; if the primary was already process control, that primary object remains authoritative
 
-#### Scenario: Background holder receives process control from the SDK
-- **WHEN** an MCP SDK call inside the loop-owned holder raises `KeyboardInterrupt` or `SystemExit` rather than the main caller thread receiving an OS process-control signal
-- **THEN** ForgeAgent isolates it as a fixed unavailable result for that generation, keeps the loop available for cleanup and other holders, and does not expose the exception text
+#### Scenario: Background holder lifecycle receives process control
+- **WHEN** holder task allocation, an MCP SDK call inside the holder, or done-finalizer replacement startup raises `KeyboardInterrupt` or `SystemExit` without a synchronous caller awaiting that background step
+- **THEN** ForgeAgent isolates it as a fixed unavailable result for that generation, removes partial ownership, keeps the loop available for cleanup and other holders, avoids automatic restart loops, and does not expose the exception text
 
 #### Scenario: Multiple initial holders do not multiply connection timeout
 - **WHEN** multiple enabled MCP servers all fail to signal ready
