@@ -952,7 +952,7 @@ git commit -m "fix: harden MCP lifecycle ownership and shutdown"
 - Produces: `GoldenScenario`、`GoldenEvidence`、`GoldenResult`、`validate_manifest()`、`run_suite()`、`main()`。
 - Consumes: MockClient/real ModelClient、Task/CLI entrypoints、独立临时目录；offline entry 在配置敏感 import 前安装的临时 HOME/USERPROFILE/XDG_CONFIG_HOME。
 
-- [ ] **Step 1: 写 manifest 和报告 RED 测试**
+- [x] **Step 1: 写 manifest 和报告 RED 测试**
 
 测试固定 20 ID、唯一性、精确 5 real callable、未知/重复 ID preflight exit 2、两项 fake suite 的 0/1 exit、JSON/Markdown 同一 summary、preflight 不写报告、原子覆盖、单个 fake scenario 分别返回 `Path`、tuple、非字符串 mapping key、NaN/Infinity 以及 `IntEnum` 或自定义内建类型子类 evidence 时只将该项记为固定失败且不强制转换并继续生成有效报告，以及含 `/`、`..`、Unicode/标点和规范化碰撞的 model id 始终映射到 root 内不同目录。另以 standalone 子进程把 HOME/USERPROFILE 指向含恶意 `.forgeagent/mcp.yaml` 的目录，断言 offline runner 在 manifest/cases/CLI/MCP 等配置敏感 import 前切换到自己的临时 home，20 项不读取该文件；再直接调用 `main()`，覆盖正常和失败 cleanup，断言 HOME/USERPROFILE/XDG_CONFIG_HOME 恢复原值或 unset 状态。
 
@@ -962,7 +962,7 @@ UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_golden_runner.py 
 
 预期：`tests.golden` 模块不存在导致 collection ERROR。
 
-- [ ] **Step 2: 定义类型化 manifest 接口**
+- [x] **Step 2: 定义类型化 manifest 接口**
 
 ```python
 @dataclass(frozen=True)
@@ -985,7 +985,7 @@ class GoldenScenario:
 
 manifest 中显式列出设计文档批准的 20 ID；只有 G01/G03/G08/G11/G43 设置 real callable。
 
-- [ ] **Step 3: 实现 runner preflight 和结果模型**
+- [x] **Step 3: 实现 runner preflight 和结果模型**
 
 `tests/golden/__init__.py` 保持无副作用；`runner.py` module top-level 只导入标准库，并以 `TYPE_CHECKING` 保留类型。offline `main()` 先解析参数，创建临时 home，临时设置 HOME、USERPROFILE、XDG_CONFIG_HOME，再 local-import manifest/cases 及可能读取配置的 CLI/MCP/model 模块；suite 和报告完成后恢复环境。该临时 home 分支不得包住 `--real-model`：real opt-in 保留调用者原始 HOME/USERPROFILE/XDG_CONFIG_HOME，再 local-import 并读取用户模型配置与凭证环境；同时不得为 offline 路径提前 import 配置敏感模块。
 
@@ -993,11 +993,11 @@ manifest 中显式列出设计文档批准的 20 ID；只有 G01/G03/G08/G11/G43
 
 `run_suite()` 对每项使用 `TemporaryDirectory`，捕获 `GoldenCheckError` 和 Exception 为失败结果但继续执行。成功 evidence 在加入 suite result 前用一个局部递归函数按精确内建类型（`type(value) is ...`）只接受 `None`/bool/str/int/finite float/list/`dict[str, value]`，明确拒绝 tuple、非字符串 key、自定义对象和内建类型子类，再用 `json.dumps(..., allow_nan=False)` 做最终编码检查；验证失败按固定 detail 和空 evidence 记录该项失败，不包含对象 repr。preflight 在输出目录创建前完成。
 
-- [ ] **Step 4: 实现同源报告和 exit code**
+- [x] **Step 4: 实现同源报告和 exit code**
 
 JSON schema 固定 `forgeagent.golden.v1`；Markdown 从同一个 suite result 渲染。每个文件先写同目录临时文件，再 `os.replace()`。默认目录为 `artifacts/golden/offline` 或 `artifacts/golden/real/<sanitized-model>`；`sanitized-model` 按 Design Doc 固定为 48 字符上限的 ASCII slug 加原始 model id SHA-256 前 8 位，不得直接拼接原始 ID。并发调用要求不同 `--output-dir`。
 
-- [ ] **Step 5: 运行 runner 合约测试并提交**
+- [x] **Step 5: 运行 runner 合约测试并提交**
 
 ```bash
 UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_golden_runner.py -q

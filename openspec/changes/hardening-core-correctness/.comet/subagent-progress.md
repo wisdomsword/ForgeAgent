@@ -401,7 +401,7 @@
 
 - Plan task: `Task 7: 建立黄金 manifest、runner 和报告协议`.
 - OpenSpec mappings: framework portions of `5.1`, `5.3`, `5.4`, and `5.5`; concrete 20-case completion remains with Tasks 8-9.
-- Stage: `final-fix`.
+- Stage: `done`.
 - Base commit: `8d5aed6`.
 - Dispatch checkpoint commit: `d2795ec`; a coordinator-only Task 8 design correction advanced the shared branch before the implementation commit, so the isolated implementation range is `007c7ca..efd4777`.
 - Implementer: `019f6413-fc16-7ed2-99fd-2360cabb5569` (`Kant`).
@@ -423,11 +423,14 @@
 - Fix scope: `tests/golden/runner.py`, `tests/test_golden_runner.py`, `tests/golden/manifest.py`, and `tests/golden/cases.py`; no product source or concrete Task 8-9 case was added.
 - Re-reviewer: `019f6437-15c1-7ad2-880c-fdb6798d9ac7` (`Carson`).
 - Re-review result: one accepted Important test gap: no test directly observes `run_suite()` executing under isolated HOME. One proposed Important was rejected: `test_offline_main_restores_home_variables_after_normal_and_runner_failure` proves `main()` invokes `_load_offline_configuration_modules`, while `test_offline_configuration_preflight_loads_mcp_config_without_constructing_manager` proves that helper invokes `load_mcp_config`; removing either edge fails its corresponding test.
-- Stage: `final-fix`; review/fix round: `2/2`.
+- Stage at this checkpoint: `final-fix`; review/fix round: `2/2`.
 - Second fix agent: `019f643a-cddd-7340-9f2c-316b350fdb93` (`Dewey`).
 - Second fix commit: `71a8f9d` (`test: prove golden suite runs in isolated home`).
 - Second fix RED evidence: moving the offline suite call outside isolation made the new integration test fail `1 failed, 28 deselected`; `tests/golden/runner.py` was restored to zero diff.
 - Second fix GREEN evidence: focused test `1 passed, 28 deselected`; runner contract `29 passed`; coordinator rerun also `29 passed`; Ruff check/format and `git diff --check` passed.
+- Final re-reviewer: `019f6441-2546-7691-b7fe-1eff0d698655` (`Boyle`).
+- Final re-review result: approved with no Critical, Important or Minor findings; focused suite-isolation test independently passed.
+- Checkoff mapping: all five Task 7 plan steps plus OpenSpec `5.1` and `5.3` complete. OpenSpec `5.2`, `5.4`, and `5.5` remain pending for Tasks 8-9.
 - Review mode: `thorough`.
 - TDD mode: `tdd`; RED and GREEN evidence are required before review.
 - Allowed implementation files: `.gitignore`, `tests/golden/__init__.py`, `tests/golden/manifest.py`, `tests/golden/cases.py`, `tests/golden/runner.py`, `tests/test_golden_runner.py` only.
