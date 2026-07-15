@@ -416,6 +416,11 @@
 - Coordinator audit additions: offline HOME isolation currently ends before report writing instead of after suite/report completion, and the standalone hostile-MCP test only imports `mcp_manager` without calling `load_mcp_config()`, so it does not prove the hostile file was not selected. Both require mutation-sensitive repair in the same fix round.
 - Manifest audit addition: G43/G58/G59/G324 titles are mapped to unrelated capabilities, which would make the human report contradict the catalog despite correct IDs; the titles and the `cases.py` Tasks 8-9 ownership docstring require correction and a focused mapping regression.
 - Review/fix round: `1/2`.
+- Fix agent: `019f6430-6c02-76e3-93d9-ee4db222ccd0` (`Faraday`).
+- Fix commit: `8a3ea38` (`fix: validate golden scenario result types`).
+- Fix RED evidence: exact wrapper/detail tests produced `2 failed, 23 passed`; expanded isolation/config/title matrix produced `5 failed, 23 passed`; direct-write atomic mutant produced `1 failed, 27 deselected` before restoration.
+- Fix GREEN evidence: runner contract `28 passed`; coordinator rerun also `28 passed`; scoped Ruff check/format and `git diff --check` passed.
+- Fix scope: `tests/golden/runner.py`, `tests/test_golden_runner.py`, `tests/golden/manifest.py`, and `tests/golden/cases.py`; no product source or concrete Task 8-9 case was added.
 - Review mode: `thorough`.
 - TDD mode: `tdd`; RED and GREEN evidence are required before review.
 - Allowed implementation files: `.gitignore`, `tests/golden/__init__.py`, `tests/golden/manifest.py`, `tests/golden/cases.py`, `tests/golden/runner.py`, `tests/test_golden_runner.py` only.
