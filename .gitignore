@@ -16,6 +16,9 @@ resource/
 # Throwaway spike/scratch code (e.g. Phase-0 wire spikes; not shipped)
 scratch/
 
+# Generated golden-validation reports
+artifacts/
+
 # Python
 __pycache__/
 *.pyc
