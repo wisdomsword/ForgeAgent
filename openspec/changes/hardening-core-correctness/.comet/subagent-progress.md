@@ -385,6 +385,11 @@
 - Reviewer: `019f63f9-9e36-7fa2-8722-496e5465631b` (`Archimedes`).
 - Review result: changes requested. Important: the non-TTY REPL integration test covered only WebFetch, discarded its `TaskOutcome`, did not assert the fixed no-channel detail, and omitted FileWrite plus non-auto-approved MCP.
 - Review mode: `thorough`; review/fix round: `1/2`.
+- Fix agent: `019f63fd-c27e-7c41-9fba-72c25e33361e` (`Rawls`).
+- Fix commit: `81d8c8f` (`test: cover non-interactive REPL tool rejection`).
+- Fix RED evidence: with a temporary non-TTY confirmer mutation, the three new real REPL/Task/Tool cases failed `3 failed, 133 deselected`; `src/forgeagent/cli.py` was then restored to zero diff.
+- Fix GREEN evidence: focused matrix `3 passed, 133 deselected`; CLI `136 passed`; CLI/tools/WebFetch regression `199 passed`; Ruff check/format and `git diff --check` passed.
+- Fix scope: final commit changes only `tests/test_cli.py`; WebFetch, FileWrite and non-auto-approved MCP all assert the exact no-channel outcome, zero confirmation reads, next-goal continuation and no MCP call.
 - TDD mode: `tdd`; RED and GREEN evidence are required before review.
 - Allowed implementation files: `src/forgeagent/cli.py`, `tests/test_cli.py` only.
 - Risk signals: security-sensitive external display/input handling and public REPL command-routing behavior. The implementer reported none, but the coordinator corrected that classification under the Comet risk checklist.
