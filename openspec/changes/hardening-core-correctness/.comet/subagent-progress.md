@@ -283,3 +283,76 @@
 - GREEN evidence: `tests/test_mcp_manager.py` -> `52 passed, 1 skipped`; preserved regressions -> `3 passed`; Ruff check/format and diff check clean.
 - Review result: approved after one fix round. Accepted Important: outer facade timeout escaped `call_tool()`; fixed without caller-thread session invalidation. Rejected scope expansion: fixed raw MCP call messages are not required because the approved design preserves the existing masked MCP outcome contract.
 - Deferred by design to 6B/6C: shared ready deadline, cancel-aware lifecycle waiters, gate-before-set rollback, public status sanitization, and unique shielded shutdown drain.
+
+### Task 6B Implementation Complete
+
+- Scope: transactional publication-gated startup, shared initial ready deadline, cancel-aware
+  synchronous lifecycle waiters, fixed public MCP status diagnostics, and fixed CLI mapping for
+  ordinary manager startup infrastructure failures.
+- RED evidence: focused Task 6B matrix reported `14 failed` before production changes, covering
+  waiter cancellation, gate-before-set cleanup, post-publication cleanup, all-disabled retry,
+  shared ready deadline/race, status disclosure, and CLI startup mapping.
+- GREEN evidence: `tests/test_mcp_manager.py tests/test_cli.py` reported
+  `168 passed, 1 skipped`; scoped Ruff reported `All checks passed`.
+- Plan correction: Task 6B now lists `src/forgeagent/cli.py`, which is required to map an ordinary
+  `connect()` infrastructure exception to a fixed `MCPStartupError` after bounded cleanup.
+- Review status: independent thorough review pending before commit and Task 6C.
+
+### Task 6B/6C Review Repair In Progress
+
+- Stage: `task-review`
+- Review mode: `thorough`; structural redesign review/fix budget reset by the approved Scheme A decision.
+- Current implementation files: `src/forgeagent/mcp_manager.py`, `src/forgeagent/cli.py`, `tests/test_mcp_manager.py`, `tests/test_cli.py`.
+- Existing GREEN evidence before this repair: MCP focused `81 passed, 1 skipped`; MCP+CLI `183 passed, 1 skipped`; scoped Ruff check passed.
+- Independent review findings accepted for TDD repair:
+  - dead loop/thread state must not synthesize `_shutdown_complete` from empty maps or a missing/done shutdown task;
+  - every `_start_holders()` allocation must recheck the closing barrier;
+  - lifecycle `cancel()` ordinary exceptions must be isolated;
+  - tool calls require matching state, holder and session generation;
+  - active-generation call failure must set `tearing_down_generation`;
+  - close-overlap and stop-before-cancel tests must prove ordering rather than eventual state;
+  - completion published during join must be consumed by the same `close()`;
+  - cleanup `CancelledError` must not replace a primary startup error while new `KeyboardInterrupt`/`SystemExit` still propagate;
+  - deadline tests must verify exact facade/join timeout arguments and use a meaningful wall-clock bound.
+- Required RED/GREEN files are restricted to the four current implementation files above. The worker must not modify docs, `ACTION_PLAN.md`, OpenSpec tasks or this checkpoint.
+- Fix implementer: `019f616c-7925-7c10-ab92-86920c1f69c9` (`Ampere`).
+- Fix commit: `c0a877d` (`fix: close MCP lifecycle review gaps`).
+- RED evidence: targeted 13-test review matrix produced `12 failed, 5 passed`; failures covered lifecycle cancel isolation, close barrier allocation, dead-thread synthetic completion, join-time completion, loop-close evidence loss, generation mismatch calls, teardown generation and cleanup `CancelledError` replacement.
+- GREEN evidence: targeted matrix `17 passed`; focused MCP/CLI after formatting `197 passed, 1 skipped`; scoped Ruff passed; `git diff --check` passed.
+- Changed files: `src/forgeagent/mcp_manager.py`, `src/forgeagent/cli.py`, `tests/test_mcp_manager.py`, `tests/test_cli.py`.
+- Risk signals: concurrency/shared mutable state, event-loop/thread lifecycle, public startup/close behavior, diff over 200 lines.
+- Coordinator verification after `c0a877d`: full pytest `618 passed, 13 skipped`; full Ruff lint passed. Repository-wide format check exposed 16 historical/current formatting differences, so the plan now uses a base-ref-aware changed-file format gate and keeps unchanged baseline debt out of scope.
+- Review result: changes requested. Three Important findings are real: caller-thread synthetic shutdown completion after facade submission rejection; non-atomic close-vs-holder allocation leaving an untracked task; startup rollback discarding a stopped loop when `loop.close()` fails. One Minor finding requires fixed-type logging for non-control CLI cleanup `BaseException`.
+- Design/spec/plan repair commit: `1a6230a` (`docs: tighten MCP lifecycle ownership gates`). Strict OpenSpec validation and `git diff --check` passed. The repaired contract adds a minimal no-await lifecycle barrier, forbids caller-thread completion inference, retains stopped-loop rollback evidence, and makes the final format gate base-ref-aware.
+- Review/fix round after approved structural reset: `1/2`.
+- Current fix implementer: `019f6190-f838-7192-8df8-23a966828bd2` (`Wegener`), TDD, limited to MCP manager/CLI and their tests.
+- Fix commit: `c1c88fd` (`fix: close MCP lifecycle race gaps`).
+- RED evidence: new matrix `5 failed, 1 passed`; failures reproduced startup rollback evidence loss, caller-thread synthetic completion, close-vs-task allocation partial ownership, and both CLI cleanup logging omissions.
+- GREEN evidence: new matrix `6 passed`; MCP+CLI `202 passed, 1 skipped`; scoped Ruff/format and diff checks passed.
+- Coordinator verification: full warnings-as-errors pytest `623 passed, 13 skipped in 14.25s`; repository-wide Ruff lint passed; all five Task 6-owned Python files are formatted.
+- Fresh re-reviewer: `019f619e-59a9-7713-83c5-c71691305c2e` (`Popper`). The implementer's own review was not used as the thorough review gate.
+- Popper review result: changes requested. Important: ordinary shutdown facade submission failure followed by fallback `KeyboardInterrupt`/`SystemExit` was logged and swallowed.
+- Second structural fix implementer: `019f61a6-179a-7b43-bf58-26d6d78c1578` (`Gibbs`).
+- Fix commit: `8dc62c5` (`fix: preserve MCP fallback control exceptions`).
+- Fix evidence: reverse-combination RED `2 failed`; targeted GREEN `4 passed`; `tests/test_mcp_manager.py -W error` `97 passed, 1 skipped`; Ruff/diff checks passed.
+- Final independent reviewer: `019f6358-57fc-7d53-b695-f4a32e84c803` (`Bernoulli`).
+- Final review result: changes requested. Accepted findings: the sibling facade-coroutine cleanup, lifecycle `_submit()` cleanup and startup rollback still swallowed process-control exceptions behind ordinary primaries; done-finalizer registration and no-auto-replacement after active call failure lacked mutation-sensitive tests. Rejected finding: SDK-raised control exceptions inside a background holder remain deliberate fixed server-failure isolation because direct asyncio Task propagation would terminate the loop thread without safely signalling the caller.
+- Current repair: Gibbs resumed with TDD ownership limited to `src/forgeagent/mcp_manager.py` and `tests/test_mcp_manager.py`; caller-thread exception precedence is being unified and both mutation gaps are being closed. Task 6 remains in progress and MUST NOT be checked off yet.
+
+## Completed Task 3E
+
+- Plan task: `Task 3E: 阻断 WebFetch artifact 静态 symlink 逃逸`
+- OpenSpec mapping: `3.11` complete.
+- Stage: `done`.
+- Initial implementation: `22a9410` (`fix: contain WebFetch artifact paths`).
+- Initial RED/GREEN: symlink escape changed the outside file and produced `1 failed, 43 passed`; restored implementation produced `44 passed`, Step/CLI regression `188 passed`, full suite `627 passed, 13 skipped`, scoped Ruff/format/diff checks passed.
+- Fresh reviewer: `019f6358-5795-7502-911c-dbd4808b3150` (`Schrodinger`).
+- Review result: production behavior correct; one accepted Minor test gap. Existing tests did not kill mutants that discarded `_validate_path()`'s canonical return or removed save-stage `ValueError` handling.
+- Repair implementer: `019f61a0-2fcb-7ac2-a76f-a2d405d69c97` (`Linnaeus`).
+- Repair commit: `c28cafd`.
+- Repair RED evidence: discard-return mutant failed on missing canonical artifact; removed-`ValueError` mutant leaked its exception; a real unpaired-surrogate URL fragment escaped `UnicodeEncodeError` after a fake successful response.
+- Repair GREEN evidence: targeted `3 passed`; WebFetch/File `47 passed`; Step/CLI regression `191 passed`; Ruff check/format and `git diff --check` passed.
+- Final reviewer: `019f636b-4525-7ca3-b1d0-4023301aef44` (`Sartre`).
+- Final review result: approved with no Critical, Important or Minor findings. Independent mutation rechecks failed as expected and restored focused suite reported `191 passed`.
+- Changed files: `src/forgeagent/tools.py`, `tests/test_web_file_tools.py`.
+- Residual risk: the documented hostile-host concurrent pathname-open TOCTOU remains; no platform-specific fd API was added.

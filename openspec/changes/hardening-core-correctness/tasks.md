@@ -24,7 +24,7 @@
 - [x] 3.8 为 InvalidURL/BadStatusLine/LineTooLong/IncompleteRead/RemoteDisconnected、WebFetch artifact 写入、search 未知 charset、`allowed_root="/"`、非法路径及 FileRead/FileList 失败文本增加行为探针和回归测试
 - [x] 3.9 实施 WebFetch/search 消费端异常收敛、canonical commonpath 文件边界和 FileRead/FileList 固定失败消息，并验证 CLI outcome 渲染不泄漏敏感路径
 - [ ] 3.10 验证并实施非 TTY REPL 不读取确认输入、MCP server/tool/arguments mapping key/string value 与 FileWrite 展示路径的已知 secret 脱敏和 Rich markup/C0-C1/Unicode `Cf` 格式控制/`Cs` surrogate 单行 literal 渲染，以及 M9 到期裸词命令兼容层移除；顶层 `forgeagent models` 保持不变
-- [ ] 3.11 验证并实施 WebFetch response 后 artifact digest/filename/path/write 的固定失败边界与 canonical root containment，使未配对 surrogate fragment 不抛出、validator 返回值被实际使用、预置同名 artifact symlink 指向 root 外时固定失败且外部目标不变；通用后代/祖先 component 由既有 File 工具路径用例覆盖
+- [x] 3.11 验证并实施 WebFetch response 后 artifact digest/filename/path/write 的固定失败边界与 canonical root containment，使未配对 surrogate fragment 不抛出、validator 返回值被实际使用、预置同名 artifact symlink 指向 root 外时固定失败且外部目标不变；通用后代/祖先 component 由既有 File 工具路径用例覆盖
 
 ## 4. MCP 韧性与生命周期
 

@@ -629,13 +629,13 @@ git commit -m "fix: close CLI confirmation and command-routing gaps"
 - Produces: WebFetch artifact canonical root containment；artifact naming/path/write 的固定 `WebFetch response save failed` 结果。
 - Consumes: 现有 `_validate_path()`、URL digest artifact name、`ToolContext.allowed_root`。
 
-- [ ] **Step 1: 写 artifact symlink RED 测试**
+- [x] **Step 1: 写 artifact symlink RED 测试**
 
 根据测试 URL 计算现有 digest artifact 文件名，在 `allowed_root` 内预置同名 symlink 指向 root 外文件；fake response 返回已知 body。断言 WebFetch 返回 `WebFetch response save failed`，外部文件内容不变。当前 artifact 直接位于 root，不虚构不存在的中间目录测试；`_validate_path()` 既有 file-tool symlink ancestor 用例继续覆盖通用祖先解析。
 
 再增加三个 mutation-sensitive 边界：mock `_validate_path()` 返回与默认 artifact 不同但仍在 root 内的 canonical target，断言只写该返回值；save-stage `Path.write_text()` 抛含敏感绝对路径的 plain `ValueError`，断言固定失败且不泄漏；fake response 成功而 URL fragment 含未配对 surrogate 时，digest 的 UTF-8 编码失败也收敛为同一固定结果。临时丢弃 validator 返回值、移除 `ValueError` 捕获或把 digest 留在 try 外都必须使对应测试 RED。
 
-- [ ] **Step 2: 运行 RED 测试**
+- [x] **Step 2: 运行 RED 测试**
 
 ```bash
 UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_web_file_tools.py -q
@@ -643,11 +643,11 @@ UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_web_file_tools.py
 
 预期：当前 `Path.write_text()` 跟随预置 symlink，外部目标被覆盖，新增断言 FAIL。
 
-- [ ] **Step 3: 写入前复用 canonical path guard**
+- [x] **Step 3: 写入前复用 canonical path guard**
 
 response 读取成功后，把 digest/filename 推导、`_validate_path(filename, ctx.allowed_root)` 和返回 canonical `Path` 的写入放入同一 artifact failure boundary。`PermissionError`、digest/path/write `ValueError` 和 write `OSError` 都收敛为既有 `WebFetch response save failed`；不得用 `surrogatepass` 接受畸形 URL，也不得引入新 helper、随机文件名或平台专用 fd API。
 
-- [ ] **Step 4: 运行 WebFetch/File 回归并提交**
+- [x] **Step 4: 运行 WebFetch/File 回归并提交**
 
 ```bash
 UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_web_file_tools.py tests/test_step.py tests/test_cli.py -q
