@@ -1,56 +1,123 @@
 # Text Protocol Specification
 
-ForgeAgent uses Markdown plus HTML-comment markers so the task loop is independent of a provider's native function-calling API. OpenAI-compatible native tool calls are normalized into the same internal `ToolCall` form; the text protocol remains the portable contract.
+ForgeAgent exchanges Markdown plus HTML-comment markers. The parser is independent
+of vendor function-calling APIs. Text markers and OpenAI-compatible native calls
+are normalized into the same `ToolCall` list.
 
-## Markers
+## Code blocks
 
-Code blocks use matching variable-length backtick fences and `CodeBlockStart`/`CodeBlockEnd` comments. Tool calls use one JSON comment:
+```markdown
+<!-- CodeBlockStart: {"name":"build","path":"optional/file.py"} -->
+````python
+print("code may contain ```")
+````
+<!-- CodeBlockEnd: {"name":"build"} -->
+```
+
+The actual opening and closing fences must contain the same number of backticks,
+at least three. The language word is optional and defaults to `python`; the parsed
+`CodeBlock` retains the supplied language, code, name, and optional path. Start and
+end marker JSON must be valid, both names are required, and the names must match.
+Malformed marker JSON, missing names, mismatches, and invalid block fields become
+`ParseError` entries. Matching uses a variable-length fence, so a shorter fence in
+the code does not close the block.
+
+## Tool calls and registry
+
+The text form is one JSON object per comment:
 
 ```markdown
 <!-- ToolCall: {"id":"call-1","name":"FileRead","arguments":{"path":"input.txt"}} -->
 ```
 
-Unknown tool names, malformed JSON, missing fields, invalid schemas, and malformed task-status front matter produce structured parse errors. They are feedback to the model, not silent drops or parser crashes.
+`id` is optional on input; the parser generates a UUID hex id when absent. `name`
+must be in the active `ToolRegistry`; `arguments` defaults to `{}` and is validated
+by that tool's Pydantic argument model. Invalid JSON, unknown/missing names, and
+schema failures produce `ParseError`, not an exception or silent drop.
 
-The active registry is the source of truth for recognized names and argument schemas. Built-ins are `Exec`, `Edit`, `Survey`, `WebFetch`, `FileRead`, `FileWrite`, and `FileList`; `MCP` is registered only when an MCP manager is present. Runtime `SubTask` is not part of this protocol.
+The default registry contains `Exec`, `Edit`, `Survey`, `WebFetch`, `FileRead`,
+`FileWrite`, and `FileList`. `MCP` is registered only when an MCP manager is
+configured. The registry is the single source of truth for parser schemas and
+runtime dispatch. `SubTask` is not a protocol tool.
 
-## Tool arguments
+OpenAI-compatible responses may also carry `AssistantMessage.tool_calls`, whose
+native entries have `{id, name, arguments}` with `arguments` as a raw JSON string.
+`parse(text, native_tool_calls=..., tool_schemas=...)` parses both channels, validates
+both through the same registry, and merges them in one `tool_calls` list. Each call
+has `source=TEXT` or `source=OPENAI`; dispatch does not branch on source. A malformed
+native argument is a recoverable parse error. If native calls are present, Step also
+renders them back into ToolCall marker text in assistant history so the next round
+can see the prior call.
 
-| Tool | Required arguments | Contract |
-| --- | --- | --- |
-| `Exec` | `name` or `code` | Python only; `language` defaults to `python`. |
-| `Edit` | `name`, `old`, `new` | Updates a named code block; `replace_all` defaults to false. |
-| `Survey` | `question` | Optional `options`; without an asker it terminates as `need_info`. |
-| `WebFetch` | `url` | GET-only HTTP(S) fetch. No arbitrary method or headers. |
-| `FileRead` | `path` | Reads a path within `allowed_root`. |
-| `FileWrite` | `path`, `content` | Creates or overwrites a path within `allowed_root`. |
-| `FileList` | none | Lists direct entries under `path`, which defaults to `.`. |
-| `MCP` | `server`, `tool` | Optional `arguments` mapping defaults to `{}`; the selected MCP tool validates its own argument schema. |
+## Current argument contracts
 
-`WebFetch`/`File*` outcomes deliberately use fixed failure text where disclosure could expose a URL, host, absolute host path, or underlying exception. The tool result is still fed back to the model for repair.
+| Tool | Arguments and validation |
+| --- | --- |
+| `Exec` | `name: str | None`, `code: str | None`, `language: "python"`; at least one of `name` or `code` is required. Inline `code` creates/updates the named block; without `code`, an existing block is executed. |
+| `Edit` | `name: str`, non-empty `old: str`, `new: str`, `replace_all: bool = false`. Missing old text or multiple matches without `replace_all` are tool failures. |
+| `Survey` | non-empty `question: str`, optional `options: list[str]`. Without an asker or when no interactive channel exists, it returns a terminal `needs_info` outcome. |
+| `WebFetch` | `url: str`; GET only, HTTP(S) only, no model-supplied method or headers. In restricted/container it requires confirmation. |
+| `FileRead` | `path: str`; canonicalized under `allowed_root`, then secret-masked before feedback. |
+| `FileWrite` | `path: str`, `content: str`; canonicalized under `allowed_root`, writes unmasked content, and requires confirmation in restricted/container. |
+| `FileList` | `path: str = "."`; lists direct entries only, returned relative to `allowed_root`. |
+| `MCP` | non-empty `server: str`, non-empty `tool: str`, `arguments: dict[str, Any] = {}`. The selected MCP server/tool validates its own schema; calls outside `autoApprove` require confirmation. |
 
-## Completion is two-stage
+Tool failures become `ToolOutcome(success=False)` and are fed back to the model.
+WebFetch/File tool failures use fixed text where a URL, host, absolute path, or
+exception could disclose sensitive information.
 
-The leading YAML front matter may declare:
+## Front matter and recoverable parsing
+
+Only leading YAML front matter is recognized:
 
 ```yaml
 ---
 task_status:
   completed: true
   confidence: 0.9
+  status: null
+  reason: null
+  suggestion: null
 ---
 ```
 
-Completion is strict:
+`task_status` fields are `completed: bool`, optional `confidence: float`, optional
+`status: refused | need_info | failed`, optional `reason`, and optional
+`suggestion`. The parser returns `ParseResult` with `task_status`, `code_blocks`,
+`tool_calls`, `errors`, and front-matter-stripped `body`. YAML errors and invalid
+task-status fields are recorded as parse errors, while the body is still parsed.
 
-1. A response containing any tool call or any parse error cannot complete, even when it also declares `completed: true`.
-2. ForgeAgent executes the calls, records successful or failed outcomes, renders all outcomes and parse errors as feedback, and starts another model round.
-3. Only a later, independent response with no tool calls, no parse errors, and `completed: true` becomes `completed`.
+## Completion and terminal status
 
-This rule applies equally to successful and failed tools. A same-round completion declaration was generated before the model saw tool results, so it is ignored. Declared non-completion statuses (`refused`, `need_info`, `failed`) retain their existing terminal meanings.
+Completion is deliberately two-stage:
 
-## Confirmation and terminal behavior
+1. A response with any tool call or any parse error cannot complete, even if it also
+   declares `completed: true`.
+2. Step executes all parsed calls, renders every outcome and parse error as feedback,
+   and sends another round.
+3. A later clean response with no calls, no parse errors, and `completed: true`
+   becomes `Termination.COMPLETED`.
 
-The protocol does not encode approval policy. The runtime applies tool-specific confirmation: WebFetch and FileWrite are gated in `restricted`/`container`; MCP calls are gated unless the selected server/tool is listed in `autoApprove`. In non-TTY operation, no confirmation input is read and a required confirmation is rejected. `--interactive` controls Survey only.
+This applies when a tool succeeds and when it fails. A bare `completed: false` is
+non-terminal. An explicit `status: refused`, `need_info`, or `failed` is terminal;
+the corresponding Step states are `REFUSED`, `NEEDS_INFO`, and `FAILED`. Provider
+`stop_reason` values `refusal` and `content_filter` are `REFUSED`; `max_tokens` and
+`length` are `TRUNCATED` when the round has no feedback to continue with. A Survey
+without an asker is `NEEDS_INFO`. Other mechanical terminal states include
+`ANSWERED_IN_PROSE`, `EMPTY_RESPONSE`, `MAX_ROUNDS`, and `CLIENT_ERROR:<kind>`.
+These states classify execution; they do not judge whether the answer is correct.
 
-REPL commands require a slash prefix. Bare `models`, `reload`, `mcp`, and `mcp ...` are ordinary model goals. The top-level `forgeagent models` command remains a CLI subcommand and is unrelated to REPL routing.
+## Confirmation and REPL routing
+
+The protocol does not grant approval. Runtime policy applies confirmation to MCP,
+WebFetch, and FileWrite. In `restricted` and `container`, WebFetch and FileWrite
+require a TTY confirmer; MCP skips confirmation only for the configured per-server
+`autoApprove` entry. Otherwise, missing or non-TTY confirmation rejects the call
+without reading input. `FileRead` and `FileList` do not block for confirmation.
+`--interactive` controls Survey only.
+
+REPL embedded commands require a slash prefix: `/model` (list or switch model),
+`/search`, `/image`, `/mcp`, `/reload`, `/help`, and `/` (command menu). Unknown
+slash commands are rejected. Bare `models`, `reload`, `mcp`, and `mcp ...` are
+ordinary model goals. The top-level `forgeagent models` CLI subcommand remains a
+separate command and is not REPL routing.

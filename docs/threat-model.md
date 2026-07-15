@@ -1,45 +1,72 @@
 # Threat Model
 
-This document states the current runtime boundaries, not a guarantee that untrusted code is safe on every host. Select the execution tier according to task-source trust and consequence.
+This document describes current boundaries and residual risk. It does not claim
+that model-generated code is safe on a hostile host or that a daemon thread can be
+force-killed safely.
 
-## Execution tiers
+## Assets and trust boundaries
 
-- `trusted`: same-process execution with no isolation. Treat model-generated code as fully trusted.
-- `restricted`: a new subprocess per block with application-layer path, network, process, timeout, and resource restrictions. It is not an OS security boundary.
-- `container`: a hardened Docker container per block. It provides stronger OS-level isolation but is not a virtual machine or protection against host/kernel compromise.
+Assets include API keys and sensitive environment values, files under and outside
+`allowed_root`, outbound network access and private addresses, model/task history,
+MCP tool descriptions and results, MCP child processes/transports, and terminal
+approval decisions. Model output, WebFetch content, MCP content, search results,
+and tool feedback are untrusted data, not instructions.
 
-## Direct-only network boundary
+Execution tiers are explicit:
 
-`WebFetch` and `/search` are direct-only. `guarded_urlopen()` builds its opener with `ProxyHandler({})`, so uppercase and lowercase `HTTP_PROXY`, `HTTPS_PROXY`, and `ALL_PROXY` values are not used. `NO_PROXY` and `no_proxy` cannot restore a removed proxy handler.
+- `trusted`: same-process `exec()`, persistent globals, no isolation. Use only for
+  fully trusted task sources; the user accepts all host access risk.
+- `restricted` (default): one subprocess per block, application-layer audit hooks,
+  canonical path/network restrictions, Unix `rlimit` where available, and timeout
+  kill. It is not an OS security boundary; Python/native escape techniques and a
+  hostile host remain outside its guarantee.
+- `container`: one Docker container per block, only `allowed_root` mounted read/write,
+  no network, non-root, dropped capabilities, no-new-privileges, read-only rootfs,
+  resource limits, and timeout `docker kill`. It is stronger OS isolation, not a VM;
+  kernel/Docker escape and basic `/proc` information remain possible.
 
-The guard accepts only HTTP(S), validates every resolved candidate address (including NAT64 embedded IPv4), connects to the already-vetted sockaddr to avoid DNS-rebinding between validation and connection, and applies the same validation on every redirect hop. It allows at most 10 redirects; the eleventh is rejected before opening its target.
+`MCP` servers are configured host processes in the main process, outside executor
+isolation. They are a separate user-trust boundary. WebFetch and `/search` are main
+process network paths; executor code in restricted/container has no network broker.
 
-**[SECURITY][BREAKING] Enterprise proxy compatibility:** a deployment that requires an environment proxy for egress will no longer make WebFetch or `/search` work through that proxy. The only supported migration paths are:
+## Threats, mitigations, and residual risk
 
-1. Allow this process to make direct outbound connections.
-2. Prefetch externally using a trusted system, place the material under `allowed_root`, and use `FileRead`.
-3. Configure an explicitly trusted MCP fetch tool and accept that MCP tool's separate trust boundary.
+| ID | Threat | Current mitigation | Residual risk |
+| --- | --- | --- | --- |
+| T1 | Secret read, echo, or external disclosure | Restricted/container executor scrubs sensitive env values; audit hooks restrict file reads; executor output, errors, FileRead, WebFetch previews, and MCP results are value-masked with `mask_secrets()`. | Masking is defense in depth, not an authority boundary. Trusted code, MCP, host processes, or a secret not covered by the naming/value policy may still access it. |
+| T2 | Write outside the project or overwrite host files | Executor audit hooks and File tools resolve `allowed_root` and target with `realpath()` and check `commonpath()` containment. FileWrite gives a fixed failure for escapes. | FileWrite confirmation is UX only: Exec can already write inside `allowed_root`. Hostile concurrent replacement can create pathname races. |
+| T3 | Executor data exfiltration or private-network access | Restricted/container audit hooks reject socket/network operations; container also uses `--network none`. No executor network broker exists. | Restricted is Python application-layer enforcement and may be bypassed by native/OS techniques; trusted has no mitigation. |
+| T4 | Package installation / supply-chain or resource abuse | Package installation remains a confirmation-gated workflow where exposed; executor subprocess, timeout, and resource limits bound execution. | Approved packages and trusted host tooling remain user responsibility; no package signing or multi-tenant isolation. |
+| T5 | Prompt injection in external data | External data is framed as data, not instructions; it never relaxes executor limits or approval policy. | The model can still be persuaded to produce harmful but policy-permitted actions; correctness is not a security property. |
+| T6 | Infinite loop, daemonization, fork, or resource exhaustion | One subprocess/container per block, timeout kill, and Unix `rlimit` for CPU/memory/files/processes where supported. | Windows lacks the Unix hard resource limits; native/kernel work and trusted same-process code are not reliably bounded. |
+| T7 | Bypass of AST import/static checks | Static analysis is advisory only; backend audit hooks and process boundaries are the enforcement layer. | AST rules can be bypassed and restricted hooks are not a sealed OS sandbox; container is the stronger option. |
+| T8 | MCP server/tool executes host-side side effects | Servers are explicit user configuration; MCP calls use per-`(server, tool)` `autoApprove` or a confirmer. Missing/non-TTY confirmation rejects; disabled/unavailable servers are not advertised. Tool descriptions are marked external data and results are masked/truncated. | T8 is outside the executor sandbox. An approved MCP server runs with host permissions and can access network/files. Do not treat MCP as restricted/container code. |
+| T9 | Container escape or host information leakage | Docker container uses no network, limited mount, non-root, dropped caps, no-new-privileges, read-only rootfs, resource limits, `/sys` masking, and empty inherited environment. | Kernel/Docker vulnerabilities are not mitigated. Basic `/proc` CPU/memory/kernel/network metadata remains visible. No VM guarantee. |
+| T10 | WebFetch SSRF or File canonical-path escape | WebFetch is direct-only through `ProxyHandler({})`; only HTTP(S), every resolved candidate and redirect hop is checked, NAT64 embedded IPv4 is checked, vetted sockaddr is connected directly, and redirects are capped at 10. File/WebFetch targets use canonical `realpath()` plus `commonpath()` and fixed outcomes. | The direct-only behavior is a `[SECURITY][BREAKING]` proxy change: env proxies and `NO_PROXY` do not restore proxying. Canonicalization blocks static symlinks but does not solve hostile-host TOCTOU between validation and pathname open. |
+| T11 | Search abuse or streaming partial-protocol corruption | `/search` URL host is fixed, query is encoded, and it reuses the SSRF guard; results are printed only, not injected into task history. Streaming failures after any delta become one `ClientError`, require terminal provider completion, and discard partial text. | Search HTML is best-effort and external content may contain injection. Streaming/native-call aggregation can still fail as a normal client error; no partial result is treated as verified. |
 
-Do not restore environment proxies as a workaround. There is no `network.proxy` setting in the current release. A future explicit proxy feature must use either a trusted-forward-proxy model, where the proxy is the trusted egress/SSRF boundary, or a guarded-tunnel model that preserves ForgeAgent's vetted-target guarantee.
+## Network breaking change
 
-## Web and file tools
+WebFetch and `/search` intentionally ignore uppercase/lowercase `HTTP_PROXY`,
+`HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY`, and `no_proxy`. Deployments that require an
+enterprise proxy must either allow direct egress, prefetch through a trusted system
+and use `FileRead`, or configure a user-trusted MCP fetch tool. There is no current
+`network.proxy` setting. A future proxy feature must define an explicit trusted
+forward-proxy or guarded-tunnel boundary.
 
-`WebFetch` is GET-only. In `restricted` and `container`, its confirmation gate is a real network boundary because executed code cannot open sockets directly. `FileWrite` confirmation is UX only: code executed in those tiers may already write anywhere under `allowed_root`. FileRead and FileList use the same root boundary but do not require approval.
+## MCP lifecycle residual
 
-WebFetch and File tools canonicalize both `allowed_root` and the target with `realpath()`, then use platform-aware `commonpath()` containment. This blocks static symlink escapes and allows the root itself, including `allowed_root="/"`. A failed path operation is deliberately reduced to a fixed outcome (`WebFetch blocked by network policy`, `WebFetch request failed`, `WebFetch response save failed`, `FileRead failed`, `FileWrite failed`, `FileWrite path is outside project root`, or `FileList failed`) where appropriate, preventing URL, hostname, exception, or absolute-path disclosure through feedback and CLI output.
+MCP uses one named daemon loop thread and generation-aware holder/session slots. Close
+uses one absolute deadline, one loop-owned drain, bounded cancellation and join, and
+repeatable close retries. If cleanup cannot finish, ForgeAgent returns control with a
+sanitized `shutdown incomplete` warning, retains the shutdown task/future, holders,
+sessions, loop, and thread references, and does not fabricate completion. A stuck
+daemon thread may temporarily retain transports, file descriptors, or child
+processes. Python has no safe API to kill that thread, so the implementation does
+not claim forced termination. Pending server names and thread state may be reported;
+arguments, environment values, stacks, and server content are not.
 
-Residual TOCTOU risk remains: an external concurrent actor can replace the validated target or an ancestor path component with a symlink between canonicalization and pathname-based open. This can affect trusted code, an MCP process, or another host process. ForgeAgent does not claim that File tools resist this component-replacement race; eliminating it requires descriptor-based, platform-specific APIs outside the current portable design.
-
-## MCP boundary and lifecycle
-
-MCP servers are user-configured host processes outside the executor sandbox. Only configure executables and `autoApprove` entries you trust. `autoApprove` is a per-server/tool explicit approval and can run without a TTY; other MCP, WebFetch, and FileWrite approvals require both stdin and stdout to be TTY-capable. Non-TTY operation rejects the call without reading confirmation input. `--interactive` affects Survey, not this policy.
-
-Each MCP server is optional by default (`required: false`). Optional startup failures degrade: their tools are omitted while the CLI remains usable with a sanitized server-specific status. An enabled `required: true` server that fails aborts startup after cleanup and returns non-zero.
-
-MCP uses a named daemon loop thread and one loop-owned shutdown drain. `close()` uses a single absolute deadline for its public wait, cancellation, and join budget. If cleanup cannot finish, ForgeAgent returns control, warns that shutdown is incomplete, keeps the shutdown task/future and holder, session, loop, and thread references for a later retry, and does not fabricate completion. The warning reports only thread state and sanitized pending server names: it does not capture stacks, arguments, environment values, or server content. A daemon thread can still temporarily retain transports, file descriptors, or child processes when underlying code is stuck.
-
-## Completion and information flow
-
-A model response with a tool call or parser error cannot complete the task in that same round. The result must be observed by a subsequent clean, explicit completion response. This avoids treating a statement produced before tool output as verified completion.
-
-Web content, MCP output, and tool feedback are untrusted input. Secrets are masked where data is rendered, but masking is not an authority boundary. Keep credentials out of prompts, task files, and model-accessible directories.
+MCP generation tracking prevents stale holder/session cleanup from deleting a newer
+generation, but it does not make an unresponsive SDK or child process disappear.
+This is the documented incomplete-shutdown/generation residual, not a stronger
+process isolation guarantee.
