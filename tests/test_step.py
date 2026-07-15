@@ -161,6 +161,41 @@ def test_completed_status_waits_for_parse_error_feedback():
     assert rounds[1].stopped_reason == "completed"
 
 
+def test_refused_status_stops_after_recording_successful_tool_outcome():
+    client = MockClient(
+        script=[
+            _reply(
+                "---\ntask_status:\n  completed: false\n  status: refused\n---\n"
+                + _exec_call("print('hi')")
+            )
+        ]
+    )
+    rounds = Step(client, TrustedBackend(), Runtime(), max_rounds=5).run(_user())
+
+    assert client.calls_made == 1
+    assert len(rounds) == 1
+    assert rounds[0].outcomes[0].success is True
+    assert rounds[0].stopped_reason == "refused"
+
+
+def test_failed_status_stops_after_recording_parse_error():
+    malformed_call = '<!-- ToolCall: {"name": "Exec", "arguments": {"code": "x",}} -->'
+    client = MockClient(
+        script=[
+            _reply(
+                "---\ntask_status:\n  completed: false\n  status: failed\n---\n"
+                + malformed_call
+            )
+        ]
+    )
+    rounds = Step(client, TrustedBackend(), Runtime(), max_rounds=5).run(_user())
+
+    assert client.calls_made == 1
+    assert len(rounds) == 1
+    assert rounds[0].parse_errors
+    assert rounds[0].stopped_reason == "failed"
+
+
 def test_long_stdout_is_truncated_in_feedback():
     # A block that prints a lot must not blow up the next round's context; feedback
     # keeps only the tail plus a marker noting how much was cut.
