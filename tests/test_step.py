@@ -111,14 +111,16 @@ def test_declared_need_info_via_front_matter():
 
 
 @pytest.mark.parametrize(
-    "same_round_suffix",
+    ("same_round_suffix", "expected_record_type"),
     [
-        _exec_call("print('hi')"),
-        '<!-- ToolCall: {"name": "Exec", "arguments": {"code": "x",}} -->',
+        (_exec_call("print('hi')"), "outcome"),
+        ('<!-- ToolCall: {"name": "Exec", "arguments": {"code": "x",}} -->', "parse_error"),
     ],
     ids=["tool", "parse_error"],
 )
-def test_need_info_precedes_same_round_feedback_and_stops_once(same_round_suffix):
+def test_need_info_precedes_same_round_feedback_and_stops_once(
+    same_round_suffix, expected_record_type
+):
     response = (
         "---\ntask_status:\n  completed: false\n  status: need_info\n---\n" + same_round_suffix
     )
@@ -129,6 +131,13 @@ def test_need_info_precedes_same_round_feedback_and_stops_once(same_round_suffix
     assert client.calls_made == 1
     assert len(rounds) == 1
     assert rounds[0].stopped_reason == "needs_info"
+    if expected_record_type == "outcome":
+        assert len(rounds[0].outcomes) == 1
+        assert rounds[0].outcomes[0].success is True
+        assert rounds[0].parse_errors == []
+    else:
+        assert rounds[0].parse_errors
+        assert rounds[0].outcomes == []
 
 
 def test_code_executes_and_feedback_fed_back():
