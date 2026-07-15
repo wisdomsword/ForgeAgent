@@ -369,7 +369,7 @@
 - Skip evidence: one explicitly slow historical MCP hang test; ten Docker capability skips; one local bind capability skip; one outbound-network capability skip.
 - Residual risk: a synchronously hard-stuck daemon loop may temporarily retain transport/FD/child-process resources after the public deadline; references and sanitized warning remain for bounded repeated close, as documented. No Python thread force-kill is claimed.
 
-## Current Task 3D
+## Completed Task 3D
 
 - Plan task: `Task 3D: 收口 CLI 确认通道与 M9 命令迁移`.
 - OpenSpec mapping: `3.10`.
@@ -396,3 +396,14 @@
 - TDD mode: `tdd`; RED and GREEN evidence are required before review.
 - Allowed implementation files: `src/forgeagent/cli.py`, `tests/test_cli.py` only.
 - Risk signals: security-sensitive external display/input handling and public REPL command-routing behavior. The implementer reported none, but the coordinator corrected that classification under the Comet risk checklist.
+
+## Current Task 7
+
+- Plan task: `Task 7: 建立黄金 manifest、runner 和报告协议`.
+- OpenSpec mappings: framework portions of `5.1`, `5.3`, `5.4`, and `5.5`; concrete 20-case completion remains with Tasks 8-9.
+- Stage: `implementing`.
+- Base commit: `8d5aed6`.
+- Review mode: `thorough`; review/fix round: `0/2`.
+- TDD mode: `tdd`; RED and GREEN evidence are required before review.
+- Allowed implementation files: `.gitignore`, `tests/golden/__init__.py`, `tests/golden/manifest.py`, `tests/golden/cases.py`, `tests/golden/runner.py`, `tests/test_golden_runner.py` only.
+- Risk signals: public test-runner CLI/report contract, environment/configuration isolation, filesystem output containment, and a task diff expected to exceed 200 lines.
