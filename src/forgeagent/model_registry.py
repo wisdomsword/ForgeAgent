@@ -67,6 +67,7 @@ class ModelEntry(BaseModel):
     supports_thinking: bool
     thinking_always_on: bool
     supports_effort: bool
+    supports_images: bool = False
     max_tokens_param: Literal["max_tokens", "max_completion_tokens"] = "max_tokens"
     aliases: list[str] = Field(default_factory=list)
 
@@ -83,6 +84,7 @@ class ModelEntry(BaseModel):
             supports_thinking=self.supports_thinking,
             thinking_always_on=self.thinking_always_on,
             supports_effort=self.supports_effort,
+            supports_images=self.supports_images,
             client_kind=self.client_kind,
             max_tokens_param=self.max_tokens_param,
         )

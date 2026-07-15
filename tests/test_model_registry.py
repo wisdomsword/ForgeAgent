@@ -24,16 +24,16 @@ from forgeagent.model_registry import (
 # Expected values transcribed from docs/model-capability-matrix.md /
 # docs/m6-openai-compatible-client.md — guards against models.yaml drifting from docs.
 EXPECTED_ANTHROPIC = {
-    "claude-sonnet-5": (1_000_000, 128_000, True, False, True),
-    "claude-opus-4-8": (1_000_000, 128_000, True, False, True),
-    "claude-haiku-4-5": (200_000, 64_000, False, False, False),
-    "claude-fable-5": (1_000_000, 128_000, True, True, True),
+    "claude-sonnet-5": (1_000_000, 128_000, True, False, True, True),
+    "claude-opus-4-8": (1_000_000, 128_000, True, False, True, True),
+    "claude-haiku-4-5": (200_000, 64_000, False, False, False, True),
+    "claude-fable-5": (1_000_000, 128_000, True, True, True, True),
 }
 EXPECTED_OPENAI_COMPATIBLE = {
-    "gpt-5.5": (1_050_000, 128_000, False, False, True, "max_completion_tokens"),
-    "gpt-5.4-mini": (400_000, 128_000, False, False, True, "max_completion_tokens"),
-    "glm-5.2": (1_048_576, 131_072, True, False, True, "max_tokens"),
-    "deepseek-v4-flash": (1_000_000, 384_000, True, False, True, "max_tokens"),
+    "gpt-5.5": (1_050_000, 128_000, False, False, True, True, "max_completion_tokens"),
+    "gpt-5.4-mini": (400_000, 128_000, False, False, True, True, "max_completion_tokens"),
+    "glm-5.2": (1_048_576, 131_072, True, False, True, False, "max_tokens"),
+    "deepseek-v4-flash": (1_000_000, 384_000, True, False, True, False, "max_tokens"),
 }
 
 
@@ -48,7 +48,7 @@ def _registry(tmp_path, **user_files):
 
 @pytest.mark.parametrize("model_id", list(EXPECTED_ANTHROPIC))
 def test_builtin_anthropic_capability_values_match_matrix(tmp_path, model_id):
-    ctx, max_out, thinking, thinking_always, effort = EXPECTED_ANTHROPIC[model_id]
+    ctx, max_out, thinking, thinking_always, effort, supports_images = EXPECTED_ANTHROPIC[model_id]
     registry = _registry(tmp_path)
     resolved = resolve_model(model_id, registry, env={"ANTHROPIC_API_KEY": "k"})
     cap = resolved.capability
@@ -57,15 +57,15 @@ def test_builtin_anthropic_capability_values_match_matrix(tmp_path, model_id):
     assert cap.supports_thinking is thinking
     assert cap.thinking_always_on is thinking_always
     assert cap.supports_effort is effort
+    assert cap.supports_images is supports_images
     assert cap.client_kind == "anthropic"
     assert cap.max_tokens_param == "max_tokens"
 
 
 @pytest.mark.parametrize("model_id", list(EXPECTED_OPENAI_COMPATIBLE))
 def test_builtin_openai_compatible_capability_values_match_docs(tmp_path, model_id):
-    ctx, max_out, thinking, thinking_always, effort, max_tokens_param = EXPECTED_OPENAI_COMPATIBLE[
-        model_id
-    ]
+    expected = EXPECTED_OPENAI_COMPATIBLE[model_id]
+    ctx, max_out, thinking, thinking_always, effort, supports_images, max_tokens_param = expected
     registry = _registry(tmp_path)
     resolved = resolve_model(model_id, registry, env={"OPENAI_API_KEY": "k", "LLM_API_KEY": "k"})
     cap = resolved.capability
@@ -74,6 +74,7 @@ def test_builtin_openai_compatible_capability_values_match_docs(tmp_path, model_
     assert cap.supports_thinking is thinking
     assert cap.thinking_always_on is thinking_always
     assert cap.supports_effort is effort
+    assert cap.supports_images is supports_images
     assert cap.client_kind == "openai_compatible"
     assert cap.max_tokens_param == max_tokens_param
 
@@ -170,6 +171,7 @@ def test_user_models_override_adds_new_model(tmp_path):
                         "supports_thinking": False,
                         "thinking_always_on": False,
                         "supports_effort": False,
+                        "supports_images": True,
                     }
                 }
             }
@@ -185,6 +187,7 @@ def test_user_models_override_adds_new_model(tmp_path):
     resolved = resolve_model("acme-mini", registry, env={"ACME_API_KEY": "acme-key"})
     assert resolved.api_key == "acme-key"
     assert resolved.capability.context_window == 32_000
+    assert resolved.capability.supports_images is True
 
 
 def test_user_config_can_add_model_to_existing_builtin_group(tmp_path):
