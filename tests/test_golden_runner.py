@@ -213,22 +213,58 @@ EXPECTED_BOUNDARY_EVIDENCE = {
 }
 
 _GOLDEN_HEADING_ID = re.compile(r"^#{1,6}[ \t]+(G\d+)\b", re.MULTILINE)
+_GOLDEN_TABLE_HEADER = ("ID", "描述", "Pass 判定")
+_GOLDEN_ID = re.compile(r"^G\d+$")
 
 
 def _golden_heading_ids(markdown: str) -> tuple[str, ...]:
     return tuple(_GOLDEN_HEADING_ID.findall(markdown))
 
 
-def _assert_golden_candidate_catalog(markdown: str) -> None:
-    heading_ids = _golden_heading_ids(markdown)
-    expected_ids = frozenset(f"G{number:02d}" for number in range(1, 381))
-    candidate_ids = frozenset(heading_ids)
+def _golden_table_cells(line: str) -> tuple[str, ...] | None:
+    stripped = line.strip()
+    if not stripped.startswith("|") or not stripped.endswith("|"):
+        return None
+    return tuple(cell.strip() for cell in stripped[1:-1].split("|"))
 
-    assert len(heading_ids) == 380
-    assert len(candidate_ids) == len(heading_ids)
-    assert candidate_ids == expected_ids
-    assert EXPECTED_IDS <= candidate_ids
-    assert len(candidate_ids - EXPECTED_IDS) == 360
+
+def _parse_golden_catalog_definitions(
+    markdown: str,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    heading_ids = _golden_heading_ids(markdown)
+    candidate_ids: list[str] = []
+    in_candidate_table = False
+
+    for line in markdown.splitlines():
+        cells = _golden_table_cells(line)
+        if cells is None:
+            in_candidate_table = False
+            continue
+        if cells == _GOLDEN_TABLE_HEADER:
+            in_candidate_table = True
+            continue
+        if in_candidate_table and cells and _GOLDEN_ID.fullmatch(cells[0]):
+            candidate_ids.append(cells[0])
+
+    return heading_ids, tuple(candidate_ids)
+
+
+def _assert_golden_candidate_catalog(markdown: str) -> None:
+    heading_ids, candidate_rows = _parse_golden_catalog_definitions(markdown)
+    expected_heading_ids = frozenset(f"G{number:02d}" for number in range(1, 31))
+    expected_candidate_ids = frozenset(f"G{number:02d}" for number in range(31, 381))
+    expected_ids = expected_heading_ids | expected_candidate_ids
+    heading_id_set = frozenset(heading_ids)
+    candidate_id_set = frozenset(candidate_rows)
+    all_ids = heading_id_set | candidate_id_set
+
+    assert len(heading_ids) == len(heading_id_set)
+    assert heading_id_set == expected_heading_ids
+    assert len(candidate_rows) == len(candidate_id_set)
+    assert candidate_id_set == expected_candidate_ids
+    assert all_ids == expected_ids
+    assert EXPECTED_IDS <= all_ids
+    assert len(all_ids - EXPECTED_IDS) == 360
 
 
 def _assert_readme_proxy_migration_contract(readme: str) -> None:
@@ -271,12 +307,20 @@ def test_manifest_has_exactly_the_approved_offline_and_real_ids():
 
 
 def test_golden_candidate_catalog_rejects_duplicate_missing_extra_and_misnumbered_headings():
-    catalog = "".join(f"### G{number:02d}\n" for number in range(1, 381))
+    headings = "".join(f"### G{number:02d}\n" for number in range(1, 31))
+    coverage_matrix = "| ID | Category |\n| --- | --- |\n" + "".join(
+        f"| G{number:02d} | repeated reference |\n" for number in range(1, 16)
+    )
+    candidate_table = "| ID | 描述 | Pass 判定 |\n| --- | --- | --- |\n" + "".join(
+        f"| G{number:02d} | candidate | checked |\n" for number in range(31, 381)
+    )
+    catalog = headings + coverage_matrix + candidate_table
     invalid_catalogs = (
-        catalog.replace("### G380\n", "### G379\n"),
-        catalog.replace("### G380\n", ""),
-        f"{catalog}### G381\n",
-        catalog.replace("### G380\n", "### G0380\n"),
+        catalog.replace("### G30\n", ""),
+        catalog.replace("| G380 | candidate | checked |\n", ""),
+        catalog.replace("| G380 | candidate | checked |\n", "| G381 | candidate | checked |\n"),
+        catalog.replace("| G380 | candidate | checked |\n", "| G0380 | candidate | checked |\n"),
+        catalog + "| G380 | duplicate definition | checked |\n",
     )
 
     for invalid_catalog in invalid_catalogs:
@@ -284,7 +328,7 @@ def test_golden_candidate_catalog_rejects_duplicate_missing_extra_and_misnumbere
             _assert_golden_candidate_catalog(invalid_catalog)
 
 
-def test_golden_candidate_catalog_has_exactly_380_numbered_headings():
+def test_golden_candidate_catalog_has_structured_definitions_and_candidates():
     catalog_path = Path(__file__).parent.parent / "docs" / "golden-tasks-seed.md"
 
     _assert_golden_candidate_catalog(catalog_path.read_text(encoding="utf-8"))
