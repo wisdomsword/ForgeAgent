@@ -993,7 +993,7 @@ manifest 中显式列出设计文档批准的 20 ID；只有 G01/G03/G08/G11/G43
 
 `tests/golden/__init__.py` 保持无副作用；`runner.py` module top-level 只导入标准库，并以 `TYPE_CHECKING` 保留类型。offline `main()` 先解析参数，创建临时 home，临时设置 HOME、USERPROFILE、XDG_CONFIG_HOME，再 local-import manifest/cases 及可能读取配置的 CLI/MCP/model 模块；suite 和报告完成后恢复环境。该临时 home 分支不得包住 `--real-model`：real opt-in 保留调用者原始 HOME/USERPROFILE/XDG_CONFIG_HOME，再 local-import 并读取用户模型配置与凭证环境；同时不得为 offline 路径提前 import 配置敏感模块。
 
-`validate_manifest()` 比较精确 core frozenset、数量和 real set，并读取 `docs/golden-tasks-seed.md`，验证 catalog 唯一且精确覆盖 `G01` 至 `G380`，core 为 20 个批准 ID、non-core 为 360 个 ID；再使用行首 heading/table 正则证明每个 core ID 有定义。任何重复、缺失、额外或替换 ID 均失败并抛 `GoldenPreflightError`。
+`validate_manifest()` 比较精确 core frozenset、数量和 real set，并读取 `docs/golden-tasks-seed.md`，使用行首 heading/table 正则证明每个 core ID 有定义；core manifest 的重复、缺失、额外或替换 ID 均失败并抛 `GoldenPreflightError`。完整 catalog 的唯一 `G01` 至 `G380`、core 20 项和 non-core 360 项由 `tests/test_golden_runner.py` 的文档一致性 parser 独立校验：G01-G30 来自任务 heading，G31-G380 来自候选定义表；覆盖矩阵中的重复引用不计为定义。
 
 `run_suite()` 对每项使用 `TemporaryDirectory`，捕获 `GoldenCheckError` 和 Exception 为失败结果但继续执行。成功 evidence 在加入 suite result 前用一个局部递归函数按精确内建类型（`type(value) is ...`）只接受 `None`/bool/str/int/finite float/list/`dict[str, value]`，明确拒绝 tuple、非字符串 key、自定义对象和内建类型子类，再用 `json.dumps(..., allow_nan=False)` 做最终编码检查；验证失败按固定 detail 和空 evidence 记录该项失败，不包含对象 repr。preflight 在输出目录创建前完成。
 
@@ -1191,6 +1191,42 @@ git update-index --cacheinfo 100644,"$action_plan_blob",ACTION_PLAN.md
 git diff --cached -- ACTION_PLAN.md
 git commit -m "docs: align runtime contracts and golden validation"
 ```
+
+### Task 10A: 收敛全方案复审发现
+
+**Files:**
+- Modify: `src/forgeagent/ssrf_guard.py`
+- Modify: `src/forgeagent/model_registry.py`
+- Modify: `src/forgeagent/_sandbox_worker.py`
+- Modify: `tests/test_ssrf_guard.py`
+- Modify: `tests/test_model_registry.py`
+- Modify: `tests/test_step.py`
+- Modify: `tests/test_golden_runner.py`
+- Modify: Task 10 已列出的 runtime contract、Design Doc 和 OpenSpec delta files
+
+**Interfaces:**
+- Produces: 相对 redirect 兼容且最终 scheme 仍受限；YAML image capability 不丢失；完整 candidate catalog 和代理迁移文案有正向门禁；非完成终态优先级有 characterization evidence；runtime docs 不再删除或虚构当前契约。
+- Consumes: Task 10 首轮技术一致性审查、当前实现源码、`G01..G380` 的 heading/table 混合文档结构。
+
+- [ ] **Step 1: 用 TDD 修复相对 redirect 与 image capability 透传**
+
+先复现相对 `Location` 被空 scheme 错误拒绝，以及 `models.yaml` 的 `supports_images` 被 `ModelEntry` 静默丢弃；再做 `urljoin` 后 scheme 校验和字段原样透传。保留 max-10、逐跳 SSRF、六个内置 true、两个 false 和用户显式 false override 的回归。
+
+- [ ] **Step 2: 建立完整 candidate catalog 和代理迁移正向门禁**
+
+文档一致性测试分别解析 G01-G30 heading 与 G31-G380 候选定义表，拒绝定义重复、缺失、额外和错号，并断言 non-core 恰好 360。README 测试正向锁定 `[SECURITY][BREAKING]`、`NO_PROXY` 无法恢复和三条迁移路径。
+
+- [ ] **Step 3: 锁定显式非完成终态并修正文档事实**
+
+characterization tests 证明 `completed: false` 的 refused/failed 与工具或 parse error 同轮时保持既有终态；不改变 `completed: true` 的两阶段门控。威胁模型不得声称未实现的 package installer，也不得声称 restricted 设置了不存在的 file/process rlimit。
+
+- [ ] **Step 4: 恢复当前 runtime contracts 并校准 Design/OpenSpec**
+
+模型、文本协议和威胁模型只恢复当前源码仍兑现的接口、解析、重试、信任边界与 T1-T11；required MCP hard-stuck cleanup、TOCTOU tier 边界、正式代理 Migration Plan 和 `G01..G380` 责任分工前后一致。
+
+- [ ] **Step 5: 定向验证并完成第二轮 task review**
+
+运行相关 Ruff、SSRF/Web、model registry/streaming、Step/Task、escape、golden runner 和 strict OpenSpec 验证；审查范围覆盖 Task 10/10A 全部提交，确认没有把历史草案恢复为当前契约。
 
 ### Task 11: 综合验证、CodeGraph 复审和任务收尾
 

@@ -518,3 +518,21 @@
 - TDD mode: documentation synchronization; runtime claims require executable evidence, exact commands and report values.
 - Allowed files: Task 10 documentation list plus `ACTION_PLAN.md` and this progress file only.
 - Preservation rule: retain the user's existing uncommitted M11/M12/table edits in `ACTION_PLAN.md`; add only the approved M13 hardening status and evidence without staging unrelated user hunks.
+
+### Task 10 ACTION_PLAN Preservation Checkpoint
+
+- `user_before_sha256`: `26e051af8e29fdbd887d5c849ba7f3f27acd9ed2e7feab1ef3effa4e83f15d8f`.
+- `expected_after_sha256`: `64ab3ca0b0b12e341233332481a5c83189d840f9bdf5b3a1ee0a8ed741bc5a15`.
+- `m13_index_blob`: `c6e7824cd95ae8104b7cba324771d1c8781b28da`.
+- Exact M13 row: `| M13             | 核心正确性加固：环境代理显式禁用与逐跳 SSRF；统一工具确认与最小披露；严格两阶段完成；MCP required、generation-safe 生命周期与有界关闭；20 项可执行离线黄金核心（5 项真实模型 opt-in）；协议、威胁模型与 README 同步。                                                                                                                                                                                                                                                                 | Ruff；完整 pytest；20 项离线黄金核心 20/20；CodeGraph 调用面复审 | 三道独立评审：技术一致性、全分支代码、验收证据 |`.
+- Working-tree proof: `/tmp/forgeagent-action-plan-expected-after.md` and `ACTION_PLAN.md` compare byte-for-byte equal; the user-before copy is `/tmp/forgeagent-action-plan-user-before.md`. `/tmp` paths are convenience evidence only; hashes and exact text above are authoritative after restart.
+- Index proof: `git diff --cached -- ACTION_PLAN.md` contains only the second anonymous post-M10 placeholder becoming M13; the first anonymous `HTTP` row remains unchanged. The working tree remains `MM` because user M11/M12/table edits are intentionally not staged.
+
+### Task 10/10A Review And Repair Checkpoint
+
+- Stage: `task-review`; review mode `thorough`; review/fix round `1/2` complete, second review pending.
+- Initial documentation commit: `ca12e38`; first reviewer `019f6516-9306-7713-a4eb-6501aec48c90` found current model-client, protocol and T1-T11 contracts were over-compressed and identified the live `supports_images` registry loss. Independent design reviewer `019f6516-93dd-7be1-981f-4d031a3202ed` found required-cleanup, non-completion terminal, catalog-count, migration-plan and TOCTOU inconsistencies.
+- Review repair commits: `387b2cb` relative redirects; `7e9e74a` image capability propagation; `3a503f4` explicit false override test; `14f2d3e` runtime contract restoration; `03ad4e5` sandbox fact correction; `da6daad` plus `fe640c3` exact catalog/README gates; `c790d96` explicit non-completion terminal characterization; `8063b42` Design/OpenSpec/plan reconciliation.
+- RED/GREEN highlights: relative redirect probe failed on empty scheme then Web/SSRF suite passed `109 passed, 2 skipped`; image mapping failed six built-ins plus custom entry then registry/client suite passed `88 passed`; heading-only catalog gate exposed the real mixed heading/table format, corrected suite passed `67 passed`; Step/Task characterization rerun passed `47 passed`; escape tests passed `16 passed`; strict OpenSpec and diff checks passed.
+- Scope expansion is corrective, not a new capability: it restores declared M9 image support, standard HTTP relative redirect behavior and executable documentation invariants without adding dependencies, proxy forwarding, a package installer or new sandbox primitives.
+- `ACTION_PLAN.md` worktree still matches `expected_after_sha256`; subagent path-scoped commits reset the M13-only index entry, so the coordinator must regenerate/reapply `m13_index_blob` immediately before the Task 10 checkpoint commit and re-prove the cached diff contains only M13.
