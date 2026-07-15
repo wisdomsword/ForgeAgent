@@ -190,6 +190,16 @@ def test_user_models_override_adds_new_model(tmp_path):
     assert resolved.capability.supports_images is True
 
 
+def test_user_models_override_can_explicitly_disable_images_for_builtin_model(tmp_path):
+    models_path = tmp_path / "models.yaml"
+    models_path.write_text(yaml.safe_dump({"models": {"gpt-5.5": {"supports_images": False}}}))
+
+    registry = _registry(tmp_path, models_path=models_path)
+    resolved = resolve_model("gpt-5.5", registry, env={"OPENAI_API_KEY": "k"})
+
+    assert resolved.capability.supports_images is False
+
+
 def test_user_config_can_add_model_to_existing_builtin_group(tmp_path):
     models_path = tmp_path / "models.yaml"
     models_path.write_text(
