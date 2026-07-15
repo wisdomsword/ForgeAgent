@@ -150,7 +150,7 @@ class _CallResult:
 
 
 class _SessionProbe:
-    def __init__(self, text: str, *, error: Exception | None = None, before_error=None):
+    def __init__(self, text: str, *, error: BaseException | None = None, before_error=None):
         self.text = text
         self.error = error
         self.before_error = before_error
@@ -3715,6 +3715,7 @@ def test_call_requires_matching_state_holder_and_session_generations(
 
 def test_active_call_failure_finalizes_without_implicit_restart(monkeypatch):
     mgr = MCPManager({"pending": MCPServerConfig(command="unused")})
+    mgr._secret_values = {"ordinary detail secret"}
 
     async def fail_active_call() -> None:
         async def holder(
@@ -3734,12 +3735,15 @@ def test_active_call_failure_finalizes_without_implicit_restart(monkeypatch):
         mgr._states["pending"].tools = [_tool()]
         mgr._sessions["pending"] = (
             generation,
-            _SessionProbe("failed", error=RuntimeError("call failed")),
+            _SessionProbe("failed", error=RuntimeError("ordinary detail secret")),
         )
 
         result = await mgr._call_tool_on_loop("pending", "echo", {})
 
-        assert result["ok"] is False
+        assert result == {
+            "ok": False,
+            "text": "MCP call failed: RuntimeError: ***REDACTED***",
+        }
         assert mgr._states["pending"].tearing_down_generation == generation
         assert mgr._states["pending"].restart_after_generation is None
         assert stop.is_set()
@@ -3754,6 +3758,176 @@ def test_active_call_failure_finalizes_without_implicit_restart(monkeypatch):
         assert mgr.list_tools() == []
 
     asyncio.run(fail_active_call())
+
+
+def test_call_tool_on_loop_preserves_cancellation():
+    mgr = MCPManager({"pending": MCPServerConfig(command="unused")})
+
+    async def cancel_call() -> None:
+        stop = asyncio.Event()
+        holder = asyncio.create_task(_park_until(stop))
+        state = mgr._states["pending"]
+        state.generation = 1
+        state.status = "available"
+        state.tools = [_tool()]
+        session = _SessionProbe("unused", error=asyncio.CancelledError())
+        mgr._holders["pending"] = (1, holder, stop)
+        mgr._sessions["pending"] = (1, session)
+        try:
+            with pytest.raises(asyncio.CancelledError):
+                await mgr._call_tool_on_loop("pending", "echo", {})
+            assert mgr.server_status()["pending"] == "available"
+            assert mgr._sessions["pending"] == (1, session)
+            assert stop.is_set() is False
+        finally:
+            stop.set()
+            await holder
+
+    asyncio.run(cancel_call())
+
+
+@pytest.mark.parametrize(
+    "control",
+    [KeyboardInterrupt("SDK control secret"), SystemExit("SDK control secret")],
+)
+def test_call_tool_isolates_sdk_control_on_real_loop(monkeypatch, control):
+    mgr = MCPManager(
+        {"pending": MCPServerConfig(command="unused")},
+        call_timeout=-4.95,
+        shutdown_timeout=0.03,
+        thread_join_timeout=0.02,
+    )
+    loop = asyncio.new_event_loop()
+    loop_messages = []
+    loop.set_exception_handler(lambda _loop, context: loop_messages.append(context["message"]))
+    thread = threading.Thread(
+        target=loop.run_forever,
+        name="forgeagent-mcp-loop",
+        daemon=True,
+    )
+    mgr._loop = loop
+    mgr._thread = thread
+    mgr._started = True
+    holder_starts = []
+    holder_observations = []
+    callback_ran = threading.Event()
+
+    async def holder(
+        name: str,
+        generation: int,
+        ready: asyncio.Event,
+        stop: asyncio.Event,
+    ) -> None:
+        holder_starts.append(generation)
+        ready.set()
+        await stop.wait()
+        state = mgr._states[name]
+        holder_observations.append(
+            {
+                "generation": generation,
+                "tearing_down": state.tearing_down_generation,
+                "restart_after": state.restart_after_generation,
+                "status": state.status,
+                "session_present": name in mgr._sessions,
+                "tools": list(state.tools),
+            }
+        )
+
+    monkeypatch.setattr(mgr, "_holder", holder)
+    original_submit = asyncio.run_coroutine_threadsafe
+    result = None
+    generation = None
+    loop_survived = False
+    holder_finalized = False
+    close_error = None
+
+    async def install_current_generation() -> int:
+        ready = mgr._start_holder("pending")
+        await ready.wait()
+        state = mgr._states["pending"]
+        state.status = "available"
+        state.tools = [_tool()]
+        mgr._sessions["pending"] = (
+            state.generation,
+            _SessionProbe("unused", error=control),
+        )
+        return state.generation
+
+    async def wait_for_holder_finalization() -> bool:
+        for _ in range(20):
+            if "pending" not in mgr._holders:
+                return True
+            await asyncio.sleep(0)
+        return False
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        thread.start()
+        generation = original_submit(install_current_generation(), loop).result(timeout=0.2)
+        result = mgr.call_tool("pending", "echo", {})
+
+        thread.join(timeout=0.02)
+        loop_survived = thread.is_alive()
+        if loop_survived:
+            loop.call_soon_threadsafe(callback_ran.set)
+            holder_finalized = original_submit(wait_for_holder_finalization(), loop).result(
+                timeout=0.2
+            )
+            try:
+                mgr.close()
+            except BaseException as exc:
+                close_error = exc
+            thread.join(timeout=0.2)
+        else:
+            pending = list(asyncio.all_tasks(loop))
+            for task in pending:
+                task.cancel()
+            mgr._holders.clear()
+            mgr._sessions.clear()
+            mgr._lifecycle_tasks.clear()
+            mgr._loop = None
+            mgr._thread = None
+            loop.close()
+            pending.clear()
+        gc.collect()
+
+    try:
+        assert result == {
+            "ok": False,
+            "text": f"MCP call failed: {type(control).__name__}",
+        }
+        assert "SDK control secret" not in result["text"]
+        assert loop_survived is True
+        assert callback_ran.wait(timeout=0.2)
+        assert holder_finalized is True
+        assert holder_starts == [generation]
+        assert holder_observations == [
+            {
+                "generation": generation,
+                "tearing_down": generation,
+                "restart_after": None,
+                "status": f"unavailable: {type(control).__name__}",
+                "session_present": False,
+                "tools": [],
+            }
+        ]
+        state = mgr._states["pending"]
+        assert state.generation == generation
+        assert state.tearing_down_generation is None
+        assert state.restart_after_generation is None
+        assert mgr.server_status()["pending"] == f"unavailable: {type(control).__name__}"
+        assert mgr._holders == {}
+        assert mgr._sessions == {}
+        assert mgr.list_tools() == []
+        assert loop_messages == []
+        assert caught == []
+        assert close_error is None
+        assert not thread.is_alive()
+        assert loop.is_closed()
+    finally:
+        control.__traceback__ = None
+        if not loop.is_closed():
+            loop.close()
 
 
 def test_call_outer_timeout_returns_structured_failure_without_invalidating_session(monkeypatch):

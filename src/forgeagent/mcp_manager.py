@@ -867,7 +867,7 @@ class MCPManager:
             result = await session.call_tool(
                 tool, arguments, read_timeout_seconds=timedelta(seconds=self._call_timeout)
             )
-        except Exception as exc:  # noqa: BLE001 - structured error into the feedback loop
+        except (Exception, KeyboardInterrupt, SystemExit) as exc:
             # An errored call means only this captured generation can no longer be trusted.
             if (
                 state.generation == generation
@@ -881,6 +881,8 @@ class MCPManager:
                 holder_slot = self._holders.get(server)
                 if holder_slot is not None:
                     holder_slot[2].set()
+            if isinstance(exc, (KeyboardInterrupt, SystemExit)):
+                return {"ok": False, "text": f"MCP call failed: {type(exc).__name__}"}
             return {
                 "ok": False,
                 "text": mask_secrets(
