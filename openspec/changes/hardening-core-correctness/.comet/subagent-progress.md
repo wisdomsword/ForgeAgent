@@ -368,3 +368,14 @@
 - Final coordinator evidence: MCP+CLI `257 passed, 1 skipped`; full suite `682 passed, 13 skipped`; both ran with `RuntimeWarning` and `PytestUnraisableExceptionWarning` promoted to errors. Repository Ruff lint passed; all seven Task 6-owned Python files passed format check; strict OpenSpec validation and `git diff --check` passed.
 - Skip evidence: one explicitly slow historical MCP hang test; ten Docker capability skips; one local bind capability skip; one outbound-network capability skip.
 - Residual risk: a synchronously hard-stuck daemon loop may temporarily retain transport/FD/child-process resources after the public deadline; references and sanitized warning remain for bounded repeated close, as documented. No Python thread force-kill is claimed.
+
+## Current Task 3D
+
+- Plan task: `Task 3D: 收口 CLI 确认通道与 M9 命令迁移`.
+- OpenSpec mapping: `3.10`.
+- Stage: `implementing`.
+- Base commit: `331b830`.
+- Review mode: `thorough`; review/fix round: `0/2`.
+- TDD mode: `tdd`; RED and GREEN evidence are required before review.
+- Allowed implementation files: `src/forgeagent/cli.py`, `tests/test_cli.py` only.
+- Risk signals: security-sensitive external display/input handling and public REPL command-routing behavior.
