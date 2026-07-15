@@ -398,7 +398,7 @@ tests/test_golden_runner.py
 artifacts/golden/                 # generated, gitignored
 ├── offline/results.json
 ├── offline/report.md
-└── real/<model-id>/...
+└── real/<sanitized-model-id>/...
 ```
 
 ### 9.2 Manifest 合约
