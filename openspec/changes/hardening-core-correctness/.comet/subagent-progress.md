@@ -455,3 +455,10 @@
 - Review adjudication: the suggested one-probe conditional example is addressed with taint propagation from `+8` to the actual stdout sink, not with source heuristics or unbounded extra probes. This retains the random counterfactual and rejects conversion/branch/dead-add hard-coded output.
 - Stage: `fixing`; review/fix round: `1/2`.
 - Fix agent: `019f6467-e5e4-7741-9e3f-6878ff3ca2a2` (`Ptolemy`).
+- Fix commit: `4e345ba` (`fix: harden golden scenario judges`).
+- Fix RED/GREEN evidence: focused new regressions `9 failed, 1 passed` before repair and `10 passed` after; Task 8 `63 passed`; relevant suite `154 passed`; implementer full suite `757 passed, 13 skipped`; Ruff check/format and diff check passed.
+- Coordinator verification: Task 8 `63 passed`; full pytest with RuntimeWarning promoted to failure `757 passed, 13 skipped`; standalone runner remains `10 passed / 10 pending`, expected exit `1`.
+- Re-reviewer: `019f6472-fced-7322-8a8a-2a44aded19f6` (`Lovelace`).
+- Re-review result: changes requested. Important: recorder remained directly callable from model globals; G08 re-executed model-controlled source in an unrestricted subprocess and timeout did not own descendants. Minor: same-workdir replay restoration omitted directories/symlinks/metadata.
+- Final-fix design decision: keep instrumentation tests-only but execute model code in a nested namespace whose recorder stays in a wrapper closure; run counterfactual replay in an independent temporary allowed root instead of snapshot/restore; execute G08 tests through RestrictedBackend so its scrubbed environment, audit policy and timeout own the entire test process.
+- Stage: `final-fix`; review/fix round: `2/2`.

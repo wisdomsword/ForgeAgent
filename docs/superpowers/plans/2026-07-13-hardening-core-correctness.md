@@ -1022,11 +1022,11 @@ git commit -m "test: add executable golden validation runner"
 
 - [ ] **Step 1: 把现有 G01/G05/G13 迁移为共享 case**
 
-case 必须创建自己的输入，执行 Task，并显式检查：G01 sum=60/mean=20；G05 除 state=42/output=50 与 side effect 恰好一次外，使用 tests-only RestrictedBackend wrapper 在第二块执行前包装 `utils.get_state` 返回值，以不可由模型预知的 marker 记录读取 key/value 和 use；随后以不可预知的替代 state 因果重放同一第二块，要求输出精确变为 `alternate_state + 8` 并恢复受控 state/output。一次无用 `get_state()`、数值转换或加法后硬编码 50 都必须失败，wrapper/marker/替代 state 不进入 `src/` 或持久 state；G13 failed tool 与 successful tool 轮都携带提前 completed，最终第三轮独立完成。
+case 必须创建自己的输入，执行 Task，并显式检查：G01 sum=60/mean=20 且 JSON 值为内建数值类型；G05 除 state=42/output=50 与 side effect 恰好一次外，使用 tests-only RestrictedBackend wrapper 在第二块执行前包装 `utils.get_state` 返回值，以不可由模型预知的 marker 记录读取 key/value、use 和派生结果进入 stdout sink；随后在独立临时 allowed root 内以不可预知的替代 state 因果重放同一第二块，要求输出及 sink 精确变为 `alternate_state + 8`。recorder 只存在于 wrapper closure，不进入模型代码 globals；一次无用 `get_state()`、数值转换、加法、条件分支或直接 recorder 伪造后硬编码 50 都必须失败，wrapper/marker/替代 state 不进入 `src/`、原 workdir 或持久 state；G13 failed tool 与 successful tool 轮都携带提前 completed，失败反馈必须出现在第二次 client 请求中，最终第三轮独立完成。
 
 - [ ] **Step 2: 实现其余 7 项通用 offline case**
 
-逐项判定固定为：G03 将嵌套 JSON 按指定映射生成扁平 CSV，并精确核对列名、行数、顺序与每格内容；G08 先证明给定测试 FAIL、修复后 PASS，并比较测试文件 hash 保持不变；G11 合并去重后的行数、主键集合、排序和每行内容精确匹配；G15 证明调用 Edit、版本号 +1、旧版本仍在历史、仅目标位置有 diff、目标值正确且新版本 AST 可解析；G17 inner join 后列集合、行数和每行字段值匹配；G27 证明给定测试从 FAIL 到 PASS且修复通过 Edit 产生版本链，不接受整块替换；G43 Top-N 词和计数精确匹配。
+逐项判定固定为：G03 将嵌套 JSON 按指定映射生成扁平 CSV，并精确核对列名、行数、顺序与每格内容；G08 先通过 RestrictedBackend 证明给定测试 FAIL、修复后 PASS及断言完成见证，复用受限环境和 timeout，并比较测试文件 hash 保持不变；G11 合并去重后的行数、主键集合、排序和每行内容精确匹配；G15 证明调用精确小粒度 old/new 的 Edit、版本号 +1、旧版本仍在历史、仅目标位置有 diff、目标值正确且新版本 AST 可解析；G17 inner join 后列集合、行数和每行字段值匹配；G27 证明给定测试从 FAIL 到 PASS且修复通过精确小粒度 Edit 产生版本链，最终成功 Exec 绑定目标块，不接受整块替换；G43 Top-N 词和内建整数计数精确匹配。
 
 所有 check 使用显式 helper：
 
