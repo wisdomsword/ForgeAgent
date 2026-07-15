@@ -295,6 +295,30 @@ def test_offline_reports_run_inside_isolated_home_and_restore_after_report_error
     assert {name: os.environ.get(name) for name in names} == original
 
 
+def test_offline_main_calls_real_suite_inside_isolated_home_and_restores_environment(
+    tmp_path, monkeypatch
+):
+    names = ("HOME", "USERPROFILE", "XDG_CONFIG_HOME")
+    original = {name: os.environ.get(name) for name in names}
+    captured: list[dict[str, str | None]] = []
+    real_run_suite = run_suite
+
+    def observe_run_suite(*args, **kwargs):
+        captured.append({name: os.environ.get(name) for name in names})
+        return real_run_suite(*args, **kwargs)
+
+    monkeypatch.setattr("tests.golden.runner.run_suite", observe_run_suite)
+
+    assert main(["--output-dir", str(tmp_path / "suite")]) == 1
+    assert len(captured) == 1
+    captured_environment = captured[0]
+    isolated_home = captured_environment["HOME"]
+    assert isolated_home is not None
+    assert all(captured_environment[name] == isolated_home for name in names)
+    assert all(captured_environment[name] != original[name] for name in names)
+    assert {name: os.environ.get(name) for name in names} == original
+
+
 def test_offline_configuration_preflight_loads_mcp_config_without_constructing_manager(
     monkeypatch,
 ):
