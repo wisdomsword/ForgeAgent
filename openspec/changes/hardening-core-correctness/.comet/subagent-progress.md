@@ -401,7 +401,7 @@
 
 - Plan task: `Task 7: 建立黄金 manifest、runner 和报告协议`.
 - OpenSpec mappings: framework portions of `5.1`, `5.3`, `5.4`, and `5.5`; concrete 20-case completion remains with Tasks 8-9.
-- Stage: `task-review`.
+- Stage: `final-fix`.
 - Base commit: `8d5aed6`.
 - Dispatch checkpoint commit: `d2795ec`; a coordinator-only Task 8 design correction advanced the shared branch before the implementation commit, so the isolated implementation range is `007c7ca..efd4777`.
 - Implementer: `019f6413-fc16-7ed2-99fd-2360cabb5569` (`Kant`).
@@ -411,7 +411,10 @@
 - GREEN evidence: runner contract `22 passed`; coordinator rerun also `22 passed`; scoped Ruff check/format and `git diff --check` passed.
 - Changed files: `.gitignore`, `tests/golden/__init__.py`, `tests/golden/manifest.py`, `tests/golden/cases.py`, `tests/golden/runner.py`, `tests/test_golden_runner.py`.
 - Closed reviewer: `019f6421-4713-77b1-9c72-6b7d1f33b6e4` (`Russell`) remained running without a verdict after bounded waits and an interrupt request, so it was closed. No finding or review/fix round was recorded.
-- Review mode: `thorough`; review/fix round: `0/2`.
+- Reviewer: `019f642c-58d3-7c61-bfe8-de38930149a9` (`Bacon`).
+- Review result: changes requested. Important: `GoldenEvidence` subclasses are accepted by `isinstance`; a non-string `detail` can pass suite validation then crash Markdown rendering; the atomic overwrite test does not prove `os.replace` or same-directory temporary-file use.
+- Review/fix round: `1/2`.
+- Review mode: `thorough`.
 - TDD mode: `tdd`; RED and GREEN evidence are required before review.
 - Allowed implementation files: `.gitignore`, `tests/golden/__init__.py`, `tests/golden/manifest.py`, `tests/golden/cases.py`, `tests/golden/runner.py`, `tests/test_golden_runner.py` only.
 - Risk signals: public test-runner CLI/report contract, environment/configuration isolation, filesystem output containment, and an 833-line task diff. The implementer only called out pending case behavior; the coordinator retains the full Comet risk classification.
