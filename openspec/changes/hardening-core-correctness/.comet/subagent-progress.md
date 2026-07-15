@@ -424,6 +424,10 @@
 - Re-reviewer: `019f6437-15c1-7ad2-880c-fdb6798d9ac7` (`Carson`).
 - Re-review result: one accepted Important test gap: no test directly observes `run_suite()` executing under isolated HOME. One proposed Important was rejected: `test_offline_main_restores_home_variables_after_normal_and_runner_failure` proves `main()` invokes `_load_offline_configuration_modules`, while `test_offline_configuration_preflight_loads_mcp_config_without_constructing_manager` proves that helper invokes `load_mcp_config`; removing either edge fails its corresponding test.
 - Stage: `final-fix`; review/fix round: `2/2`.
+- Second fix agent: `019f643a-cddd-7340-9f2c-316b350fdb93` (`Dewey`).
+- Second fix commit: `71a8f9d` (`test: prove golden suite runs in isolated home`).
+- Second fix RED evidence: moving the offline suite call outside isolation made the new integration test fail `1 failed, 28 deselected`; `tests/golden/runner.py` was restored to zero diff.
+- Second fix GREEN evidence: focused test `1 passed, 28 deselected`; runner contract `29 passed`; coordinator rerun also `29 passed`; Ruff check/format and `git diff --check` passed.
 - Review mode: `thorough`.
 - TDD mode: `tdd`; RED and GREEN evidence are required before review.
 - Allowed implementation files: `.gitignore`, `tests/golden/__init__.py`, `tests/golden/manifest.py`, `tests/golden/cases.py`, `tests/golden/runner.py`, `tests/test_golden_runner.py` only.
