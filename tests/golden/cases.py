@@ -1,4 +1,4 @@
-"""Task 9 implementation slots for the trusted-core golden scenarios."""
+"""Tasks 8-9 implementation slots for the trusted-core golden scenarios."""
 
 from __future__ import annotations
 

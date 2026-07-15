@@ -16,6 +16,7 @@ from tests.golden.runner import (
     EXPECTED_IDS,
     EXPECTED_REAL_IDS,
     GoldenPreflightError,
+    _load_offline_configuration_modules,
     default_output_dir,
     main,
     render_markdown,
@@ -51,6 +52,15 @@ def test_manifest_has_exactly_the_approved_offline_and_real_ids():
         )
         == EXPECTED_REAL_IDS
     )
+
+
+def test_manifest_uses_approved_titles_for_boundary_scenarios():
+    titles = {scenario.scenario_id: scenario.title for scenario in GOLDEN_SCENARIOS}
+
+    assert titles["G43"] == "Text word-frequency Top-N"
+    assert titles["G58"] == "Restricted out-of-root read"
+    assert titles["G59"] == "Restricted out-of-root write"
+    assert titles["G324"] == "FileWrite out-of-root rejection"
 
 
 def test_manifest_preflight_rejects_duplicates_additions_and_catalog_prefix_matches(tmp_path):
@@ -110,6 +120,38 @@ class _ListSubclass(list):
     pass
 
 
+class _GoldenEvidenceSubclass(GoldenEvidence):
+    pass
+
+
+def test_golden_evidence_subclass_is_a_fixed_failure_and_later_scenarios_continue(tmp_path):
+    def invalid(_: Path) -> GoldenEvidence:
+        return _GoldenEvidenceSubclass(detail="checked", evidence={"value": "ok"})
+
+    suite = run_suite((_scenario("G01", invalid), _scenario("G03")), mode="offline")
+
+    assert suite.failed == 1
+    assert suite.passed == 1
+    assert suite.results[0].detail == "invalid scenario result"
+    assert suite.results[0].evidence == {}
+    write_reports(suite, tmp_path)
+
+
+def test_non_string_detail_is_a_fixed_failure_and_reports_continue(tmp_path):
+    def invalid(_: Path) -> GoldenEvidence:
+        return GoldenEvidence(detail=Path("secret-detail"), evidence={"value": "ok"})
+
+    suite = run_suite((_scenario("G01", invalid), _scenario("G03")), mode="offline")
+
+    assert suite.failed == 1
+    assert suite.passed == 1
+    assert suite.results[0].detail == "invalid evidence"
+    assert suite.results[0].evidence == {}
+    json_path, markdown_path = write_reports(suite, tmp_path)
+    assert "secret-detail" not in json_path.read_text(encoding="utf-8")
+    assert "secret-detail" not in markdown_path.read_text(encoding="utf-8")
+
+
 @pytest.mark.parametrize(
     "evidence",
     [
@@ -154,6 +196,28 @@ def test_report_replaces_existing_files_atomically(tmp_path):
     assert replaced_markdown == markdown_path
     assert json.loads(json_path.read_text(encoding="utf-8"))["schema"] == "forgeagent.golden.v1"
     assert markdown_path.read_text(encoding="utf-8").startswith("# ForgeAgent Golden Validation")
+
+
+def test_each_report_is_replaced_by_a_same_directory_temporary_file(tmp_path, monkeypatch):
+    suite = run_suite((_scenario("G01"),), mode="offline")
+    replacements: list[tuple[Path, Path]] = []
+    actual_replace = os.replace
+
+    def observe_replace(source: str | os.PathLike[str], target: str | os.PathLike[str]) -> None:
+        source_path = Path(source)
+        target_path = Path(target)
+        assert source_path.parent == target_path.parent
+        assert source_path != target_path
+        assert source_path.exists()
+        replacements.append((source_path, target_path))
+        actual_replace(source, target)
+
+    monkeypatch.setattr("tests.golden.runner.os.replace", observe_replace)
+    write_reports(suite, tmp_path)
+
+    assert [target.name for _, target in replacements] == ["results.json", "report.md"]
+    assert all(not source.exists() for source, _ in replacements)
+    assert not list(tmp_path.glob(".*"))
 
 
 @pytest.mark.parametrize("model_id", ["../../escape", "..", "gpt/5", "模型!@#", "x" * 80])
@@ -201,6 +265,59 @@ def test_offline_main_restores_home_variables_after_normal_and_runner_failure(
     assert {name: os.environ.get(name) for name in original} == original
 
 
+def test_offline_reports_run_inside_isolated_home_and_restore_after_report_error(
+    tmp_path, monkeypatch
+):
+    names = ("HOME", "USERPROFILE", "XDG_CONFIG_HOME")
+    original = {name: os.environ.get(name) for name in names}
+    observed: list[dict[str, str | None]] = []
+    actual_write_reports = write_reports
+
+    monkeypatch.setattr("tests.golden.runner._load_offline_configuration_modules", lambda: None)
+
+    def observe_write_reports(suite, output_dir):
+        observed.append({name: os.environ.get(name) for name in names})
+        return actual_write_reports(suite, output_dir)
+
+    monkeypatch.setattr("tests.golden.runner.write_reports", observe_write_reports)
+    assert main(["--output-dir", str(tmp_path / "normal")]) == 1
+    assert observed[-1] != original
+    assert {name: os.environ.get(name) for name in names} == original
+
+    def fail_write_reports(suite, output_dir):
+        del suite, output_dir
+        observed.append({name: os.environ.get(name) for name in names})
+        raise OSError("report write failed")
+
+    monkeypatch.setattr("tests.golden.runner.write_reports", fail_write_reports)
+    assert main(["--output-dir", str(tmp_path / "failure")]) == 2
+    assert observed[-1] != original
+    assert {name: os.environ.get(name) for name in names} == original
+
+
+def test_offline_configuration_preflight_loads_mcp_config_without_constructing_manager(
+    monkeypatch,
+):
+    import forgeagent.mcp_manager as mcp_manager
+
+    calls: list[bool] = []
+
+    def observe_load_mcp_config():
+        calls.append(True)
+        return {}
+
+    class ForbiddenManager:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError("offline preflight must not construct MCPManager")
+
+    monkeypatch.setattr(mcp_manager, "load_mcp_config", observe_load_mcp_config)
+    monkeypatch.setattr(mcp_manager, "MCPManager", ForbiddenManager)
+
+    _load_offline_configuration_modules()
+
+    assert calls == [True]
+
+
 def test_standalone_offline_runner_ignores_hostile_parent_mcp_config(tmp_path):
     hostile_home = tmp_path / "hostile-home"
     hostile_config = hostile_home / ".forgeagent" / "mcp.yaml"
@@ -225,6 +342,7 @@ def test_standalone_offline_runner_ignores_hostile_parent_mcp_config(tmp_path):
     )
 
     assert completed.returncode == 1, completed.stderr
+    assert "golden preflight failed" not in completed.stdout
     payload = json.loads((output_dir / "results.json").read_text(encoding="utf-8"))
     assert payload["mode"] == "offline"
     assert payload["total"] == 20

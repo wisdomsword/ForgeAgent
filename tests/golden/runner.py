@@ -11,7 +11,7 @@ import re
 import tempfile
 import time
 from collections.abc import Iterator, Sequence
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -181,7 +181,7 @@ def run_suite(
                 else:
                     evidence = scenario.run_offline(workdir)
             duration = time.perf_counter() - began
-            if not isinstance(evidence, GoldenEvidence):
+            if type(evidence) is not GoldenEvidence:
                 results.append(
                     GoldenResult(
                         scenario.scenario_id,
@@ -192,7 +192,7 @@ def run_suite(
                         {},
                     )
                 )
-            elif not _valid_evidence(evidence.evidence):
+            elif type(evidence.detail) is not str or not _valid_evidence(evidence.evidence):
                 results.append(
                     GoldenResult(
                         scenario.scenario_id,
@@ -327,6 +327,7 @@ def _load_offline_configuration_modules() -> None:
     """Bind all home-derived defaults only after offline home isolation is active."""
     from forgeagent import cli, mcp_manager, model_registry
 
+    mcp_manager.load_mcp_config()
     del cli, mcp_manager, model_registry
 
 
@@ -369,38 +370,37 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the offline core or the five explicit real-model scenarios."""
     args = _parse_args(argv)
-    if args.real_model is not None:
+    isolation = nullcontext() if args.real_model is not None else _isolated_offline_home()
+    with isolation:
         try:
             scenarios = _load_manifest()
-            validate_manifest(scenarios)
-            client = _build_real_client(args.real_model)
-            selected = tuple(scenario for scenario in scenarios if scenario.run_real is not None)
-            output_dir = args.output_dir or default_output_dir(
-                mode="real", model_id=args.real_model
-            )
+            if args.real_model is not None:
+                validate_manifest(scenarios)
+                client = _build_real_client(args.real_model)
+                selected = tuple(
+                    scenario for scenario in scenarios if scenario.run_real is not None
+                )
+                output_dir = args.output_dir or default_output_dir(
+                    mode="real", model_id=args.real_model
+                )
+            else:
+                _load_offline_configuration_modules()
+                validate_manifest(scenarios)
+                output_dir = args.output_dir or default_output_dir(mode="offline", model_id=None)
             _prepare_output_dir(output_dir)
         except Exception as exc:
             print(f"golden preflight failed: {type(exc).__name__}")
             return 2
-        suite = run_suite(selected, mode="real", model=args.real_model, real_client=client)
-    else:
-        with _isolated_offline_home():
-            try:
-                scenarios = _load_manifest()
-                _load_offline_configuration_modules()
-                validate_manifest(scenarios)
-                output_dir = args.output_dir or default_output_dir(mode="offline", model_id=None)
-                _prepare_output_dir(output_dir)
-            except Exception as exc:
-                print(f"golden preflight failed: {type(exc).__name__}")
-                return 2
+        if args.real_model is not None:
+            suite = run_suite(selected, mode="real", model=args.real_model, real_client=client)
+        else:
             suite = run_suite(scenarios, mode="offline")
-    try:
-        write_reports(suite, output_dir)
-    except OSError as exc:
-        print(f"golden report failed: {type(exc).__name__}")
-        return 2
-    return suite.exit_code
+        try:
+            write_reports(suite, output_dir)
+        except OSError as exc:
+            print(f"golden report failed: {type(exc).__name__}")
+            return 2
+        return suite.exit_code
 
 
 if __name__ == "__main__":
