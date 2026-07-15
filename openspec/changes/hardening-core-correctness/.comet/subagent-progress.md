@@ -487,3 +487,9 @@
 - TDD mode: `tdd`; RED and GREEN evidence are required before review.
 - Allowed implementation files: `tests/golden/cases.py`, `tests/golden/manifest.py`, `tests/test_golden_runner.py` only.
 - Risk signals: sandbox/audit-hook behavior, SSRF/confirmation doubles, MCP subprocess lifecycle and real `/mcp` slash routing, full 20/20 ordinary pytest integration, and preservation of Task 8 anti-cheating judges.
+- Implementer: `019f649d-8287-7f13-920c-400dd0921107` (`Mencius`).
+- Implementation commit: `edbc097` (`test: cover hardened runtime boundaries in golden core`).
+- RED/GREEN evidence: pending-case RED `3 failed`; golden suite `68 passed`; boundary suite `238 passed, 2 skipped`; coordinator full pytest with RuntimeWarning as errors `762 passed, 13 skipped`; standalone runner `20/20`, `100.0%`, exit `0`; Ruff and diff check passed.
+- Reviewer: `019f64bb-b99f-7763-abf4-fbfa1ee4f4a1` (`Hilbert`).
+- Review result: changes requested. Important: G06/G58 create fixed sibling fixtures outside runner TemporaryDirectory cleanup; G330 synthetic redirect bypasses guarded public first-hop resolution/connection. Minor: G355 excludes only `optional:echo`, not the complete unavailable tool-label set.
+- Stage: `fixing`; review/fix round: `1/2`.
