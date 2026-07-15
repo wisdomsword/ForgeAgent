@@ -348,7 +348,12 @@ def _handle_mcp_command(goal: str, mcp: MCPManager | None, console: Console) -> 
             console.print(f"  {name}: {status}")
     elif action in {"enable", "disable"} and len(parts) > 2:
         server = parts[2]
-        ok = mcp.enable(server) if action == "enable" else mcp.disable(server)
+        try:
+            ok = mcp.enable(server) if action == "enable" else mcp.disable(server)
+        except TimeoutError:
+            safe_server = mask_secrets(server, sensitive_env_values())
+            console.print(Text(f"MCP {action} pending: {safe_server}"))
+            return
         if ok:
             console.print(f"[green]{action}d[/green] {server}: {mcp.server_status()[server]}")
         else:
@@ -658,9 +663,9 @@ def build_mcp_manager(console: Console) -> MCPManager | None:
     manager (reported via server_status), never raised here.
     """
     servers = load_mcp_config()
-    manager = MCPManager(servers)
-    if not manager.has_enabled_servers:
+    if not any(config.enabled for config in servers.values()):
         return None
+    manager = MCPManager(servers)
     try:
         manager.connect()
     except (KeyboardInterrupt, SystemExit):

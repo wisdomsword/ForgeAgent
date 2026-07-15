@@ -17,6 +17,7 @@ from rich.console import Console
 from forgeagent.cli import build_parser, main, render_outcome, run_once
 from forgeagent.client import MockClient
 from forgeagent.executor import TrustedBackend
+from forgeagent.mcp_manager import MCPServerConfig
 from forgeagent.model_registry import RegistryError
 from forgeagent.models import AssistantMessage, StreamEvent, StreamEventKind, TokenUsage
 from forgeagent.protocol import FileListArgs, FileWriteArgs, MCPArgs, ToolCall, WebFetchArgs
@@ -545,7 +546,11 @@ def test_build_mcp_manager_closes_and_raises_for_required_failures(monkeypatch):
     import forgeagent.cli as cli_module
 
     _RequiredStartupFailureManager.instances.clear()
-    monkeypatch.setattr(cli_module, "load_mcp_config", lambda: {"required": object()})
+    monkeypatch.setattr(
+        cli_module,
+        "load_mcp_config",
+        lambda: {"required": MCPServerConfig(command="unused", required=True)},
+    )
     monkeypatch.setattr(cli_module, "MCPManager", _RequiredStartupFailureManager)
 
     with pytest.raises(RuntimeError) as error:
@@ -558,12 +563,45 @@ def test_build_mcp_manager_closes_and_raises_for_required_failures(monkeypatch):
     )
 
 
+def test_build_mcp_manager_skips_constructor_when_all_servers_are_disabled(monkeypatch):
+    import forgeagent.cli as cli_module
+
+    calls: list[str] = []
+
+    class ManagerSpy:
+        def __init__(self, servers):
+            calls.append("construct")
+
+        def connect(self):
+            calls.append("connect")
+
+    monkeypatch.setattr(
+        cli_module,
+        "load_mcp_config",
+        lambda: {
+            "required": MCPServerConfig(
+                command="unused",
+                enabled=False,
+                required=True,
+            )
+        },
+    )
+    monkeypatch.setattr(cli_module, "MCPManager", ManagerSpy)
+
+    assert cli_module.build_mcp_manager(_console()) is None
+    assert calls == []
+
+
 def test_build_mcp_manager_preserves_startup_error_when_cleanup_raises(monkeypatch):
     import forgeagent.cli as cli_module
 
     _CleanupFailureRequiredStartupManager.instances.clear()
     monkeypatch.setattr(_CleanupFailureRequiredStartupManager, "cleanup_error", RuntimeError)
-    monkeypatch.setattr(cli_module, "load_mcp_config", lambda: {"required": object()})
+    monkeypatch.setattr(
+        cli_module,
+        "load_mcp_config",
+        lambda: {"required": MCPServerConfig(command="unused", required=True)},
+    )
     monkeypatch.setattr(cli_module, "MCPManager", _CleanupFailureRequiredStartupManager)
 
     with pytest.raises(cli_module.MCPStartupError) as error:
@@ -584,7 +622,11 @@ def test_build_mcp_manager_preserves_required_startup_error_when_cleanup_is_canc
         "cleanup_error",
         asyncio.CancelledError,
     )
-    monkeypatch.setattr(cli_module, "load_mcp_config", lambda: {"required": object()})
+    monkeypatch.setattr(
+        cli_module,
+        "load_mcp_config",
+        lambda: {"required": MCPServerConfig(command="unused", required=True)},
+    )
     monkeypatch.setattr(cli_module, "MCPManager", _CleanupFailureRequiredStartupManager)
 
     with pytest.raises(cli_module.MCPStartupError) as error:
@@ -625,7 +667,11 @@ def test_build_mcp_manager_logs_non_control_cleanup_type_without_replacing_prima
             self.closed = True
             raise asyncio.CancelledError(f"cleanup failed: {secret}")
 
-    monkeypatch.setattr(cli_module, "load_mcp_config", lambda: {"required": object()})
+    monkeypatch.setattr(
+        cli_module,
+        "load_mcp_config",
+        lambda: {"required": MCPServerConfig(command="unused", required=True)},
+    )
     monkeypatch.setattr(cli_module, "MCPManager", CleanupFailureManager)
     caplog.set_level(logging.WARNING, logger="forgeagent.cli")
 
@@ -648,7 +694,11 @@ def test_build_mcp_manager_does_not_swallow_base_cleanup_errors(monkeypatch, cle
 
     _CleanupFailureRequiredStartupManager.instances.clear()
     monkeypatch.setattr(_CleanupFailureRequiredStartupManager, "cleanup_error", cleanup_error)
-    monkeypatch.setattr(cli_module, "load_mcp_config", lambda: {"required": object()})
+    monkeypatch.setattr(
+        cli_module,
+        "load_mcp_config",
+        lambda: {"required": MCPServerConfig(command="unused", required=True)},
+    )
     monkeypatch.setattr(cli_module, "MCPManager", _CleanupFailureRequiredStartupManager)
 
     with pytest.raises(cleanup_error, match="cleanup failed"):
@@ -717,7 +767,11 @@ def test_build_mcp_manager_maps_connect_infrastructure_error_after_cleanup(monke
         def close(self):
             self.closed = True
 
-    monkeypatch.setattr(cli_module, "load_mcp_config", lambda: {"required": object()})
+    monkeypatch.setattr(
+        cli_module,
+        "load_mcp_config",
+        lambda: {"required": MCPServerConfig(command="unused", required=True)},
+    )
     monkeypatch.setattr(cli_module, "MCPManager", InfrastructureFailureManager)
 
     with pytest.raises(cli_module.MCPStartupError) as raised:
@@ -755,7 +809,11 @@ def test_build_mcp_manager_connect_cleanup_only_propagates_process_control(
         def close(self):
             raise cleanup_error("cleanup failure")
 
-    monkeypatch.setattr(cli_module, "load_mcp_config", lambda: {"required": object()})
+    monkeypatch.setattr(
+        cli_module,
+        "load_mcp_config",
+        lambda: {"required": MCPServerConfig(command="unused", required=True)},
+    )
     monkeypatch.setattr(cli_module, "MCPManager", InfrastructureFailureManager)
 
     if expected_error is None:
@@ -774,7 +832,11 @@ def test_main_reports_required_mcp_startup_error_without_running_task(monkeypatc
     ran_task: list[bool] = []
     _RequiredStartupFailureManager.instances.clear()
     monkeypatch.setattr(cli_module, "Console", lambda: console)
-    monkeypatch.setattr(cli_module, "load_mcp_config", lambda: {"required": object()})
+    monkeypatch.setattr(
+        cli_module,
+        "load_mcp_config",
+        lambda: {"required": MCPServerConfig(command="unused", required=True)},
+    )
     monkeypatch.setattr(cli_module, "MCPManager", _RequiredStartupFailureManager)
 
     def run_once(*args, **kwargs):
@@ -798,7 +860,13 @@ def test_required_mcp_startup_error_uses_only_server_status(monkeypatch):
     monkeypatch.setattr(
         cli_module,
         "load_mcp_config",
-        lambda: {"required": {"env": {"TOKEN": secret}}},
+        lambda: {
+            "required": MCPServerConfig(
+                command="unused",
+                env={"TOKEN": secret},
+                required=True,
+            )
+        },
     )
     monkeypatch.setattr(cli_module, "MCPManager", _RequiredStartupFailureManager)
 
@@ -1270,6 +1338,111 @@ def test_handle_mcp_command_no_manager_is_noop():
     console = _console()
     _handle_mcp_command("mcp status", None, console)
     assert "no MCP servers configured" in console.export_text()
+
+
+@pytest.mark.parametrize("action", ["enable", "disable"])
+def test_handle_mcp_command_timeout_prints_masked_literal_pending(monkeypatch, action):
+    import forgeagent.cli as cli_module
+
+    secret = "known-server-secret"
+    server = f"{secret}[bold]literal[/bold]"
+    exception_text = "timeout-exception-must-not-leak"
+
+    class TimeoutMCP(_FakeMCP):
+        def enable(self, name):
+            raise TimeoutError(exception_text)
+
+        def disable(self, name):
+            raise TimeoutError(exception_text)
+
+    monkeypatch.setattr(cli_module, "sensitive_env_values", lambda: {secret})
+    console = _console()
+
+    cli_module._handle_mcp_command(f"mcp {action} {server}", TimeoutMCP(), console)
+
+    rendered = console.export_text()
+    assert rendered == f"MCP {action} pending: ***REDACTED***[bold]literal[/bold]\n"
+    assert secret not in rendered
+    assert exception_text not in rendered
+
+
+@pytest.mark.parametrize("action", ["enable", "disable"])
+def test_handle_mcp_command_unknown_server_keeps_existing_error(action):
+    import forgeagent.cli as cli_module
+
+    console = _console()
+
+    cli_module._handle_mcp_command(f"mcp {action} missing", _FakeMCP(), console)
+
+    assert console.export_text() == "unknown server 'missing'\n"
+
+
+@pytest.mark.parametrize("action", ["enable", "disable"])
+@pytest.mark.parametrize("control_error", [KeyboardInterrupt, SystemExit])
+def test_handle_mcp_command_propagates_process_control(action, control_error):
+    import forgeagent.cli as cli_module
+
+    expected = control_error("process control")
+
+    class ProcessControlMCP(_FakeMCP):
+        def enable(self, name):
+            raise expected
+
+        def disable(self, name):
+            raise expected
+
+    with pytest.raises(control_error) as raised:
+        cli_module._handle_mcp_command(
+            f"mcp {action} fs",
+            ProcessControlMCP(),
+            _console(),
+        )
+
+    assert raised.value is expected
+
+
+@pytest.mark.parametrize("action", ["enable", "disable"])
+def test_repl_mcp_timeout_processes_next_command_and_quit(monkeypatch, action):
+    import forgeagent.cli as cli_module
+
+    secret = "known-server-secret"
+    server = f"{secret}[bold]literal[/bold]"
+    exception_text = "timeout-exception-must-not-leak"
+
+    class TimeoutMCP(_FakeMCP):
+        def __init__(self):
+            super().__init__()
+            self.closed = False
+
+        def enable(self, name):
+            raise TimeoutError(exception_text)
+
+        def disable(self, name):
+            raise TimeoutError(exception_text)
+
+        def close(self):
+            self.closed = True
+
+    fake = TimeoutMCP()
+    inputs = iter([f"/mcp {action} {server}", "/help model", "quit"])
+    monkeypatch.setattr(cli_module, "sensitive_env_values", lambda: {secret})
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda console: fake)
+    console = _console()
+
+    cli_module.repl(
+        tier="trusted",
+        model="claude-sonnet-5",
+        client_factory=_factory([]),
+        console=console,
+        read_line=lambda prompt: next(inputs),
+    )
+
+    rendered = console.export_text()
+    assert f"MCP {action} pending: ***REDACTED***[bold]literal[/bold]" in rendered
+    assert "/model [id-or-alias]" in rendered
+    assert secret not in rendered
+    assert exception_text not in rendered
+    assert fake.closed is True
 
 
 def test_repl_runtime_toggle_of_required_server_keeps_session_running(monkeypatch):
