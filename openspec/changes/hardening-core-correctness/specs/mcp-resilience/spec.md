@@ -27,7 +27,7 @@ ForgeAgent SHALL continue startup when an optional MCP server fails to connect, 
 - **THEN** `server_status()`, startup diagnostics and REPL status output identify the server and fixed cause without containing the secret or raw exception text
 
 ### Requirement: MCP discovery metadata does not expose known secrets
-ForgeAgent MUST apply the existing sensitive-environment value policy before discovered MCP metadata reaches the model prompt or CLI tool listing. A tool name that contains a known secret MUST NOT be advertised because a masked display alias cannot be routed safely back to the original SDK tool name.
+ForgeAgent MUST apply the existing sensitive-environment value policy before discovered MCP metadata or configured server identity reaches the model prompt, CLI tool listing, public status or required-startup diagnostics. A tool or server routing identity that contains a known secret MUST NOT be advertised because a masked display alias cannot be routed safely back to the original SDK identity. Internal lifecycle and call routing MUST continue to use the original configured server identity.
 
 #### Scenario: Tool description contains a known secret
 - **WHEN** MCP discovery returns a tool whose description contains a known sensitive environment value
@@ -36,6 +36,10 @@ ForgeAgent MUST apply the existing sensitive-environment value policy before dis
 #### Scenario: Tool name contains a known secret
 - **WHEN** MCP discovery returns a tool whose name would change under known-secret masking
 - **THEN** ForgeAgent excludes that tool from the available catalog and prompt instead of advertising a non-routable masked alias
+
+#### Scenario: Server identity contains a known secret
+- **WHEN** a configured server identity would change under known-secret masking
+- **THEN** ForgeAgent excludes that server's tools from the available catalog and prompt, masks the identity in public status, required-startup and `/mcp` diagnostics, and retains the original identity only for internal lifecycle and call routing
 
 ### Requirement: Required MCP failures abort startup
 ForgeAgent MUST return a non-zero CLI startup result when a required MCP server fails to connect, MUST NOT start the task, and MUST perform bounded cleanup of MCP resources that were already started. Normal cleanup MUST release those resources. When an event-loop thread is hard-stuck, the required CLI failure MAY remain incomplete at the public deadline only while retaining cleanup evidence and emitting a sanitized warning. If the authoritative drain does not yet exist, the queued shutdown facade or fallback callback on the live loop/thread MUST keep the manager state strongly reachable; if the drain exists, that sole loop-owned drain MUST keep it reachable. When the loop recovers, queued work MUST create or reuse the sole authoritative drain and continue cleanup; an existing drain MUST continue directly. Because `build_mcp_manager()` closes and raises `MCPStartupError`, the CLI MUST NOT expose or promise a later `close()` handle, and this path MUST NOT add a global registry, `atexit` hook, or new API. A direct API caller that still holds the `MCPManager`, and ordinary manager lifecycle repeated `close()` calls, MAY use a new bounded close retry.
@@ -192,6 +196,10 @@ ForgeAgent MUST keep a new loop worker behind a publication gate until manager s
 #### Scenario: Shutdown future cancellation cleanup receives process control
 - **WHEN** waiting on an accepted shutdown facade has an ordinary primary failure and cancelling that future raises `KeyboardInterrupt` or `SystemExit`
 - **THEN** ForgeAgent still requests the existing drain retry, performs bounded stop/join finalization, and only then propagates the first cleanup process-control object instead of hiding it behind the ordinary primary
+
+#### Scenario: Shutdown control primary has a secondary cancellation control
+- **WHEN** waiting on an accepted shutdown facade first raises `KeyboardInterrupt` or `SystemExit` and cancelling that future raises another process-control exception
+- **THEN** ForgeAgent independently requests the existing drain retry, performs bounded stop/join finalization, and then propagates the original primary exception object
 
 #### Scenario: Internal shutdown operation raises unexpectedly
 - **WHEN** an internal holder, event-loop or thread cleanup operation raises an Exception

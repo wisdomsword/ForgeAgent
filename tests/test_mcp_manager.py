@@ -1164,6 +1164,27 @@ def test_discovery_masks_descriptions_excludes_sensitive_names_and_routes_safe_t
     assert session.call_count == 1
 
 
+def test_discovery_excludes_sensitive_server_identity_from_public_catalog(monkeypatch):
+    secret = "server-identity-secret"
+    server = f"external-{secret}"
+    monkeypatch.setattr(mcp_manager_module, "sensitive_env_values", lambda: {secret})
+    manager = MCPManager({server: MCPServerConfig(command="unused", required=True)})
+    state = manager._states[server]
+    state.status = "available"
+    state.tools = manager._filter_tools(
+        server,
+        state.config,
+        [type("Tool", (), {"name": "safe", "description": "safe description"})()],
+    )
+
+    assert manager.list_tools() == []
+    assert manager.tools_prompt() == ""
+
+    state.status = "unavailable: RuntimeError"
+    assert secret not in repr(manager.server_status())
+    assert secret not in repr(manager.required_failures())
+
+
 def test_auto_approve_reported_per_server_tool():
     mgr = MCPManager({"alpha": _server("alpha", autoApprove=["echo"])})
     try:
@@ -3059,6 +3080,46 @@ def test_close_runs_retry_and_join_before_propagating_cancel_control(monkeypatch
         manager.close()
 
     assert raised.value is control
+    assert calls == ["cancel", "retry", "stop-and-join"]
+
+
+@pytest.mark.parametrize(
+    ("primary", "secondary"),
+    [
+        (KeyboardInterrupt("primary"), SystemExit("secondary")),
+        (SystemExit("primary"), KeyboardInterrupt("secondary")),
+    ],
+)
+def test_close_control_primary_still_runs_retry_and_join_after_cancel_control(
+    monkeypatch, primary, secondary
+):
+    manager = MCPManager({}, shutdown_timeout=0.03, thread_join_timeout=0.02)
+    manager._loop = _LoopProbe()
+    manager._thread = _ThreadProbe(alive=True)
+    future = _FutureProbe(error=primary)
+    calls: list[str] = []
+
+    def cancel():
+        calls.append("cancel")
+        raise secondary
+
+    future.cancel = cancel
+    monkeypatch.setattr(
+        mcp_manager_module.asyncio,
+        "run_coroutine_threadsafe",
+        lambda coro, loop: (coro.close(), future)[1],
+    )
+    monkeypatch.setattr(manager, "_request_shutdown_retry", lambda deadline: calls.append("retry"))
+    monkeypatch.setattr(
+        manager,
+        "_stop_and_join",
+        lambda deadline, pending: calls.append("stop-and-join"),
+    )
+
+    with pytest.raises(type(primary)) as raised:
+        manager.close()
+
+    assert raised.value is primary
     assert calls == ["cancel", "retry", "stop-and-join"]
 
 

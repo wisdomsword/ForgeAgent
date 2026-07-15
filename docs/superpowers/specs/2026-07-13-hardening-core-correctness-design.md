@@ -245,7 +245,7 @@ required: bool = False
 
 新增只读查询返回 enabled required failures，例如 `required_failures() -> dict[str, str]`。holder 的公开 unavailable 状态只包含固定类别和异常类型，不保存或输出异常字符串；`server_status()` 与 `required_failures()` 在返回前仍用既有 secret-value mask 做防御性处理。optional 黄色诊断、required startup error 和 REPL `/mcp status` 因而都不会泄漏 command、args、env、server content 或异常携带的 secret。
 
-MCP child 继承用户环境，因此 discovery 返回的 tool metadata 也可能携带已知 secret value。`_filter_tools()` 在写入 catalog 前必须对 description 做 value masking；tool name 若经 masking 会变化，则不能广告一个无法映射回原始 SDK 名称的伪 alias，而是直接从 catalog 排除。安全名称保持原样，后续 `tools_prompt()`、`/mcp` 和实际 call routing 继续共用同一 catalog。
+MCP child 继承用户环境，因此 discovery 返回的 tool metadata 也可能携带已知 secret value；本地配置的 server identity 也按同一公开输出策略处理。`_filter_tools()` 在写入 catalog 前必须对 description 做 value masking；tool name 或其 server identity 若经 masking 会变化，则不能广告一个无法映射回原始 SDK routing identity 的伪 alias，而是直接从 catalog 排除。`server_status()`、`required_failures()` 和 CLI status/startup diagnostics 使用脱敏后的公开 server identity，内部 state/enable/disable/call routing 仍使用原始配置 identity。安全名称保持原样，后续 `tools_prompt()`、`/mcp` 和实际 call routing 继续共用同一 catalog。
 
 `build_mcp_manager()` 的流程：
 
@@ -266,7 +266,7 @@ manager 构造参数增加仅供内部/测试注入的 `shutdown_timeout=10.0` �
 
 `close()` 顺序：
 
-1. manager 增加内部 `_shutdown_future` 引用。用 `getattr(self, "_closed", False)` 检查重复调用。首次调用立即置真并执行完整 holder shutdown；重复调用不得重新提交 shutdown coroutine 或重新等待 holders，只能再次 cancel 已保存的 future、唤醒既有 loop-owned drain、等待 completion event并 bounded join。只有 cleanup completion 已证明且线程停止时才关闭 loop并清理引用。
+1. manager 增加内部 `_shutdown_future` 引用。用 `getattr(self, "_closed", False)` 检查重复调用。首次调用立即置真并执行完整 holder shutdown；重复调用不得重新提交 shutdown coroutine、重新等待 holders或再次操作已经取消的 facade，只能唤醒既有 loop-owned drain、等待 completion event并 bounded join。只有 cleanup completion 已证明且线程停止时才关闭 loop并清理引用。
 2. 未创建 loop 时直接清理引用并返回。
 3. 用 `time.monotonic()` 为每次公开 `close()` 建立唯一绝对 deadline：当前时间加 `shutdown_timeout + thread_join_timeout`。主线程等待 shutdown facade 时必须为 join 预留 `thread_join_timeout`，所有公开等待阶段只读取 `remaining = max(0, deadline - monotonic())`，不累计相对 timeout。该 deadline 约束调用方等待时间，不授权 loop 在 async context finalizer 尚未完成时提前停止。
 4. `_holders` 的值是 `(generation, holder_task, stop_event)`。主线程提交前只能保存 server-name fallback 供超时诊断；精确 slot snapshot 必须由 shutdown coroutine 在 loop thread 设置 closing barrier 后创建，避免与已排队的 enable/disable reconcile 竞态。shutdown 只处理该 loop-owned snapshot 中的 `(name, generation, task, stop)`，不会漏掉刚启动的 holder，也不会 cancel 后续 generation。
@@ -467,11 +467,11 @@ runner 本里程碑明确顺序执行，不承诺多个进程同时写同一个 
 | 文件路径边界 | root allowed_root、相对 root、NUL、越界、symlink resolve、FileRead/List/Write OSError、restricted audit | commonpath 正确接受 root 子路径并拒绝越界；无 ValueError 逃逸；固定失败消息无绝对路径 |
 | CLI 注入 | REPL、TTY run、非 TTY run、`--interactive` | confirmer 与 MCP 解耦；Survey 语义不漂移 |
 | 完成门控 | 工具成功/失败/parse error + completed；后续独立完成 | 同轮不完成；反馈后完成；max_rounds 诚实 |
-| MCP 配置 | required 默认、enabled/disabled required、optional/required secret-bearing status、secret-bearing discovery description/name | optional 降级；required 启动失败；禁用项不阻断；公共诊断与可见 description 不含已知 secret；secret-bearing name 不广告且 safe name 仍可路由 |
+| MCP 配置 | required 默认、enabled/disabled required、optional/required secret-bearing status、secret-bearing discovery description/tool/server name | optional 降级；required 启动失败；禁用项不阻断；公共诊断与可见 description/server identity 不含已知 secret；secret-bearing routing identity 不广告且 safe name 仍可路由 |
 | MCP lifecycle - generation | timed-out disable→enable replacement、unavailable-finalizer retry、当前 call failure 不自动重连、旧 gen finally/call failure、state/holder/session mismatch、disable+enable+close overlap、enable-after-close | `(gen, task, stop)` slot 在 task done 前可见；replacement 需精确 restart intent 且至多一个；call 仅使用同时匹配 state 与 holder 的 current session；旧 gen 不能改新 holder/session/status/tools；close 在 loop 内 snapshot 精确 slot |
 | MCP lifecycle - facade wait | enable/disable/connect timeout、timed-out disable 后立即 close | timeout 只取消 concurrent waiter；shielded holder ownership 继续；loop stop 前无 pending lifecycle waiter warning |
 | MCP lifecycle - startup transaction | Thread.start 抛错、start 后 gate release 在 set 前/后抛 KeyboardInterrupt/SystemExit、initial holder submission/result 异常、多个 hung holder、join timeout、connect self-cleanup 后 CLI 映射 | cancel-aware gate→loop stop→bounded join；停止后 rollback 为可重试状态；ready timeout 不随 server 数量线性增长；仍活时保留 refs/closed warning；普通异常固定 startup error，原控制异常不被替换；已 closed manager 不重复完整 close |
-| MCP close | 正常、完全忽略 stop、lifecycle cancel/内部异常、重复 close、结果保留、thread join 超时 warning、join 期间 completion、公开 deadline 后 finalizer 完成、延迟停止后再次 close、ordinary primary 后 future cancel 控制异常 | 绝对 deadline 内返回；future timeout cancel 并保留引用；loop drain 可越过 caller deadline但 finalizer 完成后才 stop；单个 cancel/cleanup 异常不跳过其他 slot或伪造 completion；cancel 控制异常后仍执行 retry/join再传播首个 control；同次 join 后重读 completion；cleanup complete + thread stopped 后才 close/clear；PID 消失；warning 无敏感参数；原结果不被覆盖 |
+| MCP close | 正常、完全忽略 stop、lifecycle cancel/内部异常、重复 close、结果保留、thread join 超时 warning、join 期间 completion、公开 deadline 后 finalizer 完成、延迟停止后再次 close、ordinary/control primary 后 future cancel 控制异常 | 绝对 deadline 内返回；future timeout cancel 并保留引用；loop drain 可越过 caller deadline但 finalizer 完成后才 stop；单个 cancel/cleanup 异常不跳过其他 slot或伪造 completion；cancel 控制异常后仍执行 retry/join，control primary 保持身份并在 cleanup 后传播；同次 join 后重读 completion；cleanup complete + thread stopped 后才 close/clear；PID 消失；warning 无敏感参数；原结果不被覆盖 |
 | 测试隔离 | 真实 home 放置恶意 mcp.yaml 后运行 suite | 测试只读取临时 home，结果不变 |
 | 黄金 runner | manifest 变异、standalone 恶意 HOME、20 pass、单项/非法 evidence fail、core-definition preflight、完整 catalog 文档门禁 | 配置敏感 import 前隔离 home；runner 锁定 20 core/5 real/核心定义；pytest 独立锁定 G01-G380 与 20/360；非标准 JSON evidence 只失败单项；JSON/Markdown 同源；退出码 0/1/2 |
 | 真实模型入口 | 缺配置、有效单模型 | 缺配置无报告且退出 2；只执行 5 项 |

@@ -488,6 +488,8 @@ class MCPManager:
 
     def _filter_tools(self, server: str, cfg: MCPServerConfig, tools) -> list[MCPToolInfo]:
         """Map SDK tool objects to MCPToolInfo, applying the optional `expose` allowlist."""
+        if mask_secrets(server, self._secret_values) != server:
+            return []
         infos: list[MCPToolInfo] = []
         for t in tools:
             if cfg.expose is not None and t.name not in cfg.expose:
@@ -781,14 +783,18 @@ class MCPManager:
     def server_status(self) -> dict[str, str]:
         """server name -> status ("available" or "unavailable: <reason>")."""
         return {
-            name: mask_secrets(_public_status(state.status), self._secret_values)
+            mask_secrets(name, self._secret_values): mask_secrets(
+                _public_status(state.status), self._secret_values
+            )
             for name, state in self._states.items()
         }
 
     def required_failures(self) -> dict[str, str]:
         """Enabled required servers that did not become available at startup."""
         return {
-            name: mask_secrets(_public_status(state.status), self._secret_values)
+            mask_secrets(name, self._secret_values): mask_secrets(
+                _public_status(state.status), self._secret_values
+            )
             for name, state in self._states.items()
             if state.config.enabled and state.config.required and state.status != "available"
         }
@@ -1354,17 +1360,24 @@ class MCPManager:
             pending = self._shutdown_future.result(
                 timeout=_remaining(deadline, reserve=self._thread_join_timeout)
             )
-        except (KeyboardInterrupt, SystemExit):
+        except (KeyboardInterrupt, SystemExit) as primary:
+            selected: BaseException = primary
             try:
                 self._cancel_shutdown_future()
-                self._request_shutdown_retry(deadline)
             except BaseException as cleanup:
                 logger.warning("MCP shutdown control cleanup failed: %s", type(cleanup).__name__)
+                selected = _prefer_process_control(selected, cleanup)
+            try:
+                self._request_shutdown_retry(deadline)
+            except BaseException as cleanup:
+                logger.warning("MCP shutdown retry failed: %s", type(cleanup).__name__)
+                selected = _prefer_process_control(selected, cleanup)
             try:
                 self._stop_and_join(deadline, self._shutdown_pending or fallback_pending)
             except BaseException as cleanup:
                 logger.warning("MCP shutdown finalization failed: %s", type(cleanup).__name__)
-            raise
+                selected = _prefer_process_control(selected, cleanup)
+            raise selected from None
         except Exception as exc:  # noqa: BLE001 - public close is no-throw
             pending = self._shutdown_pending or fallback_pending
             primary: BaseException = exc

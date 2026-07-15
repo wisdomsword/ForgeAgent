@@ -890,6 +890,31 @@ def test_build_mcp_manager_does_not_close_manager_already_closed_by_connect(monk
     assert SelfClosingInfrastructureFailureManager.instance.close_calls == 1
 
 
+def test_build_mcp_manager_masks_sensitive_required_server_identity(monkeypatch):
+    import forgeagent.cli as cli_module
+    import forgeagent.mcp_manager as mcp_manager_module
+
+    secret = "required-server-secret"
+    server = f"external-{secret}"
+    monkeypatch.setattr(mcp_manager_module, "sensitive_env_values", lambda: {secret})
+    monkeypatch.setattr(
+        cli_module,
+        "load_mcp_config",
+        lambda: {server: MCPServerConfig(command="unused", required=True)},
+    )
+
+    def fail_required(self):
+        self._states[server].status = "unavailable: RuntimeError"
+
+    monkeypatch.setattr(cli_module.MCPManager, "connect", fail_required)
+
+    with pytest.raises(cli_module.MCPStartupError) as raised:
+        cli_module.build_mcp_manager(_console())
+
+    assert secret not in str(raised.value)
+    assert "external-***REDACTED***" in str(raised.value)
+
+
 @pytest.mark.parametrize(
     ("cleanup_error", "expected_error"),
     [
@@ -1892,6 +1917,31 @@ def test_handle_mcp_slash_status_uses_masked_discovery_catalog(monkeypatch):
 
     assert secret not in rendered
     assert "server:safe" in rendered
+
+
+def test_handle_mcp_slash_status_masks_sensitive_server_identity(monkeypatch):
+    import forgeagent.mcp_manager as mcp_manager_module
+    from forgeagent.cli import _handle_mcp_slash
+
+    secret = "cli-server-secret"
+    server = f"external-{secret}"
+    monkeypatch.setattr(mcp_manager_module, "sensitive_env_values", lambda: {secret})
+    manager = MCPManager({server: MCPServerConfig(command="unused")})
+    state = manager._states[server]
+    state.status = "available"
+    state.tools = manager._filter_tools(
+        server,
+        state.config,
+        [type("Tool", (), {"name": "safe", "description": "safe description"})()],
+    )
+
+    console = _console()
+    _handle_mcp_slash("/mcp status", manager, console)
+    rendered = console.export_text()
+
+    assert secret not in rendered
+    assert "external-***REDACTED***" in rendered
+    assert ":safe" not in rendered
 
 
 def test_handle_mcp_slash_enable_disable_delegates():

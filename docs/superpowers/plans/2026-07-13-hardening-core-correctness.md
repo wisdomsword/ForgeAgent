@@ -1312,6 +1312,8 @@ UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run python -m tests.golden.runner
 
 首轮最终评审接受四个 Important：MCP discovery description/name 的已知 secret 可进入 prompt/CLI；真实 `connect()` 异常已清理后组装层重复执行完整 close；shutdown future `cancel()` 的 cleanup control 会跳过 retry/join；Design Doc 错把完整 G01-G380 universe 校验归给 production runner。修复必须用 TDD 锁定前三项，把 runner/pytest 职责同步到 Design/OpenSpec，并将此前 Ruff、专项、全量、golden、CodeGraph 与评审证据全部作废后从 Step 1 重跑。
 
+第二轮最终评审在上述修复后接受两个相邻缺口：配置 server identity 本身含已知 secret 时仍会进入 catalog/status/CLI；shutdown wait 的 primary 已是控制异常且 future cancel 再抛控制异常时会跳过 drain retry。同步删除 Design Doc 中“重复 close 再次 cancel 已取消 facade”的矛盾表述。两项用 RED 回归锁定后做最小修复，且再次使此前综合证据和评审 verdict 全部失效，必须从 Step 1 重跑。
+
 - [ ] **Step 7: 固定已验证实现 HEAD，创建证据草稿并执行第三道验收评审**
 
 Step 1-6（包含前两道评审）通过后，立即把 `git rev-parse HEAD` 作为 `verified_head` 同时写入 `.comet/subagent-progress.md` 和 milestone 草稿；两个持久文件必须一致，后续命令每次重新读取而不依赖 shell 变量。里程碑必须标明这个精确 implementation HEAD，而不是之后的 evidence-only commit。按 `MILESTONE_GUIDE.md` 一次性创建 `milestones/milestone_013.md`，把实际命令、pass/skip 数、黄金通过率和前两道评审结论写入文件，并为第三道证据评审保留唯一、明确的 `pending` verdict/identity 槽位；将 `milestones/latest` 更新为唯一一行 `milestone_013.md`。M11/M12 仍是未完成规划；当前 `milestones/latest` 指向最后按时间完成的 `milestone_009.md`，因此 M13 的“前置里程碑”链接使用 `milestone_009.md`，正文同时说明 M9 是在 M10 后补做、M9/M10 均已完成及编号跳跃原因。逐条核对本计划末尾映射后，将 `tasks.md` 的 45 个 checkbox 定向改为 `[x]`；不能一次性盲目全选。同步更新 `.comet/subagent-progress.md`，记录最终任务、评审和验证证据，并保留同样的第三道评审 pending 槽位。

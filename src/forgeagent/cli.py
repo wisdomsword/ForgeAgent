@@ -389,10 +389,12 @@ def _handle_mcp_command(goal: str, mcp: MCPManager | None, console: Console) -> 
             safe_server = mask_secrets(server, sensitive_env_values())
             console.print(Text(f"MCP {action} pending: {safe_server}"))
             return
+        safe_server = mask_secrets(server, sensitive_env_values())
         if ok:
-            console.print(f"[green]{action}d[/green] {server}: {mcp.server_status()[server]}")
+            status = mcp.server_status().get(safe_server, "unavailable")
+            console.print(f"[green]{action}d[/green] {safe_server}: {status}")
         else:
-            console.print(f"[red]unknown server[/red] {server!r}")
+            console.print(f"[red]unknown server[/red] {safe_server!r}")
     else:
         console.print("[dim]usage: mcp status | mcp enable <server> | mcp disable <server>[/dim]")
 
