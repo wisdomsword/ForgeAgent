@@ -1273,7 +1273,8 @@ Step 1-5 与前两道评审通过后，立即把 `git rev-parse HEAD` 作为 `ve
 ```bash
 git add openspec/changes/hardening-core-correctness/tasks.md \
   openspec/changes/hardening-core-correctness/.comet/subagent-progress.md \
-  milestones
+  milestones/milestone_013.md \
+  milestones/latest
 git commit -m "chore: record hardening verification evidence"
 ```
 
