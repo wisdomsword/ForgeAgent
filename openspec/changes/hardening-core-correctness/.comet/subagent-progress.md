@@ -413,6 +413,7 @@
 - Closed reviewer: `019f6421-4713-77b1-9c72-6b7d1f33b6e4` (`Russell`) remained running without a verdict after bounded waits and an interrupt request, so it was closed. No finding or review/fix round was recorded.
 - Reviewer: `019f642c-58d3-7c61-bfe8-de38930149a9` (`Bacon`).
 - Review result: changes requested. Important: `GoldenEvidence` subclasses are accepted by `isinstance`; a non-string `detail` can pass suite validation then crash Markdown rendering; the atomic overwrite test does not prove `os.replace` or same-directory temporary-file use.
+- Coordinator audit additions: offline HOME isolation currently ends before report writing instead of after suite/report completion, and the standalone hostile-MCP test only imports `mcp_manager` without calling `load_mcp_config()`, so it does not prove the hostile file was not selected. Both require mutation-sensitive repair in the same fix round.
 - Review/fix round: `1/2`.
 - Review mode: `thorough`.
 - TDD mode: `tdd`; RED and GREEN evidence are required before review.
