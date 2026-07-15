@@ -414,6 +414,7 @@
 - Reviewer: `019f642c-58d3-7c61-bfe8-de38930149a9` (`Bacon`).
 - Review result: changes requested. Important: `GoldenEvidence` subclasses are accepted by `isinstance`; a non-string `detail` can pass suite validation then crash Markdown rendering; the atomic overwrite test does not prove `os.replace` or same-directory temporary-file use.
 - Coordinator audit additions: offline HOME isolation currently ends before report writing instead of after suite/report completion, and the standalone hostile-MCP test only imports `mcp_manager` without calling `load_mcp_config()`, so it does not prove the hostile file was not selected. Both require mutation-sensitive repair in the same fix round.
+- Manifest audit addition: G43/G58/G59/G324 titles are mapped to unrelated capabilities, which would make the human report contradict the catalog despite correct IDs; the titles and the `cases.py` Tasks 8-9 ownership docstring require correction and a focused mapping regression.
 - Review/fix round: `1/2`.
 - Review mode: `thorough`.
 - TDD mode: `tdd`; RED and GREEN evidence are required before review.
