@@ -186,6 +186,64 @@ def test_webfetch_artifact_write_failure_is_fixed_and_does_not_raise(tmp_path, m
     assert outcome.detail == "WebFetch response save failed"
 
 
+def test_webfetch_writes_to_path_returned_by_validator(tmp_path, monkeypatch):
+    url = "https://example.com/model-derived.txt"
+    body = b"canonical body"
+    canonical = tmp_path / "canonical-artifact.txt"
+    digest = hashlib.sha256(url.encode()).hexdigest()[:12]
+    filename = f"webfetch_{digest}.txt"
+    validated = []
+
+    def fake_validate(path, allowed_root):
+        validated.append((path, allowed_root))
+        return canonical
+
+    monkeypatch.setattr(
+        "forgeagent.tools.guarded_urlopen", lambda requested_url, **kwargs: _FakeResponse(body)
+    )
+    monkeypatch.setattr("forgeagent.tools._validate_path", fake_validate)
+
+    outcome = WebFetchTool().run(WebFetchArgs(url=url), _webfetch_ctx(allowed_root=str(tmp_path)))
+
+    assert validated == [(filename, str(tmp_path))]
+    assert canonical.read_text() == body.decode()
+    assert not (tmp_path / filename).exists()
+    assert not (tmp_path / "model-derived.txt").exists()
+    assert outcome.success is True
+
+
+def test_webfetch_artifact_value_error_is_fixed_and_does_not_disclose(tmp_path, monkeypatch):
+    sensitive_path = str(tmp_path / "host-private" / "secret.txt")
+    monkeypatch.setattr(
+        "forgeagent.tools.guarded_urlopen", lambda url, **kwargs: _FakeResponse(b"body")
+    )
+
+    with patch.object(
+        Path, "write_text", side_effect=ValueError(f"invalid save path: {sensitive_path}")
+    ):
+        outcome = WebFetchTool().run(
+            WebFetchArgs(url="https://secret-host.invalid/"),
+            _webfetch_ctx(allowed_root=str(tmp_path)),
+        )
+
+    assert outcome.success is False
+    assert outcome.detail == "WebFetch response save failed"
+    assert sensitive_path not in outcome.detail
+
+
+def test_webfetch_artifact_digest_surrogate_is_fixed_and_does_not_raise(tmp_path, monkeypatch):
+    url = "https://example.com/#\ud800"
+    monkeypatch.setattr(
+        "forgeagent.tools.guarded_urlopen", lambda requested_url, **kwargs: _FakeResponse(b"body")
+    )
+
+    outcome = WebFetchTool().run(WebFetchArgs(url=url), _webfetch_ctx(allowed_root=str(tmp_path)))
+
+    assert outcome.success is False
+    assert outcome.detail == "WebFetch response save failed"
+    assert url not in outcome.detail
+
+
 def test_webfetch_artifact_symlink_escape_is_blocked(tmp_path, monkeypatch):
     url = "https://example.com/static-artifact"
     body = b"fetched body"

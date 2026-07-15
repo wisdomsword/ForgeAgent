@@ -362,11 +362,11 @@ class WebFetchTool(Tool):
         if truncated:
             raw = raw[:_MAX_FETCH_BYTES]
         masked = mask_secrets(raw.decode("utf-8", errors="replace"), sensitive_env_values())
-        digest = hashlib.sha256(args.url.encode()).hexdigest()[:12]
-        ext = _EXT_BY_CONTENT_TYPE.get(content_type, ".fetch")
-        filename = f"webfetch_{digest}{ext}"
         truncated_note = " (truncated at 1MB)" if truncated else ""
         try:
+            digest = hashlib.sha256(args.url.encode()).hexdigest()[:12]
+            ext = _EXT_BY_CONTENT_TYPE.get(content_type, ".fetch")
+            filename = f"webfetch_{digest}{ext}"
             dest = _validate_path(filename, ctx.allowed_root)
             dest.write_text(masked, encoding="utf-8", errors="replace")
         except (OSError, ValueError):
