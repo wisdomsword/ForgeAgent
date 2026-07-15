@@ -183,8 +183,7 @@ def test_failed_status_stops_after_recording_parse_error():
     client = MockClient(
         script=[
             _reply(
-                "---\ntask_status:\n  completed: false\n  status: failed\n---\n"
-                + malformed_call
+                "---\ntask_status:\n  completed: false\n  status: failed\n---\n" + malformed_call
             )
         ]
     )
@@ -213,9 +212,7 @@ def test_webfetch_fixed_failure_detail_is_safe_in_step_feedback():
         RoundResult(
             text="",
             outcomes=[
-                ToolOutcome(
-                    tool="WebFetch", success=False, detail="WebFetch request failed"
-                )
+                ToolOutcome(tool="WebFetch", success=False, detail="WebFetch request failed")
             ],
         )
     )
@@ -520,7 +517,10 @@ def test_streaming_forwards_deltas_and_returns_done_message():
     )
     received: list[tuple[str, StreamEventKind]] = []
     step = Step(
-        client, TrustedBackend(), Runtime(), max_rounds=5,
+        client,
+        TrustedBackend(),
+        Runtime(),
+        max_rounds=5,
         on_stream_text=lambda text, kind: received.append((text, kind)),
     )
     rounds = step.run(_user())
@@ -540,7 +540,10 @@ def test_streaming_mid_stream_client_error_stops_loop_like_complete_would():
         stream_script=[[ClientError(message="down", kind="network", attempts=1)]]
     )
     step = Step(
-        client, TrustedBackend(), Runtime(), max_rounds=5,
+        client,
+        TrustedBackend(),
+        Runtime(),
+        max_rounds=5,
         on_stream_text=lambda text, kind: None,
     )
     rounds = step.run(_user())

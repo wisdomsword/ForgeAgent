@@ -158,9 +158,7 @@ def test_guarded_urlopen_uses_explicit_empty_proxy_handler(monkeypatch):
             created_proxy_mappings.append(proxies)
             super().__init__(proxies)
 
-    monkeypatch.setattr(
-        "forgeagent.ssrf_guard.urllib.request.ProxyHandler", RecordingProxyHandler
-    )
+    monkeypatch.setattr("forgeagent.ssrf_guard.urllib.request.ProxyHandler", RecordingProxyHandler)
 
     with pytest.raises(SSRFGuardError, match="127.0.0.1"):
         guarded_urlopen("http://127.0.0.1/resource", timeout=0.1)
@@ -173,9 +171,7 @@ def test_redirect_handler_allows_tenth_hop():
     request = urllib.request.Request("https://example.com/0")
     request._forgeagent_redirect_count = 9
 
-    redirected = handler.redirect_request(
-        request, None, 302, "Found", {}, "https://example.com/10"
-    )
+    redirected = handler.redirect_request(request, None, 302, "Found", {}, "https://example.com/10")
 
     assert redirected is not None
     assert redirected._forgeagent_redirect_count == 10
