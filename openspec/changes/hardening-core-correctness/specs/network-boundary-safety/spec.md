@@ -70,3 +70,7 @@ ForgeAgent MUST convert expected URL, transport, HTTP protocol and response-deco
 #### Scenario: Search receives an unknown response charset
 - **WHEN** a successful search response declares a charset unavailable to Python
 - **THEN** ForgeAgent decodes the response with UTF-8 replacement semantics and continues best-effort parsing
+
+#### Scenario: Search receives an invalid query for URL construction
+- **WHEN** `/search` receives a query containing an unpaired surrogate and URL construction raises `UnicodeError` or `ValueError`
+- **THEN** it returns an empty result list with `ERROR_UNAVAILABLE`, does not call the guarded opener, and logs neither the query nor exception text

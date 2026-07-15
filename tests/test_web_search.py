@@ -100,20 +100,20 @@ def test_load_search_engine_valid_override(tmp_path):
 def test_bing_parser_extracts_title_url_snippet():
     results = _parse_results(BING_HTML, "bing")
     assert results == [
-        SearchResult(title="Example Title 1", url="https://example.com/1",
-                      snippet="Snippet text one."),
-        SearchResult(title="Example Title 2", url="https://example.com/2",
-                      snippet="Snippet text two."),
+        SearchResult(
+            title="Example Title 1", url="https://example.com/1", snippet="Snippet text one."
+        ),
+        SearchResult(
+            title="Example Title 2", url="https://example.com/2", snippet="Snippet text two."
+        ),
     ]
 
 
 def test_duckduckgo_parser_extracts_title_url_snippet():
     results = _parse_results(DUCKDUCKGO_HTML, "duckduckgo")
     assert results == [
-        SearchResult(title="DDG Title 1", url="https://example.com/1",
-                      snippet="DDG snippet one."),
-        SearchResult(title="DDG Title 2", url="https://example.com/2",
-                      snippet="DDG snippet two."),
+        SearchResult(title="DDG Title 1", url="https://example.com/1", snippet="DDG snippet one."),
+        SearchResult(title="DDG Title 2", url="https://example.com/2", snippet="DDG snippet two."),
     ]
 
 
@@ -147,9 +147,26 @@ def test_search_with_status_encodes_query_and_uses_default_engine(monkeypatch):
     results, error_kind = search_with_status("a b&c", engine=DEFAULT_ENGINE)
     assert error_kind is None
     assert results == []
-    assert captured_urls == [
-        f"https://www.bing.com/search?q={urllib.parse.quote('a b&c')}"
-    ]
+    assert captured_urls == [f"https://www.bing.com/search?q={urllib.parse.quote('a b&c')}"]
+
+
+def test_search_with_status_unpaired_surrogate_returns_unavailable_without_request(
+    monkeypatch, caplog
+):
+    query = "broken\ud800query"
+    guarded_calls: list[str] = []
+
+    def fake_urlopen(url, *, timeout=10.0):
+        guarded_calls.append(url)
+        return _FakeResponse(b"")
+
+    monkeypatch.setattr("forgeagent.web_search.guarded_urlopen", fake_urlopen)
+    results, error_kind = search_with_status(query, engine="bing")
+
+    assert results == []
+    assert error_kind == ERROR_UNAVAILABLE
+    assert guarded_calls == []
+    assert query not in caplog.text
 
 
 def test_search_with_status_success_returns_results_and_none_error(monkeypatch):

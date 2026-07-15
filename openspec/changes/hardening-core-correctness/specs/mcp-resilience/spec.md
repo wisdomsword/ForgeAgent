@@ -27,11 +27,11 @@ ForgeAgent SHALL continue startup when an optional MCP server fails to connect, 
 - **THEN** `server_status()`, startup diagnostics and REPL status output identify the server and fixed cause without containing the secret or raw exception text
 
 ### Requirement: Required MCP failures abort startup
-ForgeAgent MUST return a non-zero CLI startup result when a required MCP server fails to connect, MUST NOT start the task, and MUST perform bounded cleanup of MCP resources that were already started. Normal cleanup MUST release those resources; when an event-loop thread is hard-stuck, the bounded startup failure path MAY remain incomplete only while retaining cleanup evidence, emitting a sanitized warning and permitting a later bounded `close()` retry.
+ForgeAgent MUST return a non-zero CLI startup result when a required MCP server fails to connect, MUST NOT start the task, and MUST perform bounded cleanup of MCP resources that were already started. Normal cleanup MUST release those resources. When an event-loop thread is hard-stuck, the required CLI failure MAY remain incomplete at the public deadline only while retaining cleanup evidence and emitting a sanitized warning. If the authoritative drain does not yet exist, the queued shutdown facade or fallback callback on the live loop/thread MUST keep the manager state strongly reachable; if the drain exists, that sole loop-owned drain MUST keep it reachable. When the loop recovers, queued work MUST create or reuse the sole authoritative drain and continue cleanup; an existing drain MUST continue directly. Because `build_mcp_manager()` closes and raises `MCPStartupError`, the CLI MUST NOT expose or promise a later `close()` handle, and this path MUST NOT add a global registry, `atexit` hook, or new API. A direct API caller that still holds the `MCPManager`, and ordinary manager lifecycle repeated `close()` calls, MAY use a new bounded close retry.
 
 #### Scenario: Required server connection fails
 - **WHEN** a required MCP server cannot start or complete its connection handshake
-- **THEN** the CLI reports a startup error, closes already-started MCP resources and exits non-zero before running the task
+- **THEN** the CLI reports a startup error, makes one bounded cleanup attempt for already-started MCP resources, and exits non-zero before running the task without exposing a manager or later-close handle
 
 #### Scenario: Required startup failure cleans up normally
 - **WHEN** a required server fails after one or more MCP resources have started and their loop thread remains responsive
@@ -39,7 +39,7 @@ ForgeAgent MUST return a non-zero CLI startup result when a required MCP server 
 
 #### Scenario: Required startup failure encounters a hard-stuck loop
 - **WHEN** a required server fails and cleanup cannot complete because the MCP event-loop thread is blocked in synchronous code
-- **THEN** the CLI exits non-zero before task execution at its bounded deadline, retains holder/session/lifecycle/loop/thread evidence, emits only a sanitized incomplete-cleanup warning, and a later `close()` retries cleanup within a new bounded deadline without fabricating completion
+- **THEN** the CLI exits non-zero before task execution at its bounded deadline, retains holder/session/lifecycle/loop/thread evidence through either queued shutdown facade/fallback work on the live loop/thread or an already-created sole authoritative drain, emits only a sanitized incomplete-cleanup warning, and lets recovered queued work create or reuse that drain and continue cleanup; the CLI exposes no later `close()` handle and does not fabricate completion
 
 #### Scenario: User changes a required server during an active REPL
 - **WHEN** the REPL has already started with an MCP manager because at least one server was enabled at startup, and the user explicitly disables or enables a server configured with `required: true`
@@ -133,11 +133,11 @@ ForgeAgent MUST keep a new loop worker behind a publication gate until manager s
 
 #### Scenario: Startup rollback cannot close a stopped loop
 - **WHEN** startup rollback stops the worker but closing the event-loop object raises an ordinary Exception
-- **THEN** ForgeAgent records only the fixed exception type, retains the stopped loop/thread and completed pre-holder cleanup evidence, remains closed rather than retryable, and lets a later `close()` retry loop closure before references are cleared
+- **THEN** ForgeAgent records only the fixed exception type, retains the stopped loop/thread and completed pre-holder cleanup evidence, remains closed rather than retryable, and lets the caller that still holds the manager use a later `close()` to retry loop closure before references are cleared
 
 #### Scenario: Startup rollback cannot stop the worker in time
 - **WHEN** the loop thread remains alive after the startup rollback join bound
-- **THEN** ForgeAgent does not close the active loop or clear its references, keeps the manager started but closed with startup cleanup marked complete because no holder was published, emits a sanitized incomplete-startup warning, and still rethrows the original startup exception so a later close can retry stop/join
+- **THEN** ForgeAgent does not close the active loop or clear its references, keeps the manager started but closed with startup cleanup marked complete because no holder was published, emits a sanitized incomplete-startup warning, and still rethrows the original startup exception so the caller that still holds the manager can use a later `close()` to retry stop/join
 
 #### Scenario: Startup rollback cleanup receives process control
 - **WHEN** startup has an ordinary primary failure and a later cancellation-marker, gate, loop-stop, join, state-check or loop-close cleanup raises `KeyboardInterrupt` or `SystemExit`

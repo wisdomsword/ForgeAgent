@@ -142,6 +142,7 @@ network:
 - WebFetch 在打开、读取和关闭响应的同一 `try` 边界内处理 `SSRFGuardError`、`OSError`、`http.client.HTTPException` 和非法模型 URL 产生的 `ValueError`。SSRF 拒绝返回 `WebFetch blocked by network policy`；其余请求/协议失败返回 `WebFetch request failed`。
 - WebFetch 完成响应读取后，单独包围 artifact `write_text()`；写入 `OSError` 返回 `WebFetch response save failed`。不得把一次成功请求误报为网络请求失败。
 - `/search` 将 `OSError` 和 `http.client.HTTPException` 收敛为既有 `ERROR_UNAVAILABLE`。远端声明未知 charset 时不把可用响应判为网络故障，而是退回 UTF-8 `errors="replace"` 解码。
+- `/search` 的未配对 surrogate query 在发出请求前收敛为固定 `ERROR_UNAVAILABLE`，并且不得产生网络请求。
 - 不使用覆盖整个工具主体的 `except Exception`。断言错误、类型错误和实现缺陷仍应在测试中显式暴露。
 
 捕获 `http.client.HTTPException` 基类是有意的：Python 3.11+ 中 `IncompleteRead`、`BadStatusLine`、`InvalidURL`、`LineTooLong`、`UnknownProtocol`、`UnknownTransferEncoding` 和 connection-state errors 均继承该类且多数不继承 `OSError`；`RemoteDisconnected` 同时落入 `OSError` 和 HTTP 异常体系。测试不逐一伪造所有内部状态类，而是覆盖可由本调用路径产生的代表性叶子：open 阶段 `InvalidURL`、status/header 阶段 `BadStatusLine`/`LineTooLong`、body 阶段 `IncompleteRead`、disconnect 阶段 `RemoteDisconnected`，并用继承断言锁定这些类别仍被基类捕获。
@@ -177,6 +178,7 @@ WebFetch formatter 在一次调用开始时只读取一次 `sensitive_env_values
 实施期 thorough review 发现确认后的工具结果同样会进入 Step feedback 和 CLI console。用户于 2026-07-13 选择把该问题纳入当前 change，并批准固定安全结果消息方案：
 
 - WebFetch 捕获 `SSRFGuardError` 时返回固定 `WebFetch blocked by network policy`；打开、读取或关闭响应时发生 `OSError`、`http.client.HTTPException` 或非法 URL `ValueError` 时返回固定 `WebFetch request failed`；response 已读取后，artifact digest/filename 推导、canonical path 验证或写入发生 `ValueError`/`OSError` 时返回固定 `WebFetch response save failed`。这包括 URL 的未配对 surrogate 位于不会发往服务器的 fragment、网络层成功但完整 URL 无法按 UTF-8 编码的情况。不得把底层异常、原始 URL、hostname 或宿主路径写入 `ToolOutcome.detail`。
+- WebFetch 对多字节 response 的 reported byte count 必须等于脱敏后实际 UTF-8 artifact 的字节大小，不得把字符数当作 bytes，也不得在脱敏后继续使用原始响应大小。
 - WebFetch 的可预测 artifact 名称直接位于 `allowed_root`，写入前必须交给 `_validate_path()`，并使用其返回的 canonical target；预置同名 artifact symlink 指向 root 外时返回 `WebFetch response save failed`，不得触碰外部目标。`allowed_root` 自身可以是用户明确配置的 symlink alias，其 `realpath` 才是授权根。通用后代/祖先 symlink component 解析继续由 File 工具的 `_validate_path()` 用例覆盖；当前 artifact filename 不虚构不存在的中间目录。该检查与 FileWrite 共享现有函数，不新增 artifact policy 层。
 - FileWrite 通过 project-root 校验并成功写入后，只返回由已解析目标相对 canonical `allowed_root` 计算出的 project-relative 路径：`base = Path(os.path.realpath(ctx.allowed_root))`，再对 `_validate_path()` 返回的 `resolved` 使用 `relative_to(base)`。不复用模型提供的原始路径，也不假定 `ctx.allowed_root` 已经是绝对路径。
 - FileWrite 写入阶段发生 `OSError` 或路径语法产生 `ValueError` 时返回固定 `FileWrite failed`。越界、无交互通道和用户拒绝继续使用既有固定消息。
@@ -249,7 +251,7 @@ required: bool = False
 2. 无 enabled server 时返回 `None`。直接使用 `MCPManager` 时，`connect()` 在无 enabled server 的情况下不创建 loop 且保持可在修改 desired config 后再次显式 connect 的 pre-start 状态；`enable()` 本身不隐式创建一个此前不存在的 manager/loop。
 3. 调用 `connect()`。服务级连接失败继续由 holder 收敛为状态；initial holder submission/result 发生普通 manager 基础设施异常时，`connect()` 先对已发布 loop/holder 执行 bounded close，再让组装层转成不含异常文本的 `MCPStartupError`。cleanup 抛出的 `asyncio.CancelledError` 等非进程控制 `BaseException` 只能记录固定类型，不能替换 primary startup error；新的 `KeyboardInterrupt`/`SystemExit` 仍按进程控制语义传播。primary 本身是控制异常时也必须先 best-effort cleanup，再原样传播。
 4. 收集 required failures。
-5. 若非空，先调用不会抛出普通 `Exception` 的 `close()`，再抛 `MCPStartupError`，消息只包含服务名和已脱敏的固定状态。`close()` 进入后第一项动作必须是设置 closed state，避免二次错误让启动清理重新进入。
+5. 若非空，先调用不会抛出普通 `Exception` 的 `close()`，再抛 `MCPStartupError`，消息只包含服务名和已脱敏的固定状态。required CLI failure 不向 CLI 暴露 manager 或后续 `close()` handle：若公开 deadline 到达时清理仍未完成且 drain 尚未创建，live loop/thread 中 queued shutdown facade 或 fallback callback 强引用 manager state；若 drain 已创建，则由唯一 loop-owned authoritative drain 强引用。loop 从同步阻塞恢复后，queued work 必须创建或复用该唯一 drain并继续清理；已存在的 drain 则直接继续，直至完成清理。CLI 只捕获错误并返回 2，不承诺或安排后续 close，也不通过 global registry、atexit 或新 API 暴露它。直接 API 调用方仍持有 `MCPManager` 引用时，才可使用新的 bounded `close()` 重试。`close()` 进入后第一项动作必须是设置 closed state，避免二次错误让启动清理重新进入。
 6. 否则打印全部状态；optional unavailable 使用黄色诊断，返回 manager。
 
 CLI 捕获 `MCPStartupError`，打印单行错误并返回 2。run 与 REPL 都使用同一构造函数，因此行为一致。
@@ -275,7 +277,7 @@ manager 构造参数增加仅供内部/测试注入的 `shutdown_timeout=10.0` �
 11. 公开 `close()` 在设置 closed state 后用 `try/except Exception/finally` 包围内部操作。Exception 只记录 warning并继续 best-effort drain/join；KeyboardInterrupt/SystemExit 不被吞掉。cleanup incomplete 时无论 thread 是否暂时存活，都不得从主线程清空 loop-owned slot/session 引用。
 12. 返回 None，不向调用方传播普通关闭异常。
 
-正常和 holder 无响应 fixture 必须证明 SDK 的进程树清理可以在上限内结束子进程。更极端的情形是 event-loop thread 本身被同步代码卡死：cancel 和 SDK context exit 可能尚未执行，daemon thread 可能暂时保有 transport、file descriptor，甚至 MCP child process。Python 不提供安全强杀线程的 API，manager 也没有 SDK child handle 可供主线程可靠终止，因此 CLI 仍按 deadline 返回，warning 明确标记 `shutdown incomplete; resources may remain` 并保留上述诊断证据。若线程随后停止，第二次 `close()` 必须关闭遗留 loop 并清除引用；若仍存活，第二次调用仍只能在自己的新 absolute deadline 内等待 completion 与 join。默认不抓取线程堆栈：`sys._current_frames()` 是 CPython 私有诊断接口，输出冗长且可能包含宿主路径；固定线程身份和 pending holder 足以定位本层问题。
+正常和 holder 无响应 fixture 必须证明 SDK 的进程树清理可以在上限内结束子进程。更极端的情形是 event-loop thread 本身被同步代码卡死：cancel 和 SDK context exit 可能尚未执行，daemon thread 可能暂时保有 transport、file descriptor，甚至 MCP child process。Python 不提供安全强杀线程的 API，manager 也没有 SDK child handle 可供主线程可靠终止，因此 required CLI failure 仍按 deadline 返回，warning 明确标记 `shutdown incomplete; resources may remain` 并保留上述诊断证据。若 drain 尚未创建，live loop/thread 的 queued shutdown facade 或 fallback callback 保活 manager；若 drain 已存在，则由它保活。阻塞解除后，queued work 创建或复用唯一 loop-owned authoritative drain并继续清理。该 CLI 路径不暴露后续 `close()` handle；只有仍持有 manager 的 direct API 调用方以及普通 manager lifecycle 的 repeated `close()`，才在各自新的 absolute deadline 内唤醒既有 drain、等待 completion 与 join。默认不抓取线程堆栈：`sys._current_frames()` 是 CPython 私有诊断接口，输出冗长且可能包含宿主路径；固定线程身份和 pending holder 足以定位本层问题。
 
 ### 7.4 Loop-owned reconcile 与 generation token
 
@@ -343,6 +345,8 @@ REPL `/mcp enable|disable` 是同步 facade 的用户边界。若 manager waiter
 Loop startup 也是 transaction：先创建局部 loop、publication gate、cancel event 和固定名称 thread；worker 用短周期 gate wait 同时检查 cancel，未见 published gate 时不得进入 `run_forever()`，即使 gate release 本身在真正 set 前抛错也能因 cancel 退出。`connect()` 在 closed manager 上直接返回且不得 reopen。只有 manager 的 `_loop/_thread/_started` 发布成功后才 release gate。`Thread.start()`、状态发布或 gate release 任一点抛出 `BaseException` 时：保存 primary，设置 cancel 并 best-effort release gate；无论 worker 尚未检查 cancel 还是已经进入 `run_forever()`，都 best-effort `call_soon_threadsafe(loop.stop)`，再在 `thread_join_timeout` 内 join。rollback 内每个 cleanup 操作独立捕获后续 `BaseException`、只记录固定异常类型，并按上一段 caller-thread 规则选择最终异常：primary control 保持 identity；ordinary primary 遇到的首个 cleanup control 升级为最终异常；其余 cleanup 仍继续。线程停止且 `loop.close()` 成功后才清空 refs、恢复 `_started=False`/`_closed=False` 与未设置的 shutdown state，使 manager 可重试。若线程仍活，或线程已停但 `loop.close()` 抛普通异常，都不能清空 refs：保留 `_loop/_thread`、置 `_started=True/_closed=True`，因该 pre-holder rollback 没有 holder 而把 startup cleanup 标为 complete，记录仅含固定类型/线程身份的 warning，再传播按规则选出的异常；后续 `close()` 对停止的 loop 重试 close，成功后才清理并允许新 manager 实例继续。
 
 transaction 直到 initial `_start_holders()` submission/result 成功才结束。publication 后的 `_submit` 若抛普通 `Exception`，`connect()` 先调用 bounded close 清理已创建 generation；cleanup 的普通异常被 close 收敛，若 cleanup 自身收到新的 `KeyboardInterrupt`/`SystemExit` 则按进程控制语义传播，否则原 infrastructure Exception 交给 `build_mcp_manager()` 转成只含固定类别与异常类型的 `MCPStartupError`。若 primary 本身是 `KeyboardInterrupt`/`SystemExit`，`connect()` 必须保存该对象，cleanup 中捕获并仅记录任何后续 `BaseException` 的固定类型，再重抛同一 primary 对象，不能让第二异常替换它。所有路径都不能输出原异常字符串、command、args 或 env。增加 submission rejection/timeout 后无 loop、holder、PID 泄漏的回归。
+
+Startup rollback 的 manager 仍由直接调用方持有，因此 stopped-loop close failure 或 still-alive rollback 可以由该调用方 later `close()` 在新 deadline 内重试；这不改变 required CLI failure 已抛错且不暴露 manager handle 的语义。
 
 现有未提交回归必须作为重设计第一轮 RED：
 
@@ -455,7 +459,7 @@ runner 本里程碑明确顺序执行，不承诺多个进程同时写同一个 
 | 能力 | 关键测试 | 主要证据 |
 | --- | --- | --- |
 | 代理/SSRF | 大小写 proxy env、loopback、private、NAT64、redirect private、11 跳、FTP/file redirect | 实际校验 host 是目标而非代理；blocked target 未连接；redirect limit/scheme 明确拒绝 |
-| 网络消费端错误 | WebFetch InvalidURL/BadStatusLine/LineTooLong/IncompleteRead/RemoteDisconnected/close error/artifact OSError；search representative protocol error/unknown charset | HTTPException 基类覆盖代表性叶子；工具级异常不逃逸；固定消息不含 URL/hostname/path；search 返回 unavailable 或 UTF-8 fallback |
+| 网络消费端错误 | WebFetch InvalidURL/BadStatusLine/LineTooLong/IncompleteRead/RemoteDisconnected/close error/artifact OSError；search representative protocol error/unknown charset/unpaired-surrogate query | HTTPException 基类覆盖代表性叶子；工具级异常不逃逸；固定消息不含 URL/hostname/path；search 返回 unavailable 或 UTF-8 fallback；未配对 surrogate 返回 fixed unavailable 且零 request |
 | confirmer 与结果最小披露 | MCP/WebFetch/FileWrite formatter、EOF、空输入、带空白的 yes/no、非 TTY REPL、MCP identifier/FileWrite path secret、Rich markup/terminal controls、嵌套 secret key、encoded/case/overlap hostname、encoded delimiters、IPv6/zone id、URL component mask、WebFetch 失败、artifact symlink escape、FileWrite 成功/失败 outcome、到期裸词路由 | 无属性错误；模型文本按单行 literal 渲染且不注入样式/换行；无跨组件或双重脱敏；prompt、ToolOutcome、Step feedback 不回显敏感 URL/hostname/宿主绝对路径；artifact 不写出 root；TTY 与非 TTY 原因正确；仅 slash command 被路由 |
 | 文件路径边界 | root allowed_root、相对 root、NUL、越界、symlink resolve、FileRead/List/Write OSError、restricted audit | commonpath 正确接受 root 子路径并拒绝越界；无 ValueError 逃逸；固定失败消息无绝对路径 |
 | CLI 注入 | REPL、TTY run、非 TTY run、`--interactive` | confirmer 与 MCP 解耦；Survey 语义不漂移 |

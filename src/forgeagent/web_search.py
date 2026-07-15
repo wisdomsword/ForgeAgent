@@ -215,7 +215,11 @@ def search_with_status(
     engine = engine or load_search_engine()
     if engine not in SEARCH_ENGINES:
         engine = DEFAULT_ENGINE
-    url = SEARCH_ENGINES[engine].format(query=urllib.parse.quote(query))
+    try:
+        url = SEARCH_ENGINES[engine].format(query=urllib.parse.quote(query))
+    except (UnicodeError, ValueError):
+        logger.warning("search request URL construction failed for engine %s", engine)
+        return [], ERROR_UNAVAILABLE
     try:
         with guarded_urlopen(url) as response:
             status = getattr(response, "status", 200)
