@@ -1,20 +1,32 @@
-"""Executable Task 8 golden scenarios and their independent judges."""
+"""Executable trusted-core golden scenarios and their independent judges."""
 
 from __future__ import annotations
 
 import ast
 import csv
 import hashlib
+import io
 import json
+import os
 import secrets
+import socket
+import subprocess
+import sys
+import time
+import urllib.request
+import urllib.response
+from email.message import Message as EmailMessage
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
+from rich.console import Console
+
 from forgeagent.client import MockClient, ModelClient
-from forgeagent.executor import ExecResult, RestrictedBackend
+from forgeagent.executor import ExecResult, ExecutorBackend, RestrictedBackend
+from forgeagent.mcp_manager import MCPManager, MCPServerConfig
 from forgeagent.models import (
     AssistantMessage,
     ClientError,
@@ -22,8 +34,17 @@ from forgeagent.models import (
     Message,
     TokenUsage,
 )
-from forgeagent.protocol import EditArgs, ExecArgs, parse
+from forgeagent.policy import CodeAnalyzer
+from forgeagent.protocol import EditArgs, ExecArgs, FileWriteArgs, WebFetchArgs, parse
 from forgeagent.runtime import Runtime
+from forgeagent.ssrf_guard import SSRFGuardError, guarded_urlopen
+from forgeagent.tools import (
+    CodeBlockStore,
+    ExecTool,
+    FileWriteTool,
+    ToolContext,
+    WebFetchTool,
+)
 
 if TYPE_CHECKING:
     from .manifest import GoldenEvidence
@@ -46,11 +67,6 @@ def _invalid(message: str, cause: Exception) -> None:
     from .manifest import GoldenCheckError
 
     raise GoldenCheckError(message) from cause
-
-
-def _pending(scenario_id: str) -> GoldenEvidence:
-    require(False, f"{scenario_id} case implementation pending")
-    raise RuntimeError("unreachable")
 
 
 def _reply(text: str) -> AssistantMessage:
@@ -89,6 +105,57 @@ def _run_task(workdir: Path, client: ModelClient, goal: str, *, backend=None):
 
 def _require_completed(outcome, scenario_id: str) -> None:
     require(outcome.status.completed, f"{scenario_id} task did not complete")
+
+
+def _tool_context(
+    workdir: Path,
+    *,
+    backend: ExecutorBackend | None = None,
+    confirmer=None,
+    tier: str = "restricted",
+) -> ToolContext:
+    return ToolContext(
+        blocks=CodeBlockStore(),
+        backend=backend or RestrictedBackend(allowed_root=str(workdir), secret_values=set()),
+        runtime=Runtime(),
+        analyzer=CodeAnalyzer(),
+        confirmer=confirmer,
+        tier=tier,
+        allowed_root=str(workdir),
+    )
+
+
+class _GoldenHeaders:
+    def __init__(self, content_type: str) -> None:
+        self._content_type = content_type
+
+    def get_content_type(self) -> str:
+        return self._content_type
+
+
+class _GoldenResponse:
+    def __init__(self, body: bytes, content_type: str = "text/plain") -> None:
+        self._body = body
+        self.headers = _GoldenHeaders(content_type)
+
+    def read(self, size: int = -1) -> bytes:
+        return self._body if size < 0 else self._body[:size]
+
+    def __enter__(self) -> _GoldenResponse:
+        return self
+
+    def __exit__(self, *_exc_info) -> bool:
+        return False
+
+
+def _process_exists(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
 
 
 def _read_csv(path: Path) -> tuple[list[str], list[list[str]]]:
@@ -929,40 +996,443 @@ def run_g43_real(workdir: Path, client: ModelClient) -> GoldenEvidence:
 
 
 def run_g06_offline(workdir: Path) -> GoldenEvidence:
-    return _pending("G06")
+    workdir.mkdir(parents=True, exist_ok=True)
+    target = workdir.parent / "g06-outside-secret.txt"
+    secret = "g06-target-content-must-not-be-read"
+    target.write_text(secret, encoding="utf-8")
+    client = _RecordingMockClient(
+        script=[
+            _reply(_exec(f"print(open({str(target)!r}, encoding='utf-8').read())", "escape")),
+            _reply(_done()),
+        ]
+    )
+
+    _, outcome = _run_task(workdir, client, "Read the supplied out-of-project file.")
+
+    require(len(outcome.rounds) == 2, "G06 task did not continue after restricted denial")
+    failed_round, completion_round = outcome.rounds
+    require(
+        len(failed_round.outcomes) == 1 and not failed_round.outcomes[0].success,
+        "G06 restricted operation was not recorded as a structured failure",
+    )
+    failed = failed_round.outcomes[0]
+    require(failed.exec_result is not None, "G06 restricted failure lacks an ExecResult")
+    require(
+        failed.detail == "restricted: file access outside allowed root denied",
+        "G06 restricted failure detail differs",
+    )
+    require(
+        secret not in failed.exec_result.stdout
+        and secret not in failed.exec_result.stderr
+        and secret not in (failed.exec_result.error or ""),
+        "G06 out-of-root target content was exposed",
+    )
+    require(len(client.messages_by_call) >= 2, "G06 denial feedback was not returned to the task")
+    feedback = [
+        message.content
+        for message in client.messages_by_call[1]
+        if type(message.content) is str and "[Exec escape] FAILED:" in message.content
+    ]
+    require(
+        len(feedback) == 1 and "restricted: file access outside allowed root denied" in feedback[0],
+        "G06 task feedback lacks the structured denial",
+    )
+    require(secret not in feedback[0], "G06 task feedback exposed target content")
+    require(
+        completion_round.completed and not completion_round.outcomes,
+        "G06 task did not reach an independent completion round",
+    )
+    return _evidence(
+        detail="restricted denial returned through task feedback",
+        evidence={
+            "rounds": 2,
+            "failed_round": 1,
+            "completion_round": 2,
+            "target_content_exposed": False,
+        },
+    )
 
 
 def run_g14_offline(workdir: Path) -> GoldenEvidence:
-    return _pending("G14")
+    workdir.mkdir(parents=True, exist_ok=True)
+    backend = RestrictedBackend(
+        allowed_root=str(workdir),
+        timeout_seconds=0.2,
+        cpu_seconds=0,
+        secret_values=set(),
+    )
+    client = _RecordingMockClient(
+        script=[
+            _reply(_exec("while True:\n    pass", "runaway")),
+            _reply(_exec("print('later work succeeded')", "later")),
+            _reply(_done()),
+        ]
+    )
+    workers: list[subprocess.Popen] = []
+    real_popen = subprocess.Popen
+
+    def record_worker(*args, **kwargs):
+        process = real_popen(*args, **kwargs)
+        command = args[0] if args else kwargs.get("args", [])
+        if "forgeagent._sandbox_worker" in " ".join(str(part) for part in command):
+            workers.append(process)
+        return process
+
+    with patch("forgeagent.executor.subprocess.Popen", side_effect=record_worker):
+        _, outcome = _run_task(
+            workdir,
+            client,
+            "Run the supplied long operation, then perform independent later work.",
+            backend=backend,
+        )
+
+    require(len(outcome.rounds) == 3, "G14 task did not follow timeout, success, completion")
+    timed_out, later, completed = outcome.rounds
+    require(
+        len(timed_out.outcomes) == 1 and not timed_out.outcomes[0].success,
+        "G14 runaway block did not fail",
+    )
+    timeout_detail = "execution timed out after 0.2s (process killed)"
+    require(timed_out.outcomes[0].detail == timeout_detail, "G14 timeout detail differs")
+    require(len(client.messages_by_call) >= 2, "G14 timeout feedback was not returned")
+    timeout_feedback = [
+        message.content
+        for message in client.messages_by_call[1]
+        if type(message.content) is str and "[Exec runaway] FAILED:" in message.content
+    ]
+    require(
+        len(timeout_feedback) == 1 and timeout_detail in timeout_feedback[0],
+        "G14 timeout feedback differs",
+    )
+    require(
+        len(later.outcomes) == 1
+        and later.outcomes[0].success
+        and later.outcomes[0].exec_result is not None
+        and later.outcomes[0].exec_result.stdout.strip() == "later work succeeded",
+        "G14 later independent work did not succeed",
+    )
+    require(completed.completed and not completed.outcomes, "G14 task did not complete")
+    require(len(workers) == 2, "G14 worker process count differs")
+    require(
+        all(process.poll() is not None for process in workers),
+        "G14 left a sandbox worker running",
+    )
+    return _evidence(
+        detail="timeout was isolated from later work",
+        evidence={
+            "rounds": 3,
+            "timed_out_round": 1,
+            "successful_round": 2,
+            "worker_processes": 2,
+            "workers_reaped": True,
+        },
+    )
 
 
 def run_g58_offline(workdir: Path) -> GoldenEvidence:
-    return _pending("G58")
+    workdir.mkdir(parents=True, exist_ok=True)
+    target = workdir.parent / "g58-outside-secret.txt"
+    secret = "g58-target-content-must-not-be-read"
+    target.write_text(secret, encoding="utf-8")
+    result = RestrictedBackend(allowed_root=str(workdir), secret_values=set()).execute(
+        "import os\n"
+        f"os.chdir({str(workdir)!r})\n"
+        f"print(open('../{target.name}', encoding='utf-8').read())\n",
+        Runtime(),
+    )
+
+    require(not result.success, "G58 out-of-root read unexpectedly succeeded")
+    require(
+        result.error == "restricted: file access outside allowed root denied",
+        "G58 audit-hook failure detail differs",
+    )
+    require(
+        secret not in result.stdout and secret not in result.stderr and secret not in result.error,
+        "G58 out-of-root target content was exposed",
+    )
+    return _evidence(
+        detail="audit hook blocked the out-of-root read",
+        evidence={
+            "success": False,
+            "error": result.error,
+            "target_content_exposed": False,
+        },
+    )
 
 
 def run_g59_offline(workdir: Path) -> GoldenEvidence:
-    return _pending("G59")
+    workdir.mkdir(parents=True, exist_ok=True)
+    target = workdir.parent / "g59-outside-write.txt"
+    result = RestrictedBackend(allowed_root=str(workdir), secret_values=set()).execute(
+        "import os\n"
+        f"os.chdir({str(workdir)!r})\n"
+        f"open('../{target.name}', 'w', encoding='utf-8').write('outside')\n",
+        Runtime(),
+    )
+
+    require(not result.success, "G59 out-of-root write unexpectedly succeeded")
+    require(
+        result.error == "restricted: file access outside allowed root denied",
+        "G59 audit-hook failure detail differs",
+    )
+    require(not target.exists(), "G59 created the out-of-root target")
+    return _evidence(
+        detail="audit hook blocked the out-of-root write",
+        evidence={"success": False, "error": result.error, "target_exists": False},
+    )
 
 
 def run_g324_offline(workdir: Path) -> GoldenEvidence:
-    return _pending("G324")
+    workdir.mkdir(parents=True, exist_ok=True)
+    target = workdir.parent / "g324-outside-write.txt"
+    outcome = FileWriteTool().run(
+        FileWriteArgs(path=str(target), content="outside"),
+        _tool_context(workdir, confirmer=lambda _args: True),
+    )
+
+    require(not outcome.success, "G324 out-of-root FileWrite unexpectedly succeeded")
+    require(
+        outcome.detail == "FileWrite path is outside project root",
+        "G324 FileWrite failure detail differs",
+    )
+    require(not target.exists(), "G324 created the out-of-root target")
+    return _evidence(
+        detail="FileWrite rejected the out-of-root target",
+        evidence={"success": False, "detail": outcome.detail, "target_exists": False},
+    )
 
 
 def run_g329_offline(workdir: Path) -> GoldenEvidence:
-    return _pending("G329")
+    workdir.mkdir(parents=True, exist_ok=True)
+    metadata_host = "169.254.169.254"
+    resolver_calls: list[str] = []
+    connector_calls: list[tuple[object, ...]] = []
+
+    def resolve(host, port, *args, **kwargs):
+        del args, kwargs
+        resolver_calls.append(host)
+        return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (metadata_host, port))]
+
+    def connect(*args, **kwargs):
+        connector_calls.append((*args, kwargs))
+        raise RuntimeError("G329 connector double fired")
+
+    with (
+        patch("forgeagent.ssrf_guard.socket.getaddrinfo", side_effect=resolve),
+        patch("forgeagent.ssrf_guard.socket.socket", side_effect=connect),
+    ):
+        outcome = WebFetchTool().run(
+            WebFetchArgs(url=f"http://{metadata_host}/latest/meta-data/"),
+            _tool_context(workdir, confirmer=lambda _args: True),
+        )
+
+    require(resolver_calls == [metadata_host], "G329 metadata host was not guarded exactly once")
+    require(not outcome.success, "G329 metadata WebFetch unexpectedly succeeded")
+    require(
+        outcome.detail == "WebFetch blocked by network policy",
+        "G329 WebFetch failure detail differs",
+    )
+    require(connector_calls == [], "G329 attempted a guarded connection")
+    require(not list(workdir.glob("webfetch_*")), "G329 saved a blocked response")
+    return _evidence(
+        detail="confirmed metadata fetch was blocked before connect",
+        evidence={"success": False, "detail": outcome.detail, "connector_calls": 0},
+    )
 
 
 def run_g330_offline(workdir: Path) -> GoldenEvidence:
-    return _pending("G330")
+    del workdir
+    public_url = "http://public.example/redirect"
+    private_url = "http://private.example/metadata"
+    resolved_hosts: list[str] = []
+    connection_calls: list[tuple[object, ...]] = []
+    real_build_opener = urllib.request.build_opener
+
+    class SyntheticPublicRedirect(urllib.request.BaseHandler):
+        handler_order = 100
+
+        def http_open(self, request):
+            if request.full_url != public_url:
+                return None
+            headers = EmailMessage()
+            headers["Location"] = private_url
+            response = urllib.response.addinfourl(io.BytesIO(), headers, request.full_url, 302)
+            response.msg = "synthetic redirect"
+            return response
+
+    def build_opener(*handlers):
+        return real_build_opener(SyntheticPublicRedirect(), *handlers)
+
+    def resolve(host, port, *args, **kwargs):
+        del args, kwargs
+        resolved_hosts.append(host)
+        return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("10.0.0.8", port))]
+
+    def connect(*args, **kwargs):
+        connection_calls.append((*args, kwargs))
+        raise RuntimeError("G330 connection double fired")
+
+    blocked = False
+    with (
+        patch("forgeagent.ssrf_guard.urllib.request.build_opener", side_effect=build_opener),
+        patch("forgeagent.ssrf_guard.socket.getaddrinfo", side_effect=resolve),
+        patch("forgeagent.ssrf_guard.socket.socket", side_effect=connect),
+    ):
+        try:
+            guarded_urlopen(public_url, timeout=1)
+        except SSRFGuardError:
+            blocked = True
+
+    require(blocked, "G330 private redirect was not blocked")
+    require(resolved_hosts == ["private.example"], "G330 redirect target resolution differs")
+    require(connection_calls == [], "G330 connected to the private redirect target")
+    return _evidence(
+        detail="private redirect was rejected before connect",
+        evidence={
+            "blocked": True,
+            "resolved_hosts": resolved_hosts,
+            "connection_calls": 0,
+        },
+    )
 
 
 def run_g332_offline(workdir: Path) -> GoldenEvidence:
-    return _pending("G332")
+    workdir.mkdir(parents=True, exist_ok=True)
+    url = "https://public.example/data.txt"
+    fake_network_calls: list[str] = []
+
+    def fake_public_response(request_url: str, **_kwargs):
+        fake_network_calls.append(request_url)
+        return _GoldenResponse(b"public fixture response")
+
+    with patch("forgeagent.tools.guarded_urlopen", side_effect=fake_public_response):
+        rejected = WebFetchTool().run(WebFetchArgs(url=url), _tool_context(workdir))
+        calls_after_rejection = len(fake_network_calls)
+        approved = WebFetchTool().run(
+            WebFetchArgs(url=url),
+            _tool_context(workdir, confirmer=lambda _args: True),
+        )
+
+    require(not rejected.success, "G332 no-channel WebFetch unexpectedly succeeded")
+    require(
+        rejected.detail == "rejected: no interactive confirmation channel available",
+        "G332 no-channel rejection detail differs",
+    )
+    require(calls_after_rejection == 0, "G332 no-channel path called fake network")
+    require(approved.success, "G332 approved fake public response failed")
+    require(fake_network_calls == [url], "G332 approved path did not use one fake response")
+    saved = list(workdir.glob("webfetch_*"))
+    require(len(saved) == 1, "G332 approved response artifact count differs")
+    require(
+        saved[0].read_text(encoding="utf-8") == "public fixture response",
+        "G332 approved response artifact differs",
+    )
+    return _evidence(
+        detail="WebFetch confirmation controlled fake network access",
+        evidence={
+            "rejected_detail": rejected.detail,
+            "rejected_network_calls": 0,
+            "approved": True,
+            "approved_network_calls": 1,
+        },
+    )
 
 
 def run_g333_offline(workdir: Path) -> GoldenEvidence:
-    return _pending("G333")
+    workdir.mkdir(parents=True, exist_ok=True)
+    target = workdir / "inside.txt"
+    context = _tool_context(workdir, confirmer=lambda _args: False)
+    refused = FileWriteTool().run(
+        FileWriteArgs(path=target.name, content="written by FileWrite"), context
+    )
+
+    require(not refused.success, "G333 denied FileWrite unexpectedly succeeded")
+    require(
+        refused.detail == "FileWrite was not approved by the user",
+        "G333 FileWrite denial detail differs",
+    )
+    require(not target.exists(), "G333 denied FileWrite created the target")
+    executed = ExecTool().run(
+        ExecArgs(
+            name="inside-write",
+            code=f"open({str(target)!r}, 'w', encoding='utf-8').write('written by Exec')",
+        ),
+        context,
+    )
+
+    require(executed.success, "G333 later Exec write failed")
+    require(target.exists(), "G333 later Exec did not create the inside-root target")
+    final_content = target.read_text(encoding="utf-8")
+    require(final_content == "written by Exec", "G333 later Exec content differs")
+    return _evidence(
+        detail="FileWrite confirmation did not replace the project-root boundary",
+        evidence={
+            "filewrite_detail": refused.detail,
+            "filewrite_created": False,
+            "exec_success": True,
+            "final_content": final_content,
+        },
+    )
 
 
 def run_g355_offline(workdir: Path) -> GoldenEvidence:
-    return _pending("G355")
+    workdir.mkdir(parents=True, exist_ok=True)
+    fixture = Path(__file__).resolve().parents[1] / "mcp_fixture_server.py"
+    pid_file = workdir / "available.pid"
+    available = MCPServerConfig(
+        command=sys.executable,
+        args=[str(fixture)],
+        env={
+            "FORGE_TEST_MCP_NAME": "available",
+            "FORGE_TEST_MCP_MODE": "normal",
+            "FORGE_TEST_MCP_PID_FILE": str(pid_file),
+        },
+    )
+    unavailable = MCPServerConfig(command=str(workdir / "missing-optional-server"))
+    manager = MCPManager(
+        {"available": available, "optional": unavailable},
+        connect_timeout=5.0,
+        shutdown_timeout=3.0,
+        thread_join_timeout=1.0,
+    )
+    console = Console(file=io.StringIO(), record=True, width=160)
+    rendered = ""
+    pid = 0
+    try:
+        manager.connect()
+        require(pid_file.exists(), "G355 available fixture did not publish its PID")
+        pid = int(pid_file.read_text(encoding="utf-8"))
+        from forgeagent.cli import _handle_mcp_slash
+
+        _handle_mcp_slash("/mcp", manager, console)
+        rendered = console.export_text()
+    finally:
+        manager.close()
+
+    deadline = time.monotonic() + 1.0
+    while pid and _process_exists(pid) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    pid_reaped = bool(pid) and not _process_exists(pid)
+    require("available: available" in rendered, "G355 output lacks available status")
+    require("optional: unavailable" in rendered, "G355 output lacks optional failure status")
+    require(
+        "available:echo" in rendered and "Echo the given text" in rendered,
+        "G355 output lacks available echo tool description",
+    )
+    require(
+        "available:add" in rendered and "Add two integers" in rendered,
+        "G355 output lacks available add tool description",
+    )
+    require("optional:echo" not in rendered, "G355 listed a tool from the unavailable server")
+    require(manager._loop is None and manager._thread is None, "G355 manager did not close")
+    require(pid_reaped, "G355 fixture process survived manager close")
+    return _evidence(
+        detail="MCP slash output showed optional degradation and available tools",
+        evidence={
+            "available_status": True,
+            "unavailable_status": True,
+            "available_tools": ["add", "echo"],
+            "unavailable_tools": [],
+            "pid_reaped": True,
+        },
+    )

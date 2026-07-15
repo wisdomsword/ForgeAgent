@@ -31,6 +31,7 @@ from tests.golden.runner import (
 )
 
 COMMON_IDS = ("G01", "G03", "G05", "G08", "G11", "G13", "G15", "G17", "G27", "G43")
+BOUNDARY_IDS = ("G06", "G14", "G58", "G59", "G324", "G329", "G330", "G332", "G333", "G355")
 EXPECTED_COMMON_EVIDENCE = {
     "G01": (
         "CSV summary matched",
@@ -118,6 +119,95 @@ EXPECTED_COMMON_EVIDENCE = {
         },
     ),
 }
+EXPECTED_BOUNDARY_EVIDENCE = {
+    "G06": (
+        "restricted denial returned through task feedback",
+        {
+            "rounds": 2,
+            "failed_round": 1,
+            "completion_round": 2,
+            "target_content_exposed": False,
+        },
+    ),
+    "G14": (
+        "timeout was isolated from later work",
+        {
+            "rounds": 3,
+            "timed_out_round": 1,
+            "successful_round": 2,
+            "worker_processes": 2,
+            "workers_reaped": True,
+        },
+    ),
+    "G58": (
+        "audit hook blocked the out-of-root read",
+        {
+            "success": False,
+            "error": "restricted: file access outside allowed root denied",
+            "target_content_exposed": False,
+        },
+    ),
+    "G59": (
+        "audit hook blocked the out-of-root write",
+        {
+            "success": False,
+            "error": "restricted: file access outside allowed root denied",
+            "target_exists": False,
+        },
+    ),
+    "G324": (
+        "FileWrite rejected the out-of-root target",
+        {
+            "success": False,
+            "detail": "FileWrite path is outside project root",
+            "target_exists": False,
+        },
+    ),
+    "G329": (
+        "confirmed metadata fetch was blocked before connect",
+        {
+            "success": False,
+            "detail": "WebFetch blocked by network policy",
+            "connector_calls": 0,
+        },
+    ),
+    "G330": (
+        "private redirect was rejected before connect",
+        {
+            "blocked": True,
+            "resolved_hosts": ["private.example"],
+            "connection_calls": 0,
+        },
+    ),
+    "G332": (
+        "WebFetch confirmation controlled fake network access",
+        {
+            "rejected_detail": "rejected: no interactive confirmation channel available",
+            "rejected_network_calls": 0,
+            "approved": True,
+            "approved_network_calls": 1,
+        },
+    ),
+    "G333": (
+        "FileWrite confirmation did not replace the project-root boundary",
+        {
+            "filewrite_detail": "FileWrite was not approved by the user",
+            "filewrite_created": False,
+            "exec_success": True,
+            "final_content": "written by Exec",
+        },
+    ),
+    "G355": (
+        "MCP slash output showed optional degradation and available tools",
+        {
+            "available_status": True,
+            "unavailable_status": True,
+            "available_tools": ["add", "echo"],
+            "unavailable_tools": [],
+            "pid_reaped": True,
+        },
+    ),
+}
 
 
 def _pass(_: Path) -> GoldenEvidence:
@@ -162,24 +252,48 @@ def test_common_cases_return_the_exact_evidence_contract(tmp_path):
     } == EXPECTED_COMMON_EVIDENCE
 
 
-def test_default_runner_keeps_the_ten_boundary_cases_pending(tmp_path):
+def test_boundary_cases_return_the_exact_evidence_contract():
+    selected = tuple(
+        scenario for scenario in GOLDEN_SCENARIOS if scenario.scenario_id in BOUNDARY_IDS
+    )
+
+    suite = run_suite(selected, mode="offline")
+
+    assert suite.exit_code == 0
+    assert suite.passed == 10
+    assert {
+        result.scenario_id: (result.detail, result.evidence) for result in suite.results
+    } == EXPECTED_BOUNDARY_EVIDENCE
+
+
+def test_default_runner_completes_all_twenty_cases():
     suite = run_suite(GOLDEN_SCENARIOS, mode="offline")
 
-    assert suite.exit_code == 1
-    assert suite.passed == 10
-    assert suite.failed == 10
-    assert [result.scenario_id for result in suite.results if not result.passed] == [
-        "G06",
-        "G14",
-        "G58",
-        "G59",
-        "G324",
-        "G329",
-        "G330",
-        "G332",
-        "G333",
-        "G355",
-    ]
+    assert suite.exit_code == 0
+    assert suite.total == 20
+    assert suite.passed == 20
+    assert suite.failed == 0
+    assert suite.pass_rate == 100.0
+
+
+def test_offline_main_runs_unpatched_twenty_case_core_and_writes_shared_summary(tmp_path):
+    output_dir = tmp_path / "offline-core"
+
+    assert main(["--output-dir", str(output_dir)]) == 0
+
+    payload = json.loads((output_dir / "results.json").read_text(encoding="utf-8"))
+    markdown = (output_dir / "report.md").read_text(encoding="utf-8")
+    assert payload["mode"] == "offline"
+    assert payload["total"] == 20
+    assert payload["passed"] == 20
+    assert payload["failed"] == 0
+    assert payload["pass_rate"] == 100.0
+    assert (
+        f"Summary: {payload['passed']}/{payload['total']} passed "
+        f"({payload['pass_rate']:.1f}%)" in markdown
+    )
+    assert markdown.count("| PASS |") == payload["passed"]
+    assert "| FAIL |" not in markdown
 
 
 def test_g01_rejects_string_encoded_numbers(tmp_path):
@@ -690,7 +804,7 @@ def test_offline_main_restores_home_variables_after_normal_and_runner_failure(
     monkeypatch.setattr(
         "tests.golden.runner._load_offline_configuration_modules", observe_isolated_imports
     )
-    assert main(["--output-dir", str(output_dir)]) == 1
+    assert main(["--output-dir", str(output_dir)]) == 0
     assert observed_homes[0] != original
     assert {name: os.environ.get(name) for name in original} == original
 
@@ -718,7 +832,7 @@ def test_offline_reports_run_inside_isolated_home_and_restore_after_report_error
         return actual_write_reports(suite, output_dir)
 
     monkeypatch.setattr("tests.golden.runner.write_reports", observe_write_reports)
-    assert main(["--output-dir", str(tmp_path / "normal")]) == 1
+    assert main(["--output-dir", str(tmp_path / "normal")]) == 0
     assert observed[-1] != original
     assert {name: os.environ.get(name) for name in names} == original
 
@@ -747,7 +861,7 @@ def test_offline_main_calls_real_suite_inside_isolated_home_and_restores_environ
 
     monkeypatch.setattr("tests.golden.runner.run_suite", observe_run_suite)
 
-    assert main(["--output-dir", str(tmp_path / "suite")]) == 1
+    assert main(["--output-dir", str(tmp_path / "suite")]) == 0
     assert len(captured) == 1
     captured_environment = captured[0]
     isolated_home = captured_environment["HOME"]
@@ -803,16 +917,14 @@ def test_standalone_offline_runner_ignores_hostile_parent_mcp_config(tmp_path):
         check=False,
     )
 
-    assert completed.returncode == 1, completed.stderr
+    assert completed.returncode == 0, completed.stderr
     assert "golden preflight failed" not in completed.stdout
     payload = json.loads((output_dir / "results.json").read_text(encoding="utf-8"))
     assert payload["mode"] == "offline"
     assert payload["total"] == 20
-    assert payload["passed"] == 10
-    pending = [
-        result for result in payload["results"] if "implementation pending" in result["detail"]
-    ]
-    assert len(pending) == 10
+    assert payload["passed"] == 20
+    assert payload["failed"] == 0
+    assert payload["pass_rate"] == 100.0
 
 
 def test_real_main_preserves_caller_home_and_parses_custom_model_without_network(tmp_path):
