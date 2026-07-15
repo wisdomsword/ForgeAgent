@@ -1,5 +1,9 @@
 # M7 设计草稿：工具插件化 + MCP + Survey + Registry 完善
 
+> **Current runtime addendum (hardening):** This document retains the M7 design record below. MCP servers are now optional by default (`required: false`); an enabled required server that cannot connect aborts CLI startup after cleanup, while an optional failure is sanitized, omitted from the tool catalog, and does not stop the CLI. MCP calls remain main-process trust-boundary calls: `autoApprove` is an explicit per-server/tool exception; otherwise approval requires TTY-capable stdin and stdout, and non-TTY runs reject without reading confirmation input. `--interactive` controls Survey only. The REPL accepts `/mcp ...`, not bare `mcp ...`.
+
+> `MCPManager.close()` now has a single absolute public deadline and one loop-owned drain on the named daemon thread. If cleanup cannot complete, it warns without stack capture or server content/arguments/environment data, retains pending holder/session/loop/thread references, and allows a later close retry rather than claiming success.
+
 > 状态：**已评审，Phase 0 spike 完成**（2026-07-11 §五 8 项裁决全部确认；`mcp` SDK wire spike + 死亡矩阵 9/9 通过，见 §八）。可进 Phase 1 编码。
 > 范围（ACTION_PLAN.md M7 行）：工具集 MCP/Survey 实现；能力登记 YAML + `ModelRegistry`（alias/reload）进一步完善；工具插件化（`ToolRegistry`）；golden 任务集扩到 300 个以内。
 > 契约基准：不改 `model-client-contract.md`；扩展 `text-protocol-spec.md`（工具集从 Exec/Edit 扩到 Exec/Edit/MCP/Survey）与 `threat-model.md`（新增 T8：MCP 主进程执行 + 描述注入）。

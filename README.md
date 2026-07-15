@@ -55,7 +55,7 @@ REPL 内输入 `/` 加回车查看指令菜单，或直接 `/help`。当前支�
 - `/reload` — 重读 `~/.forgeagent/{models,config}.yaml`，配置写错时当场报错而非等到下次 run
 - `/help [command]` — 列出全部指令，或查看某个指令的详细用法
 
-旧的裸词命令（`models`/`reload`/`mcp status`）仍可用但已弃用，下个里程碑移除，用时会提示对应新指令。
+REPL 命令必须以 `/` 开头。裸 `models`、`reload`、`mcp` 和 `mcp ...` 都是普通任务目标；这与顶层 CLI 子命令 `forgeagent models` 无关，后者仍用于列出模型。
 
 ## 配置（API key 与端点）
 
@@ -112,7 +112,13 @@ uv run forgeagent --tier container --container-image my-image:latest run "..."
 - **FileRead / FileWrite / FileList**（M10）：读/写/列出 `allowed_root` 下的文件，路径校验拒绝逃出项目根目录。FileRead 默认不设确认门（只在非 trusted 档记日志，不拦截）；**FileWrite 的确认门只是 UX 提示，不是安全边界**——Exec 工具跑的代码在 `restricted`/`container` 档下本来就能在 `allowed_root` 内任意写文件，不经过这个确认门。FileList 只返回相对路径，不暴露宿主真实目录结构。
 - **MCP**（M7）：调用外部 [MCP](https://modelcontextprotocol.io) server 暴露的工具，见下节。
 
-出网与文件访问的边界详见 [`docs/threat-model.md`](docs/threat-model.md) T10a-T10c；SSRF 防护实现见 [`docs/m10-usage-observability-and-tools.md`](docs/m10-usage-observability-and-tools.md) §3.3（逐候选地址校验 + NAT64 解包 + 直连已校验 sockaddr 堵 DNS-rebinding TOCTOU + 重定向逐跳复检）。
+出网与文件访问的边界详见 [`docs/threat-model.md`](docs/threat-model.md)；SSRF 防护实现见 [`docs/m10-usage-observability-and-tools.md`](docs/m10-usage-observability-and-tools.md)（逐候选地址校验 + NAT64 解包 + 直连已校验 sockaddr 堵 DNS-rebinding TOCTOU + 重定向逐跳复检）。
+
+### 直连网络变更
+
+**[SECURITY][BREAKING]** WebFetch 和 `/search` 强制直连：运行时使用 `ProxyHandler({})`，不读取大小写形式的 `HTTP_PROXY`、`HTTPS_PROXY` 或 `ALL_PROXY`，`NO_PROXY`/`no_proxy` 也不能恢复代理。每个重定向跳都重新校验目标，最多允许 10 跳。
+
+仅有三种迁移方式：允许该进程直连；在 ForgeAgent 外部预取到 `allowed_root` 后用 FileRead；或使用一个明确受信任的 MCP fetch 工具。不要恢复环境代理作为绕过方式。当前没有 `network.proxy` 配置；未来只能明确选择 trusted-forward-proxy 或 guarded-tunnel 信任模型。
 
 ## MCP 服务（连接外部工具）
 
@@ -123,6 +129,7 @@ mcpServers:
   filesystem:
     command: npx
     args: ["-y", "@modelcontextprotocol/server-filesystem", "/data"]
+    required: false                         # default; optional failures degrade
     autoApprove: [read_file, list_directory]   # 只读工具，跳过确认门
   github:
     command: docker
@@ -130,9 +137,9 @@ mcpServers:
     env: {GITHUB_TOKEN: "${GITHUB_TOKEN}"}       # ${VAR} 从环境变量取，绝不写字面 secret
 ```
 
-- **多 server 同时接入**：启动时并发连接所有 `enabled` server，单个连不上只标记 unavailable、不影响其余。同名工具（两个 server 都有 `search`）靠调用里的 `server` 字段区分，不冲突。
-- **确认门（安全边界）**：MCP server 在**主进程执行，不受 restricted 沙箱约束**。所以有副作用的工具调用会逐次要你确认（终端 y/N）；只有列在该 server `autoApprove` 里的只读工具才免确认。未批准 → 结构化拒绝，不执行。因此 `mcpServers` 里只应放你信任的可执行文件，`autoApprove` 只列真正只读的工具。安全模型详见 [`docs/threat-model.md`](docs/threat-model.md) T8。
-- 每 server 可 `enabled: false` 暂时关掉、`expose: [toolA]` 只广告部分工具（控制注入系统提示词的工具清单体积）。REPL 里 `mcp status` 看连接状态。
+- **多 server 同时接入**：启动时并发连接所有 `enabled` server。默认 optional server 连不上时标记 unavailable 并从工具目录移除，不影响其余；`required: true` 的 enabled server 连不上会清理已启动资源并使 CLI 非零退出。同名工具（两个 server 都有 `search`）靠调用里的 `server` 字段区分，不冲突。
+- **确认门（安全边界）**：MCP server 在**主进程执行，不受 restricted 沙箱约束**。所以有副作用的工具调用会逐次要你确认（终端 y/N）；只有列在该 server `autoApprove` 里的只读工具才免确认。未批准 → 结构化拒绝，不执行。因此 `mcpServers` 里只应放你信任的可执行文件，`autoApprove` 只列真正只读的工具。安全模型详见 [`docs/threat-model.md`](docs/threat-model.md)。
+- 每 server 可 `enabled: false` 暂时关掉、`expose: [toolA]` 只广告部分工具（控制注入系统提示词的工具清单体积）。REPL 里用 `/mcp status` 看连接状态。关闭使用绝对 deadline；若后台 MCP 清理未完成，会给出不完整关闭警告并保留资源引用以供重试，而不是伪造清理成功。
 
 ## 多模型支持
 
@@ -167,6 +174,21 @@ uv run forgeagent smoke --include-openai-compatible     # 额外加 gpt-5.4-mini
 
 缺 key 时清晰提示并退出，不会伪造成功。这是 opt-in 检查，不属于基础 CI（基础测试全程无 key、无网络，用 MockClient 驱动）。
 
+## Golden 验证核心
+
+380 项文档任务中，只有 20 项是可执行的可信核心：`G01,G03,G05,G06,G08,G11,G13,G14,G15,G17,G27,G43,G58,G59,G324,G329,G330,G332,G333,G355`。其余 360 项保留为候选目录，不会被 runner 当作可执行验收。
+
+```bash
+# 离线、无凭证的 20 项核心；写 results.json 和 report.md
+uv run python -m tests.golden.runner --output-dir /tmp/forgeagent-golden-offline
+
+# 明确 opt-in 的真实模型五项：G01,G03,G08,G11,G43；会产生真实请求和费用
+uv run python -m tests.golden.runner --real-model claude-sonnet-5 \
+  --output-dir /tmp/forgeagent-golden-real
+```
+
+离线 runner 当前验证结果为 **20/20（100%）**。真实模型入口不是 CI 门禁，且本文档不声明真实请求已经运行。成功退出 `0`，场景失败退出 `1`，配置、manifest 或报告预检失败退出 `2`。
+
 ## 开发
 
 ```bash
@@ -175,4 +197,3 @@ uv run ruff check  # 静态检查
 ```
 
 参考项目 `resource/agent/` 为只读借鉴对象，不属本项目代码，已排除在检查与测试之外。
-

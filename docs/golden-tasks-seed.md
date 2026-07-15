@@ -1,5 +1,30 @@
 # 380 个 Golden Tasks（M1 种子 15 + M3 扩充 15 + M5 扩充 50 + M6 扩充 120 + M7 扩充 100 + M8 扩充 20 + M10 扩充 20 + M9 扩充 40）
 
+## 当前可执行可信核心
+
+本文件保留 380 项历史候选目录，供覆盖规划和后续工程化使用。当前 runner 只执行以下 **20** 项可信核心，且在启动前拒绝重复、缺失、额外或替代 ID：
+
+`G01,G03,G05,G06,G08,G11,G13,G14,G15,G17,G27,G43,G58,G59,G324,G329,G330,G332,G333,G355`
+
+其中仅以下 **5** 项具有明确 opt-in 的真实模型入口：
+
+`G01,G03,G08,G11,G43`
+
+因此其余 **360** 项仍是候选，不是 CI 或 runner 的可执行承诺。离线核心使用本地 fixtures 和 `MockClient`，无需网络、Docker 或凭证；当前已验证离线结果为 **20/20，100%**。本文档不声称真实模型请求已运行。
+
+```bash
+# 20 项离线核心，并写 results.json 与 report.md
+uv run python -m tests.golden.runner --output-dir /tmp/forgeagent-golden-offline
+
+# 仅五项真实模型场景；显式选择模型，可能产生费用
+uv run python -m tests.golden.runner --real-model claude-sonnet-5 \
+  --output-dir /tmp/forgeagent-golden-real
+```
+
+runner 成功退出 `0`，任一已执行场景失败退出 `1`，manifest、凭证/模型配置或报告目录预检失败退出 `2`。离线和真实模式都生成机器可读 `results.json` 与人类可读 `report.md`；真实运行时报告只包含所选五项。
+
+## 历史候选目录
+
 > 配比来源：ACTION_PLAN.md §六.5 已裁决的分布——40% 文件/数据处理、25% Python 执行与 sandbox 边界、20% 代码修改/小型重构、10% 网络抓取或外部 API（优先 mock）、5% 系统查询/环境检查。
 > 规模说明：M1 种子集 **15 个**（G01–G15），M3 扩充至 **30 个**（G16–G30），M5 扩充至 **80 个**（G31–G80），M6 扩充至 **200 个**（新增 G81–G200，见文末"M6 扩充"区块）。后续里程碑按 ACTION_PLAN 里程碑表继续扩充：**M7→300 以内**。各里程碑的扩充独立成块，前序区块保持不动，便于追溯。
 > 用途：M3 用 mock LLM 回放测试端到端跑通任务；M5 用 `claude-sonnet-5`/`claude-haiku-4-5` 真实模型跑验证集通过率。

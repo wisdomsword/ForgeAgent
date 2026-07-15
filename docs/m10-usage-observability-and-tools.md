@@ -1,5 +1,9 @@
 # M10 设计草稿：用量可观测性 + WebFetch/File 工具生态 + SSRF Guard
 
+> **Current runtime addendum (hardening):** This M10 design record is historical; the current network mode is direct-only. `guarded_urlopen()` uses `ProxyHandler({})`, so uppercase/lowercase environment proxies are disabled and `NO_PROXY` cannot restore them. It accepts HTTP(S) only, validates every address and redirect hop, connects to an already-vetted sockaddr, and permits at most 10 redirects. There is no `network.proxy` configuration. A future explicit proxy must be a trusted-forward-proxy or guarded-tunnel design.
+
+> WebFetch and FileRead/FileWrite/FileList use fixed outcomes for sensitive failure paths, preventing URL, hostname, absolute-path, and underlying-exception disclosure in feedback. File containment uses canonical `realpath()` plus `commonpath()` and blocks static symlink escapes. It does not eliminate the residual pathname TOCTOU in which an external actor replaces the validated target or an ancestor component before open. WebFetch approval is a real `restricted`/`container` network boundary; FileWrite approval is UX only because Exec can already write under `allowed_root`.
+
 > 状态：**已定稿**（全部裁决已完成，见 §五 已裁决事项 共 12 条；Phase 0 spike 已完成,记录见 §八；下一步是 §七 实施 Phase 划分）。
 > 范围（ACTION_PLAN.md M10 行，2026-07-11 用户裁决跳过 M9 直接做）：(a) 用量/计费可观测性——CLI 状态栏、token 用量（input/output/cached）、多模态用量计数（images 现在做，声音/视频留后）；(b) golden 任务集随任务扩展；(c) 工具生态扩展——WebFetch + FileRead/FileWrite/FileList，SSRF 逐跳复检 + project-root 锁定，零新依赖；`restricted` 档下 WebFetch/FileWrite 必须过确认门，FileRead 可仅记录日志。
 > 契约基准：不改 `text-protocol-spec.md` 的整体机制（新工具走已有 `_build_tool_call()` 共享校验路径，同 M7 MCP/Survey 的接入方式）；`model-client-contract.md` 的 `TokenUsage` 需扩展一个 `cached_tokens` 字段（新增可选字段，向后兼容，不是破坏性变更）。
