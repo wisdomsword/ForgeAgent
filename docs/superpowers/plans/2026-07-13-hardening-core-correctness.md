@@ -1022,7 +1022,7 @@ git commit -m "test: add executable golden validation runner"
 
 - [ ] **Step 1: 把现有 G01/G05/G13 迁移为共享 case**
 
-case 必须创建自己的输入，执行 Task，并显式检查：G01 sum=60/mean=20；G05 除 state=42/output=50 与 side effect 恰好一次外，使用 tests-only RestrictedBackend wrapper 在第二块执行前包装 `utils.get_state` 返回值，以不可由模型预知的 marker 分别记录读取 key/value 和返回值参与 `+8` 或数值转换的实际 use；一次无用 `get_state()` 后硬编码 50 必须因缺少 use marker 而失败，wrapper/taint 不进入 `src/` 或持久 state；G13 failed tool 与 successful tool 轮都携带提前 completed，最终第三轮独立完成。
+case 必须创建自己的输入，执行 Task，并显式检查：G01 sum=60/mean=20；G05 除 state=42/output=50 与 side effect 恰好一次外，使用 tests-only RestrictedBackend wrapper 在第二块执行前包装 `utils.get_state` 返回值，以不可由模型预知的 marker 记录读取 key/value 和 use；随后以不可预知的替代 state 因果重放同一第二块，要求输出精确变为 `alternate_state + 8` 并恢复受控 state/output。一次无用 `get_state()`、数值转换或加法后硬编码 50 都必须失败，wrapper/marker/替代 state 不进入 `src/` 或持久 state；G13 failed tool 与 successful tool 轮都携带提前 completed，最终第三轮独立完成。
 
 - [ ] **Step 2: 实现其余 7 项通用 offline case**
 
