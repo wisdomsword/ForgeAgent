@@ -180,9 +180,7 @@ def test_survey_options_passed_through_to_asker():
         seen.append(args)
         return args.options[0]
 
-    outcome = tool.run(
-        SurveyArgs(question="pick one", options=["a", "b"]), _survey_ctx(asker)
-    )
+    outcome = tool.run(SurveyArgs(question="pick one", options=["a", "b"]), _survey_ctx(asker))
     assert outcome.detail == "a"
     assert seen[0].options == ["a", "b"]
 

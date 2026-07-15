@@ -362,7 +362,8 @@ class Step:
         tool = self._registry.get(call.name)
         if tool is None:  # defensive: only reachable if a tool schema outlives its Tool.
             return ToolOutcome(
-                tool=call.name, success=False,
+                tool=call.name,
+                success=False,
                 detail=f"no handler registered for tool {call.name!r}",
             )
         return tool.run(call.arguments, self._ctx)
