@@ -37,12 +37,16 @@ ForgeAgent MUST return a non-zero CLI startup result when a required MCP server 
 - **WHEN** the REPL has already started with an MCP manager because at least one server was enabled at startup, and the user explicitly disables or enables a server configured with `required: true`
 - **THEN** ForgeAgent updates and reports that server's runtime status without terminating the existing REPL session
 
+#### Scenario: Runtime MCP update exceeds its facade wait
+- **WHEN** `/mcp enable` or `/mcp disable` times out while its loop-owned operation continues
+- **THEN** the CLI reports a fixed pending status for the named server and keeps the REPL running instead of propagating `TimeoutError`
+
 #### Scenario: Every configured server is disabled at startup
 - **WHEN** all MCP server entries are disabled when the CLI is assembled
 - **THEN** ForgeAgent starts without an MCP manager or loop, does not fail because a disabled server is required, and does not promise runtime enable from that manager-less session
 
 ### Requirement: MCP runtime holder ownership is loop-owned and generation-safe
-ForgeAgent MUST serialize holder desired-state reconciliation on the MCP loop thread, MUST store each holder slot as a generation-bound task plus stop event and each session as a generation-bound slot, MUST bind replacement intent to an exact generation separately from teardown state, and MUST prevent an older generation from removing, cancelling or mutating a newer generation's holder, session, status or tools.
+ForgeAgent MUST serialize holder desired-state reconciliation on the MCP loop thread, MUST bind holder, session, teardown and replacement intent to monotonic generations, and MUST prevent an older generation from removing, cancelling or mutating a newer generation's resources or public state. The concrete container and task shapes belong to the technical Design Doc.
 
 #### Scenario: Enable follows a timed-out disable
 - **WHEN** disable has signalled generation N to stop but the synchronous disable wait times out, and the user immediately enables the same server
@@ -92,6 +96,14 @@ ForgeAgent MUST serialize holder desired-state reconciliation on the MCP loop th
 - **WHEN** an enable, disable or initial-connect facade wait times out while its generation-owned holder work continues
 - **THEN** ForgeAgent cancels only the concurrent waiter, idempotently ensures the loop-owned lifecycle operation still starts even if the loop had not entered its coroutine, shields holder teardown from waiter cancellation, and a following close snapshots and drains lifecycle operations without leaving a pending task or untracked holder
 
+#### Scenario: Lifecycle facade cleanup receives process control
+- **WHEN** a synchronous lifecycle facade has an ordinary primary failure or timeout and closing/cancelling its waiter or scheduling its must-deliver operation then raises `KeyboardInterrupt` or `SystemExit`
+- **THEN** ForgeAgent continues bounded ownership cleanup and propagates the first process-control object; if the primary was already process control, that primary object remains authoritative
+
+#### Scenario: Background holder receives process control from the SDK
+- **WHEN** an MCP SDK call inside the loop-owned holder raises `KeyboardInterrupt` or `SystemExit` rather than the main caller thread receiving an OS process-control signal
+- **THEN** ForgeAgent isolates it as a fixed unavailable result for that generation, keeps the loop available for cleanup and other holders, and does not expose the exception text
+
 #### Scenario: Multiple initial holders do not multiply connection timeout
 - **WHEN** multiple enabled MCP servers all fail to signal ready
 - **THEN** ForgeAgent starts all holder slots before the first wait and applies ready timeouts concurrently from one monotonic start point, so initial waiting is bounded near one per-server connection timeout rather than their sum
@@ -118,6 +130,10 @@ ForgeAgent MUST keep a new loop worker behind a publication gate until manager s
 #### Scenario: Startup rollback cannot stop the worker in time
 - **WHEN** the loop thread remains alive after the startup rollback join bound
 - **THEN** ForgeAgent does not close the active loop or clear its references, keeps the manager started but closed with startup cleanup marked complete because no holder was published, emits a sanitized incomplete-startup warning, and still rethrows the original startup exception so a later close can retry stop/join
+
+#### Scenario: Startup rollback cleanup receives process control
+- **WHEN** startup has an ordinary primary failure and a later cancellation-marker, gate, loop-stop, join, state-check or loop-close cleanup raises `KeyboardInterrupt` or `SystemExit`
+- **THEN** ForgeAgent continues the remaining bounded rollback, propagates the first cleanup process-control object, and never hides it behind the ordinary primary; an already-control primary remains authoritative
 
 #### Scenario: Initial holder submission fails after loop publication
 - **WHEN** the loop and thread are published but submitting or waiting for initial holders raises an ordinary infrastructure Exception
@@ -149,6 +165,10 @@ ForgeAgent MUST keep a new loop worker behind a publication gate until manager s
 #### Scenario: Shutdown facade submission is rejected
 - **WHEN** submitting the public shutdown facade fails while the loop thread is alive and loop-owned containers currently appear empty
 - **THEN** ForgeAgent closes the unsubmitted coroutine, schedules or retains a loop-owned drain retry, leaves authoritative completion unset on the caller thread, and preserves loop/thread/future evidence until the loop proves cleanup invariants
+
+#### Scenario: Shutdown facade cleanup receives process control
+- **WHEN** shutdown facade submission has an ordinary primary failure and closing the unsubmitted coroutine or scheduling the loop-owned fallback raises `KeyboardInterrupt` or `SystemExit`
+- **THEN** ForgeAgent performs the remaining bounded finalization and propagates the first cleanup process-control object; if submission already raised process control, the original object remains authoritative
 
 #### Scenario: Internal shutdown operation raises unexpectedly
 - **WHEN** an internal holder, event-loop or thread cleanup operation raises an Exception

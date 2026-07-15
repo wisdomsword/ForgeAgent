@@ -82,7 +82,7 @@ ForgeAgent MUST redact structured secret-key values and known sensitive environm
 - **THEN** the confirmer masks that value in the displayed safe path without revealing the content or host directory
 
 #### Scenario: Confirmation summary contains markup or unsafe display code points
-- **WHEN** a model-provided MCP identifier or FileWrite path contains Rich markup delimiters, ANSI/control characters, carriage returns, line feeds, Unicode line separators, Unicode format controls such as bidi overrides and isolates, or an unpaired surrogate
+- **WHEN** a model-provided MCP identifier, nested argument mapping key or string value, or FileWrite path contains Rich markup delimiters, ANSI/control characters, carriage returns, line feeds, Unicode line separators, Unicode format controls such as bidi overrides and isolates, or an unpaired surrogate
 - **THEN** the confirmation prompt renders the value as escaped single-line literal text, does not raise a rendering/encoding exception, change prompt styling, create an injected line or reorder the approval text, and still reads exactly one approval answer
 
 ### Requirement: REPL command routing is explicit after compatibility expiry

@@ -585,7 +585,7 @@ git commit -m "fix: harden file tool path boundaries"
 - 非 TTY REPL 的 scripted response 请求 WebFetch/FileWrite 或非 auto-approved MCP 时，confirmation reader 若被调用就立即失败；断言工具返回 `rejected: no interactive confirmation channel available`，而 goal reader 仍可完成后续轮次。
 - TTY REPL 显式 terminal-capability 为真时仍调用同一个 `read_line` 完成 y/N 确认。
 - 已知环境 secret 出现在 MCP server、MCP tool、嵌套 arguments mapping key、FileWrite 项目相对路径和外部 basename 时，summary 不包含原值；结构化 secret-name 判断仍使用未脱敏原 key，FileWrite content 仍不显示。
-- 参数化 `bad[/red]`、`[bold]fake[/bold]`、ANSI/C0/C1、CR/LF、U+2028/U+2029、U+202E、U+2066/U+2069、U+200E 等 Unicode `Cf` 格式控制符，以及未配对 `\\ud800` surrogate 到 MCP identifier 与 FileWrite path：确认输出不抛 `MarkupError`/`UnicodeEncodeError`、不改变 `approve` 样式、不产生注入行或双向重排，控制/格式/surrogate 字符以可见转义呈现，且 `read_line` 只调用一次。
+- 参数化 `bad[/red]`、`[bold]fake[/bold]`、ANSI/C0/C1、CR/LF、U+2028/U+2029、U+202E、U+2066/U+2069、U+200E 等 Unicode `Cf` 格式控制符，以及未配对 `\\ud800` surrogate 到 MCP identifier、嵌套 arguments mapping key/string value 与 FileWrite path：确认输出不抛 `MarkupError`/`UnicodeEncodeError`、不改变 `approve` 样式、不产生注入行或双向重排，控制/格式/surrogate 字符以可见转义呈现，整个摘要作为 Rich literal segments 渲染，且 `read_line` 只调用一次。
 - 参数化输入 `models`、`reload`、`mcp`、`mcp status` 都完整进入 `run_once()`，无 deprecation 文本；`/model`、`/reload`、`/mcp` 仍只走 handler。现有顶层 `main(["models"])` 测试继续通过。
 
 - [ ] **Step 2: 运行 RED 测试**
@@ -737,7 +737,7 @@ git commit -m "fix: require standalone task completion responses"
 
 - [x] **Step 1: 写配置、optional/required 和运行期 RED 测试**
 
-覆盖 omitted required=False、required+disabled 不阻断、optional timeout 降级、required unavailable 关闭 manager 后 exit 2、已有至少一个 enabled server/manager 时 REPL enable/disable required 不退出，以及全 disabled 配置的真实 CLI 组装返回 `None` 且不创建 loop。运行期 enable 测试不得用 fake manager 暗示 manager-less REPL 支持。
+覆盖 omitted required=False、required+disabled 不阻断、optional timeout 降级、required unavailable 关闭 manager 后 exit 2、已有至少一个 enabled server/manager 时 REPL enable/disable required 不退出，以及全 disabled 配置的真实 CLI 组装在调用 `MCPManager` 构造器前返回 `None`。运行期 enable 测试不得用 fake manager 暗示 manager-less REPL 支持；构造器 spy 必须证明 manager 和 loop 都未创建。
 
 ```bash
 UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_mcp_manager.py tests/test_cli.py -q
@@ -904,7 +904,7 @@ git commit -m "fix: make MCP startup and lifecycle waits transactional"
 
 - [ ] **Step 1: Add shutdown RED matrix before changing close behavior**
 
-Add/retain tests for normal close, holder ignoring stop until cancel, delayed async context cleanup, loop thread hard-stuck, internal shutdown exception, repeated close after a canceled facade, repeated close after cleanup completion, result preservation, warning sanitization, and exact `(name, generation, task, stop)` snapshot. Add targeted RED cases for: dead thread with empty maps but unproven completion/pending facade; shutdown facade submission rejection with an alive loop, apparently empty maps and pending loop work leaves completion unset and evidence retained; close injected between the first holder barrier check and `create_task()` return is atomically ordered so it leaves either no generation/task or one fully tracked slot; lifecycle `cancel()` ordinary failure must not kill the authoritative drain; mismatched holder/session/state generations must not call SDK; current call failure sets teardown generation; timed-out disable overlaps close before holder release; holder stop signal is observed before lifecycle cancellation; drain completion during join is consumed by the same close; startup rollback with a stopped worker and failing `loop.close()` retains stopped-loop evidence for a later close retry; startup cleanup `CancelledError` preserves the primary startup error; CLI startup/required-failure cleanup logs the fixed type of non-control `BaseException` without replacing the primary. Use PID files for real fixture process assertions and distinguish graceful-stop and cancel markers. Confirm the focused matrix fails against the existing shutdown implementation without loosening the two preserved regressions.
+Add/retain tests for normal close, holder ignoring stop until cancel, delayed async context cleanup, loop thread hard-stuck, internal shutdown exception, repeated close after a canceled facade, repeated close after cleanup completion, result preservation, warning sanitization, and exact `(name, generation, task, stop)` snapshot. Add targeted RED cases for: dead thread with empty maps but unproven completion/pending facade; shutdown facade submission rejection with an alive loop, apparently empty maps and pending loop work leaves completion unset and evidence retained; close injected between the first holder barrier check and `create_task()` return is atomically ordered so it leaves either no generation/task or one fully tracked slot with done-finalizer registered; lifecycle `cancel()` ordinary failure must not kill the authoritative drain; mismatched holder/session/state generations must not call SDK; current call failure sets teardown generation and after finalization does not create replacement without explicit enable; timed-out disable overlaps close before holder release; holder stop signal is observed before lifecycle cancellation; drain completion during join is consumed by the same close; startup rollback with a stopped worker and failing `loop.close()` retains stopped-loop evidence for a later close retry; startup cleanup `CancelledError` preserves the primary startup error; CLI startup/required-failure cleanup logs the fixed type of non-control `BaseException` without replacing the primary. Parameterize lifecycle `_submit`, startup rollback, and shutdown facade ordinary-primary/control-cleanup reverse combinations plus control-primary/secondary-cleanup combinations: caller paths propagate the first process-control identity while continuing bounded cleanup; SDK control exceptions inside background holders remain fixed unavailable failures without breaking the loop. Use PID files for real fixture process assertions and distinguish graceful-stop and cancel markers. Confirm the focused matrix fails against the existing shutdown implementation without loosening the two preserved regressions.
 
 - [ ] **Step 2: Add shutdown state and exact loop snapshot ownership**
 
@@ -916,7 +916,7 @@ The loop-owned task signals exact snapshot stop events before any potentially bl
 
 - [ ] **Step 4: Implement absolute-deadline public close and delayed retry**
 
-First `close()` acquires the lifecycle barrier to set `_closed=True`, creates `deadline = monotonic() + shutdown_timeout + thread_join_timeout`, submits `_wait_for_shutdown()` and shields the authoritative task. Timeout/cancel of the concurrent facade cancels only the facade and retains the future for diagnostics. Facade submission failure closes its coroutine and requests the same loop-owned drain but never sets completion from caller-thread observations of empty containers. Repeated close signals the existing retry event, waits on the thread-safe `_shutdown_complete` event for the remaining shutdown budget, then performs bounded `thread.join()`. Only when completion and thread stop are both proven may the main thread attempt to close the loop, and it clears future/task/holder/session/lifecycle/loop/thread refs only after loop closure succeeds. An ordinary loop-close failure, including startup rollback after a stopped worker, is recorded and retains stopped-loop evidence for repeated retry. A dead thread with unproven completion remains incomplete even when holder/session/lifecycle maps are empty or `_shutdown_task` is absent/done; `close()` cannot synthesize `_shutdown_complete` from those containers. After join, re-read `_shutdown_complete` so completion during join is cleared in the same close. A live or cleanup-incomplete thread keeps all refs and receives a fixed warning containing thread identity, sanitized pending names and timeout, never args/env/content. Catch ordinary `Exception` per operation; do not swallow `KeyboardInterrupt` or `SystemExit`; CLI startup cleanup that catches another non-control `BaseException` records only its fixed type before preserving the primary. Wall-clock assertions use a narrow scheduling allowance, while fake future/thread tests assert the exact facade/join timeout arguments derived from the single deadline.
+First `close()` acquires the lifecycle barrier to set `_closed=True`, creates `deadline = monotonic() + shutdown_timeout + thread_join_timeout`, submits `_wait_for_shutdown()` and shields the authoritative task. Timeout/cancel of the concurrent facade cancels only the facade and retains the future for diagnostics. Facade submission failure closes its coroutine and requests the same loop-owned drain but never sets completion from caller-thread observations of empty containers. Repeated close signals the existing retry event, waits on the thread-safe `_shutdown_complete` event for the remaining shutdown budget, then performs bounded `thread.join()`. Only when completion and thread stop are both proven may the main thread attempt to close the loop, and it clears future/task/holder/session/lifecycle/loop/thread refs only after loop closure succeeds. An ordinary loop-close failure, including startup rollback after a stopped worker, is recorded and retains stopped-loop evidence for repeated retry. A dead thread with unproven completion remains incomplete even when holder/session/lifecycle maps are empty or `_shutdown_task` is absent/done; `close()` cannot synthesize `_shutdown_complete` from those containers. After join, re-read `_shutdown_complete` so completion during join is cleared in the same close. A live or cleanup-incomplete thread keeps all refs and receives a fixed warning containing thread identity, sanitized pending names and timeout, never args/env/content. Caller-thread cleanup uses one process-control precedence rule: preserve an existing control primary, otherwise promote the first cleanup `KeyboardInterrupt`/`SystemExit`, continue bounded cleanup, and never let ordinary cleanup replace primary. Background holder BaseException remains fixed server-unavailable isolation so an SDK anomaly cannot kill the loop thread. CLI `/mcp enable|disable` catches facade `TimeoutError`, prints a fixed pending status and keeps the REPL alive. Wall-clock assertions use a narrow scheduling allowance, while fake future/thread tests assert the exact facade/join timeout arguments derived from the single deadline.
 
 - [ ] **Step 5: Run full MCP/CLI, fixture PID and static validation**
 
@@ -1084,7 +1084,7 @@ G329 通过 confirmed `WebFetchTool` 调用 private/metadata literal，精确断
 
 - [ ] **Step 3: 实现 MCP G355 产品级冒烟**
 
-使用一个可用 fixture server 和一个 optional 失败 server。判定状态输出同时包含 available/unavailable、工具目录只含可用 server、manager 在 case finally 中 close 且 PID 消失。required/absolute deadline 的故障矩阵继续由 Task 5/6 单测承担。
+使用一个可用 fixture server 和一个 optional 失败 server。通过真实 `_handle_mcp_slash("/mcp", manager, console)` 用户路径判定状态输出同时包含 available/unavailable，工具描述只含可用 server；不能只直接读取 `manager.server_status()`/`list_tools()` 绕过 CLI。manager 在 case finally 中 close 且 PID 消失。required/absolute deadline 的故障矩阵继续由 Task 5/6 单测承担。
 
 - [ ] **Step 4: 运行完整离线 runner**
 
@@ -1122,6 +1122,7 @@ git commit -m "test: cover hardened runtime boundaries in golden core"
 - Modify: `docs/m10-usage-observability-and-tools.md`
 - Modify: `README.md`
 - Modify: `ACTION_PLAN.md`
+- Modify: `openspec/changes/hardening-core-correctness/.comet/subagent-progress.md`
 
 **Interfaces:**
 - Produces: 与运行时和验证证据一致的公开契约；`[SECURITY][BREAKING]` 环境代理说明；20/360/5 黄金口径；`ACTION_PLAN.md` 中明确的 M13 加固行。
@@ -1155,7 +1156,9 @@ README 同时删除“裸 `models`/`reload`/`mcp ...` 仍可用”的过期说�
 
 开始前把当前工作树文件原样复制为 `/tmp/forgeagent-action-plan-user-before.md`。从该副本再生成 `/tmp/forgeagent-action-plan-expected-after.md`，只把现有空置 M13 行替换为本 change 的交付物、Ruff/完整 pytest/20 项离线黄金核心/CodeGraph 复审验证和三次评审门禁；用同一个 `apply_patch` 对工作树 M13 行做完全相同的定向修改。随后用 `cmp /tmp/forgeagent-action-plan-expected-after.md ACTION_PLAN.md` 证明除 M13 外所有用户字节均未变化。保留用户 M11/M12 的内容与顺序，不修改或重编号它们。此步骤不创建里程碑文件、不更新 `milestones/latest`；`MILESTONE_GUIDE.md` 要求门禁全部通过后一次性产出收尾记录。
 
-M11/M12、表格重排和空 M13 当前位于同一个未提交 hunk，不能先整体 `git add` 再反向应用旧 patch。从 `git show HEAD:ACTION_PLAN.md` 生成 `/tmp/forgeagent-action-plan-m13-only.md`，仅把历史第三个 placeholder 行替换为同一 M13 内容；将该临时文件写成 git blob，并用 `git update-index --cacheinfo 100644,<blob>,ACTION_PLAN.md` 只更新 index。`git diff --cached -- ACTION_PLAN.md` 必须只包含 M13，不能包含 M11/M12或表格重排。不得对工作树使用 restore/checkout，也不得整体暂存 `ACTION_PLAN.md`。
+M11/M12、表格重排和空 M13 当前位于同一个未提交 hunk，不能先整体 `git add` 再反向应用旧 patch。从 `git show HEAD:ACTION_PLAN.md` 生成 `/tmp/forgeagent-action-plan-m13-only.md`，仅把 M10 后两个匿名 placeholder 中的第二个空交付物行替换为同一 M13 内容；第一个含 `HTTP` 的 placeholder 保持原样。将该临时文件写成 git blob，并用 `git update-index --cacheinfo 100644,<blob>,ACTION_PLAN.md` 只更新 index。`git diff --cached -- ACTION_PLAN.md` 必须只包含 M13，不能包含 M11/M12或表格重排。不得对工作树使用 restore/checkout，也不得整体暂存 `ACTION_PLAN.md`。
+
+为支持会话/机器重启恢复，计算 `user_before_sha256`、`expected_after_sha256` 和 `m13_index_blob`，连同精确 M13 文本追加到 `openspec/changes/hardening-core-correctness/.comet/subagent-progress.md` 的 Task 10 preservation checkpoint。该 checkpoint 与 Task 10 文档一起提交。恢复时可从 `HEAD:ACTION_PLAN.md` 和 checkpoint 重新生成临时文件；不得依赖 `/tmp` 文件仍存在。提交前重新计算工作树 SHA-256 与 index blob并逐项匹配 checkpoint。
 
 - [ ] **Step 5: 运行文档一致性测试**
 
@@ -1175,8 +1178,9 @@ git add README.md \
   docs/threat-model.md \
   docs/golden-tasks-seed.md \
   docs/m7-tools-mcp-survey.md \
-  docs/m10-usage-observability-and-tools.md
-action_plan_blob=$(git hash-object -w /tmp/forgeagent-action-plan-m13-only.md)
+  docs/m10-usage-observability-and-tools.md \
+  openspec/changes/hardening-core-correctness/.comet/subagent-progress.md
+action_plan_blob=$(git hash-object -w /tmp/forgeagent-action-plan-m13-only.md) # must equal checkpoint
 git update-index --cacheinfo 100644,"$action_plan_blob",ACTION_PLAN.md
 git diff --cached -- ACTION_PLAN.md
 git commit -m "docs: align runtime contracts and golden validation"
@@ -1259,9 +1263,9 @@ UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run python -m tests.golden.runner
 
 - [ ] **Step 7: 固定已验证实现 HEAD，创建实证里程碑并回填 40 项 tasks**
 
-全部门禁通过后立即记录 `verified_head=$(git rev-parse HEAD)`；里程碑必须写入这个精确 implementation HEAD，而不是之后的 evidence-only commit。按 `MILESTONE_GUIDE.md` 一次性创建 `milestones/milestone_013.md`，把实际命令、pass/skip 数、黄金通过率和三次评审结论写入文件，并将 `milestones/latest` 更新为唯一一行 `milestone_013.md`。M11/M12 仍是未完成规划，因此 M13 的“前置里程碑”链接写为最后已完成的 `milestone_010.md`，并在正文说明编号跳跃原因。逐条核对本计划末尾映射后，将 `tasks.md` 的 40 个 checkbox 定向改为 `[x]`；不能一次性盲目全选。同步更新 `.comet/subagent-progress.md`，记录最终任务、评审和验证证据。实际草稿完成后，再由验收证据 reviewer 把 milestone/tasks/progress 中每个命令、计数、skip、commit和结论逐项对照原始输出及 `verified_head`；发现转录错误只修 evidence 文件并重复该草稿复核，不能发布未经复核的里程碑。
+全部门禁通过后立即把 `git rev-parse HEAD` 作为 `verified_head` 同时写入 `.comet/subagent-progress.md` 和 milestone 草稿；两个持久文件必须一致，后续命令每次重新读取而不依赖 shell 变量。里程碑必须标明这个精确 implementation HEAD，而不是之后的 evidence-only commit。按 `MILESTONE_GUIDE.md` 一次性创建 `milestones/milestone_013.md`，把实际命令、pass/skip 数、黄金通过率和三次评审结论写入文件，并将 `milestones/latest` 更新为唯一一行 `milestone_013.md`。M11/M12 仍是未完成规划；当前 `milestones/latest` 指向最后按时间完成的 `milestone_009.md`，因此 M13 的“前置里程碑”链接使用 `milestone_009.md`，正文同时说明 M9 是在 M10 后补做、M9/M10 均已完成及编号跳跃原因。逐条核对本计划末尾映射后，将 `tasks.md` 的 40 个 checkbox 定向改为 `[x]`；不能一次性盲目全选。同步更新 `.comet/subagent-progress.md`，记录最终任务、评审和验证证据。实际草稿完成后，再由验收证据 reviewer 把 milestone/tasks/progress 中每个命令、计数、skip、commit和结论逐项对照原始输出及 `verified_head`；发现转录错误只修 evidence 文件并重复该草稿复核，不能发布未经复核的里程碑。
 
-此 change 的预期工作树状态不是绝对 clean：允许且只允许保留 Task 10 开始前已有的 `ACTION_PLAN.md` 用户差异中除 M13 placeholder 外的内容。提交收尾前再次运行 `cmp /tmp/forgeagent-action-plan-expected-after.md ACTION_PLAN.md`，证明工作树仍是原用户文件加唯一批准的 M13 修改；除此之外不得有未提交文件。
+此 change 的预期工作树状态不是绝对 clean：允许且只允许保留 Task 10 开始前已有的 `ACTION_PLAN.md` 用户差异中除 M13 placeholder 外的内容。提交收尾前重新计算 `ACTION_PLAN.md` SHA-256 并与持久 checkpoint 的 `expected_after_sha256` 比较；`/tmp` 文件仍存在时再补充 `cmp`，但它不是唯一证据。除此之外不得有未提交文件。
 
 - [ ] **Step 8: 提交验证收尾**
 
@@ -1272,7 +1276,7 @@ git add openspec/changes/hardening-core-correctness/tasks.md \
 git commit -m "chore: record hardening verification evidence"
 ```
 
-提交后运行 `git diff --check`、strict OpenSpec validation，并验证 `git diff --name-only "$verified_head"..HEAD` 只包含 `tasks.md`、`.comet/subagent-progress.md` 和 milestone evidence 文件。最终报告同时列出 `verified_head` 与 evidence-only final HEAD；因为最后提交已证明只含验收记录，不用重跑产品测试。
+提交后从 milestone 与 progress 重新读取并比较 `verified_head`，运行 `git diff --check`、strict OpenSpec validation，并验证 `git diff --name-only "$verified_head"..HEAD` 只包含 `tasks.md`、`.comet/subagent-progress.md` 和 milestone evidence 文件。最终报告同时列出 `verified_head` 与 evidence-only final HEAD；因为最后提交已证明只含验收记录，不用重跑产品测试。
 
 ## OpenSpec Tasks Coverage Map
 
