@@ -638,40 +638,330 @@ def test_submit_result_failure_selects_must_deliver_cleanup_control(
 
 
 @pytest.mark.parametrize(
-    "cleanup",
-    [KeyboardInterrupt("close secret"), SystemExit("close secret")],
+    ("source", "control"),
+    [
+        ("task creation cleanup", KeyboardInterrupt("control secret")),
+        ("task creation cleanup", SystemExit("control secret")),
+        ("operation", KeyboardInterrupt("control secret")),
+        ("operation", SystemExit("control secret")),
+    ],
 )
-def test_start_owned_operation_returns_coroutine_cleanup_control_without_killing_loop(
+def test_submit_transports_lifecycle_control_without_killing_real_loop(
     monkeypatch,
+    source,
+    control,
+):
+    mgr = MCPManager(
+        {},
+        shutdown_timeout=0.03,
+        thread_join_timeout=0.02,
+    )
+    loop = asyncio.new_event_loop()
+    loop_messages = []
+    loop.set_exception_handler(lambda _loop, context: loop_messages.append(context["message"]))
+    thread = threading.Thread(
+        target=loop.run_forever,
+        name="forgeagent-mcp-loop",
+        daemon=True,
+    )
+    mgr._loop = loop
+    mgr._thread = thread
+    mgr._started = True
+    original_create_task = asyncio.create_task
+    original_submit = asyncio.run_coroutine_threadsafe
+    primary = RuntimeError("create task secret")
+    close_probe = None
+
+    if source == "task creation cleanup":
+        close_probe = _CloseProbe(control)
+        operation_coro = close_probe
+        monkeypatch.setattr(
+            mcp_manager_module.asyncio,
+            "create_task",
+            lambda submitted_coro: (_ for _ in ()).throw(primary),
+        )
+    else:
+
+        async def raise_control():
+            await asyncio.sleep(0)
+            raise control
+
+        operation_coro = raise_control()
+
+    caller_error = None
+    loop_survived = False
+    loop_usable = False
+    close_error = None
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        thread.start()
+        try:
+            mgr._submit(operation_coro, timeout=0.05)
+        except BaseException as exc:
+            caller_error = exc
+
+        thread.join(timeout=0.02)
+        loop_survived = thread.is_alive()
+        if loop_survived:
+            try:
+                original_submit(asyncio.sleep(0), loop).result(timeout=0.2)
+            except BaseException:
+                pass
+            else:
+                loop_usable = True
+
+        monkeypatch.setattr(mcp_manager_module.asyncio, "create_task", original_create_task)
+        if loop_survived:
+            try:
+                mgr.close()
+            except BaseException as exc:
+                close_error = exc
+            thread.join(timeout=0.2)
+        else:
+            thread.join(timeout=0.2)
+            mgr._lifecycle_tasks.clear()
+            mgr._loop = None
+            mgr._thread = None
+            loop.close()
+        gc.collect()
+
+    diagnostic = {
+        "caller_error": type(caller_error).__name__ if caller_error is not None else None,
+        "exact_control": caller_error is control,
+        "loop_survived": loop_survived,
+        "loop_usable": loop_usable,
+        "loop_messages": loop_messages,
+        "warnings": [type(item.message).__name__ for item in caught],
+    }
+
+    try:
+        assert diagnostic == {
+            "caller_error": type(control).__name__,
+            "exact_control": True,
+            "loop_survived": True,
+            "loop_usable": True,
+            "loop_messages": [],
+            "warnings": [],
+        }
+        assert close_error is None
+        assert not thread.is_alive()
+        assert loop.is_closed()
+        assert mgr._lifecycle_tasks == set()
+        if close_probe is not None:
+            assert close_probe.close_calls == 1
+    finally:
+        primary.__traceback__ = None
+        control.__traceback__ = None
+        if not loop.is_closed():
+            loop.close()
+
+
+@pytest.mark.parametrize("error", [RuntimeError("operation secret"), asyncio.CancelledError()])
+def test_submit_preserves_non_control_lifecycle_failure_on_real_loop(error):
+    mgr = MCPManager({}, shutdown_timeout=0.03, thread_join_timeout=0.02)
+    loop = asyncio.new_event_loop()
+    loop_messages = []
+    loop.set_exception_handler(lambda _loop, context: loop_messages.append(context["message"]))
+    thread = threading.Thread(
+        target=loop.run_forever,
+        name="forgeagent-mcp-loop",
+        daemon=True,
+    )
+    mgr._loop = loop
+    mgr._thread = thread
+    mgr._started = True
+
+    async def fail_operation():
+        await asyncio.sleep(0)
+        raise error
+
+    caller_error = None
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        thread.start()
+        try:
+            mgr._submit(fail_operation(), timeout=0.2)
+        except BaseException as exc:
+            caller_error = exc
+
+        assert thread.is_alive()
+        asyncio.run_coroutine_threadsafe(asyncio.sleep(0), loop).result(timeout=0.2)
+        mgr.close()
+        thread.join(timeout=0.2)
+        gc.collect()
+
+    try:
+        if isinstance(error, asyncio.CancelledError):
+            assert isinstance(caller_error, concurrent.futures.CancelledError)
+        else:
+            assert caller_error is error
+        assert not thread.is_alive()
+        assert loop.is_closed()
+        assert mgr._lifecycle_tasks == set()
+        assert loop_messages == []
+        assert caught == []
+    finally:
+        error.__traceback__ = None
+        if not loop.is_closed():
+            loop.close()
+
+
+@pytest.mark.parametrize(
+    ("path", "primary", "cleanup"),
+    [
+        ("explicit enable", KeyboardInterrupt("primary secret"), OSError("cleanup secret")),
+        ("explicit enable", RuntimeError("primary secret"), SystemExit("cleanup secret")),
+        ("replacement", SystemExit("primary secret"), OSError("cleanup secret")),
+        ("replacement", RuntimeError("primary secret"), KeyboardInterrupt("cleanup secret")),
+    ],
+)
+def test_holder_task_creation_failure_isolated_on_real_loop(
+    monkeypatch,
+    path,
+    primary,
     cleanup,
 ):
-    mgr = MCPManager({})
-    primary = RuntimeError("create task secret")
-    coroutine = _CloseProbe(cleanup)
-    operation = mcp_manager_module._LoopOwnedOperation(coroutine)
+    mgr = MCPManager(
+        {"pending": MCPServerConfig(command="unused")},
+        connect_timeout=0.05,
+        shutdown_timeout=0.03,
+        thread_join_timeout=0.02,
+    )
+    loop = asyncio.new_event_loop()
+    loop_messages = []
+    loop.set_exception_handler(lambda _loop, context: loop_messages.append(context["message"]))
+    thread = threading.Thread(
+        target=loop.run_forever,
+        name="forgeagent-mcp-loop",
+        daemon=True,
+    )
+    mgr._loop = loop
+    mgr._thread = thread
+    mgr._started = True
+    original_create_task = asyncio.create_task
+    original_submit = asyncio.run_coroutine_threadsafe
+    holder_coro = _CloseProbe(cleanup)
+    monkeypatch.setattr(mgr, "_holder", lambda *args: holder_coro)
+
+    def fail_holder_task_creation(submitted_coro):
+        if submitted_coro is holder_coro:
+            raise primary
+        return original_create_task(submitted_coro)
 
     monkeypatch.setattr(
         mcp_manager_module.asyncio,
         "create_task",
-        lambda submitted_coro: (_ for _ in ()).throw(primary),
+        fail_holder_task_creation,
     )
+    caller_error = None
+    operation_completed = False
 
-    async def exercise() -> None:
-        with pytest.raises(type(cleanup)) as raised:
-            await mgr._wait_for_owned_operation(operation)
-        assert raised.value is cleanup
-        await asyncio.sleep(0)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        thread.start()
+        if path == "explicit enable":
+            try:
+                operation_completed = mgr.enable("pending")
+            except BaseException as exc:
+                caller_error = exc
+        else:
+            finalized = threading.Event()
+
+            async def install_old_holder() -> None:
+                stop = asyncio.Event()
+
+                async def old_holder() -> None:
+                    await asyncio.sleep(0)
+
+                task = asyncio.create_task(old_holder())
+                state = mgr._states["pending"]
+                state.generation = 1
+                state.status = "restarting"
+                state.tearing_down_generation = 1
+                state.restart_after_generation = 1
+                mgr._holders["pending"] = (1, task, stop)
+
+                def finalize(done):
+                    try:
+                        mgr._finalize_holder_slot("pending", 1, done)
+                    finally:
+                        finalized.set()
+
+                task.add_done_callback(finalize)
+                await asyncio.sleep(0)
+
+            try:
+                original_submit(install_old_holder(), loop).result(timeout=0.2)
+                operation_completed = finalized.wait(timeout=0.2)
+            except BaseException as exc:
+                caller_error = exc
+
+        thread.join(timeout=0.02)
+        loop_survived = thread.is_alive()
+        loop_usable = False
+        if loop_survived:
+            try:
+                original_submit(asyncio.sleep(0), loop).result(timeout=0.2)
+            except BaseException:
+                pass
+            else:
+                loop_usable = True
+
+        state = mgr._states["pending"]
+        selected = primary if isinstance(primary, (KeyboardInterrupt, SystemExit)) else cleanup
+        diagnostic = {
+            "caller_error": caller_error,
+            "operation_completed": operation_completed,
+            "loop_survived": loop_survived,
+            "loop_usable": loop_usable,
+            "status": mgr.server_status()["pending"],
+            "generation": state.generation,
+            "holders": dict(mgr._holders),
+            "sessions": dict(mgr._sessions),
+            "tools": list(state.tools),
+            "tearing_down": state.tearing_down_generation,
+            "restart_after": state.restart_after_generation,
+        }
+
+        monkeypatch.setattr(mcp_manager_module.asyncio, "create_task", original_create_task)
+        if loop_survived:
+            mgr.close()
+            thread.join(timeout=0.2)
+        else:
+            thread.join(timeout=0.2)
+            mgr._holders.clear()
+            mgr._sessions.clear()
+            mgr._lifecycle_tasks.clear()
+            mgr._loop = None
+            mgr._thread = None
+            loop.close()
+        gc.collect()
 
     try:
-        asyncio.run(exercise())
-
-        assert operation.start_error is cleanup
-        assert operation.coroutine is None
-        assert operation.task is None
-        assert coroutine.close_calls == 1
+        assert diagnostic == {
+            "caller_error": None,
+            "operation_completed": True,
+            "loop_survived": True,
+            "loop_usable": True,
+            "status": f"unavailable: {type(selected).__name__}",
+            "generation": 1 if path == "explicit enable" else 2,
+            "holders": {},
+            "sessions": {},
+            "tools": [],
+            "tearing_down": None,
+            "restart_after": None,
+        }
+        assert holder_coro.close_calls == 1
+        assert loop_messages == []
+        assert caught == []
+        assert not thread.is_alive()
+        assert loop.is_closed()
     finally:
         primary.__traceback__ = None
         cleanup.__traceback__ = None
+        if not loop.is_closed():
+            loop.close()
 
 
 def test_disable_facade_timeout_does_not_discard_queued_lifecycle_intent():
@@ -3016,9 +3306,7 @@ def test_multiple_hung_initial_holders_share_ready_deadline(monkeypatch):
 
 
 @pytest.mark.parametrize("error", [KeyboardInterrupt(), SystemExit(7), asyncio.CancelledError()])
-def test_start_holder_creation_control_exception_closes_coroutine_and_preserves_identity(
-    monkeypatch, error
-):
+def test_start_holder_creation_base_exception_isolated_unavailable(monkeypatch, error):
     mgr = MCPManager({"pending": MCPServerConfig(command="unused")})
     closed = False
 
@@ -3034,12 +3322,12 @@ def test_start_holder_creation_control_exception_closes_coroutine_and_preserves_
         lambda coro: (_ for _ in ()).throw(error),
     )
 
-    with pytest.raises(type(error)) as raised:
-        mgr._start_holder("pending")
+    ready = mgr._start_holder("pending")
 
-    assert raised.value is error
+    assert ready.is_set()
     assert closed is True
     assert mgr._holders == {}
+    assert mgr.server_status()["pending"] == f"unavailable: {type(error).__name__}"
     error.__traceback__ = None
 
 
@@ -3080,9 +3368,14 @@ def test_ready_publish_cannot_be_overwritten_by_timeout(monkeypatch):
     assert "pending" in mgr._sessions
 
 
-def test_holder_task_creation_failure_closes_coroutine(monkeypatch):
+def test_holder_task_creation_and_cleanup_errors_remain_fixed_unavailable(
+    monkeypatch,
+    caplog,
+):
     mgr = MCPManager({"pending": MCPServerConfig(command="unused")})
-    creation_error = RuntimeError("create task failed")
+    creation_error = RuntimeError("create task secret")
+    cleanup_error = OSError("cleanup secret")
+    caplog.set_level(logging.WARNING, logger="forgeagent.mcp_manager")
 
     async def run_startup_failure() -> asyncio.Event:
         closed = False
@@ -3091,6 +3384,7 @@ def test_holder_task_creation_failure_closes_coroutine(monkeypatch):
             def close(self) -> None:
                 nonlocal closed
                 closed = True
+                raise cleanup_error
 
         monkeypatch.setattr(mgr, "_holder", lambda *args: HolderCoroutine())
 
@@ -3107,6 +3401,11 @@ def test_holder_task_creation_failure_closes_coroutine(monkeypatch):
     assert ready.is_set()
     assert mgr._holders == {}
     assert mgr.server_status()["pending"] == "unavailable: RuntimeError"
+    assert "MCP holder coroutine cleanup failed: OSError" in caplog.text
+    assert "create task secret" not in caplog.text
+    assert "cleanup secret" not in caplog.text
+    creation_error.__traceback__ = None
+    cleanup_error.__traceback__ = None
 
 
 def test_close_first_does_not_allocate_holder_generation(monkeypatch):

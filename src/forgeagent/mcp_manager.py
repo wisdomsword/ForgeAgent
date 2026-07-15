@@ -126,6 +126,11 @@ class _LoopOwnedOperation:
     start_error: BaseException | None = None
 
 
+@dataclass(frozen=True)
+class _LifecycleControlResult:
+    exception: KeyboardInterrupt | SystemExit
+
+
 def _resolve_env(env: dict[str, str]) -> dict[str, str]:
     """Expand ${VAR} placeholders from os.environ; a base env (PATH, ...) is added by the
     caller. Missing vars expand to empty string (the server reports its own auth error)."""
@@ -225,17 +230,26 @@ class MCPManager:
         except BaseException as exc:  # result observation must not affect loop progress
             logger.warning("MCP lifecycle result observation failed: %s", type(exc).__name__)
 
+    @staticmethod
+    async def _run_owned_operation(coroutine: Coroutine[Any, Any, Any]):
+        try:
+            return await coroutine
+        except (KeyboardInterrupt, SystemExit) as control:
+            return _LifecycleControlResult(control)
+
     def _start_owned_operation(self, operation: _LoopOwnedOperation) -> None:
         if operation.task is not None or operation.start_error is not None:
             return
         coroutine = operation.coroutine
         if coroutine is None:
             return
+        guarded_coroutine = self._run_owned_operation(coroutine)
         try:
-            task = asyncio.create_task(coroutine)
+            task = asyncio.create_task(guarded_coroutine)
         except BaseException as primary:
             selected = primary
             logger.warning("MCP lifecycle operation start failed: %s", type(primary).__name__)
+            guarded_coroutine.close()
             try:
                 coroutine.close()
             except BaseException as cleanup:
@@ -255,6 +269,8 @@ class MCPManager:
     async def _wait_for_owned_operation(self, operation: _LoopOwnedOperation):
         self._start_owned_operation(operation)
         if operation.start_error is not None:
+            if isinstance(operation.start_error, (KeyboardInterrupt, SystemExit)):
+                return _LifecycleControlResult(operation.start_error)
             raise operation.start_error
         if operation.task is None:
             raise RuntimeError("MCP lifecycle operation did not start")
@@ -326,7 +342,7 @@ class MCPManager:
                 operation.coroutine = None
             raise selected from None
         try:
-            return future.result(timeout=timeout)
+            result = future.result(timeout=timeout)
         except concurrent.futures.TimeoutError as primary:
             if not cancel_on_timeout:
                 raise
@@ -366,6 +382,9 @@ class MCPManager:
                 if delivery_error is not None:
                     selected = _prefer_process_control(selected, delivery_error)
             raise selected from None
+        if operation is not None and isinstance(result, _LifecycleControlResult):
+            raise result.exception from None
+        return result
 
     def _holder_slot_matches(
         self,
@@ -498,7 +517,8 @@ class MCPManager:
             holder_coro = self._holder(name, generation, ready, stop)
             try:
                 task = asyncio.create_task(holder_coro)
-            except BaseException as exc:
+            except BaseException as primary:
+                selected = primary
                 try:
                     holder_coro.close()
                 except BaseException as cleanup:
@@ -506,10 +526,9 @@ class MCPManager:
                         "MCP holder coroutine cleanup failed: %s",
                         type(cleanup).__name__,
                     )
-                if not isinstance(exc, Exception):
-                    raise
+                    selected = _prefer_process_control(selected, cleanup)
                 state.tools = []
-                state.status = f"unavailable: {type(exc).__name__}"
+                state.status = f"unavailable: {type(selected).__name__}"
                 ready.set()
                 return ready
             self._holders[name] = (generation, task, stop)
