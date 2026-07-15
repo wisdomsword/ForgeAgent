@@ -436,7 +436,7 @@
 - Allowed implementation files: `.gitignore`, `tests/golden/__init__.py`, `tests/golden/manifest.py`, `tests/golden/cases.py`, `tests/golden/runner.py`, `tests/test_golden_runner.py` only.
 - Risk signals: public test-runner CLI/report contract, environment/configuration isolation, filesystem output containment, and an 833-line task diff. The implementer only called out pending case behavior; the coordinator retains the full Comet risk classification.
 
-## Current Task 8
+## Task 8 Detailed History
 
 - Plan task: `Task 8: 实现 10 项通用黄金任务和 5 项真实模型入口`.
 - OpenSpec mappings: common-case portion of `5.2` and real-callable portion of `5.4`; final completion remains pending until Task 9 and the full offline integration gate.
@@ -477,7 +477,7 @@
 - Review history: one implementation review and two repair rounds; final reviewer Huygens approved with no findings.
 - Scope note: all changes are tests/golden infrastructure and docs/progress; no product source changes in Task 8.
 
-## Current Task 9
+## Task 9 Detailed History
 
 - Plan task: `Task 9: 实现 10 项加固边界黄金任务`.
 - OpenSpec mappings: remaining portion of `5.2` and `5.5`.
@@ -493,3 +493,28 @@
 - Reviewer: `019f64bb-b99f-7763-abf4-fbfa1ee4f4a1` (`Hilbert`).
 - Review result: changes requested. Important: G06/G58 create fixed sibling fixtures outside runner TemporaryDirectory cleanup; G330 synthetic redirect bypasses guarded public first-hop resolution/connection. Minor: G355 excludes only `optional:echo`, not the complete unavailable tool-label set.
 - Stage: `fixing`; review/fix round: `1/2`.
+- Fix handoff note: first fix agent `019f64c9-5a9c-7c21-a511-8a1e43b24ca8` was closed unresponsive before edits; second agent `019f64d4-b0cc-7a23-a7b9-47a955e36a68` wrote RED and implementation but stopped on model capacity; continuation agent `019f64df-7bef-77a0-bcd2-5890e24af333` found the normal G355 label parser also included status prefixes; final continuation agent `019f64e9-403f-7fb3-87a9-f04ab5b0dc2c` (`Lagrange`) corrected and committed the combined fix. These infrastructure interruptions did not consume an additional review/fix round.
+- Fix commit: `d6cfa82` (`fix: tighten boundary golden fixtures`).
+- Fix evidence: cleanup/guard/tool-label focused `6 passed`; golden suite `74 passed`; boundary plus MCP suite `375 passed, 3 skipped`; standalone runner `20/20`, `100.0%`, exit `0`; coordinator full pytest with RuntimeWarning as errors `768 passed, 13 skipped`; Ruff, format and diff check passed.
+- Re-reviewer: `019f64f1-1d92-7360-9363-10af93366fff` (`Bohr`).
+- Re-review result: approved with no Critical, Important or Minor findings. Residual non-blocking risk: G14's 0.2-second timeout and G355's one-second PID reap poll may be sensitive to extreme host scheduling delays.
+- Task 9 checkoff: all six plan steps and OpenSpec `5.2`/`5.5` complete.
+
+## Completed Task 9
+
+- Plan task: `Task 9: 实现 10 项加固边界黄金任务`.
+- Implementation commits: `edbc097`, `d6cfa82`.
+- Evidence: all 20 offline scenarios pass through real local product/test entrypoints; ordinary pytest integration and standalone runner both report `20 passed / 0 failed / 100.0%`; full pytest `768 passed, 13 skipped`; full Ruff passed.
+- Review history: one implementation review and one repair round; Bohr approved the repair with no findings.
+- Scope note: Task 9 changed only `tests/golden/cases.py` and `tests/test_golden_runner.py`; manifest IDs/titles and product source remained unchanged.
+
+## Current Task 10
+
+- Plan task: `Task 10: 同步协议、威胁模型和 ACTION_PLAN`.
+- OpenSpec mappings: `2.4` and `6.1-6.5`.
+- Stage: `implementing`.
+- Base commit: `d6cfa82`.
+- Review mode: `thorough`; review/fix round: `0/2`.
+- TDD mode: documentation synchronization; runtime claims require executable evidence, exact commands and report values.
+- Allowed files: Task 10 documentation list plus `ACTION_PLAN.md` and this progress file only.
+- Preservation rule: retain the user's existing uncommitted M11/M12/table edits in `ACTION_PLAN.md`; add only the approved M13 hardening status and evidence without staging unrelated user hunks.

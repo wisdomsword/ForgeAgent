@@ -1074,19 +1074,19 @@ git commit -m "test: implement trusted golden task core"
 - Produces: G06/G14/G58/G59/G324/G329/G330/G332/G333/G355 offline callables；完整 20 项离线 runner。
 - Consumes: RestrictedBackend、ToolContext、guarded_urlopen、CLI/MCP test doubles、TaskOutcome。
 
-- [ ] **Step 1: 实现 sandbox/project-root 五项判定**
+- [x] **Step 1: 实现 sandbox/project-root 五项判定**
 
 G06 restricted 越权返回结构化失败且未读取目标；G14 timeout 轮失败后后续任务仍成功；G58 项目外读被 audit hook 拦截；G59 项目外写未生成文件；G324 FileWrite 越界返回固定 `FileWrite path is outside project root` 且目标不存在。
 
-- [ ] **Step 2: 实现 SSRF/确认四项判定**
+- [x] **Step 2: 实现 SSRF/确认四项判定**
 
 G329 通过 confirmed `WebFetchTool` 调用 private/metadata literal，精确断言 `WebFetch blocked by network policy` 且 guarded connector 计数为 0；不再断言底层 guard exception 文本。G330 使用 resolver/redirect/connection doubles 构造 public first hop → private second hop，第二跳在连接前拒绝且不绑定本地端口。G332 无 confirmer 时精确断言 `rejected: no interactive confirmation channel available` 和 fake network 计数为 0；true confirmer 对同一 URL 使用 fake public response成功，禁止真实 socket。G333 false confirmer 不写文件但后续 Exec 可在 allowed_root 内写入，证明确认门不是文件安全边界。
 
-- [ ] **Step 3: 实现 MCP G355 产品级冒烟**
+- [x] **Step 3: 实现 MCP G355 产品级冒烟**
 
 使用一个可用 fixture server 和一个 optional 失败 server。通过真实 `_handle_mcp_slash("/mcp", manager, console)` 用户路径判定状态输出同时包含 available/unavailable，工具描述只含可用 server；不能只直接读取 `manager.server_status()`/`list_tools()` 绕过 CLI。manager 在 case finally 中 close 且 PID 消失。required/absolute deadline 的故障矩阵继续由 Task 5/6 单测承担。
 
-- [ ] **Step 4: 运行完整离线 runner**
+- [x] **Step 4: 运行完整离线 runner**
 
 先在 `tests/test_golden_runner.py` 增加一条不 monkeypatch manifest/case 的基础 CI 集成测试：以独立 `tmp_path` output 调用 offline `main()`，断言 exit 0、20/20、JSON/Markdown summary 同源且没有真实网络/Docker/凭证依赖。该测试必须被普通全量 `pytest` 自动收集，不能只保留下面的手工命令。
 
@@ -1096,7 +1096,7 @@ UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run python -m tests.golden.runner
 
 预期：进程退出 0；`artifacts/golden/offline/results.json` 和 `report.md` 均报告 total=20、passed=20、failed=0、pass_rate=100.0。
 
-- [ ] **Step 5: 验证失败与 real preflight**
+- [x] **Step 5: 验证失败与 real preflight**
 
 pytest 注入一个 failing scenario，断言仍运行后续项、退出 1、报告含失败 ID。以不存在模型运行：
 
@@ -1106,7 +1106,7 @@ UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run python -m tests.golden.runner --rea
 
 预期：退出 2，real 输出目录下不存在通过率报告。
 
-- [ ] **Step 6: 提交边界黄金任务**
+- [x] **Step 6: 提交边界黄金任务**
 
 ```bash
 git add tests/golden/cases.py tests/golden/manifest.py tests/test_golden_runner.py

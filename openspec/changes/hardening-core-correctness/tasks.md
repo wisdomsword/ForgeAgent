@@ -38,10 +38,10 @@
 ## 5. 黄金验证核心
 
 - [x] 5.1 从 380 项候选中确定覆盖核心成功路径和本次风险边界的 20 个场景，并建立单一 manifest
-- [ ] 5.2 为 20 个场景提供完全离线的本地输入和自动判定期望；Agent-loop 场景使用 MockClient，边界场景调用对应本地入口，G355 必须通过真实 `/mcp` slash handler核对状态和工具描述
+- [x] 5.2 为 20 个场景提供完全离线的本地输入和自动判定期望；Agent-loop 场景使用 MockClient，边界场景调用对应本地入口，G355 必须通过真实 `/mcp` slash handler核对状态和工具描述
 - [x] 5.3 实现可重复 runner，以递归类型检查拒绝 tuple、非字符串 key、非标准 JSON 值和非有限数字而不静默转换，并把非法 evidence 收敛为单项失败；输出完整机器可读结果、失败原因、人类可读汇总和通过率，并以失败状态控制退出码
 - [x] 5.4 标记其中 5 个真实模型兼容场景，提供显式 opt-in 运行入口和独立报告，确保基础 CI 不访问外部模型
-- [ ] 5.5 将黄金核心接入项目验证命令，验证 standalone offline entry 在配置敏感 import 前隔离 HOME/USERPROFILE/XDG_CONFIG_HOME，并在无网络、无 Docker、无凭证环境下可完整执行
+- [x] 5.5 将黄金核心接入项目验证命令，验证 standalone offline entry 在配置敏感 import 前隔离 HOME/USERPROFILE/XDG_CONFIG_HOME，并在无网络、无 Docker、无凭证环境下可完整执行
 
 ## 6. 契约与里程碑文档
 
