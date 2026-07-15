@@ -1232,7 +1232,7 @@ characterization tests 分别证明 `completed: false` 的 refused/need_info/fai
 
 用 TDD 证明 WebFetch 多字节文本的 `N bytes` 等于脱敏后实际落盘 UTF-8 字节数；证明 `/search` 对无法 URL 编码的未配对 surrogate 不发起请求、不抛异常并返回固定 unavailable。同步修正 M10 重定向 handler/opener 说明和 required MCP startup docstring，不引入通用 sanitizer、代理实现或新配置面。
 
-- [ ] **Step 6: 定向验证并完成最终 task review**
+- [x] **Step 6: 定向验证并完成最终 task review**
 
 运行相关 Ruff、SSRF/Web、model registry/streaming、Step/Task、escape、golden runner 和 strict OpenSpec 验证；审查范围覆盖 Task 10/10A 全部提交，确认没有把历史草案恢复为当前契约。
 

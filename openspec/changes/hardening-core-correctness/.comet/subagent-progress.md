@@ -530,7 +530,7 @@
 
 ### Task 10/10A Review And Repair Checkpoint
 
-- Stage: `final-review`; review mode `thorough`; review/fix round `2/2` complete, final re-review pending.
+- Stage: `done`; review mode `thorough`; review/fix round `2/2` complete; final re-review approved.
 - Initial documentation commit: `ca12e38`; first reviewer `019f6516-9306-7713-a4eb-6501aec48c90` found current model-client, protocol and T1-T11 contracts were over-compressed and identified the live `supports_images` registry loss. Independent design reviewer `019f6516-93dd-7be1-981f-4d031a3202ed` found required-cleanup, non-completion terminal, catalog-count, migration-plan and TOCTOU inconsistencies.
 - Review repair commits: `387b2cb` relative redirects; `7e9e74a` image capability propagation; `3a503f4` explicit false override test; `14f2d3e` runtime contract restoration; `03ad4e5` sandbox fact correction; `da6daad` plus `fe640c3` exact catalog/README gates; `c790d96` explicit non-completion terminal characterization; `8063b42` Design/OpenSpec/plan reconciliation.
 - RED/GREEN highlights: relative redirect probe failed on empty scheme then Web/SSRF suite passed `109 passed, 2 skipped`; image mapping failed six built-ins plus custom entry then registry/client suite passed `88 passed`; heading-only catalog gate exposed the real mixed heading/table format, corrected suite passed `67 passed`; Step/Task characterization rerun passed `47 passed`; escape tests passed `16 passed`; strict OpenSpec and diff checks passed.
@@ -542,3 +542,11 @@
 - Consumer RED/GREEN evidence: `/search` unpaired surrogate raised `UnicodeEncodeError` before repair and then `20 passed`; WebFetch byte metadata failed against character counting and then the focused Web/File suite passed `48 passed`; final coordinator `/search` rerun passed `20 passed` with RuntimeWarning/unraisable promoted to errors. Strict OpenSpec and cached diff checks passed.
 - Final pre-review coordinator matrix: scoped Ruff lint passed; all 12 changed Python files passed Ruff format check; SSRF/search/Web/File/model-registry/streaming/Step/Task/golden/escape tests passed `292 passed, 2 skipped` with RuntimeWarning and PytestUnraisableExceptionWarning promoted to errors. The skips are explicit local-bind and outbound-network capability limits. Strict OpenSpec and `git diff --check` passed.
 - Shared-worktree commit boundary note: a worker commit temporarily combined the independently authored WebFetch spec and `/search` files, then a later worker branch-pointer race moved those commits out of the current ancestry while preserving their bytes in the index/worktree. No reset/restore/rebase was used. The coordinator froze workers, revalidated the exact six staged files and committed them as `41a38d7`; the current linear HEAD contains all intended content. Commit titles are not used as evidence for file ownership.
+- Final reviewer `019f656e-7432-7cf3-b8eb-a493fb42d6e0` approved `51512f2..c200c66` with no Critical, Important or Minor findings. It confirmed golden definition/parser responsibility, all three explicit non-completion statuses, redirect/proxy/search/WebFetch contracts, image propagation, required-CLI queued-shutdown versus direct-manager retry semantics, exact 45-task mapping, and M13-only committed ACTION_PLAN change. The reviewer explicitly classified its verdict as static code/contract review; Task 11 remains responsible for fresh comprehensive commands.
+
+## Completed Task 10/10A
+
+- Candidate HEAD: `c200c66`.
+- Plan checkoff: Task 10 steps 1-6 and Task 10A steps 1-6 complete.
+- OpenSpec checkoff: `2.4`, `2.5`, `3.8`, `3.11`, `3.12`, `5.6`, `6.1-6.4`, `6.6`, and `6.7` complete. `6.5` and `7.1-7.5` remain for Task 11.
+- Preserved user state: `ACTION_PLAN.md` worktree SHA-256 remains `64ab3ca0b0b12e341233332481a5c83189d840f9bdf5b3a1ee0a8ed741bc5a15`; only M13 was committed, while the pre-existing M11/M12/table worktree difference remains uncommitted.
