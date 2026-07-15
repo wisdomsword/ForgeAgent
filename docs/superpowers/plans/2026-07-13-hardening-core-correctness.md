@@ -588,7 +588,7 @@ git commit -m "fix: harden file tool path boundaries"
 - 参数化 `bad[/red]`、`[bold]fake[/bold]`、ANSI/C0/C1、CR/LF、U+2028/U+2029、U+202E、U+2066/U+2069、U+200E 等 Unicode `Cf` 格式控制符，以及未配对 `\\ud800` surrogate 到 MCP identifier、嵌套 arguments mapping key/string value 与 FileWrite path：确认输出不抛 `MarkupError`/`UnicodeEncodeError`、不改变 `approve` 样式、不产生注入行或双向重排，控制/格式/surrogate 字符以可见转义呈现，整个摘要作为 Rich literal segments 渲染，且 `read_line` 只调用一次。
 - 参数化输入 `models`、`reload`、`mcp`、`mcp status` 都完整进入 `run_once()`，无 deprecation 文本；`/model`、`/reload`、`/mcp` 仍只走 handler。现有顶层 `main(["models"])` 测试继续通过。
 
-- [x] **Step 2: 运行 RED 测试**
+- [x] **Step 2: 运行 CLI RED 测试**
 
 ```bash
 UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_cli.py -q
