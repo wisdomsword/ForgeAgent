@@ -17,7 +17,7 @@ ForgeAgent SHALL maintain a trusted core manifest containing exactly G01, G03, G
 
 #### Scenario: Manifest selection is validated
 - **WHEN** the golden runner performs preflight validation
-- **THEN** it rejects duplicate, missing, additional or substituted core or catalog scenario IDs before executing the suite
+- **THEN** it rejects duplicate, missing, additional or substituted trusted-core manifest IDs and missing trusted-core task definitions before executing the suite; full catalog-universe validation remains outside the production runner
 
 #### Scenario: Core IDs remain defined in the candidate catalog
 - **WHEN** automated documentation consistency tests inspect the trusted-core manifest and `docs/golden-tasks-seed.md`
@@ -25,6 +25,8 @@ ForgeAgent SHALL maintain a trusted core manifest containing exactly G01, G03, G
 
 ### Requirement: Golden catalog has one exact ID universe
 The candidate catalog SHALL contain each and only each ID from `G01` through `G380`, inclusive. The trusted core SHALL be the exact 20-ID set above; its complement SHALL contain exactly 360 non-core candidates. Validation MUST reject duplicate, missing, additional or substituted catalog IDs before any claim about core or candidate counts.
+
+The complete `G01` through `G380` unique, continuous and 360-item non-core check SHALL be owned by the documentation-consistency pytest gate, not by the production golden runner preflight.
 
 #### Scenario: Candidate ID universe is exact
 - **WHEN** catalog consistency validation reads the candidate documentation and trusted-core manifest

@@ -804,7 +804,13 @@ def test_manifest_preflight_rejects_duplicates_additions_and_catalog_prefix_matc
 
     complete_catalog = tmp_path / "complete.md"
     complete_catalog.write_text(
-        "\n".join(f"### {scenario_id} definition" for scenario_id in EXPECTED_IDS),
+        "\n".join(f"### G{number:02d} definition" for number in range(1, 31))
+        + "\n| ID | 描述 | Pass 判定 |\n| --- | --- | --- |\n"
+        + "\n".join(
+            f"| {scenario_id} | candidate | checked |"
+            for scenario_id in sorted(EXPECTED_IDS)
+            if int(scenario_id[1:]) > 30
+        ),
         encoding="utf-8",
     )
     scenarios = tuple(
@@ -812,6 +818,26 @@ def test_manifest_preflight_rejects_duplicates_additions_and_catalog_prefix_matc
         for scenario_id in EXPECTED_IDS
     )
     validate_manifest(scenarios, catalog_path=complete_catalog)
+
+
+def test_manifest_preflight_rejects_coverage_reference_without_g01_definition(tmp_path):
+    coverage_matrix = "| ID | Category |\n| --- | --- |\n| G01 | core |\n"
+    core_headings = "\n".join(f"### G{number:02d} definition" for number in range(2, 31))
+    candidate_table = "| ID | 描述 | Pass 判定 |\n| --- | --- | --- |\n" + "\n".join(
+        f"| G{number:02d} | candidate | checked |" for number in range(31, 381)
+    )
+    catalog = tmp_path / "catalog.md"
+    catalog.write_text(
+        coverage_matrix + core_headings + "\n" + candidate_table,
+        encoding="utf-8",
+    )
+    scenarios = tuple(
+        _scenario(scenario_id, real=scenario_id in EXPECTED_REAL_IDS)
+        for scenario_id in EXPECTED_IDS
+    )
+
+    with pytest.raises(GoldenPreflightError, match="missing G01"):
+        validate_manifest(scenarios, catalog_path=catalog)
 
 
 def test_run_suite_returns_success_and_failure_exit_codes_and_shared_summary(tmp_path):

@@ -6,6 +6,8 @@ text-protocol markup from docs/text-protocol-spec.md.
 
 import json
 
+import pytest
+
 from forgeagent.client import MockClient
 from forgeagent.executor import TrustedBackend
 from forgeagent.models import (
@@ -105,6 +107,27 @@ def test_declared_refusal_via_front_matter():
 def test_declared_need_info_via_front_matter():
     fm = "---\ntask_status:\n  completed: false\n  status: need_info\n---\nwhich file?"
     rounds = _step([_reply(fm)]).run(_user())
+    assert rounds[0].stopped_reason == "needs_info"
+
+
+@pytest.mark.parametrize(
+    "same_round_suffix",
+    [
+        _exec_call("print('hi')"),
+        '<!-- ToolCall: {"name": "Exec", "arguments": {"code": "x",}} -->',
+    ],
+    ids=["tool", "parse_error"],
+)
+def test_need_info_precedes_same_round_feedback_and_stops_once(same_round_suffix):
+    response = (
+        "---\ntask_status:\n  completed: false\n  status: need_info\n---\n" + same_round_suffix
+    )
+    client = MockClient(script=[_reply(response), _reply(_done())])
+
+    rounds = Step(client, TrustedBackend(), Runtime(), max_rounds=5).run(_user())
+
+    assert client.calls_made == 1
+    assert len(rounds) == 1
     assert rounds[0].stopped_reason == "needs_info"
 
 

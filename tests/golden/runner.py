@@ -51,6 +51,9 @@ EXPECTED_REAL_IDS = frozenset({"G01", "G03", "G08", "G11", "G43"})
 JSON_SCHEMA = "forgeagent.golden.v1"
 INVALID_EVIDENCE_DETAIL = "invalid evidence"
 _HOME_VARIABLES = ("HOME", "USERPROFILE", "XDG_CONFIG_HOME")
+_CORE_HEADING_ID = re.compile(r"^#{1,6}[ \t]+(G(?:0[1-9]|[12][0-9]|30))(?:[ \t]|$)", re.MULTILINE)
+_CANDIDATE_TABLE_HEADER = ("ID", "描述", "Pass 判定")
+_CANDIDATE_ID = re.compile(r"G(?:3[1-9]|[4-9][0-9]|[12][0-9]{2}|3[0-7][0-9]|380)")
 
 
 class GoldenPreflightError(Exception):
@@ -100,6 +103,29 @@ def _catalog_path() -> Path:
     return Path(__file__).resolve().parents[2] / "docs" / "golden-tasks-seed.md"
 
 
+def _catalog_table_cells(line: str) -> tuple[str, ...] | None:
+    stripped = line.strip()
+    if not stripped.startswith("|") or not stripped.endswith("|"):
+        return None
+    return tuple(cell.strip() for cell in stripped[1:-1].split("|"))
+
+
+def _catalog_definition_ids(catalog: str) -> set[str]:
+    definition_ids = set(_CORE_HEADING_ID.findall(catalog))
+    in_candidate_table = False
+    for line in catalog.splitlines():
+        cells = _catalog_table_cells(line)
+        if cells is None:
+            in_candidate_table = False
+            continue
+        if cells == _CANDIDATE_TABLE_HEADER:
+            in_candidate_table = True
+            continue
+        if in_candidate_table and cells and _CANDIDATE_ID.fullmatch(cells[0]):
+            definition_ids.add(cells[0])
+    return definition_ids
+
+
 def validate_manifest(
     scenarios: Sequence[GoldenScenario], *, catalog_path: Path | None = None
 ) -> None:
@@ -124,11 +150,9 @@ def validate_manifest(
         catalog = (catalog_path or _catalog_path()).read_text(encoding="utf-8")
     except OSError as exc:
         raise GoldenPreflightError("golden task catalog is unavailable") from exc
+    definition_ids = _catalog_definition_ids(catalog)
     for scenario_id in identifier_set:
-        escaped_id = re.escape(scenario_id)
-        heading = re.compile(rf"(?m)^#+\s+{escaped_id}(?![A-Za-z0-9_])")
-        table = re.compile(rf"(?m)^\|\s*{escaped_id}(?![A-Za-z0-9_])\s*\|")
-        if not heading.search(catalog) and not table.search(catalog):
+        if scenario_id not in definition_ids:
             raise GoldenPreflightError(f"golden task catalog is missing {scenario_id}")
 
 
