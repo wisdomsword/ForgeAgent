@@ -413,11 +413,11 @@ runner preflight 必须验证：
 
 ### 9.3 场景执行
 
-每个场景获得独立临时工作目录。case callable 负责 fixture 创建、Task/CLI/工具调用和显式 judge，并返回标准化 evidence。判定不得依赖 Python `assert`，以免 `python -O` 改变结果；失败通过专用 check error 或结构化结果表达。evidence 只能递归包含 JSON 标准值（字符串键的 object、array、string、finite number、boolean、null）；runner 在接纳场景结果时用严格 JSON 编码验证，非序列化值或 NaN/Infinity 转成该场景的固定失败结果并继续其余场景，不能让最终报告阶段整体崩溃。
+每个场景获得独立临时工作目录。case callable 负责 fixture 创建、Task/CLI/工具调用和显式 judge，并返回标准化 evidence。判定不得依赖 Python `assert`，以免 `python -O` 改变结果；失败通过专用 check error 或结构化结果表达。evidence 只能递归包含 JSON 标准值：`None`、`bool`、`str`、`int`、finite `float`、`list` 和键严格为 `str` 的 `dict`。runner 先用显式递归类型检查拒绝 tuple、非字符串 mapping key、Path/自定义对象和非有限浮点，再用 `json.dumps(..., allow_nan=False)` 做最终编码验证；不能依赖 encoder 把整数 key 静默转换为字符串。非法 evidence 转成该场景的固定失败结果并继续其余场景，不能让最终报告阶段整体崩溃。
 
 离线模式只使用本地 fixture：进入 Agent 循环的场景使用 MockClient；网络、CLI、Tool、RestrictedBackend 和 MCP 生命周期等边界场景可以直接调用对应入口及本地 test double，而不伪造一次无意义的模型轮次。基础运行不得访问公网、Docker、真实模型配置或用户 home。
 
-standalone runner 还必须在配置敏感 import 之前建立隔离边界。`tests/golden/__init__.py` 保持无副作用，`runner.py` 顶层只导入标准库；offline `main()` 解析参数后先创建临时 home并临时设置 `HOME`、`USERPROFILE`、`XDG_CONFIG_HOME`，再 local-import manifest、cases、CLI、MCP 和模型配置相关模块，完成 suite/report 后恢复环境。测试从一个含恶意 `~/.forgeagent/mcp.yaml` 的父环境启动真实子进程，证明该文件既不会被 import-time default path 捕获，也不会影响 20 项结果。real opt-in 可以消费显式模型/凭证环境，但不能让 offline 路径提前 import 配置敏感模块。
+standalone runner 还必须在配置敏感 import 之前建立隔离边界。`tests/golden/__init__.py` 保持无副作用，`runner.py` 顶层只导入标准库；offline `main()` 解析参数后先创建临时 home并临时设置 `HOME`、`USERPROFILE`、`XDG_CONFIG_HOME`，再 local-import manifest、cases、CLI、MCP 和模型配置相关模块，完成 suite/report 后在 `finally` 恢复三个变量的原值或未设置状态。standalone 测试从一个含恶意 `~/.forgeagent/mcp.yaml` 的父环境启动真实子进程，证明该文件既不会被 import-time default path 捕获，也不会影响 20 项结果；另一个 in-process `main()` 测试证明正常返回和 runner 异常路径都恢复环境，不能用“子进程本来就无法修改父环境”替代。real opt-in 可以消费显式模型/凭证环境，但不能让 offline 路径提前 import 配置敏感模块。
 
 G13 的离线脚本在工具失败/成功轮携带提前 `completed: true`，同时验证错误反馈环和严格两阶段完成。G03 judge 必须解析并逐行核对扁平 CSV；G05 必须用运行时插桩证明第二块调用 `get_state()` 且副作用恰好一次；G08 必须核对给定测试文件 hash 不变；G15 必须同时验证 Edit version+1、旧历史保留、仅目标 diff 和 AST；G27 必须验证初始 FAIL、最终 PASS 和 Edit 版本链。G329 通过 confirmed `WebFetchTool` 精确断言固定 network-policy outcome 和零 connector；G330 用 resolver/redirect/connection doubles 验证第二跳私网在连接前拒绝；G332 无 confirmer 时精确断言 no-channel outcome 和零 fake-network 调用，批准分支只使用 fake public response。最终值或测试通过只是这些场景的必要条件，不是充分条件。MCP required/close 的细粒度故障矩阵保留在专项测试；G355 只承担产品级状态/工具目录和 optional 降级冒烟。
 
