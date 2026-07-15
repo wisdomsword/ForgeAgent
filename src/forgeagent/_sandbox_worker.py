@@ -78,7 +78,7 @@ def _install_audit_hook(allowed_root: str) -> None:
 
 
 def _apply_rlimits(cpu_seconds: int, memory_mb: int) -> None:
-    """Apply CPU/file-descriptor limits (Unix only). No-op where `resource` is absent
+    """Apply CPU and address-space limits (Unix only). No-op where `resource` is absent
     (Windows) — the subprocess timeout in the parent is the cross-platform backstop."""
     try:
         import resource
