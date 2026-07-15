@@ -578,7 +578,7 @@ git commit -m "fix: harden file tool path boundaries"
 - Produces: REPL 显式 terminal-capability 注入；MCP identifier/argument key/FileWrite safe-path 已知 secret 脱敏与单行 literal-safe Rich 渲染；仅 slash-prefixed REPL command 路由。
 - Consumes: `sys.stdin.isatty()`、`Console.is_terminal`、`mask_secrets()`、`sensitive_env_values()`、现有 `_confirmation_summary()` 和 slash handlers。
 
-- [ ] **Step 1: 写非 TTY、literal-safe confirmation、identifier/path 脱敏和裸词迁移 RED 测试**
+- [x] **Step 1: 写非 TTY、literal-safe confirmation、identifier/path 脱敏和裸词迁移 RED 测试**
 
 在 `tests/test_cli.py` 增加：
 
@@ -588,7 +588,7 @@ git commit -m "fix: harden file tool path boundaries"
 - 参数化 `bad[/red]`、`[bold]fake[/bold]`、ANSI/C0/C1、CR/LF、U+2028/U+2029、U+202E、U+2066/U+2069、U+200E 等 Unicode `Cf` 格式控制符，以及未配对 `\\ud800` surrogate 到 MCP identifier、嵌套 arguments mapping key/string value 与 FileWrite path：确认输出不抛 `MarkupError`/`UnicodeEncodeError`、不改变 `approve` 样式、不产生注入行或双向重排，控制/格式/surrogate 字符以可见转义呈现，整个摘要作为 Rich literal segments 渲染，且 `read_line` 只调用一次。
 - 参数化输入 `models`、`reload`、`mcp`、`mcp status` 都完整进入 `run_once()`，无 deprecation 文本；`/model`、`/reload`、`/mcp` 仍只走 handler。现有顶层 `main(["models"])` 测试继续通过。
 
-- [ ] **Step 2: 运行 RED 测试**
+- [x] **Step 2: 运行 RED 测试**
 
 ```bash
 UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_cli.py -q
@@ -596,7 +596,7 @@ UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_cli.py -q
 
 预期：非 TTY REPL 会读取确认输入、identifier/path 泄漏 secret、畸形 Rich tag 可在询问前抛错或控制文本可伪造行，裸词仍被 compat 分支截获，新增测试 FAIL。
 
-- [ ] **Step 3: 实施最小 CLI 收口**
+- [x] **Step 3: 实施最小 CLI 收口**
 
 `repl()` 增加 `confirmation_available: bool | None = None`；未提供时按 `console.is_terminal and sys.stdin.isatty()` 计算。只在该值为真时创建 confirmer，否则向 `run_once()` 传 `None`。测试可显式传 true/false，不把注入的 `read_line` 自动视为 TTY。
 
@@ -604,7 +604,7 @@ UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_cli.py -q
 
 删除 REPL 的 bare-word compatibility rewrite；不修改 argparse 的顶层 `models` subcommand，也不改变 slash handler。
 
-- [ ] **Step 4: 运行 CLI 与工具确认回归**
+- [x] **Step 4: 运行 CLI 与工具确认回归**
 
 ```bash
 UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_cli.py tests/test_tools.py tests/test_web_file_tools.py -q
@@ -612,7 +612,7 @@ UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_cli.py tests/test
 
 预期：TTY/non-TTY、autoApprove、Survey 分离、identifier/path 脱敏、literal-safe 单行确认、裸词目标与 slash command 全部 PASS。
 
-- [ ] **Step 5: 提交 CLI 收口**
+- [x] **Step 5: 提交 CLI 收口**
 
 ```bash
 git add src/forgeagent/cli.py tests/test_cli.py

@@ -373,7 +373,7 @@
 
 - Plan task: `Task 3D: 收口 CLI 确认通道与 M9 命令迁移`.
 - OpenSpec mapping: `3.10`.
-- Stage: `final-fix`.
+- Stage: `done`.
 - Base commit: `331b830`.
 - Dispatch checkpoint commit: `a494c78`; coordinator-only documentation commits advanced the shared branch while implementation ran, so the isolated implementation review range is the implementation commit's parent `7dcac1c` through `a48d487`.
 - Implementer: `019f63ef-7254-7fd0-8103-118aab16fedb` (`Kuhn`).
@@ -390,6 +390,9 @@
 - Fix RED evidence: with a temporary non-TTY confirmer mutation, the three new real REPL/Task/Tool cases failed `3 failed, 133 deselected`; `src/forgeagent/cli.py` was then restored to zero diff.
 - Fix GREEN evidence: focused matrix `3 passed, 133 deselected`; CLI `136 passed`; CLI/tools/WebFetch regression `199 passed`; Ruff check/format and `git diff --check` passed.
 - Fix scope: final commit changes only `tests/test_cli.py`; WebFetch, FileWrite and non-auto-approved MCP all assert the exact no-channel outcome, zero confirmation reads, next-goal continuation and no MCP call.
+- Re-reviewer: `019f640c-48d1-7c33-8828-500450579b0c` (`Helmholtz`).
+- Re-review result: approved with no Critical, Important or Minor findings. The reviewer confirmed the wrapper delegates to the captured real `run_once`, all three cases traverse Task/Step/Tool, and the fix range has no production diff.
+- Checkoff result: all five Task 3D plan steps and OpenSpec `3.10` complete.
 - TDD mode: `tdd`; RED and GREEN evidence are required before review.
 - Allowed implementation files: `src/forgeagent/cli.py`, `tests/test_cli.py` only.
 - Risk signals: security-sensitive external display/input handling and public REPL command-routing behavior. The implementer reported none, but the coordinator corrected that classification under the Comet risk checklist.
