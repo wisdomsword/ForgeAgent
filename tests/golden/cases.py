@@ -16,7 +16,14 @@ from unittest.mock import patch
 
 from forgeagent.client import MockClient, ModelClient
 from forgeagent.executor import RestrictedBackend
-from forgeagent.models import AssistantMessage, TokenUsage
+from forgeagent.models import (
+    AssistantMessage,
+    ClientError,
+    GenerationParams,
+    Message,
+    TokenUsage,
+)
+from forgeagent.protocol import EditArgs, ExecArgs, parse
 from forgeagent.runtime import Runtime
 
 if TYPE_CHECKING:
@@ -111,8 +118,12 @@ def _run_g01_case(workdir: Path, client: ModelClient) -> GoldenEvidence:
         _invalid("G01 result.json is invalid", exc)
     require(type(payload) is dict, "G01 result must be a JSON object")
     require(set(payload) == {"sum", "mean"}, "G01 result keys differ")
-    require(abs(float(payload["sum"]) - 60.0) < 1e-6, "G01 sum differs")
-    require(abs(float(payload["mean"]) - 20.0) < 1e-6, "G01 mean differs")
+    require(
+        type(payload["sum"]) in (int, float) and type(payload["mean"]) in (int, float),
+        "G01 sum and mean must be built-in numeric types",
+    )
+    require(abs(payload["sum"] - 60.0) < 1e-6, "G01 sum differs")
+    require(abs(payload["mean"] - 20.0) < 1e-6, "G01 mean differs")
     return _evidence(
         detail="CSV summary matched",
         evidence={"rows": 3, "sum": 60.0, "mean": 20.0},
@@ -267,16 +278,17 @@ def _golden_record(kind, payload):
             {{'marker': _golden_marker, 'kind': kind, 'payload': payload}}
         ) + '\\n')
 class _GoldenTaintedNumber:
-    def __init__(self, value):
+    def __init__(self, value, derived=False):
         self.value = value
+        self.derived = derived
     def _used(self):
         _golden_record('use', self.value)
     def __add__(self, other):
         self._used()
-        return self.value + other
+        return _GoldenTaintedNumber(self.value + other, derived=True)
     def __radd__(self, other):
         self._used()
-        return other + self.value
+        return _GoldenTaintedNumber(other + self.value, derived=True)
     def __int__(self):
         self._used()
         return int(self.value)
@@ -284,7 +296,10 @@ class _GoldenTaintedNumber:
         self._used()
         return float(self.value)
     def __str__(self):
-        self._used()
+        if self.derived:
+            _golden_record('sink', self.value)
+        else:
+            self._used()
         return str(self.value)
 def _golden_get_state(key, default=None):
     value = _golden_original_get_state(key, default)
@@ -370,6 +385,16 @@ def _run_g05_case(workdir: Path, client: ModelClient) -> GoldenEvidence:
         backend._probe_stdout == str(backend._probe_state + 8),
         "G05 causal replay output did not follow alternate state",
     )
+    sinks = [item for item in observations if item.get("kind") == "sink"]
+    probe_sinks = [item for item in backend._probe_observations if item.get("kind") == "sink"]
+    require(
+        len(sinks) == 1 and sinks[0].get("payload") == 50,
+        "G05 canonical sink marker differs",
+    )
+    require(
+        len(probe_sinks) == 1 and probe_sinks[0].get("payload") == backend._probe_state + 8,
+        "G05 causal replay sink marker differs",
+    )
     return _evidence(
         detail="cross-block state was read and used",
         evidence={
@@ -403,19 +428,26 @@ if clamp(10, 0, 10) != 10:
     raise SystemExit(1)
 if clamp(-2, 0, 10) != 0:
     raise SystemExit(1)
-print("tests passed")
+print("G08 assertions completed")
 """
+G08_TEST_WITNESS = "G08 assertions completed"
 
 
-def _run_python_test(workdir: Path, filename: str) -> int:
-    completed = subprocess.run(
-        [sys.executable, filename],
-        cwd=workdir,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return completed.returncode
+def _run_python_test(
+    workdir: Path, filename: str, *, timeout_seconds: float = 5.0
+) -> tuple[int, str]:
+    try:
+        completed = subprocess.run(
+            [sys.executable, filename],
+            cwd=workdir,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired as exc:
+        _invalid("G08 test subprocess timed out", exc)
+    return completed.returncode, completed.stdout
 
 
 def _run_g08_case(workdir: Path, client: ModelClient) -> GoldenEvidence:
@@ -425,7 +457,7 @@ def _run_g08_case(workdir: Path, client: ModelClient) -> GoldenEvidence:
     source.write_text(G08_INITIAL_CODE, encoding="utf-8")
     test_file.write_text(G08_TEST_CODE, encoding="utf-8")
     before_hash = hashlib.sha256(test_file.read_bytes()).hexdigest()
-    before_exit = _run_python_test(workdir, test_file.name)
+    before_exit, _ = _run_python_test(workdir, test_file.name)
     require(before_exit != 0, "G08 provided tests did not fail before the fix")
     goal = (
         f"Fix the boundary bug in {source} so the provided test {test_file} passes. "
@@ -435,8 +467,12 @@ def _run_g08_case(workdir: Path, client: ModelClient) -> GoldenEvidence:
     _require_completed(outcome, "G08")
     after_hash = hashlib.sha256(test_file.read_bytes()).hexdigest()
     require(after_hash == before_hash, "G08 test file hash changed")
-    after_exit = _run_python_test(workdir, test_file.name)
+    after_exit, after_stdout = _run_python_test(workdir, test_file.name)
     require(after_exit == 0, "G08 provided tests did not pass after the fix")
+    require(
+        after_stdout.splitlines() == [G08_TEST_WITNESS],
+        "G08 test completion witness is missing",
+    )
     return _evidence(
         detail="bug fix preserved the provided tests",
         evidence={
@@ -520,10 +556,22 @@ def run_g11_real(workdir: Path, client: ModelClient) -> GoldenEvidence:
     return _run_g11_case(workdir, client)
 
 
+class _RecordingMockClient(MockClient):
+    def __init__(self, script: list[AssistantMessage | ClientError]) -> None:
+        super().__init__(script)
+        self.messages_by_call: list[list[Message]] = []
+
+    def complete(
+        self, messages: list[Message], params: GenerationParams | None = None
+    ) -> AssistantMessage | ClientError:
+        self.messages_by_call.append([message.model_copy(deep=True) for message in messages])
+        return super().complete(messages, params)
+
+
 def run_g13_offline(workdir: Path) -> GoldenEvidence:
     del workdir
     premature = _done()
-    client = MockClient(
+    client = _RecordingMockClient(
         script=[
             _reply(premature + "\n" + _exec("print(undefined_variable)", "calc")),
             _reply(premature + "\n" + _exec("print(2 + 2)", "calc")),
@@ -543,6 +591,16 @@ def run_g13_offline(workdir: Path) -> GoldenEvidence:
         len(first.outcomes) == 1 and not first.outcomes[0].success, "G13 first tool did not fail"
     )
     require("NameError" in first.outcomes[0].detail, "G13 first failure was not fed back")
+    require(len(client.messages_by_call) >= 2, "G13 client did not receive round 2")
+    round_two_feedback = [
+        message.content
+        for message in client.messages_by_call[1]
+        if type(message.content) is str and "[Exec calc] FAILED:" in message.content
+    ]
+    require(
+        len(round_two_feedback) == 1 and "NameError" in round_two_feedback[0],
+        "G13 round 2 is missing failed tool feedback",
+    )
     require(len(second.outcomes) == 1 and second.outcomes[0].success, "G13 second tool failed")
     require(second.outcomes[0].exec_result is not None, "G13 successful result missing")
     require(second.outcomes[0].exec_result.stdout.strip() == "4", "G13 corrected output differs")
@@ -584,6 +642,18 @@ def _run_step(workdir: Path, client: ModelClient, goal: str):
     return SimpleNamespace(rounds=outcome.rounds, blocks=store)
 
 
+def _structured_call_outcomes(rounds):
+    calls = []
+    for round_result in rounds:
+        parsed = parse(round_result.text)
+        require(
+            len(parsed.tool_calls) == len(round_result.outcomes),
+            "golden structured tool-call history differs from outcomes",
+        )
+        calls.extend(zip(parsed.tool_calls, round_result.outcomes, strict=True))
+    return calls
+
+
 def _run_g15_case(workdir: Path, client: ModelClient) -> GoldenEvidence:
     step = _run_step(
         workdir,
@@ -593,11 +663,21 @@ def _run_g15_case(workdir: Path, client: ModelClient) -> GoldenEvidence:
     )
     require(bool(step.rounds), "G15 produced no rounds")
     require(step.rounds[-1].stopped_reason == "completed", "G15 did not complete")
-    edit_outcomes = [
-        outcome for item in step.rounds for outcome in item.outcomes if outcome.tool == "Edit"
+    call_outcomes = _structured_call_outcomes(step.rounds)
+    successful_edits = [
+        (call, outcome)
+        for call, outcome in call_outcomes
+        if call.name == "Edit" and outcome.success
     ]
-    require(len(edit_outcomes) == 1, "G15 must invoke Edit exactly once")
-    require(edit_outcomes[0].success, "G15 Edit failed")
+    require(len(successful_edits) == 1, "G15 must invoke Edit successfully exactly once")
+    edit_args = successful_edits[0][0].arguments
+    require(
+        isinstance(edit_args, EditArgs)
+        and edit_args.name == "target"
+        and edit_args.old == "DEFAULT_TIMEOUT = 10"
+        and edit_args.new == "DEFAULT_TIMEOUT = 15",
+        "G15 exact Edit arguments must be DEFAULT_TIMEOUT = 10 then DEFAULT_TIMEOUT = 15",
+    )
     history = [block for block in step.blocks.history if block.name == "target"]
     require([block.version for block in history] == [1, 2], "G15 version chain differs")
     require(len(history) == 2, "G15 old version was not retained")
@@ -713,18 +793,37 @@ def _run_g27_case(workdir: Path, client: ModelClient) -> GoldenEvidence:
     )
     require(bool(step.rounds), "G27 produced no rounds")
     require(step.rounds[-1].stopped_reason == "completed", "G27 did not complete")
-    exec_outcomes = [
-        outcome for item in step.rounds for outcome in item.outcomes if outcome.tool == "Exec"
-    ]
-    edit_outcomes = [
-        outcome for item in step.rounds for outcome in item.outcomes if outcome.tool == "Edit"
+    call_outcomes = _structured_call_outcomes(step.rounds)
+    exec_outcomes = [outcome for call, outcome in call_outcomes if call.name == "Exec"]
+    successful_edits = [
+        (index, call, outcome)
+        for index, (call, outcome) in enumerate(call_outcomes)
+        if call.name == "Edit" and outcome.success
     ]
     require(
         len(exec_outcomes) >= 2 and not exec_outcomes[0].success, "G27 tests did not fail before"
     )
-    require(exec_outcomes[-1].success, "G27 tests did not pass after")
-    require(len(edit_outcomes) == 1, "G27 must invoke Edit exactly once")
-    require(edit_outcomes[0].success, "G27 Edit failed")
+    require(len(successful_edits) == 1, "G27 must invoke Edit successfully exactly once")
+    edit_index, edit_call, _ = successful_edits[0]
+    edit_args = edit_call.arguments
+    require(
+        isinstance(edit_args, EditArgs)
+        and edit_args.name == "target"
+        and edit_args.old == "value < limit"
+        and edit_args.new == "value <= limit",
+        "G27 exact Edit arguments must be value < limit then value <= limit",
+    )
+    successful_post_edit_execs = [
+        call
+        for call, outcome in call_outcomes[edit_index + 1 :]
+        if call.name == "Exec" and outcome.success
+    ]
+    require(
+        len(successful_post_edit_execs) == 1
+        and isinstance(successful_post_edit_execs[0].arguments, ExecArgs)
+        and successful_post_edit_execs[0].arguments.name == "target",
+        "G27 successful post-Edit Exec must target block target",
+    )
     history = [block for block in step.blocks.history if block.name == "target"]
     require([block.version for block in history] == [1, 2], "G27 Edit version chain differs")
     require(history[0].code == G27_INITIAL_CODE, "G27 old version was not retained")
@@ -771,6 +870,14 @@ def _run_g43_case(workdir: Path, client: ModelClient) -> GoldenEvidence:
     except (OSError, json.JSONDecodeError) as exc:
         _invalid("G43 output JSON is invalid", exc)
     expected = [["forge", 4], ["code", 2], ["tests", 2], ["agents", 1], ["guide", 1]]
+    require(
+        type(actual) is list
+        and all(
+            type(item) is list and len(item) == 2 and type(item[0]) is str and type(item[1]) is int
+            for item in actual
+        ),
+        "G43 output must have exact list shape with built-in str words and int counts",
+    )
     require(actual == expected, "G43 Top-N words, counts, or order differ")
     return _evidence(
         detail="word-frequency Top-N matched exactly",

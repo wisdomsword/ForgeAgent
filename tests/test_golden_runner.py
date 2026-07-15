@@ -180,6 +180,19 @@ def test_default_runner_keeps_the_ten_boundary_cases_pending(tmp_path):
     ]
 
 
+def test_g01_rejects_string_encoded_numbers(tmp_path):
+    result = tmp_path / "result.json"
+    code = (
+        "import json\n"
+        f"with open({str(result)!r}, 'w', encoding='utf-8') as handle:\n"
+        "    json.dump({'sum': '60', 'mean': '20'}, handle)\n"
+    )
+    client = MockClient(script=[cases._reply(cases._exec(code)), cases._reply(cases._done())])
+
+    with pytest.raises(GoldenCheckError, match="built-in numeric"):
+        cases._run_g01_case(tmp_path, client)
+
+
 @pytest.mark.parametrize(
     "second_block",
     [
@@ -200,6 +213,22 @@ def test_g05_rejects_dead_state_use_followed_by_a_hard_coded_result(tmp_path, se
         cases._run_g05_case(tmp_path, client)
 
 
+def test_g05_rejects_conditional_hardcode_with_counterfactual_fallback(tmp_path):
+    second_block = (
+        "value = int(utils.get_state('subtotal'))\nprint(50 if value == 42 else value + 8)"
+    )
+    client = MockClient(
+        script=[
+            cases._reply(cases._exec(cases._g05_first_block(tmp_path), name="compute")),
+            cases._reply(cases._exec(second_block, name="finish")),
+            cases._reply(cases._done()),
+        ]
+    )
+
+    with pytest.raises(GoldenCheckError, match="sink"):
+        cases._run_g05_case(tmp_path, client)
+
+
 def test_g08_rejects_editing_the_provided_test_instead_of_fixing_source(tmp_path):
     code = (
         "from pathlib import Path\n"
@@ -210,6 +239,43 @@ def test_g08_rejects_editing_the_provided_test_instead_of_fixing_source(tmp_path
 
     with pytest.raises(GoldenCheckError, match="test file hash"):
         cases._run_g08_case(tmp_path, client)
+
+
+def test_g08_rejects_source_that_exits_zero_before_assertions_complete(tmp_path):
+    source = tmp_path / "calculator.py"
+    code = (
+        "from pathlib import Path\n"
+        f"Path({str(source)!r}).write_text("
+        "'import os\\nos._exit(0)\\n', encoding='utf-8')\n"
+    )
+    client = MockClient(script=[cases._reply(cases._exec(code)), cases._reply(cases._done())])
+
+    with pytest.raises(GoldenCheckError, match="completion witness"):
+        cases._run_g08_case(tmp_path, client)
+
+
+def test_g08_subprocess_timeout_is_a_fixed_golden_failure(tmp_path):
+    test_file = tmp_path / "hang.py"
+    test_file.write_text("while True:\n    pass\n", encoding="utf-8")
+
+    with pytest.raises(GoldenCheckError, match="G08 test subprocess timed out"):
+        cases._run_python_test(tmp_path, test_file.name, timeout_seconds=0.05)
+
+
+def test_g13_rejects_when_failed_tool_feedback_is_not_sent_to_round_two(tmp_path, monkeypatch):
+    from forgeagent.step import Step
+
+    render_feedback = Step._render_feedback
+
+    def suppress_failed_tool_feedback(self, round_result):
+        if any(not outcome.success for outcome in round_result.outcomes):
+            return ""
+        return render_feedback(self, round_result)
+
+    monkeypatch.setattr(Step, "_render_feedback", suppress_failed_tool_feedback)
+
+    with pytest.raises(GoldenCheckError, match="round 2.*failed tool feedback"):
+        cases.run_g13_offline(tmp_path)
 
 
 @pytest.mark.parametrize(
@@ -245,6 +311,80 @@ def test_edit_cases_reject_whole_block_replacement(
 
     with pytest.raises(GoldenCheckError, match=message):
         case_runner(tmp_path, client)
+
+
+@pytest.mark.parametrize(
+    ("runner_name", "initial_name", "replacement_name", "small_old", "small_new"),
+    [
+        (
+            "_run_g15_case",
+            "G15_INITIAL_CODE",
+            "G15_EXPECTED_CODE",
+            "DEFAULT_TIMEOUT = 10",
+            "DEFAULT_TIMEOUT = 15",
+        ),
+        (
+            "_run_g27_case",
+            "G27_INITIAL_CODE",
+            "G27_EXPECTED_CODE",
+            "value < limit",
+            "value <= limit",
+        ),
+    ],
+)
+def test_edit_cases_reject_whole_block_edit_arguments(
+    tmp_path, runner_name, initial_name, replacement_name, small_old, small_new
+):
+    case_runner = getattr(cases, runner_name)
+    initial_code = getattr(cases, initial_name)
+    replacement_code = getattr(cases, replacement_name)
+    script = [
+        cases._reply(cases._exec(initial_code, name="target")),
+        cases._reply(cases._edit("target", initial_code, replacement_code)),
+    ]
+    if runner_name == "_run_g27_case":
+        script.append(cases._reply(cases._exec(name="target")))
+    script.append(cases._reply(cases._done()))
+
+    with pytest.raises(
+        GoldenCheckError,
+        match=f"exact Edit arguments.*{small_old}.*{small_new}",
+    ):
+        case_runner(tmp_path, MockClient(script=script))
+
+
+def test_g27_rejects_successful_unrelated_exec_after_exact_edit(tmp_path):
+    client = MockClient(
+        script=[
+            cases._reply(cases._exec(cases.G27_INITIAL_CODE, name="target")),
+            cases._reply(cases._edit("target", "value < limit", "value <= limit")),
+            cases._reply(cases._exec("print('unrelated success')", name="unrelated")),
+            cases._reply(cases._done()),
+        ]
+    )
+
+    with pytest.raises(GoldenCheckError, match="successful post-Edit Exec.*target"):
+        cases._run_g27_case(tmp_path, client)
+
+
+def test_g43_rejects_float_counts(tmp_path):
+    result = tmp_path / "top.json"
+    top_n = [
+        ["forge", 4.0],
+        ["code", 2.0],
+        ["tests", 2.0],
+        ["agents", 1.0],
+        ["guide", 1.0],
+    ]
+    code = (
+        "import json\n"
+        f"with open({str(result)!r}, 'w', encoding='utf-8') as handle:\n"
+        f"    json.dump({top_n!r}, handle)\n"
+    )
+    client = MockClient(script=[cases._reply(cases._exec(code)), cases._reply(cases._done())])
+
+    with pytest.raises(GoldenCheckError, match="exact list shape"):
+        cases._run_g43_case(tmp_path, client)
 
 
 def test_case_judges_do_not_use_python_assert_statements():
@@ -640,7 +780,11 @@ code = runner.main([
     "--output-dir",
     os.environ["FORGE_GOLDEN_OUTPUT_DIR"],
 ])
-print(json.dumps({"code": code, "before": before, "observed": observed}, sort_keys=True))
+after = {name: os.environ.get(name) for name in names}
+print(json.dumps(
+    {"code": code, "before": before, "after": after, "observed": observed},
+    sort_keys=True,
+))
 """
 
     completed = subprocess.run(
@@ -656,6 +800,7 @@ print(json.dumps({"code": code, "before": before, "observed": observed}, sort_ke
     result = json.loads(completed.stdout.splitlines()[-1])
     assert result["code"] == 0
     assert result["before"] == {name: str(home) for name in names}
+    assert result["after"] == result["before"]
     assert result["observed"]["environment"] == result["before"]
     assert result["observed"]["model"] == "local-golden-model"
     assert result["observed"]["selected"] == ["G01", "G03", "G08", "G11", "G43"]
