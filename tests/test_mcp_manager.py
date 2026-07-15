@@ -42,10 +42,12 @@ class _FutureProbe:
         *,
         result: set[str] | None = None,
         error: BaseException | None = None,
+        cancel_error: BaseException | None = None,
         wait_for_timeout: bool = False,
     ):
         self._result = set() if result is None else result
         self._error = error
+        self._cancel_error = cancel_error
         self._wait_for_timeout = wait_for_timeout
         self.result_timeouts: list[float] = []
         self.cancel_calls = 0
@@ -61,7 +63,20 @@ class _FutureProbe:
 
     def cancel(self) -> bool:
         self.cancel_calls += 1
+        if self._cancel_error is not None:
+            raise self._cancel_error
         return True
+
+
+class _CloseProbe:
+    def __init__(self, error: BaseException | None = None):
+        self._error = error
+        self.close_calls = 0
+
+    def close(self) -> None:
+        self.close_calls += 1
+        if self._error is not None:
+            raise self._error
 
 
 class _LoopProbe:
@@ -390,6 +405,273 @@ def test_submit_preserves_primary_when_rejected_coroutine_close_raises(monkeypat
 
     assert raised.value is primary
     primary.__traceback__ = None
+
+
+@pytest.mark.parametrize("target", ["submitted", "owned"])
+@pytest.mark.parametrize(
+    "cleanup",
+    [KeyboardInterrupt("cleanup secret"), SystemExit("cleanup secret")],
+)
+def test_submit_submission_error_propagates_coroutine_cleanup_control(
+    monkeypatch,
+    caplog,
+    target,
+    cleanup,
+):
+    mgr = MCPManager({})
+    mgr._loop = object()
+    primary = RuntimeError("submission secret")
+    coroutine = _CloseProbe(cleanup)
+
+    def reject(submitted_coro, loop):
+        assert loop is mgr._loop
+        if target == "submitted":
+            assert submitted_coro is coroutine
+        raise primary
+
+    monkeypatch.setattr(mcp_manager_module.asyncio, "run_coroutine_threadsafe", reject)
+    caplog.set_level(logging.WARNING, logger="forgeagent.mcp_manager")
+
+    try:
+        with pytest.raises(type(cleanup)) as raised:
+            mgr._submit(
+                coroutine,
+                timeout=0.01,
+                cancel_on_timeout=target != "submitted",
+            )
+
+        assert raised.value is cleanup
+        assert coroutine.close_calls == 1
+        assert "submission secret" not in caplog.text
+        assert "cleanup secret" not in caplog.text
+    finally:
+        primary.__traceback__ = None
+        cleanup.__traceback__ = None
+
+
+@pytest.mark.parametrize("target", ["submitted", "owned"])
+def test_submit_submission_and_coroutine_cleanup_errors_preserve_primary(
+    monkeypatch,
+    caplog,
+    target,
+):
+    mgr = MCPManager({})
+    mgr._loop = object()
+    primary = RuntimeError("submission secret")
+    cleanup = OSError("cleanup secret")
+    coroutine = _CloseProbe(cleanup)
+
+    monkeypatch.setattr(
+        mcp_manager_module.asyncio,
+        "run_coroutine_threadsafe",
+        lambda submitted_coro, loop: (_ for _ in ()).throw(primary),
+    )
+    caplog.set_level(logging.WARNING, logger="forgeagent.mcp_manager")
+
+    try:
+        with pytest.raises(RuntimeError) as raised:
+            mgr._submit(
+                coroutine,
+                timeout=0.01,
+                cancel_on_timeout=target != "submitted",
+            )
+
+        assert raised.value is primary
+        assert coroutine.close_calls == 1
+        assert "submission secret" not in caplog.text
+        assert "cleanup secret" not in caplog.text
+    finally:
+        primary.__traceback__ = None
+        cleanup.__traceback__ = None
+
+
+@pytest.mark.parametrize(
+    "cleanup",
+    [
+        KeyboardInterrupt("cancel secret"),
+        SystemExit("cancel secret"),
+        OSError("cancel secret"),
+    ],
+)
+def test_submit_timeout_delivers_ownership_before_selecting_cancel_error(
+    monkeypatch,
+    caplog,
+    cleanup,
+):
+    primary = concurrent.futures.TimeoutError("timeout secret")
+    future = _FutureProbe(error=primary, cancel_error=cleanup)
+    coroutine = _CloseProbe()
+
+    class QueuedLoop:
+        def __init__(self):
+            self.callbacks = []
+
+        def call_soon_threadsafe(self, callback, *args):
+            self.callbacks.append((callback, args))
+
+    loop = QueuedLoop()
+    mgr = MCPManager({})
+    mgr._loop = loop
+
+    def submit(submitted_coro, submitted_loop):
+        assert submitted_loop is loop
+        submitted_coro.close()
+        return future
+
+    monkeypatch.setattr(mcp_manager_module.asyncio, "run_coroutine_threadsafe", submit)
+    caplog.set_level(logging.WARNING, logger="forgeagent.mcp_manager")
+    expected = cleanup if isinstance(cleanup, (KeyboardInterrupt, SystemExit)) else primary
+
+    try:
+        with pytest.raises(type(expected)) as raised:
+            mgr._submit(coroutine, timeout=0.01)
+
+        assert raised.value is expected
+        assert future.cancel_calls == 1
+        assert len(loop.callbacks) == 1
+        operation = loop.callbacks[0][1][0]
+        assert operation.coroutine is coroutine
+        assert "timeout secret" not in caplog.text
+        assert "cancel secret" not in caplog.text
+    finally:
+        if loop.callbacks:
+            operation = loop.callbacks[0][1][0]
+            if operation.coroutine is not None:
+                operation.coroutine.close()
+                operation.coroutine = None
+        primary.__traceback__ = None
+        cleanup.__traceback__ = None
+
+
+@pytest.mark.parametrize(
+    ("primary", "scheduling", "close_error", "selected"),
+    [
+        (
+            concurrent.futures.TimeoutError("result secret"),
+            KeyboardInterrupt("scheduling secret"),
+            None,
+            "scheduling",
+        ),
+        (
+            RuntimeError("result secret"),
+            SystemExit("scheduling secret"),
+            None,
+            "scheduling",
+        ),
+        (
+            concurrent.futures.TimeoutError("result secret"),
+            OSError("scheduling secret"),
+            KeyboardInterrupt("close secret"),
+            "close",
+        ),
+        (
+            RuntimeError("result secret"),
+            OSError("scheduling secret"),
+            SystemExit("close secret"),
+            "close",
+        ),
+        (
+            concurrent.futures.TimeoutError("result secret"),
+            OSError("scheduling secret"),
+            ValueError("close secret"),
+            "primary",
+        ),
+        (
+            RuntimeError("result secret"),
+            OSError("scheduling secret"),
+            ValueError("close secret"),
+            "primary",
+        ),
+    ],
+)
+def test_submit_result_failure_selects_must_deliver_cleanup_control(
+    monkeypatch,
+    caplog,
+    primary,
+    scheduling,
+    close_error,
+    selected,
+):
+    future = _FutureProbe(error=primary)
+    coroutine = _CloseProbe(close_error)
+
+    class FailingLoop:
+        def __init__(self):
+            self.schedule_calls = 0
+
+        def call_soon_threadsafe(self, callback, *args):
+            self.schedule_calls += 1
+            raise scheduling
+
+    loop = FailingLoop()
+    mgr = MCPManager({})
+    mgr._loop = loop
+
+    def submit(submitted_coro, submitted_loop):
+        assert submitted_loop is loop
+        submitted_coro.close()
+        return future
+
+    monkeypatch.setattr(mcp_manager_module.asyncio, "run_coroutine_threadsafe", submit)
+    caplog.set_level(logging.WARNING, logger="forgeagent.mcp_manager")
+    expected = {
+        "primary": primary,
+        "scheduling": scheduling,
+        "close": close_error,
+    }[selected]
+
+    try:
+        with pytest.raises(type(expected)) as raised:
+            mgr._submit(coroutine, timeout=0.01)
+
+        assert raised.value is expected
+        assert loop.schedule_calls == 1
+        assert coroutine.close_calls == 1
+        assert "result secret" not in caplog.text
+        assert "scheduling secret" not in caplog.text
+        assert "close secret" not in caplog.text
+    finally:
+        primary.__traceback__ = None
+        scheduling.__traceback__ = None
+        if close_error is not None:
+            close_error.__traceback__ = None
+
+
+@pytest.mark.parametrize(
+    "cleanup",
+    [KeyboardInterrupt("close secret"), SystemExit("close secret")],
+)
+def test_start_owned_operation_returns_coroutine_cleanup_control_without_killing_loop(
+    monkeypatch,
+    cleanup,
+):
+    mgr = MCPManager({})
+    primary = RuntimeError("create task secret")
+    coroutine = _CloseProbe(cleanup)
+    operation = mcp_manager_module._LoopOwnedOperation(coroutine)
+
+    monkeypatch.setattr(
+        mcp_manager_module.asyncio,
+        "create_task",
+        lambda submitted_coro: (_ for _ in ()).throw(primary),
+    )
+
+    async def exercise() -> None:
+        with pytest.raises(type(cleanup)) as raised:
+            await mgr._wait_for_owned_operation(operation)
+        assert raised.value is cleanup
+        await asyncio.sleep(0)
+
+    try:
+        asyncio.run(exercise())
+
+        assert operation.start_error is cleanup
+        assert operation.coroutine is None
+        assert operation.task is None
+        assert coroutine.close_calls == 1
+    finally:
+        primary.__traceback__ = None
+        cleanup.__traceback__ = None
 
 
 def test_disable_facade_timeout_does_not_discard_queued_lifecycle_intent():
@@ -1451,6 +1733,139 @@ def test_connect_control_exception_survives_secondary_cancelled_cleanup(monkeypa
         real_close()
 
 
+@pytest.mark.parametrize(
+    ("failure_at", "primary", "cleanup", "later_cleanup", "selected"),
+    [
+        (
+            "start",
+            RuntimeError("startup secret"),
+            KeyboardInterrupt("first cleanup secret"),
+            SystemExit("later cleanup secret"),
+            "cleanup",
+        ),
+        (
+            "gate",
+            RuntimeError("startup secret"),
+            SystemExit("first cleanup secret"),
+            KeyboardInterrupt("later cleanup secret"),
+            "cleanup",
+        ),
+        (
+            "start",
+            KeyboardInterrupt("startup secret"),
+            SystemExit("first cleanup secret"),
+            RuntimeError("later cleanup secret"),
+            "primary",
+        ),
+        (
+            "gate",
+            SystemExit("startup secret"),
+            KeyboardInterrupt("first cleanup secret"),
+            RuntimeError("later cleanup secret"),
+            "primary",
+        ),
+    ],
+)
+def test_connect_startup_transaction_selects_first_control_after_bounded_cleanup(
+    monkeypatch,
+    caplog,
+    failure_at,
+    primary,
+    cleanup,
+    later_cleanup,
+    selected,
+):
+    mgr = MCPManager({"pending": MCPServerConfig(command="unused")})
+
+    class EventProbe:
+        def __init__(self, errors):
+            self.errors = list(errors)
+            self.set_calls = 0
+
+        def set(self):
+            self.set_calls += 1
+            if self.errors:
+                raise self.errors.pop(0)
+
+    gate_errors = [later_cleanup] if failure_at == "start" else [primary, later_cleanup]
+    gate = EventProbe(gate_errors)
+    cancelled = EventProbe([cleanup])
+    events = iter([gate, cancelled])
+
+    class StartupLoop:
+        def __init__(self):
+            self.schedule_calls = 0
+            self.stop_calls = 0
+            self.close_calls = 0
+
+        def stop(self):
+            self.stop_calls += 1
+
+        def call_soon_threadsafe(self, callback):
+            self.schedule_calls += 1
+            callback()
+            raise OSError("loop scheduling cleanup secret")
+
+        def close(self):
+            self.close_calls += 1
+
+    loop = StartupLoop()
+
+    class StartupThread:
+        ident = 31415
+
+        def __init__(self):
+            self.start_calls = 0
+            self.join_calls = 0
+            self.alive_calls = 0
+
+        def start(self):
+            self.start_calls += 1
+            if failure_at == "start":
+                raise primary
+
+        def join(self, timeout):
+            self.join_calls += 1
+            raise ValueError("join cleanup secret")
+
+        def is_alive(self):
+            self.alive_calls += 1
+            return False
+
+    thread = StartupThread()
+    monkeypatch.setattr(mcp_manager_module.asyncio, "new_event_loop", lambda: loop)
+    monkeypatch.setattr(mcp_manager_module.threading, "Event", lambda: next(events))
+    monkeypatch.setattr(mcp_manager_module.threading, "Thread", lambda **kwargs: thread)
+    caplog.set_level(logging.WARNING, logger="forgeagent.mcp_manager")
+    expected = primary if selected == "primary" else cleanup
+
+    try:
+        with pytest.raises(type(expected)) as raised:
+            mgr.connect()
+
+        assert raised.value is expected
+        assert thread.start_calls == 1
+        assert cancelled.set_calls == 1
+        assert gate.set_calls == (1 if failure_at == "start" else 2)
+        assert loop.schedule_calls == 1
+        assert loop.stop_calls == 1
+        assert thread.join_calls == 1
+        assert thread.alive_calls == 1
+        assert loop.close_calls == 1
+        assert mgr._started is False
+        assert mgr._loop is None
+        assert mgr._thread is None
+        assert "startup secret" not in caplog.text
+        assert "first cleanup secret" not in caplog.text
+        assert "later cleanup secret" not in caplog.text
+        assert "loop scheduling cleanup secret" not in caplog.text
+        assert "join cleanup secret" not in caplog.text
+    finally:
+        primary.__traceback__ = None
+        cleanup.__traceback__ = None
+        later_cleanup.__traceback__ = None
+
+
 def test_connect_initial_submission_exception_cleans_up_before_reraising(monkeypatch):
     mgr = MCPManager(
         {"pending": MCPServerConfig(command="unused")},
@@ -1695,6 +2110,150 @@ def test_close_submission_control_exception_survives_fallback_cleanup_error(monk
     finally:
         primary.__traceback__ = None
         mgr._holders.clear()
+        mgr._loop = None
+        mgr._thread = None
+
+
+@pytest.mark.parametrize(
+    "cleanup",
+    [KeyboardInterrupt("facade cleanup secret"), SystemExit("facade cleanup secret")],
+)
+def test_close_submission_error_propagates_facade_cleanup_control_exception(
+    monkeypatch,
+    caplog,
+    cleanup,
+):
+    mgr = MCPManager({}, shutdown_timeout=0.03, thread_join_timeout=0.02)
+    primary = RuntimeError("submission secret")
+    loop = _LoopProbe()
+    thread = _ThreadProbe(alive=True, alive_results=[True, False])
+    shutdown_coro = _CloseProbe(cleanup)
+    retry_calls = []
+    mgr._loop = loop
+    mgr._thread = thread
+
+    def reject(coro, submitted_loop):
+        assert coro is shutdown_coro
+        assert submitted_loop is loop
+        raise primary
+
+    monkeypatch.setattr(mgr, "_wait_for_shutdown", lambda deadline: shutdown_coro)
+    monkeypatch.setattr(mcp_manager_module.asyncio, "run_coroutine_threadsafe", reject)
+    monkeypatch.setattr(mgr, "_request_shutdown_retry", retry_calls.append)
+    caplog.set_level(logging.WARNING, logger="forgeagent.mcp_manager")
+
+    try:
+        with pytest.raises(type(cleanup)) as raised:
+            mgr.close()
+
+        assert raised.value is cleanup
+        assert shutdown_coro.close_calls == 1
+        assert len(retry_calls) == 2
+        assert len(thread.join_timeouts) == 1
+        assert not mgr._shutdown_complete.is_set()
+        assert mgr._loop is loop
+        assert mgr._thread is thread
+        assert "MCP shutdown facade cleanup failed: " + type(cleanup).__name__ in caplog.text
+        assert "submission secret" not in caplog.text
+        assert "facade cleanup secret" not in caplog.text
+    finally:
+        primary.__traceback__ = None
+        cleanup.__traceback__ = None
+        mgr._loop = None
+        mgr._thread = None
+
+
+@pytest.mark.parametrize(
+    ("primary", "cleanup"),
+    [
+        (KeyboardInterrupt("primary secret"), SystemExit("facade cleanup secret")),
+        (KeyboardInterrupt("primary secret"), RuntimeError("facade cleanup secret")),
+        (SystemExit("primary secret"), KeyboardInterrupt("facade cleanup secret")),
+        (SystemExit("primary secret"), RuntimeError("facade cleanup secret")),
+    ],
+)
+def test_close_submission_control_exception_remains_authoritative_over_facade_cleanup(
+    monkeypatch,
+    caplog,
+    primary,
+    cleanup,
+):
+    mgr = MCPManager({}, shutdown_timeout=0.03, thread_join_timeout=0.02)
+    loop = _LoopProbe()
+    thread = _ThreadProbe(alive=True, alive_results=[True, False])
+    shutdown_coro = _CloseProbe(cleanup)
+    retry_calls = []
+    mgr._loop = loop
+    mgr._thread = thread
+
+    def reject(coro, submitted_loop):
+        assert coro is shutdown_coro
+        assert submitted_loop is loop
+        raise primary
+
+    monkeypatch.setattr(mgr, "_wait_for_shutdown", lambda deadline: shutdown_coro)
+    monkeypatch.setattr(mcp_manager_module.asyncio, "run_coroutine_threadsafe", reject)
+    monkeypatch.setattr(mgr, "_request_shutdown_retry", retry_calls.append)
+    caplog.set_level(logging.WARNING, logger="forgeagent.mcp_manager")
+
+    try:
+        with pytest.raises(type(primary)) as raised:
+            mgr.close()
+
+        assert raised.value is primary
+        assert shutdown_coro.close_calls == 1
+        assert len(retry_calls) == 2
+        assert len(thread.join_timeouts) == 1
+        assert "MCP shutdown facade cleanup failed: " + type(cleanup).__name__ in caplog.text
+        assert "primary secret" not in caplog.text
+        assert "facade cleanup secret" not in caplog.text
+    finally:
+        primary.__traceback__ = None
+        cleanup.__traceback__ = None
+        mgr._loop = None
+        mgr._thread = None
+
+
+def test_close_submission_and_facade_cleanup_errors_remain_public_no_throw(
+    monkeypatch,
+    caplog,
+):
+    mgr = MCPManager({}, shutdown_timeout=0.03, thread_join_timeout=0.02)
+    primary = RuntimeError("submission secret")
+    cleanup = OSError("facade cleanup secret")
+    loop = _LoopProbe()
+    thread = _ThreadProbe(alive=True, alive_results=[True, False])
+    shutdown_coro = _CloseProbe(cleanup)
+    retry_calls = []
+    mgr._loop = loop
+    mgr._thread = thread
+
+    def reject(coro, submitted_loop):
+        assert coro is shutdown_coro
+        assert submitted_loop is loop
+        raise primary
+
+    monkeypatch.setattr(mgr, "_wait_for_shutdown", lambda deadline: shutdown_coro)
+    monkeypatch.setattr(mcp_manager_module.asyncio, "run_coroutine_threadsafe", reject)
+    monkeypatch.setattr(mgr, "_request_shutdown_retry", retry_calls.append)
+    caplog.set_level(logging.WARNING, logger="forgeagent.mcp_manager")
+
+    try:
+        assert mgr.close() is None
+
+        assert shutdown_coro.close_calls == 1
+        assert len(retry_calls) == 1
+        assert len(thread.join_timeouts) == 1
+        assert not mgr._shutdown_complete.is_set()
+        assert mgr._loop is loop
+        assert mgr._thread is thread
+        assert "MCP shutdown facade cleanup failed: OSError" in caplog.text
+        assert "MCP shutdown failed: RuntimeError" in caplog.text
+        assert "submission secret" not in caplog.text
+        assert "facade cleanup secret" not in caplog.text
+    finally:
+        primary.__traceback__ = None
+        cleanup.__traceback__ = None
         mgr._loop = None
         mgr._thread = None
 
@@ -2653,6 +3212,8 @@ def test_close_racing_holder_task_creation_observes_fully_published_slot(monkeyp
         assert observed_slot[0] == generation
         assert observed_slot[1] is created_tasks[0]
         assert mgr._holders["pending"] == observed_slot
+        assert created_tasks[0]._callbacks is not None
+        assert len(created_tasks[0]._callbacks) == 1
 
         _generation, task, stop = observed_slot
         stop.set()
@@ -2853,29 +3414,45 @@ def test_call_requires_matching_state_holder_and_session_generations(
     asyncio.run(call_with_mismatched_ownership())
 
 
-def test_active_call_failure_marks_its_generation_tearing_down():
+def test_active_call_failure_finalizes_without_implicit_restart(monkeypatch):
     mgr = MCPManager({"pending": MCPServerConfig(command="unused")})
 
     async def fail_active_call() -> None:
-        stop = asyncio.Event()
-        holder = asyncio.create_task(_park_until(stop))
-        generation = 3
-        mgr._states["pending"].generation = generation
+        async def holder(
+            name: str,
+            generation: int,
+            ready: asyncio.Event,
+            stop: asyncio.Event,
+        ) -> None:
+            ready.set()
+            await stop.wait()
+
+        monkeypatch.setattr(mgr, "_holder", holder)
+        ready = mgr._start_holder("pending")
+        await ready.wait()
+        generation, holder_task, stop = mgr._holders["pending"]
         mgr._states["pending"].status = "available"
         mgr._states["pending"].tools = [_tool()]
-        mgr._holders["pending"] = (generation, holder, stop)
         mgr._sessions["pending"] = (
             generation,
             _SessionProbe("failed", error=RuntimeError("call failed")),
         )
-        try:
-            result = await mgr._call_tool_on_loop("pending", "echo", {})
-            assert result["ok"] is False
-            assert mgr._states["pending"].tearing_down_generation == generation
-            assert stop.is_set()
-        finally:
-            stop.set()
-            await asyncio.gather(holder, return_exceptions=True)
+
+        result = await mgr._call_tool_on_loop("pending", "echo", {})
+
+        assert result["ok"] is False
+        assert mgr._states["pending"].tearing_down_generation == generation
+        assert mgr._states["pending"].restart_after_generation is None
+        assert stop.is_set()
+        await asyncio.gather(holder_task, return_exceptions=True)
+        await asyncio.sleep(0)
+        assert mgr._states["pending"].generation == generation
+        assert mgr._states["pending"].tearing_down_generation is None
+        assert mgr._states["pending"].restart_after_generation is None
+        assert mgr.server_status()["pending"] == "unavailable: RuntimeError"
+        assert mgr._holders == {}
+        assert mgr._sessions == {}
+        assert mgr.list_tools() == []
 
     asyncio.run(fail_active_call())
 

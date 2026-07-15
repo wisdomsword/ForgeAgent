@@ -53,6 +53,14 @@ _LOOP_THREAD_NAME = "forgeagent-mcp-loop"
 logger = logging.getLogger(__name__)
 
 
+def _prefer_process_control(primary: BaseException, cleanup: BaseException) -> BaseException:
+    if isinstance(primary, (KeyboardInterrupt, SystemExit)):
+        return primary
+    if isinstance(cleanup, (KeyboardInterrupt, SystemExit)):
+        return cleanup
+    return primary
+
+
 def _remaining(deadline: float, *, reserve: float = 0.0) -> float:
     return max(0.0, deadline - time.monotonic() - reserve)
 
@@ -225,9 +233,9 @@ class MCPManager:
             return
         try:
             task = asyncio.create_task(coroutine)
-        except BaseException as exc:
-            operation.start_error = exc
-            logger.warning("MCP lifecycle operation start failed: %s", type(exc).__name__)
+        except BaseException as primary:
+            selected = primary
+            logger.warning("MCP lifecycle operation start failed: %s", type(primary).__name__)
             try:
                 coroutine.close()
             except BaseException as cleanup:
@@ -235,6 +243,8 @@ class MCPManager:
                     "MCP lifecycle coroutine cleanup failed: %s",
                     type(cleanup).__name__,
                 )
+                selected = _prefer_process_control(selected, cleanup)
+            operation.start_error = selected
             operation.coroutine = None
             return
         operation.coroutine = None
@@ -250,19 +260,11 @@ class MCPManager:
             raise RuntimeError("MCP lifecycle operation did not start")
         return await asyncio.shield(operation.task)
 
-    def _ensure_owned_operation(self, operation: _LoopOwnedOperation) -> None:
+    def _ensure_owned_operation(self, operation: _LoopOwnedOperation) -> BaseException | None:
         if operation.task is not None or operation.start_error is not None:
-            return
+            return None
         loop = self._loop
         if loop is None:
-            coroutine = operation.coroutine
-            operation.coroutine = None
-            if coroutine is not None:
-                coroutine.close()
-            return
-        try:
-            loop.call_soon_threadsafe(self._start_owned_operation, operation)
-        except BaseException as exc:
             coroutine = operation.coroutine
             operation.coroutine = None
             if coroutine is not None:
@@ -273,7 +275,26 @@ class MCPManager:
                         "MCP lifecycle coroutine cleanup failed: %s",
                         type(cleanup).__name__,
                     )
-            logger.warning("MCP lifecycle scheduling failed: %s", type(exc).__name__)
+                    return cleanup
+            return None
+        try:
+            loop.call_soon_threadsafe(self._start_owned_operation, operation)
+        except BaseException as primary:
+            selected = primary
+            coroutine = operation.coroutine
+            operation.coroutine = None
+            if coroutine is not None:
+                try:
+                    coroutine.close()
+                except BaseException as cleanup:
+                    logger.warning(
+                        "MCP lifecycle coroutine cleanup failed: %s",
+                        type(cleanup).__name__,
+                    )
+                    selected = _prefer_process_control(selected, cleanup)
+            logger.warning("MCP lifecycle scheduling failed: %s", type(primary).__name__)
+            return selected
+        return None
 
     def _submit(self, coro, timeout: float, *, cancel_on_timeout: bool = True):
         assert self._loop is not None
@@ -283,7 +304,8 @@ class MCPManager:
         )
         try:
             future = asyncio.run_coroutine_threadsafe(submitted_coro, self._loop)
-        except BaseException:
+        except BaseException as primary:
+            selected = primary
             try:
                 submitted_coro.close()
             except BaseException as cleanup:
@@ -291,6 +313,7 @@ class MCPManager:
                     "MCP rejected coroutine cleanup failed: %s",
                     type(cleanup).__name__,
                 )
+                selected = _prefer_process_control(selected, cleanup)
             if operation is not None and operation.coroutine is not None:
                 try:
                     operation.coroutine.close()
@@ -299,32 +322,50 @@ class MCPManager:
                         "MCP lifecycle coroutine cleanup failed: %s",
                         type(cleanup).__name__,
                     )
+                    selected = _prefer_process_control(selected, cleanup)
                 operation.coroutine = None
-            raise
+            raise selected from None
         try:
             return future.result(timeout=timeout)
-        except concurrent.futures.TimeoutError:
+        except concurrent.futures.TimeoutError as primary:
             if not cancel_on_timeout:
                 raise
+            selected = primary
             try:
                 future.cancel()
-            except BaseException as exc:  # preserve the caller's primary exception
-                logger.warning("MCP lifecycle waiter cancellation failed: %s", type(exc).__name__)
+            except BaseException as cleanup:
+                logger.warning(
+                    "MCP lifecycle waiter cancellation failed: %s",
+                    type(cleanup).__name__,
+                )
+                selected = _prefer_process_control(selected, cleanup)
             assert operation is not None
-            self._ensure_owned_operation(operation)
-            raise
-        except (KeyboardInterrupt, SystemExit):
+            delivery_error = self._ensure_owned_operation(operation)
+            if delivery_error is not None:
+                selected = _prefer_process_control(selected, delivery_error)
+            raise selected from None
+        except (KeyboardInterrupt, SystemExit) as primary:
+            selected = primary
             try:
                 future.cancel()
-            except BaseException as exc:  # preserve the caller's primary exception
-                logger.warning("MCP lifecycle waiter cancellation failed: %s", type(exc).__name__)
+            except BaseException as cleanup:
+                logger.warning(
+                    "MCP lifecycle waiter cancellation failed: %s",
+                    type(cleanup).__name__,
+                )
+                selected = _prefer_process_control(selected, cleanup)
             if operation is not None:
-                self._ensure_owned_operation(operation)
-            raise
-        except BaseException:
+                delivery_error = self._ensure_owned_operation(operation)
+                if delivery_error is not None:
+                    selected = _prefer_process_control(selected, delivery_error)
+            raise selected from None
+        except BaseException as primary:
+            selected = primary
             if operation is not None:
-                self._ensure_owned_operation(operation)
-            raise
+                delivery_error = self._ensure_owned_operation(operation)
+                if delivery_error is not None:
+                    selected = _prefer_process_control(selected, delivery_error)
+            raise selected from None
 
     def _holder_slot_matches(
         self,
@@ -602,37 +643,42 @@ class MCPManager:
             self._thread = thread
             self._started = True
             startup_gate.set()
-        except BaseException:
+        except BaseException as primary:
+            selected = primary
             try:
                 startup_cancelled.set()
-            except BaseException as exc:  # preserve the start failure
+            except BaseException as exc:  # continue bounded startup cleanup
                 logger.warning(
                     "MCP startup cancellation marker failed: %s",
                     type(exc).__name__,
                 )
+                selected = _prefer_process_control(selected, exc)
             try:
                 startup_gate.set()
-            except BaseException as exc:  # preserve the start failure
+            except BaseException as exc:  # continue bounded startup cleanup
                 logger.warning(
                     "MCP publication gate cleanup after start failure failed: %s",
                     type(exc).__name__,
                 )
+                selected = _prefer_process_control(selected, exc)
             try:
                 if thread.ident is not None:
                     loop.call_soon_threadsafe(loop.stop)
-            except BaseException as exc:  # preserve the start failure
+            except BaseException as exc:  # continue bounded startup cleanup
                 logger.warning(
                     "MCP loop stop after start failure failed: %s",
                     type(exc).__name__,
                 )
+                selected = _prefer_process_control(selected, exc)
             try:
                 if thread.ident is not None:
                     thread.join(timeout=self._thread_join_timeout)
-            except BaseException as exc:  # preserve the start failure
+            except BaseException as exc:  # continue bounded startup cleanup
                 logger.warning(
                     "MCP loop thread cleanup after start failure failed: %s",
                     type(exc).__name__,
                 )
+                selected = _prefer_process_control(selected, exc)
 
             try:
                 thread_alive = thread.is_alive()
@@ -642,6 +688,7 @@ class MCPManager:
                     "MCP loop thread state after start failure failed: %s",
                     type(exc).__name__,
                 )
+                selected = _prefer_process_control(selected, exc)
 
             if thread_alive:
                 self._loop = loop
@@ -658,11 +705,12 @@ class MCPManager:
             else:
                 try:
                     loop.close()
-                except BaseException as exc:  # preserve the start failure
+                except BaseException as exc:  # continue bounded startup cleanup
                     logger.warning(
                         "MCP loop cleanup after start failure failed: %s",
                         type(exc).__name__,
                     )
+                    selected = _prefer_process_control(selected, exc)
                     self._loop = loop
                     self._thread = thread
                     self._closed = True
@@ -683,25 +731,23 @@ class MCPManager:
                     self._shutdown_pending = frozenset()
                     self._shutdown_complete.clear()
                     self._started = False
-            raise
+            raise selected from None
         try:
             self._submit(
                 self._start_holders(enabled),
                 timeout=max(0.0, self._connect_timeout) + 5,
             )
         except BaseException as primary:
+            selected = primary
             try:
                 self.close()
             except BaseException as cleanup:
-                primary_is_control = isinstance(primary, (KeyboardInterrupt, SystemExit))
-                cleanup_is_control = isinstance(cleanup, (KeyboardInterrupt, SystemExit))
-                if cleanup_is_control and not primary_is_control:
-                    raise
                 logger.warning(
                     "MCP startup cleanup failed: %s",
                     type(cleanup).__name__,
                 )
-            raise
+                selected = _prefer_process_control(selected, cleanup)
+            raise selected from None
 
     def list_tools(self) -> list[MCPToolInfo]:
         """Every tool from every currently-available, enabled server (the catalog)."""
@@ -1267,6 +1313,7 @@ class MCPManager:
                     self._loop,
                 )
             except BaseException as primary:
+                selected = primary
                 try:
                     shutdown_coro.close()
                 except BaseException as cleanup:
@@ -1274,6 +1321,7 @@ class MCPManager:
                         "MCP shutdown facade cleanup failed: %s",
                         type(cleanup).__name__,
                     )
+                    selected = _prefer_process_control(selected, cleanup)
                 try:
                     self._request_shutdown_retry(deadline)
                 except BaseException as cleanup:
@@ -1281,11 +1329,8 @@ class MCPManager:
                         "MCP shutdown fallback cleanup failed: %s",
                         type(cleanup).__name__,
                     )
-                    if isinstance(cleanup, (KeyboardInterrupt, SystemExit)) and not isinstance(
-                        primary, (KeyboardInterrupt, SystemExit)
-                    ):
-                        raise
-                raise
+                    selected = _prefer_process_control(selected, cleanup)
+                raise selected from None
             pending = self._shutdown_future.result(
                 timeout=_remaining(deadline, reserve=self._thread_join_timeout)
             )
