@@ -397,7 +397,7 @@
 - Allowed implementation files: `src/forgeagent/cli.py`, `tests/test_cli.py` only.
 - Risk signals: security-sensitive external display/input handling and public REPL command-routing behavior. The implementer reported none, but the coordinator corrected that classification under the Comet risk checklist.
 
-## Current Task 7
+## Completed Task 7
 
 - Plan task: `Task 7: 建立黄金 manifest、runner 和报告协议`.
 - OpenSpec mappings: framework portions of `5.1`, `5.3`, `5.4`, and `5.5`; concrete 20-case completion remains with Tasks 8-9.
@@ -435,3 +435,14 @@
 - TDD mode: `tdd`; RED and GREEN evidence are required before review.
 - Allowed implementation files: `.gitignore`, `tests/golden/__init__.py`, `tests/golden/manifest.py`, `tests/golden/cases.py`, `tests/golden/runner.py`, `tests/test_golden_runner.py` only.
 - Risk signals: public test-runner CLI/report contract, environment/configuration isolation, filesystem output containment, and an 833-line task diff. The implementer only called out pending case behavior; the coordinator retains the full Comet risk classification.
+
+## Current Task 8
+
+- Plan task: `Task 8: 实现 10 项通用黄金任务和 5 项真实模型入口`.
+- OpenSpec mappings: common-case portion of `5.2` and real-callable portion of `5.4`; final completion remains pending until Task 9 and the full offline integration gate.
+- Stage: `implementing`.
+- Base commit: `4719efe`.
+- Review mode: `thorough`; review/fix round: `0/2`.
+- TDD mode: `tdd`; RED and GREEN evidence are required before review.
+- Allowed implementation files: `tests/golden/cases.py`, `tests/golden/manifest.py`, `tests/test_mock_replay_e2e.py`, `tests/test_golden_runner.py` only.
+- Risk signals: machine-judged acceptance logic, shared offline/real fixtures, restricted subprocess execution, mutation-resistant Edit/state/test-hash assertions, and an expected diff over 200 lines.
