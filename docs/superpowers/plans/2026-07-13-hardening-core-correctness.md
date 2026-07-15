@@ -25,6 +25,8 @@ base-ref: 44456c57e2ef76990f44846eadb83bc8d5e25166
 - 保留用户对 `ACTION_PLAN.md` 中 M11/M12 的现有改动；文档收尾只补加固事实，不重排用户规划。
 - 每次理解或修改产品调用路径前先使用 CodeGraph。当前索引来自主 checkout，若报告 different-worktree/stale 警告，则只把图结果用于调用路径与影响面，当前 worktree 的直接源码读取、diff 和测试才是实现事实源；不在 worktree 内自行重建用户管理的索引。
 
+**已实施复审回归登记（不扩展 capability）：** redirect 的最小修复是先 `urljoin` 相对 `Location`，再验证最终 HTTP(S) scheme，保留 max-10 和逐跳 SSRF；验收覆盖相对 Location、非 HTTP(S)、第 11 跳和私网 redirect。模型注册表的根因是 `ModelEntry` 未将既有 YAML `supports_images` 传给 `ModelCapability`；最小修复为默认 `false` 字段加原样透传，验收锁定六个内置 `true`、两个 `false` 与用户 override 显式 `false`。
+
 ---
 
 ### Task 1: 隔离测试 HOME 并稳定环境能力断言
@@ -205,6 +207,8 @@ opener = urllib.request.build_opener(
 ```
 
 不得 `pop` 或修改代理环境变量。
+
+已实施复审补充：`_GuardedRedirectHandler` 必须先以 `urljoin(request.full_url, location)` 得到最终 URL，再检查 HTTP(S) scheme；不能对原始相对 Location 做 scheme 决策。max-10 hop count 与每跳 SSRF 校验保持不变，定向回归覆盖相对 Location、非 HTTP(S)、第 11 跳和 redirect 后私网目标。
 
 - [x] **Step 3: 验证 WebFetch 和 search 共用修复路径**
 
@@ -663,12 +667,12 @@ git commit -m "fix: contain WebFetch artifact paths"
 - Modify: `tests/test_task.py`
 
 **Interfaces:**
-- Produces: `_apply_declared_status(..., allow_completed: bool)`。
+- Produces: `_apply_declared_status(..., allow_completed: bool)`；资格参数只门控显式 `completed: true`，不改变 `completed: false` 的既有 `refused`/`need_info`/`failed` 映射。
 - Consumes: `ParseResult.tool_calls/errors`、现有 Termination 和 feedback loop。
 
 - [x] **Step 1: 写工具成功、失败和 parse error RED 测试**
 
-每个测试用两条或三条 MockClient response：第一条携带 `completed: true` 与工具/错误，最后一条是独立完成。断言第一轮 `completed=False`、有 outcome/parse error，最终轮才 `Termination.COMPLETED`。另写 max_rounds=1 断言不伪造完成。
+每个测试用两条或三条 MockClient response：第一条携带 `completed: true` 与工具/错误，最后一条是独立完成。断言第一轮 `completed=False`、有 outcome/parse error，最终轮才 `Termination.COMPLETED`。另写 max_rounds=1 断言不伪造完成，并覆盖 `completed: false` 的 `refused`、`need_info`、`failed` 即使伴随工具/parse error 也保持现有终态。
 
 ```bash
 UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_step.py tests/test_task.py -q
@@ -737,7 +741,7 @@ git commit -m "fix: require standalone task completion responses"
 
 - [x] **Step 1: 写配置、optional/required 和运行期 RED 测试**
 
-覆盖 omitted required=False、required+disabled 不阻断、optional timeout 降级、required unavailable 关闭 manager 后 exit 2、已有至少一个 enabled server/manager 时 REPL enable/disable required 不退出，以及全 disabled 配置的真实 CLI 组装在调用 `MCPManager` 构造器前返回 `None`。运行期 enable 测试不得用 fake manager 暗示 manager-less REPL 支持；构造器 spy 必须证明 manager 和 loop 都未创建。
+覆盖 omitted required=False、required+disabled 不阻断、optional timeout 降级、required unavailable 后有界 close 且 exit 2/no task start、正常 close 释放已启动资源、hard-stuck close 保留证据/脱敏 warning/后续 close retry，以及已有至少一个 enabled server/manager 时 REPL enable/disable required 不退出。全 disabled 配置的真实 CLI 组装在调用 `MCPManager` 构造器前返回 `None`。运行期 enable 测试不得用 fake manager 暗示 manager-less REPL 支持；构造器 spy 必须证明 manager 和 loop 都未创建。
 
 ```bash
 UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_mcp_manager.py tests/test_cli.py -q
@@ -989,7 +993,7 @@ manifest 中显式列出设计文档批准的 20 ID；只有 G01/G03/G08/G11/G43
 
 `tests/golden/__init__.py` 保持无副作用；`runner.py` module top-level 只导入标准库，并以 `TYPE_CHECKING` 保留类型。offline `main()` 先解析参数，创建临时 home，临时设置 HOME、USERPROFILE、XDG_CONFIG_HOME，再 local-import manifest/cases 及可能读取配置的 CLI/MCP/model 模块；suite 和报告完成后恢复环境。该临时 home 分支不得包住 `--real-model`：real opt-in 保留调用者原始 HOME/USERPROFILE/XDG_CONFIG_HOME，再 local-import 并读取用户模型配置与凭证环境；同时不得为 offline 路径提前 import 配置敏感模块。
 
-`validate_manifest()` 比较精确 frozenset、数量和 real set，并读取 `docs/golden-tasks-seed.md`，使用行首 heading/table 正则证明每个 ID 有定义。失败抛 `GoldenPreflightError`。
+`validate_manifest()` 比较精确 core frozenset、数量和 real set，并读取 `docs/golden-tasks-seed.md`，验证 catalog 唯一且精确覆盖 `G01` 至 `G380`，core 为 20 个批准 ID、non-core 为 360 个 ID；再使用行首 heading/table 正则证明每个 core ID 有定义。任何重复、缺失、额外或替换 ID 均失败并抛 `GoldenPreflightError`。
 
 `run_suite()` 对每项使用 `TemporaryDirectory`，捕获 `GoldenCheckError` 和 Exception 为失败结果但继续执行。成功 evidence 在加入 suite result 前用一个局部递归函数按精确内建类型（`type(value) is ...`）只接受 `None`/bool/str/int/finite float/list/`dict[str, value]`，明确拒绝 tuple、非字符串 key、自定义对象和内建类型子类，再用 `json.dumps(..., allow_nan=False)` 做最终编码检查；验证失败按固定 detail 和空 evidence 记录该项失败，不包含对象 repr。preflight 在输出目录创建前完成。
 
@@ -1140,11 +1144,11 @@ git commit -m "test: cover hardened runtime boundaries in golden core"
 
 - `ProxyHandler({})` 禁用大小写环境代理，`NO_PROXY` 不能重新启用代理；HTTP(S) redirect 最多 10 跳且每跳重新校验。
 - 未来显式代理只能选择 trusted-forward-proxy 或 guarded-tunnel trust model，本 change 不实现 `network.proxy`。
-- `realpath + commonpath` 阻止静态 symlink alias escape，但不能消除攻击者并发替换 canonical target 或 ancestor component 的 TOCTOU；restricted tier 仍假设 host/trusted code/MCP 不在校验与 pathname open 之间改写目标路径组件。
+- `realpath + commonpath` 阻止静态 symlink alias escape，但主进程 File 工具在所有 tier 都仍有 canonical target/ancestor component 的 pathname TOCTOU；restricted audit hook 也有同类 check-to-operation race，container 不能防御宿主或 MCP 并发替换。
 - fixed outcome message 主动牺牲底层诊断文本，避免 URL、hostname 和宿主路径回流到 Step/CLI。
 - event-loop thread 完全卡死时 MCP transport、FD 或 child process 可能暂留；CLI 按 deadline 返回、保留引用并输出 `shutdown incomplete; resources may remain`，不声称能强杀 Python thread。
 
-README 的 release-facing compatibility note 必须使用 `[SECURITY][BREAKING]`，明确依赖企业环境代理的部署会直连失败，且不得建议用 `NO_PROXY` 或恢复环境 `ProxyHandler` 规避。只列三条可操作迁移路径：允许 ForgeAgent 进程直连；由外部可信进程预取到 `allowed_root` 后用 FileRead；改用用户显式信任的 MCP fetch 工具。
+README 的 release-facing compatibility note 必须使用 `[SECURITY][BREAKING]`，明确依赖企业环境代理且不具备 direct egress 的部署会直连失败，且不得建议用 `NO_PROXY` 或恢复环境 `ProxyHandler` 规避。只列三条可操作迁移路径：允许 ForgeAgent 进程 direct egress；由外部可信进程预取到 `allowed_root` 后用 FileRead；改用用户显式信任的 MCP fetch 工具。README 文档一致性测试必须正向断言此标签、`NO_PROXY` 不可恢复和这三条路径均存在。
 
 README 同时删除“裸 `models`/`reload`/`mcp ...` 仍可用”的过期说明，明确 REPL 内嵌命令必须带 `/`；保留并区分顶层 `forgeagent models` 子命令。
 
@@ -1152,7 +1156,7 @@ README 同时删除“裸 `models`/`reload`/`mcp ...` 仍可用”的过期说�
 
 - [ ] **Step 3: 重写黄金验证口径**
 
-`golden-tasks-seed.md` 增加可信核心区块，列出精确 20 ID、5 real ID 和 runner 命令；明确其余 360 只是 candidate。README 展示离线命令、报告路径、exit 0/1/2 和 real opt-in。
+`golden-tasks-seed.md` 增加可信核心区块，列出精确 20 ID、5 real ID 和 runner 命令；验证 catalog 只含唯一的 `G01` 至 `G380`，并明确其余精确 360 个是 non-core candidate。README 展示离线命令、报告路径、exit 0/1/2 和 real opt-in。
 
 - [ ] **Step 4: 将加固范围登记为 ACTION_PLAN M13**
 

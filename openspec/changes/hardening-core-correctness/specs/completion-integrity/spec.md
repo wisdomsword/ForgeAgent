@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Tool-bearing responses cannot complete a task
-ForgeAgent MUST ignore a completion declaration in any response that also contains one or more tool calls and SHALL feed the tool results into a later round.
+ForgeAgent MUST apply the two-stage eligibility check only to an explicit `completed: true` declaration: it MUST ignore that completion declaration in any response that also contains one or more tool calls and SHALL feed the tool results into a later round.
 
 #### Scenario: Successful tool and completion declaration share a response
 - **WHEN** a model response declares `completed: true` and invokes a tool that succeeds
@@ -28,3 +28,14 @@ ForgeAgent SHALL mark a task complete only from a response that explicitly decla
 #### Scenario: Standalone response does not declare completion
 - **WHEN** a response contains no tools and no parse errors but does not declare completion
 - **THEN** ForgeAgent does not fabricate a completed status
+
+### Requirement: Explicit non-completion keeps existing terminal semantics
+An explicit `completed: false` declaration SHALL NOT be delayed, overwritten or reclassified by the two-stage completion eligibility check.
+
+#### Scenario: Refused non-completion accompanies tool activity
+- **WHEN** a response declares `completed: false` with status `refused` and also contains tool calls or parse errors
+- **THEN** ForgeAgent preserves the existing `refused` terminal mapping rather than treating it as a blocked completion declaration
+
+#### Scenario: Need-info or failed non-completion accompanies tool activity
+- **WHEN** a response declares `completed: false` with status `need_info` or `failed` and also contains tool calls or parse errors
+- **THEN** ForgeAgent preserves the existing corresponding terminal mapping rather than delaying it to a later round

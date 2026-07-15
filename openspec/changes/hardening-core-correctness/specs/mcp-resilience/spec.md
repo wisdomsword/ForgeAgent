@@ -27,11 +27,19 @@ ForgeAgent SHALL continue startup when an optional MCP server fails to connect, 
 - **THEN** `server_status()`, startup diagnostics and REPL status output identify the server and fixed cause without containing the secret or raw exception text
 
 ### Requirement: Required MCP failures abort startup
-ForgeAgent MUST return a non-zero CLI startup result when a required MCP server fails to connect and MUST clean up MCP resources that were already started.
+ForgeAgent MUST return a non-zero CLI startup result when a required MCP server fails to connect, MUST NOT start the task, and MUST perform bounded cleanup of MCP resources that were already started. Normal cleanup MUST release those resources; when an event-loop thread is hard-stuck, the bounded startup failure path MAY remain incomplete only while retaining cleanup evidence, emitting a sanitized warning and permitting a later bounded `close()` retry.
 
 #### Scenario: Required server connection fails
 - **WHEN** a required MCP server cannot start or complete its connection handshake
 - **THEN** the CLI reports a startup error, closes already-started MCP resources and exits non-zero before running the task
+
+#### Scenario: Required startup failure cleans up normally
+- **WHEN** a required server fails after one or more MCP resources have started and their loop thread remains responsive
+- **THEN** bounded cleanup releases the started holder/session/loop/thread resources before the CLI returns its non-zero startup result, and no task starts
+
+#### Scenario: Required startup failure encounters a hard-stuck loop
+- **WHEN** a required server fails and cleanup cannot complete because the MCP event-loop thread is blocked in synchronous code
+- **THEN** the CLI exits non-zero before task execution at its bounded deadline, retains holder/session/lifecycle/loop/thread evidence, emits only a sanitized incomplete-cleanup warning, and a later `close()` retries cleanup within a new bounded deadline without fabricating completion
 
 #### Scenario: User changes a required server during an active REPL
 - **WHEN** the REPL has already started with an MCP manager because at least one server was enabled at startup, and the user explicitly disables or enables a server configured with `required: true`

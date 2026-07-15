@@ -60,8 +60,9 @@ CLI
  └─ Task -> Step
      ├─ parse response
      ├─ register blocks and dispatch tools
-     ├─ tool calls or parse errors -> ignore completed=true, render feedback
-     └─ no tools/errors + completed=true -> complete
+     ├─ completed=true + tool calls or parse errors -> ignore completion, render feedback
+     ├─ completed=true + no tools/errors -> complete
+     └─ completed=false -> preserve existing refused/need_info/failed terminal mapping
 
 WebFetch / search
  └─ guarded_urlopen
@@ -104,6 +105,8 @@ File tools / restricted audit
 - redirect handler 只接受解析后的 HTTP/HTTPS URL。urllib 默认允许的 FTP redirect 在 guard 层被拒绝，不能进入默认 FTP handler。
 - 每次允许的重定向重新创建 guarded connection，因此每跳重新执行相同地址校验。
 
+实施期回归：相对 `Location` 不能在解析前按原字符串判断 scheme。`_GuardedRedirectHandler` 先执行 `urljoin(req.full_url, newurl)`，再验证解析后的最终 URL 为 HTTP(S)，随后沿用 max-10 hop count 和每跳 guarded connection/SSRF 校验。测试覆盖相对 Location、非 HTTP(S)、第 11 跳和 redirect 后私网目标；不增加 redirect capability 或新的网络策略面。
+
 ### 4.3 未来代理契约
 
 环境代理禁用是当前版本的强制安全行为，不提供隐藏开关或环境变量回退：
@@ -112,6 +115,7 @@ File tools / restricted audit
 - `NO_PROXY`/`no_proxy` 只能告诉一个已经启用的代理 handler 哪些目标绕过代理，不能重新启用被空 mapping 移除的代理；它不是临时规避方法。
 - 依赖企业代理才能出网的部署会在 WebFetch 和 `/search` 上直连失败。当前可用的迁移方式只有：在允许直连的网络运行、由用户在 ForgeAgent 外预取并把文件放入 `allowed_root` 后通过 FileRead 处理，或显式配置一个由用户信任且自行承担代理策略的 MCP fetch 工具。最后一种方式不是 WebFetch 的透明代理，也不改变 WebFetch 的 SSRF 契约。
 - CLI 对普通网络失败继续使用稳定失败类别，不根据错误文本猜测“可能需要代理”；README、威胁模型和 `[SECURITY][BREAKING]` 发布说明必须直接列出上述行为和替代路径。
+- 回滚 direct-only 行为会恢复不安全的环境代理路由；它不是推荐的迁移或故障缓解措施，只有在明确接受该安全回退时才可执行。
 
 未来代理支持不能简单恢复默认 `ProxyHandler`。常规 forward proxy 会在代理端重新解析目标，使 ForgeAgent 无法证明实际连接地址仍是本地校验过的 IP。未来设计必须显式选择并记录以下一种信任模型：
 
@@ -191,17 +195,17 @@ WebFetch artifact 与 FileRead/FileWrite/FileList 在主进程内复用 `_valida
 3. 比较时遵循平台路径语义，允许 root 自身和任意真实子路径，因此 `allowed_root="/"` 不再错误拒绝 `/tmp/...`。
 4. 安全边界异常不携带输入路径或 root。工具层转换为上述固定失败消息；restricted worker 保留 `PermissionError` 类型，但消息只说明访问位于 allowed root 外。
 
-`_validate_path()` 返回 canonical target，因此校验后替换模型最初提供的 symlink alias 不会改变实际写入目标。仍存在一个更窄但真实的 TOCTOU：外部并发写者若在校验后、打开前把 canonical target 本身或其某个祖先路径组件替换为指向外部的 symlink，后续按 pathname 打开仍可能越界。实证 probe 已复现 ancestor-component swap；final-target swap 具有同一 pathname race 根因。
+`_validate_path()` 返回 canonical target，因此校验后替换模型最初提供的 symlink alias 不会改变实际写入目标。主进程 FileRead/FileWrite/FileList 的 pathname 打开仍有与 sandbox tier 无关的 TOCTOU：外部并发写者若在校验后、打开前把 canonical target 本身或其某个祖先路径组件替换为指向外部的 symlink，后续按 pathname 打开仍可能越界。restricted audit hook 在检查与实际文件操作之间也存在同类 race；它不能把两次检查变成原子操作。实证 probe 已复现 ancestor-component swap；final-target swap 具有同一 pathname race 根因。
 
 本 change 不用“再做一次 realpath/lstat”伪装成修复，因为检查与打开之间仍有竞态；也不引入 POSIX-only 的逐组件 `openat(dir_fd, O_NOFOLLOW)`、Linux `openat2(RESOLVE_BENEATH)` 或平台专用 fd-path 反查。完整消除需要重写 FileRead/Write/List 的文件描述符接口并处理 Windows 兼容，超出本次最小加固。
 
-残余威胁按档位记录：restricted/container 的模型执行块在工具调用前已经结束，不能靠普通模型代码保留一个并发线程稳定制造竞态；但 trusted 同进程代码、用户配置的 MCP 进程或宿主其他进程仍可能并发修改目录。当前保证是阻止静态 symlink 逃逸、修复 root predicate、收敛非法路径和错误文本；不把 File 工具描述为抵抗恶意宿主并发写者的 OS 级边界。
+残余威胁按档位记录：restricted/container 的模型执行块在工具调用前已经结束，不能靠普通模型代码保留一个并发线程稳定制造竞态；但 container 不是对宿主或 MCP 并发替换的防护。trusted 同进程代码、用户配置的 MCP 进程或宿主其他进程仍可能并发修改目录。当前保证是阻止静态 symlink 逃逸、修复 root predicate、收敛非法路径和错误文本；不把 File 工具描述为抵抗恶意宿主并发写者的 OS 级边界。
 
 ## 6. 完成状态设计
 
 ### 6.1 状态门控
 
-`Step._handle_reply()` 在 parse 后计算：
+`Step._handle_reply()` 只为显式 `completed: true` 在 parse 后计算资格：
 
 ```python
 allow_completed = not parsed.tool_calls and not parsed.errors
@@ -403,6 +407,8 @@ artifacts/golden/                 # generated, gitignored
 
 ### 9.2 Manifest 合约
 
+候选 catalog 的合法 ID universe 唯一且精确为 `G01` 至 `G380`（含端点）。trusted core 是其精确 20-ID 子集，剩余 non-core candidate 必须恰好为 360；重复、缺失、额外或替换 ID 都是 preflight/doc-consistency failure。
+
 `GoldenScenario` 是不可变 dataclass，至少包含：
 
 - `scenario_id`
@@ -412,7 +418,8 @@ artifacts/golden/                 # generated, gitignored
 
 runner preflight 必须验证：
 
-- 总数恰好 20，ID 唯一。
+- catalog 精确包含唯一的 `G01` 至 `G380`，总数 380；core/non-core 分别恰好为 20/360。
+- manifest 总数恰好 20，ID 唯一。
 - ID 集合严格等于 G01/G03/G05/G06/G08/G11/G13/G14/G15/G17/G27/G43/G58/G59/G324/G329/G330/G332/G333/G355。
 - 只有 G01/G03/G08/G11/G43 提供 `run_real`，数量恰好 5。
 - 每个 manifest ID 在 `docs/golden-tasks-seed.md` 中仍有 heading 或表格任务定义。该检查只验证引用存在，不在 Markdown 中维护第二套 `[CORE]` 标签。
@@ -461,6 +468,7 @@ runner 本里程碑明确顺序执行，不承诺多个进程同时写同一个 
 | 测试隔离 | 真实 home 放置恶意 mcp.yaml 后运行 suite | 测试只读取临时 home，结果不变 |
 | 黄金 runner | manifest 变异、standalone 恶意 HOME、20 pass、单项/非法 evidence fail、preflight fail | 配置敏感 import 前隔离 home；ID/数量锁定；非标准 JSON evidence 只失败单项；JSON/Markdown 同源；退出码 0/1/2 |
 | 真实模型入口 | 缺配置、有效单模型 | 缺配置无报告且退出 2；只执行 5 项 |
+| 回归：redirect 与模型能力透传 | 相对 Location、非 HTTP(S)、第 11 跳、redirect 后私网；models.yaml 的 image flags 与用户 override | 先 `urljoin` 再验证最终 scheme，仍逐跳 SSRF；`ModelEntry` 原样透传既有 `supports_images`，六个内置 true、两个 false 和显式用户 false override 均锁定 |
 
 ## 11. 文档与迁移
 
@@ -489,7 +497,7 @@ runner 本里程碑明确顺序执行，不承诺多个进程同时写同一个 
 
 ## 13. 回滚与失败处理
 
-- 网络修复可独立回滚，但文档必须同步恢复，不能继续声称环境代理已禁用。
+- 网络修复可独立回滚，但这会恢复不安全的环境代理路由，故不建议作为迁移或故障缓解；文档必须同步恢复，不能继续声称环境代理已禁用。
 - confirmer 与完成门控分别有独立测试；若任一回滚，黄金报告不得把对应场景标为可信通过。
 - MCP `required` 默认 false，回滚不会破坏旧 YAML；若 close 变更回滚，必须恢复到不会泄漏子进程的最后已验证实现，不能回到已知无界等待状态。
 - 黄金 runner 是测试基础设施，可不影响产品运行时独立回滚；文档中的“可信核心”声明必须与可运行工件同时存在。
