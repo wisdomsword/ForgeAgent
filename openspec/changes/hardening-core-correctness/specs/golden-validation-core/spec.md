@@ -55,7 +55,7 @@ Exactly G01, G03, G08, G11 and G43 SHALL be tagged as compatible with an explici
 
 #### Scenario: Real-model execution is requested
 - **WHEN** a user supplies the explicit real-model command and valid model configuration
-- **THEN** the runner executes only the 5 compatible scenarios and produces a separate pass-rate report
+- **THEN** the runner preserves the caller's HOME, USERPROFILE and XDG_CONFIG_HOME while resolving user model configuration and credentials, executes only the 5 compatible scenarios, and produces a separate pass-rate report
 
 #### Scenario: Real-model preflight lacks configuration or credentials
 - **WHEN** a user explicitly requests real-model execution but the selected model cannot be resolved or its required local credential is unavailable

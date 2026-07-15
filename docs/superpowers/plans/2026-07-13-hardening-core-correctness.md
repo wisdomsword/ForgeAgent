@@ -987,7 +987,7 @@ manifest 中显式列出设计文档批准的 20 ID；只有 G01/G03/G08/G11/G43
 
 - [ ] **Step 3: 实现 runner preflight 和结果模型**
 
-`tests/golden/__init__.py` 保持无副作用；`runner.py` module top-level 只导入标准库，并以 `TYPE_CHECKING` 保留类型。offline `main()` 先解析参数，创建临时 home，临时设置 HOME、USERPROFILE、XDG_CONFIG_HOME，再 local-import manifest/cases 及可能读取配置的 CLI/MCP/model 模块；suite 和报告完成后恢复环境。real opt-in 可读取显式模型/凭证环境，但不得为 offline 路径提前 import 配置敏感模块。
+`tests/golden/__init__.py` 保持无副作用；`runner.py` module top-level 只导入标准库，并以 `TYPE_CHECKING` 保留类型。offline `main()` 先解析参数，创建临时 home，临时设置 HOME、USERPROFILE、XDG_CONFIG_HOME，再 local-import manifest/cases 及可能读取配置的 CLI/MCP/model 模块；suite 和报告完成后恢复环境。该临时 home 分支不得包住 `--real-model`：real opt-in 保留调用者原始 HOME/USERPROFILE/XDG_CONFIG_HOME，再 local-import 并读取用户模型配置与凭证环境；同时不得为 offline 路径提前 import 配置敏感模块。
 
 `validate_manifest()` 比较精确 frozenset、数量和 real set，并读取 `docs/golden-tasks-seed.md`，使用行首 heading/table 正则证明每个 ID 有定义。失败抛 `GoldenPreflightError`。
 
@@ -1038,7 +1038,7 @@ def require(condition: bool, message: str) -> None:
 
 - [ ] **Step 3: 实现 5 项 real callable**
 
-real callable 与 offline 使用同一 fixture 和 judge，只替换 client。`runner --real-model` 在执行前调用现有 `build_real_client(model_id)`；模型解析或本地必需凭证缺失转 preflight exit 2 且不创建报告。不得为验证凭证有效性额外发送探测请求；供应商拒绝凭证属于真实场景的运行期失败，写入完整报告并退出 1。
+real callable 与 offline 使用同一 fixture 和 judge，只替换 client。`runner --real-model` 保留调用者 HOME/USERPROFILE/XDG_CONFIG_HOME，并在配置模块尚未被 offline 临时 home 分支导入的前提下调用现有 `build_real_client(model_id)`；模型解析或本地必需凭证缺失转 preflight exit 2 且不创建报告。增加一个注入用户自定义 model/config 的回归，证明 real preflight 能解析该模型且三个环境变量未被替换。不得为验证凭证有效性额外发送探测请求；供应商拒绝凭证属于真实场景的运行期失败，写入完整报告并退出 1。
 
 - [ ] **Step 4: 让旧回放测试调用共享 case**
 
