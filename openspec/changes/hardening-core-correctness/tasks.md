@@ -10,8 +10,8 @@
 - [x] 2.1 增加大小写环境代理变量下 WebFetch 和 `/search` 必须直连的测试，并覆盖代理指向回环目标的绕过场景
 - [x] 2.2 让受保护的 URL opener 显式禁用环境代理，同时复用现有目标解析、地址分类和逐跳重定向校验
 - [x] 2.3 补齐私网、回环、链路本地、NAT64 和公网页面重定向到私网的回归覆盖
-- [ ] 2.4 文档化 ForgeAgent 专用显式代理的未来契约与“本里程碑不实现代理转发”的边界
-- [ ] 2.5 修复 guard 对相对 HTTP(S) `Location` 的误拒绝，先解析最终 URL 再校验 scheme，同时保持 10 跳上限和逐跳 SSRF
+- [x] 2.4 文档化 ForgeAgent 专用显式代理的未来契约与“本里程碑不实现代理转发”的边界
+- [x] 2.5 修复 guard 对相对 HTTP(S) `Location` 的误拒绝，先解析最终 URL 再校验 scheme，同时保持 10 跳上限和逐跳 SSRF
 
 ## 3. 工具确认与完成完整性
 
@@ -22,11 +22,11 @@
 - [x] 3.5 实施严格两阶段完成门控，只有后续无工具、无解析错误的独立响应可完成任务
 - [x] 3.6 为 percent-encoded/大小写变化/重叠的 hostname secret、encoded delimiter、IPv6/zone-id、组件级 mask 交互、Unicode content character count、WebFetch guard/network 失败和 FileWrite 成功/写入失败结果增加泄漏回归测试
 - [x] 3.7 实施固定安全 WebFetch 失败消息与 FileWrite project-relative 成功/固定失败消息，并验证 Step feedback 不再暴露原始 URL、hostname 或宿主绝对路径
-- [x] 3.8 为 InvalidURL/BadStatusLine/LineTooLong/IncompleteRead/RemoteDisconnected、WebFetch artifact 写入、search 未知 charset、`allowed_root="/"`、非法路径及 FileRead/FileList 失败文本增加行为探针和回归测试
+- [x] 3.8 为 InvalidURL/BadStatusLine/LineTooLong/IncompleteRead/RemoteDisconnected、WebFetch artifact 写入、search 未知 charset与不可编码 Unicode query、`allowed_root="/"`、非法路径及 FileRead/FileList 失败文本增加行为探针和回归测试
 - [x] 3.9 实施 WebFetch/search 消费端异常收敛、canonical commonpath 文件边界和 FileRead/FileList 固定失败消息，并验证 CLI outcome 渲染不泄漏敏感路径
 - [x] 3.10 验证并实施非 TTY REPL 不读取确认输入、MCP server/tool/arguments mapping key/string value 与 FileWrite 展示路径的已知 secret 脱敏和 Rich markup/C0-C1/Unicode `Cf` 格式控制/`Cs` surrogate 单行 literal 渲染，以及 M9 到期裸词命令兼容层移除；顶层 `forgeagent models` 保持不变
-- [x] 3.11 验证并实施 WebFetch response 后 artifact digest/filename/path/write 的固定失败边界与 canonical root containment，使未配对 surrogate fragment 不抛出、validator 返回值被实际使用、预置同名 artifact symlink 指向 root 外时固定失败且外部目标不变；通用后代/祖先 component 由既有 File 工具路径用例覆盖
-- [ ] 3.12 用 characterization tests 锁定 `completed: false` 的显式 refused/need_info/failed 不被两阶段 completion 资格门控延迟或重分类
+- [x] 3.11 验证并实施 WebFetch response 后 artifact digest/filename/path/write 的固定失败边界与 canonical root containment，使未配对 surrogate fragment 不抛出、validator 返回值被实际使用、成功结果的 byte count 等于脱敏后实际 UTF-8 artifact 大小、预置同名 artifact symlink 指向 root 外时固定失败且外部目标不变；通用后代/祖先 component 由既有 File 工具路径用例覆盖
+- [x] 3.12 用 characterization tests 锁定 `completed: false` 的显式 refused/need_info/failed 不被两阶段 completion 资格门控延迟或重分类
 
 ## 4. MCP 韧性与生命周期
 
@@ -44,17 +44,17 @@
 - [x] 5.3 实现可重复 runner，以递归类型检查拒绝 tuple、非字符串 key、非标准 JSON 值和非有限数字而不静默转换，并把非法 evidence 收敛为单项失败；输出完整机器可读结果、失败原因、人类可读汇总和通过率，并以失败状态控制退出码
 - [x] 5.4 标记其中 5 个真实模型兼容场景，提供显式 opt-in 运行入口和独立报告，确保基础 CI 不访问外部模型
 - [x] 5.5 将黄金核心接入项目验证命令，验证 standalone offline entry 在配置敏感 import 前隔离 HOME/USERPROFILE/XDG_CONFIG_HOME，并在无网络、无 Docker、无凭证环境下可完整执行
-- [ ] 5.6 解析 heading/table 两种任务定义格式，强制 catalog 唯一且精确为 G01-G380、non-core 恰好 360，并正向锁定 README 代理迁移契约
+- [x] 5.6 解析 heading/table 两种任务定义格式，强制 catalog 唯一且精确为 G01-G380、non-core 恰好 360，并正向锁定 README 代理迁移契约
 
 ## 6. 契约与里程碑文档
 
-- [ ] 6.1 更新模型客户端契约，准确描述当前 complete/streaming 和多模态支持边界
-- [ ] 6.2 更新文本协议规范，纳入 WebFetch、FileRead/FileWrite 及严格两阶段完成语义
-- [ ] 6.3 更新威胁模型、CLI 和发布说明，说明默认直连、环境代理禁用及企业代理迁移路径、symlink target/ancestor-component swap 与 MCP incomplete-shutdown 残余威胁、TTY 确认和 MCP `required` 行为
-- [ ] 6.4 更新黄金任务说明和 README，将 20 项标为可执行可信核心、其余 360 项标为候选，并说明 5 项真实模型运行不是 CI 门禁
+- [x] 6.1 更新模型客户端契约，准确描述当前 complete/streaming 和多模态支持边界
+- [x] 6.2 更新文本协议规范，纳入 WebFetch、FileRead/FileWrite 及严格两阶段完成语义
+- [x] 6.3 更新威胁模型、CLI 和发布说明，说明默认直连、环境代理禁用及企业代理迁移路径、symlink target/ancestor-component swap 与 MCP incomplete-shutdown 残余威胁、TTY 确认和 MCP `required` 行为
+- [x] 6.4 更新黄金任务说明和 README，将 20 项标为可执行可信核心、其余 360 项标为候选，并说明 5 项真实模型运行不是 CI 门禁
 - [ ] 6.5 按 `MILESTONE_GUIDE.md` 更新 ACTION_PLAN、相关历史状态说明、新加固里程碑文件和 `milestones/latest`，保留实证测试结果
-- [ ] 6.6 恢复被过度压缩的当前模型/文本协议/T1-T11 契约，修复 `ModelEntry.supports_images` 透传，并删除未实现 package workflow 与不存在 rlimit 的虚假声明
-- [ ] 6.7 校准 required MCP hard-stuck cleanup、`completed: false` 终态、正式代理 Migration Plan 和 tier-independent File TOCTOU 的 Design/OpenSpec/计划语义
+- [x] 6.6 恢复被过度压缩的当前模型/文本协议/T1-T11 契约，修复 `ModelEntry.supports_images` 透传，并删除未实现 package workflow 与不存在 rlimit 的虚假声明
+- [x] 6.7 校准 required MCP hard-stuck CLI queued-shutdown drain、direct-manager close retry、`completed: false` 终态、正式代理 Migration Plan 和 tier-independent File TOCTOU 的 Design/OpenSpec/计划语义
 
 ## 7. 综合验证与审查
 

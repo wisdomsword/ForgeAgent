@@ -686,8 +686,8 @@ def build_mcp_manager(console: Console) -> MCPManager | None:
     """Load mcp.yaml and, if any servers are enabled, build + connect a manager.
 
     Returns None when no servers are configured (the common case) so the MCP tool stays
-    off the menu. Connection failures for individual servers are isolated inside the
-    manager (reported via server_status), never raised here.
+    off the menu. Optional server failures degrade to `server_status()` diagnostics;
+    an enabled required server failure closes the manager and raises `MCPStartupError`.
     """
     servers = load_mcp_config()
     if not any(config.enabled for config in servers.values()):

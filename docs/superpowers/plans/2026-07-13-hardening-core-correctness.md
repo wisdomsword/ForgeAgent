@@ -741,7 +741,7 @@ git commit -m "fix: require standalone task completion responses"
 
 - [x] **Step 1: 写配置、optional/required 和运行期 RED 测试**
 
-覆盖 omitted required=False、required+disabled 不阻断、optional timeout 降级、required unavailable 后有界 close 且 exit 2/no task start、正常 close 释放已启动资源、hard-stuck close 保留证据/脱敏 warning/后续 close retry，以及已有至少一个 enabled server/manager 时 REPL enable/disable required 不退出。全 disabled 配置的真实 CLI 组装在调用 `MCPManager` 构造器前返回 `None`。运行期 enable 测试不得用 fake manager 暗示 manager-less REPL 支持；构造器 spy 必须证明 manager 和 loop 都未创建。
+覆盖 omitted required=False、required+disabled 不阻断、optional timeout 降级、required unavailable 后有界 close 且 exit 2/no task start、正常 close 释放已启动资源、hard-stuck required CLI cleanup 保留证据/脱敏 warning且排队 shutdown work 在 loop 恢复后创建或复用唯一 drain，以及直接持有 manager 引用时的后续 bounded close retry；已有至少一个 enabled server/manager 时 REPL enable/disable required 不退出。全 disabled 配置的真实 CLI 组装在调用 `MCPManager` 构造器前返回 `None`。运行期 enable 测试不得用 fake manager 暗示 manager-less REPL 支持；构造器 spy 必须证明 manager 和 loop 都未创建。
 
 ```bash
 UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_mcp_manager.py tests/test_cli.py -q
@@ -1134,11 +1134,11 @@ git commit -m "test: cover hardened runtime boundaries in golden core"
 - Produces: 与运行时和验证证据一致的公开契约；`[SECURITY][BREAKING]` 环境代理说明；20/360/5 黄金口径；`ACTION_PLAN.md` 中明确的 M13 加固行。
 - Consumes: 最终测试命令、黄金 JSON/Markdown、现有 M11/M12 用户规划。
 
-- [ ] **Step 1: 更新模型与文本协议契约**
+- [x] **Step 1: 更新模型与文本协议契约**
 
 `model-client-contract.md` 准确记录 complete/stream 和 TextItem/ImageItem；`text-protocol-spec.md` 增加 WebFetch/FileRead/FileWrite/FileList/MCP，并写明工具/parse error 轮次不能完成。
 
-- [ ] **Step 2: 更新安全与 MCP 文档**
+- [x] **Step 2: 更新安全与 MCP 文档**
 
 `threat-model.md` 写入以下已批准边界：
 
@@ -1154,11 +1154,11 @@ README 同时删除“裸 `models`/`reload`/`mcp ...` 仍可用”的过期说�
 
 `docs/m10-usage-observability-and-tools.md` 同步 direct-only WebFetch、固定 WebFetch/FileRead/FileWrite/FileList outcome、WebFetch artifact canonical containment、静态 symlink 阻断和 target/ancestor-component swap residual；`docs/m7-tools-mcp-survey.md` 加入 `required`、optional degrade、absolute deadline、固定 thread 诊断和 incomplete-shutdown residual。TTY/non-TTY、autoApprove 和不抓取线程堆栈的理由也写入对应边界说明。
 
-- [ ] **Step 3: 重写黄金验证口径**
+- [x] **Step 3: 重写黄金验证口径**
 
 `golden-tasks-seed.md` 增加可信核心区块，列出精确 20 ID、5 real ID 和 runner 命令；验证 catalog 只含唯一的 `G01` 至 `G380`，并明确其余精确 360 个是 non-core candidate。README 展示离线命令、报告路径、exit 0/1/2 和 real opt-in。
 
-- [ ] **Step 4: 将加固范围登记为 ACTION_PLAN M13**
+- [x] **Step 4: 将加固范围登记为 ACTION_PLAN M13**
 
 开始前把当前工作树文件原样复制为 `/tmp/forgeagent-action-plan-user-before.md`。从该副本再生成 `/tmp/forgeagent-action-plan-expected-after.md`，只把现有空置 M13 行替换为本 change 的交付物、Ruff/完整 pytest/20 项离线黄金核心/CodeGraph 复审验证和三次评审门禁；用同一个 `apply_patch` 对工作树 M13 行做完全相同的定向修改。随后用 `cmp /tmp/forgeagent-action-plan-expected-after.md ACTION_PLAN.md` 证明除 M13 外所有用户字节均未变化。保留用户 M11/M12 的内容与顺序，不修改或重编号它们。此步骤不创建里程碑文件、不更新 `milestones/latest`；`MILESTONE_GUIDE.md` 要求门禁全部通过后一次性产出收尾记录。
 
@@ -1166,7 +1166,7 @@ M11/M12、表格重排和空 M13 当前位于同一个未提交 hunk，不能先
 
 为支持会话/机器重启恢复，计算 `user_before_sha256`、`expected_after_sha256` 和 `m13_index_blob`，连同精确 M13 文本追加到 `openspec/changes/hardening-core-correctness/.comet/subagent-progress.md` 的 Task 10 preservation checkpoint。该 checkpoint 与 Task 10 文档一起提交。恢复时可从 `HEAD:ACTION_PLAN.md` 和 checkpoint 重新生成临时文件；不得依赖 `/tmp` 文件仍存在。提交前重新计算工作树 SHA-256 与 index blob并逐项匹配 checkpoint。
 
-- [ ] **Step 5: 运行文档一致性测试**
+- [x] **Step 5: 运行文档一致性测试**
 
 ```bash
 UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_golden_runner.py -q
@@ -1175,7 +1175,7 @@ rg -n "380.*validated|380.*已验证|complete\(\).*only|不支持.*stream|裸词
 
 预期：黄金 ID 同步测试 PASS；rg 不再命中过时的“380 已验证”和旧客户端契约，或每个命中都属于明确的历史说明。
 
-- [ ] **Step 6: 提交文档同步**
+- [x] **Step 6: 提交文档同步**
 
 ```bash
 git add README.md \
@@ -1198,33 +1198,41 @@ git commit -m "docs: align runtime contracts and golden validation"
 - Modify: `src/forgeagent/ssrf_guard.py`
 - Modify: `src/forgeagent/model_registry.py`
 - Modify: `src/forgeagent/_sandbox_worker.py`
+- Modify: `src/forgeagent/tools.py`
+- Modify: `src/forgeagent/web_search.py`
 - Modify: `tests/test_ssrf_guard.py`
 - Modify: `tests/test_model_registry.py`
 - Modify: `tests/test_step.py`
 - Modify: `tests/test_golden_runner.py`
+- Modify: `tests/test_web_file_tools.py`
+- Modify: `tests/test_web_search.py`
 - Modify: Task 10 已列出的 runtime contract、Design Doc 和 OpenSpec delta files
 
 **Interfaces:**
-- Produces: 相对 redirect 兼容且最终 scheme 仍受限；YAML image capability 不丢失；完整 candidate catalog 和代理迁移文案有正向门禁；非完成终态优先级有 characterization evidence；runtime docs 不再删除或虚构当前契约。
+- Produces: 相对 redirect 兼容且最终 scheme 仍受限；YAML image capability 不丢失；完整 candidate catalog 和代理迁移文案有正向门禁；非完成终态优先级有 characterization evidence；WebFetch 字节元数据与实际 UTF-8 artifact 一致；非法 Unicode search query 不逃逸；runtime docs 不再删除或虚构当前契约。
 - Consumes: Task 10 首轮技术一致性审查、当前实现源码、`G01..G380` 的 heading/table 混合文档结构。
 
-- [ ] **Step 1: 用 TDD 修复相对 redirect 与 image capability 透传**
+- [x] **Step 1: 用 TDD 修复相对 redirect 与 image capability 透传**
 
 先复现相对 `Location` 被空 scheme 错误拒绝，以及 `models.yaml` 的 `supports_images` 被 `ModelEntry` 静默丢弃；再做 `urljoin` 后 scheme 校验和字段原样透传。保留 max-10、逐跳 SSRF、六个内置 true、两个 false 和用户显式 false override 的回归。
 
-- [ ] **Step 2: 建立完整 candidate catalog 和代理迁移正向门禁**
+- [x] **Step 2: 建立完整 candidate catalog 和代理迁移正向门禁**
 
 文档一致性测试分别解析 G01-G30 heading 与 G31-G380 候选定义表，拒绝定义重复、缺失、额外和错号，并断言 non-core 恰好 360。README 测试正向锁定 `[SECURITY][BREAKING]`、`NO_PROXY` 无法恢复和三条迁移路径。
 
-- [ ] **Step 3: 锁定显式非完成终态并修正文档事实**
+- [x] **Step 3: 锁定显式非完成终态并修正文档事实**
 
-characterization tests 证明 `completed: false` 的 refused/failed 与工具或 parse error 同轮时保持既有终态；不改变 `completed: true` 的两阶段门控。威胁模型不得声称未实现的 package installer，也不得声称 restricted 设置了不存在的 file/process rlimit。
+characterization tests 分别证明 `completed: false` 的 refused/need_info/failed 与工具或 parse error 同轮时保持既有终态；不改变 `completed: true` 的两阶段门控。威胁模型不得声称未实现的 package installer，也不得声称 restricted 设置了不存在的 file/process rlimit。
 
-- [ ] **Step 4: 恢复当前 runtime contracts 并校准 Design/OpenSpec**
+- [x] **Step 4: 恢复当前 runtime contracts 并校准 Design/OpenSpec**
 
-模型、文本协议和威胁模型只恢复当前源码仍兑现的接口、解析、重试、信任边界与 T1-T11；required MCP hard-stuck cleanup、TOCTOU tier 边界、正式代理 Migration Plan 和 `G01..G380` 责任分工前后一致。
+模型、文本协议和威胁模型只恢复当前源码仍兑现的接口、解析、重试、信任边界与 T1-T11；required MCP hard-stuck CLI 只承诺排队 shutdown work 在 loop 恢复后创建或复用唯一 drain，不暴露不可达的 later-close handle，普通持有 manager 的调用方仍可重复 close；TOCTOU tier 边界、正式代理 Migration Plan 和 `G01..G380` 责任分工前后一致。
 
-- [ ] **Step 5: 定向验证并完成第二轮 task review**
+- [x] **Step 5: 收敛复审发现的消费端边缘行为**
+
+用 TDD 证明 WebFetch 多字节文本的 `N bytes` 等于脱敏后实际落盘 UTF-8 字节数；证明 `/search` 对无法 URL 编码的未配对 surrogate 不发起请求、不抛异常并返回固定 unavailable。同步修正 M10 重定向 handler/opener 说明和 required MCP startup docstring，不引入通用 sanitizer、代理实现或新配置面。
+
+- [ ] **Step 6: 定向验证并完成最终 task review**
 
 运行相关 Ruff、SSRF/Web、model registry/streaming、Step/Task、escape、golden runner 和 strict OpenSpec 验证；审查范围覆盖 Task 10/10A 全部提交，确认没有把历史草案恢复为当前契约。
 
@@ -1238,7 +1246,7 @@ characterization tests 证明 `completed: false` 的 refused/failed 与工具或
 - Generated only: `artifacts/golden/offline/results.json`, `artifacts/golden/offline/report.md`
 
 **Interfaces:**
-- Produces: 40/40 tasks 勾选、实证里程碑、完整离线报告、与已验证实现 HEAD 精确关联且可进入 Comet verify 的提交状态。
+- Produces: 45/45 tasks 勾选、实证里程碑、完整离线报告、与已验证实现 HEAD 精确关联且可进入 Comet verify 的提交状态。
 - Consumes: 所有实现提交、OpenSpec specs、Design Doc、base ref。
 
 - [ ] **Step 1: 运行静态检查**
@@ -1304,7 +1312,7 @@ UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run python -m tests.golden.runner
 
 - [ ] **Step 7: 固定已验证实现 HEAD，创建证据草稿并执行第三道验收评审**
 
-Step 1-5 与前两道评审通过后，立即把 `git rev-parse HEAD` 作为 `verified_head` 同时写入 `.comet/subagent-progress.md` 和 milestone 草稿；两个持久文件必须一致，后续命令每次重新读取而不依赖 shell 变量。里程碑必须标明这个精确 implementation HEAD，而不是之后的 evidence-only commit。按 `MILESTONE_GUIDE.md` 一次性创建 `milestones/milestone_013.md`，把实际命令、pass/skip 数、黄金通过率和前两道评审结论写入文件，并为第三道证据评审保留唯一、明确的 `pending` verdict/identity 槽位；将 `milestones/latest` 更新为唯一一行 `milestone_013.md`。M11/M12 仍是未完成规划；当前 `milestones/latest` 指向最后按时间完成的 `milestone_009.md`，因此 M13 的“前置里程碑”链接使用 `milestone_009.md`，正文同时说明 M9 是在 M10 后补做、M9/M10 均已完成及编号跳跃原因。逐条核对本计划末尾映射后，将 `tasks.md` 的 40 个 checkbox 定向改为 `[x]`；不能一次性盲目全选。同步更新 `.comet/subagent-progress.md`，记录最终任务、评审和验证证据，并保留同样的第三道评审 pending 槽位。
+Step 1-6（包含前两道评审）通过后，立即把 `git rev-parse HEAD` 作为 `verified_head` 同时写入 `.comet/subagent-progress.md` 和 milestone 草稿；两个持久文件必须一致，后续命令每次重新读取而不依赖 shell 变量。里程碑必须标明这个精确 implementation HEAD，而不是之后的 evidence-only commit。按 `MILESTONE_GUIDE.md` 一次性创建 `milestones/milestone_013.md`，把实际命令、pass/skip 数、黄金通过率和前两道评审结论写入文件，并为第三道证据评审保留唯一、明确的 `pending` verdict/identity 槽位；将 `milestones/latest` 更新为唯一一行 `milestone_013.md`。M11/M12 仍是未完成规划；当前 `milestones/latest` 指向最后按时间完成的 `milestone_009.md`，因此 M13 的“前置里程碑”链接使用 `milestone_009.md`，正文同时说明 M9 是在 M10 后补做、M9/M10 均已完成及编号跳跃原因。逐条核对本计划末尾映射后，将 `tasks.md` 的 45 个 checkbox 定向改为 `[x]`；不能一次性盲目全选。同步更新 `.comet/subagent-progress.md`，记录最终任务、评审和验证证据，并保留同样的第三道评审 pending 槽位。
 
 第三道验收证据评审在上述草稿全部存在后执行：由独立 reviewer 把 Ruff、专项 pytest、全量 pytest、20 项黄金 JSON/Markdown/exit code，以及 milestone/tasks/progress 中每个命令、计数、skip、commit、文档声明和 `verified_head` 逐项对照原始输出，禁止把旧输出或预期值当成实测结果。reviewer 通过时只允许把 milestone 与 progress 中预留的两个 pending 槽位改成自己的 verdict/identity，不得修改其他证据或产品文件；这样最终写入的第三道结论由 reviewer 自身产生，不需要第四次转录复核。只发现 evidence-only 转录错误时，reviewer 不填写通过槽位，由协调者修正证据文件并只重复本次证据评审；若发现源码、测试、规范或公开文档问题，则候选实现发生实质变化，必须从 Step 1 重新开始。未经该评审通过不得发布里程碑。
 
@@ -1331,21 +1339,26 @@ git commit -m "chore: record hardening verification evidence"
 | 1.3 | 1, 6C |
 | 1.4 | 1 |
 | 2.1-2.4 | 2, 10 |
+| 2.5 | 10A |
 | 3.1-3.3 | 3A |
 | 3.4-3.5 | 4 |
 | 3.6-3.7 | 3A, 3B, 3C |
 | 3.8-3.9 | 3B, 3C |
 | 3.10 | 3D |
 | 3.11 | 3E |
+| 3.12 | 10A |
 | 4.1-4.3 | 5 |
 | 4.4-4.6 | 6A, 6B, 6C |
 | 5.1-5.5 | 7, 8, 9 |
-| 6.1-6.5 | 10, 11 |
+| 5.6 | 10A |
+| 6.1-6.4 | 10 |
+| 6.5 | 10, 11 |
+| 6.6-6.7 | 10A |
 | 7.1-7.5 | 11 |
 
 ## Final Plan Self-Review
 
-- Spec coverage: 五份 capability specs 和 tasks.md 40 项均在 coverage map 中有实施与验证任务。
+- Spec coverage: 五份 capability specs 和 tasks.md 45 项均在 coverage map 中有实施与验证任务。
 - Type consistency: `GoldenScenario`, `GoldenEvidence`, `MCPStartupError`, `required_failures()`, `_GuardedRedirectHandler`, generation holder/session slots, `restart_after_generation` 和完成门控签名在生产者与消费者任务中一致。
 - Scope: 未增加依赖、代理实现、通用策略层、并发 golden runner 或无关重构。
-- Execution safety: 每个行为任务包含 RED、GREEN、定向测试和独立提交；综合验证不使用人工 deselect。
+- Execution safety: 每个行为任务包含 RED、GREEN 和定向测试；共享 worktree 的提交边界竞态必须在 progress 中记录并由协调者按最终 diff 复核，不能把混合提交误报为独立提交；综合验证不使用人工 deselect。

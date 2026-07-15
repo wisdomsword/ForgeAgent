@@ -155,11 +155,11 @@ class _GuardedHTTPSHandler(urllib.request.HTTPSHandler):
 
 **为什么校验点是 `_create_connection` 而不是 `connect()`**（评审修正，实测驱动）：初稿把校验放在覆写 `connect()` 里，这有两个问题——(1) `HTTPConnection.connect()` 除了建 socket 还设 `TCP_NODELAY`、处理 `_tunnel_host` 代理隧道,整段覆写会静默丢掉这些;(2) `HTTPSConnection.connect()` 还要做 TLS wrap + SNI,覆写它等于重写 TLS 握手,极易出错。正确的注入点是 stdlib 自己留的钩子 `self._create_connection`（http.client 源码注释原文："stored as an instance variable to allow unit tests to replace it"）——只换"建 socket"这一步,`TCP_NODELAY`/tunnel/TLS wrap 全部由未改动的基类 `connect()` 负责。**关键陷阱（实测发现,见 §八.1）**：它是 `__init__` 里赋的**实例属性**,类级 `_create_connection = staticmethod(...)` 会被实例属性遮蔽、根本不生效——初稿若照写会编译通过、`localhost` 测试还"看起来"被挡（其实是端口未开的 ConnectionRefused,不是 guard 拦的），上线一个**从不运行的 guard**。必须在 `super().__init__()` 之后覆写实例属性。
 
-**为什么"逐跳复检"不需要自己写重定向逐跳逻辑**：实测证明（§八.1）`urllib.request` 内置的 `HTTPRedirectHandler` 对重定向链的每一跳都会重新调用 `http_open()`/`https_open()` → `do_open()` → 新建 connection 实例 → 新实例的 `_create_connection`。用两个本地 `http.server.HTTPServer`（一个 302 到另一个,端口不同）实测到：一次 2 跳重定向触发了 2 次独立的 `_create_connection` 调用,每次带着**那一跳自己的** host/port。所以只要校验点在 `_create_connection`（每跳必经）,hop-by-hop 复检就是 stdlib 自带行为,不用手写重定向跟踪——这是本设计"零新依赖 + 少写代码"的关键。
+**逐跳复检与显式重定向策略的分工**：实测证明（§八.1）`urllib.request` 对重定向链的每一跳都会重新调用 `http_open()`/`https_open()` → `do_open()` → 新建 connection 实例 → 新实例的 `_create_connection`。用两个本地 `http.server.HTTPServer`（一个 302 到另一个,端口不同）实测到：一次 2 跳重定向触发了 2 次独立的 `_create_connection` 调用,每次带着**那一跳自己的** host/port。因此 SSRF 地址复检继续复用 stdlib 的逐跳建连路径；ForgeAgent 的 `_GuardedRedirectHandler` 只承担安全策略层工作：先把相对 `Location` 解析为最终 URL，再限制为 HTTP(S)，并显式执行最多 10 跳的计数。它不自行实现 HTTP 跳转或连接逻辑。
 
 **DNS rebinding 防护**：`_guarded_create_connection` 在同一次 `getaddrinfo` 里把每个候选地址校验完就直接 `socket.connect(sockaddr)` 那个**已校验的 sockaddr**,不会再调用一次会重新解析域名的 `socket.create_connection(host, ...)`——避免"校验时解析到公网 IP,真正连接时（TOCTOU 窗口）DNS 记录已被换成私网 IP"的经典绕过。
 
-**Opener 组装**：`urllib.request.build_opener(_GuardedHTTPHandler, _GuardedHTTPSHandler)`,走标准 `opener.open(url, timeout=...)`。**两道独立的上限,各管一层,互不替代**：
+**Opener 组装**：`urllib.request.build_opener(ProxyHandler({}), _GuardedRedirectHandler(), _GuardedHTTPHandler(), _GuardedHTTPSHandler())`,走标准 `opener.open(url, timeout=...)`。空 `ProxyHandler` 明确禁用大小写环境代理，`NO_PROXY` 不能重新启用代理；redirect handler 显式限制 10 跳并拒绝非 HTTP(S) 目标。**下载与上下文还有两道独立上限,各管一层,互不替代**：
 - **下载上限**（防响应体把进程内存吃满，也是唯一的"要不要整份内容"的裁决点）：`WebFetchTool` 用 `response.read(MAX_FETCH_BYTES + 1)` 上限读取,超过 `MAX_FETCH_BYTES`（1MB,见 §五.6）直接截断,截断的整份内容仍然落盘（§3.4 混合返回设计），只是标注"内容已截断"。
 - **上下文上限**（防 `ToolOutcome.detail` 把模型上下文灌爆）：`_render_feedback` 的**成功分支**（`step.py:332-333`）当前**不过** `_truncate_tail`（只有失败分支和 exec-stdout 分支过）。若 WebFetch 像早期草稿那样把整份 body 塞进 `detail`,1MB 的下载上限完全挡不住它把上下文灌爆。**这就是 §3.4 混合返回设计存在的原因**：`detail` 里只放一个小的 preview（截到 `PREVIEW_CHARS`,与 `_FEEDBACK_TAIL_LIMIT` 同量级,约 4KB）+ 落盘路径,不放整份内容——上下文上限从"事后补截"变成"设计上就不会超"，不需要再单独给 WebFetch 加一次自截逻辑。
 
@@ -203,7 +203,7 @@ class WebFetchTool(Tool):
         preview = masked[:PREVIEW_CHARS]
         truncated_note = " (preview truncated)" if len(masked) > PREVIEW_CHARS else ""
         detail = (
-            f"saved to {dest.name} ({len(masked)} bytes, {content_type})\n"
+            f"saved to {dest.name} ({len(masked.encode('utf-8'))} bytes, {content_type})\n"
             f"preview{truncated_note}:\n{preview}"
         )
         return ToolOutcome(tool="WebFetch", success=True, detail=detail)
@@ -281,7 +281,7 @@ class ToolContext:
 
 | # | 威胁场景 | 缓解手段（落点） | 验收方向 |
 |---|---|---|---|
-| T10a | WebFetch 被诱导访问内网/云 metadata 服务（SSRF） | **【流程+应用层】**SSRF Guard：`_create_connection` 钩子上用 `socket.getaddrinfo` 解析 + 逐候选地址 `is_global`/`is_multicast`/NAT64-unwrap 校验（§3.3），拒绝后不再连接;直连已校验 sockaddr 防 DNS rebinding;重定向逐跳复检靠 stdlib `HTTPRedirectHandler` 自然触发,零自定义跟踪代码；`restricted`/`container` 档强制确认门 | 对 127.0.0.1/169.254.169.254/224.0.0.1/NAT64-wrapped 私网地址的 fetch 断言被拒;两跳重定向（第二跳指向内网）断言在第二跳被拒,不是第一跳放行后失控 |
+| T10a | WebFetch 被诱导访问内网/云 metadata 服务（SSRF） | **【流程+应用层】**SSRF Guard：`_create_connection` 钩子上用 `socket.getaddrinfo` 解析 + 逐候选地址 `is_global`/`is_multicast`/NAT64-unwrap 校验（§3.3），拒绝后不再连接；直连已校验 sockaddr 防 DNS rebinding；`ProxyHandler({})` 禁用环境代理；stdlib 每跳重新建连并复检地址，`_GuardedRedirectHandler` 解析相对目标、限制 HTTP(S) 且最多 10 跳；`restricted`/`container` 档强制确认门 | 对 127.0.0.1/169.254.169.254/224.0.0.1/NAT64-wrapped 私网地址的 fetch 断言被拒；两跳重定向（第二跳指向内网）断言在第二跳被拒，不是第一跳放行后失控；第 11 跳和非 HTTP(S) 目标明确拒绝 |
 | T10b | FileWrite 越权覆盖 project-root 外文件 | **【流程+应用层】**`_validate_path` realpath 前缀校验 + `restricted`/`container` 档强制确认门 | 尝试写 `../../etc/passwd` 风格路径断言被拒;写 project-root 内路径断言成功 |
 | T10c | FileRead 读出 secret 后经工具返回内容外泄 | **【应用层】**project-root 锁定（读也限定范围）+ `mask_secrets()` 对返回内容按值掩码（同 T1 既有防御深度原则） | 读一个含伪造密钥字符串的文件,断言返回内容中真值被掩码 |
 
