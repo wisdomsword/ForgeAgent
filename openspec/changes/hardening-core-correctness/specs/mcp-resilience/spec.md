@@ -26,6 +26,17 @@ ForgeAgent SHALL continue startup when an optional MCP server fails to connect, 
 - **WHEN** an optional server failure exception contains a configured secret value
 - **THEN** `server_status()`, startup diagnostics and REPL status output identify the server and fixed cause without containing the secret or raw exception text
 
+### Requirement: MCP discovery metadata does not expose known secrets
+ForgeAgent MUST apply the existing sensitive-environment value policy before discovered MCP metadata reaches the model prompt or CLI tool listing. A tool name that contains a known secret MUST NOT be advertised because a masked display alias cannot be routed safely back to the original SDK tool name.
+
+#### Scenario: Tool description contains a known secret
+- **WHEN** MCP discovery returns a tool whose description contains a known sensitive environment value
+- **THEN** the catalog, generated tools prompt and `/mcp` listing contain the redaction marker instead of the secret while preserving the safe tool name and its original call routing
+
+#### Scenario: Tool name contains a known secret
+- **WHEN** MCP discovery returns a tool whose name would change under known-secret masking
+- **THEN** ForgeAgent excludes that tool from the available catalog and prompt instead of advertising a non-routable masked alias
+
 ### Requirement: Required MCP failures abort startup
 ForgeAgent MUST return a non-zero CLI startup result when a required MCP server fails to connect, MUST NOT start the task, and MUST perform bounded cleanup of MCP resources that were already started. Normal cleanup MUST release those resources. When an event-loop thread is hard-stuck, the required CLI failure MAY remain incomplete at the public deadline only while retaining cleanup evidence and emitting a sanitized warning. If the authoritative drain does not yet exist, the queued shutdown facade or fallback callback on the live loop/thread MUST keep the manager state strongly reachable; if the drain exists, that sole loop-owned drain MUST keep it reachable. When the loop recovers, queued work MUST create or reuse the sole authoritative drain and continue cleanup; an existing drain MUST continue directly. Because `build_mcp_manager()` closes and raises `MCPStartupError`, the CLI MUST NOT expose or promise a later `close()` handle, and this path MUST NOT add a global registry, `atexit` hook, or new API. A direct API caller that still holds the `MCPManager`, and ordinary manager lifecycle repeated `close()` calls, MAY use a new bounded close retry.
 
@@ -145,7 +156,7 @@ ForgeAgent MUST keep a new loop worker behind a publication gate until manager s
 
 #### Scenario: Initial holder submission fails after loop publication
 - **WHEN** the loop and thread are published but submitting or waiting for initial holders raises an ordinary infrastructure Exception
-- **THEN** `connect()` performs bounded cleanup of every published loop/holder resource, the CLI reports a fixed MCP startup error without raw exception/config text and exits non-zero, and no task execution begins
+- **THEN** `connect()` performs bounded cleanup of every published loop/holder resource, the CLI does not consume a second full shutdown/join deadline for an already-closed manager, reports a fixed MCP startup error without raw exception/config text and exits non-zero, and no task execution begins
 
 #### Scenario: Holder task creation fails before scheduling
 - **WHEN** creating one initial or replacement holder task raises before the coroutine is scheduled
@@ -177,6 +188,10 @@ ForgeAgent MUST keep a new loop worker behind a publication gate until manager s
 #### Scenario: Shutdown facade cleanup receives process control
 - **WHEN** shutdown facade submission has an ordinary primary failure and closing the unsubmitted coroutine or scheduling the loop-owned fallback raises `KeyboardInterrupt` or `SystemExit`
 - **THEN** ForgeAgent performs the remaining bounded finalization and propagates the first cleanup process-control object; if submission already raised process control, the original object remains authoritative
+
+#### Scenario: Shutdown future cancellation cleanup receives process control
+- **WHEN** waiting on an accepted shutdown facade has an ordinary primary failure and cancelling that future raises `KeyboardInterrupt` or `SystemExit`
+- **THEN** ForgeAgent still requests the existing drain retry, performs bounded stop/join finalization, and only then propagates the first cleanup process-control object instead of hiding it behind the ordinary primary
 
 #### Scenario: Internal shutdown operation raises unexpectedly
 - **WHEN** an internal holder, event-loop or thread cleanup operation raises an Exception

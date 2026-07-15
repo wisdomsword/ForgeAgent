@@ -245,13 +245,15 @@ required: bool = False
 
 新增只读查询返回 enabled required failures，例如 `required_failures() -> dict[str, str]`。holder 的公开 unavailable 状态只包含固定类别和异常类型，不保存或输出异常字符串；`server_status()` 与 `required_failures()` 在返回前仍用既有 secret-value mask 做防御性处理。optional 黄色诊断、required startup error 和 REPL `/mcp status` 因而都不会泄漏 command、args、env、server content 或异常携带的 secret。
 
+MCP child 继承用户环境，因此 discovery 返回的 tool metadata 也可能携带已知 secret value。`_filter_tools()` 在写入 catalog 前必须对 description 做 value masking；tool name 若经 masking 会变化，则不能广告一个无法映射回原始 SDK 名称的伪 alias，而是直接从 catalog 排除。安全名称保持原样，后续 `tools_prompt()`、`/mcp` 和实际 call routing 继续共用同一 catalog。
+
 `build_mcp_manager()` 的流程：
 
 1. 加载配置并构造 manager。
 2. 无 enabled server 时返回 `None`。直接使用 `MCPManager` 时，`connect()` 在无 enabled server 的情况下不创建 loop 且保持可在修改 desired config 后再次显式 connect 的 pre-start 状态；`enable()` 本身不隐式创建一个此前不存在的 manager/loop。
 3. 调用 `connect()`。服务级连接失败继续由 holder 收敛为状态；initial holder submission/result 发生普通 manager 基础设施异常时，`connect()` 先对已发布 loop/holder 执行 bounded close，再让组装层转成不含异常文本的 `MCPStartupError`。cleanup 抛出的 `asyncio.CancelledError` 等非进程控制 `BaseException` 只能记录固定类型，不能替换 primary startup error；新的 `KeyboardInterrupt`/`SystemExit` 仍按进程控制语义传播。primary 本身是控制异常时也必须先 best-effort cleanup，再原样传播。
 4. 收集 required failures。
-5. 若非空，先调用不会抛出普通 `Exception` 的 `close()`，再抛 `MCPStartupError`，消息只包含服务名和已脱敏的固定状态。required CLI failure 不向 CLI 暴露 manager 或后续 `close()` handle：若公开 deadline 到达时清理仍未完成且 drain 尚未创建，live loop/thread 中 queued shutdown facade 或 fallback callback 强引用 manager state；若 drain 已创建，则由唯一 loop-owned authoritative drain 强引用。loop 从同步阻塞恢复后，queued work 必须创建或复用该唯一 drain并继续清理；已存在的 drain 则直接继续，直至完成清理。CLI 只捕获错误并返回 2，不承诺或安排后续 close，也不通过 global registry、atexit 或新 API 暴露它。直接 API 调用方仍持有 `MCPManager` 引用时，才可使用新的 bounded `close()` 重试。`close()` 进入后第一项动作必须是设置 closed state，避免二次错误让启动清理重新进入。
+5. `connect()` 的基础设施异常路径自身执行 bounded close；组装层映射为 `MCPStartupError` 时只有在 manager 尚未进入 closed state 的防御性替身/异常实现上才补一次 close，真实 manager 不得再消耗第二个 shutdown/join deadline。required failures 非空时，组装层调用不会抛出普通 `Exception` 的 `close()`，再抛 `MCPStartupError`，消息只包含服务名和已脱敏的固定状态。required CLI failure 不向 CLI 暴露 manager 或后续 `close()` handle：若公开 deadline 到达时清理仍未完成且 drain 尚未创建，live loop/thread 中 queued shutdown facade 或 fallback callback 强引用 manager state；若 drain 已创建，则由唯一 loop-owned authoritative drain 强引用。loop 从同步阻塞恢复后，queued work 必须创建或复用该唯一 drain并继续清理；已存在的 drain 则直接继续，直至完成清理。CLI 只捕获错误并返回 2，不承诺或安排后续 close，也不通过 global registry、atexit 或新 API 暴露它。直接 API 调用方仍持有 `MCPManager` 引用时，才可使用新的 bounded `close()` 重试。`close()` 进入后第一项动作必须是设置 closed state，避免二次错误让启动清理重新进入。
 6. 否则打印全部状态；optional unavailable 使用黄色诊断，返回 manager。
 
 CLI 捕获 `MCPStartupError`，打印单行错误并返回 2。run 与 REPL 都使用同一构造函数，因此行为一致。
@@ -411,7 +413,7 @@ artifacts/golden/                 # generated, gitignored
 
 ### 9.2 Manifest 合约
 
-候选 catalog 的合法 ID universe 唯一且精确为 `G01` 至 `G380`（含端点）。trusted core 是其精确 20-ID 子集，剩余 non-core candidate 必须恰好为 360；重复、缺失、额外或替换 ID 都是 preflight/doc-consistency failure。
+候选 catalog 的合法 ID universe 唯一且精确为 `G01` 至 `G380`（含端点）。trusted core 是其精确 20-ID 子集，剩余 non-core candidate 必须恰好为 360；重复、缺失、额外或替换 ID 都是 documentation-consistency pytest failure。production runner 只负责可信核心 manifest 与核心定义存在性，不解析完整 catalog universe。
 
 `GoldenScenario` 是不可变 dataclass，至少包含：
 
@@ -420,13 +422,14 @@ artifacts/golden/                 # generated, gitignored
 - `run_offline: Callable`
 - `run_real: Callable | None`
 
-runner preflight 必须验证：
+production runner preflight 必须验证：
 
-- catalog 精确包含唯一的 `G01` 至 `G380`，总数 380；core/non-core 分别恰好为 20/360。
 - manifest 总数恰好 20，ID 唯一。
 - ID 集合严格等于 G01/G03/G05/G06/G08/G11/G13/G14/G15/G17/G27/G43/G58/G59/G324/G329/G330/G332/G333/G355。
 - 只有 G01/G03/G08/G11/G43 提供 `run_real`，数量恰好 5。
 - 每个 manifest ID 在 `docs/golden-tasks-seed.md` 中仍有 heading 或表格任务定义。该检查只验证引用存在，不在 Markdown 中维护第二套 `[CORE]` 标签。
+
+`tests/test_golden_runner.py` 的 documentation-consistency gate 另行解析 G01-G30 heading 与 G31-G380 候选定义表，拒绝重复、缺失、额外或替换 ID，并证明完整 universe 为 380、core/non-core 为 20/360；coverage matrix 引用不计作定义。
 
 ### 9.3 场景执行
 
@@ -464,13 +467,13 @@ runner 本里程碑明确顺序执行，不承诺多个进程同时写同一个 
 | 文件路径边界 | root allowed_root、相对 root、NUL、越界、symlink resolve、FileRead/List/Write OSError、restricted audit | commonpath 正确接受 root 子路径并拒绝越界；无 ValueError 逃逸；固定失败消息无绝对路径 |
 | CLI 注入 | REPL、TTY run、非 TTY run、`--interactive` | confirmer 与 MCP 解耦；Survey 语义不漂移 |
 | 完成门控 | 工具成功/失败/parse error + completed；后续独立完成 | 同轮不完成；反馈后完成；max_rounds 诚实 |
-| MCP 配置 | required 默认、enabled/disabled required、optional/required secret-bearing status | optional 降级；required 启动失败；禁用项不阻断；公共诊断只含脱敏固定类别/异常类型 |
+| MCP 配置 | required 默认、enabled/disabled required、optional/required secret-bearing status、secret-bearing discovery description/name | optional 降级；required 启动失败；禁用项不阻断；公共诊断与可见 description 不含已知 secret；secret-bearing name 不广告且 safe name 仍可路由 |
 | MCP lifecycle - generation | timed-out disable→enable replacement、unavailable-finalizer retry、当前 call failure 不自动重连、旧 gen finally/call failure、state/holder/session mismatch、disable+enable+close overlap、enable-after-close | `(gen, task, stop)` slot 在 task done 前可见；replacement 需精确 restart intent 且至多一个；call 仅使用同时匹配 state 与 holder 的 current session；旧 gen 不能改新 holder/session/status/tools；close 在 loop 内 snapshot 精确 slot |
 | MCP lifecycle - facade wait | enable/disable/connect timeout、timed-out disable 后立即 close | timeout 只取消 concurrent waiter；shielded holder ownership 继续；loop stop 前无 pending lifecycle waiter warning |
-| MCP lifecycle - startup transaction | Thread.start 抛错、start 后 gate release 在 set 前/后抛 KeyboardInterrupt/SystemExit、initial holder submission/result 异常、多个 hung holder、join timeout | cancel-aware gate→loop stop→bounded join；停止后 rollback 为可重试状态；ready timeout 不随 server 数量线性增长；仍活时保留 refs/closed warning；普通异常固定 startup error，原控制异常不被替换 |
-| MCP close | 正常、完全忽略 stop、lifecycle cancel/内部异常、重复 close、结果保留、thread join 超时 warning、join 期间 completion、公开 deadline 后 finalizer 完成、延迟停止后再次 close | 绝对 deadline 内返回；future timeout cancel 并保留引用；loop drain 可越过 caller deadline但 finalizer 完成后才 stop；单个 cancel/cleanup 异常不跳过其他 slot或伪造 completion；同次 join 后重读 completion；cleanup complete + thread stopped 后才 close/clear；PID 消失；warning 无敏感参数；原结果不被覆盖 |
+| MCP lifecycle - startup transaction | Thread.start 抛错、start 后 gate release 在 set 前/后抛 KeyboardInterrupt/SystemExit、initial holder submission/result 异常、多个 hung holder、join timeout、connect self-cleanup 后 CLI 映射 | cancel-aware gate→loop stop→bounded join；停止后 rollback 为可重试状态；ready timeout 不随 server 数量线性增长；仍活时保留 refs/closed warning；普通异常固定 startup error，原控制异常不被替换；已 closed manager 不重复完整 close |
+| MCP close | 正常、完全忽略 stop、lifecycle cancel/内部异常、重复 close、结果保留、thread join 超时 warning、join 期间 completion、公开 deadline 后 finalizer 完成、延迟停止后再次 close、ordinary primary 后 future cancel 控制异常 | 绝对 deadline 内返回；future timeout cancel 并保留引用；loop drain 可越过 caller deadline但 finalizer 完成后才 stop；单个 cancel/cleanup 异常不跳过其他 slot或伪造 completion；cancel 控制异常后仍执行 retry/join再传播首个 control；同次 join 后重读 completion；cleanup complete + thread stopped 后才 close/clear；PID 消失；warning 无敏感参数；原结果不被覆盖 |
 | 测试隔离 | 真实 home 放置恶意 mcp.yaml 后运行 suite | 测试只读取临时 home，结果不变 |
-| 黄金 runner | manifest 变异、standalone 恶意 HOME、20 pass、单项/非法 evidence fail、preflight fail | 配置敏感 import 前隔离 home；ID/数量锁定；非标准 JSON evidence 只失败单项；JSON/Markdown 同源；退出码 0/1/2 |
+| 黄金 runner | manifest 变异、standalone 恶意 HOME、20 pass、单项/非法 evidence fail、core-definition preflight、完整 catalog 文档门禁 | 配置敏感 import 前隔离 home；runner 锁定 20 core/5 real/核心定义；pytest 独立锁定 G01-G380 与 20/360；非标准 JSON evidence 只失败单项；JSON/Markdown 同源；退出码 0/1/2 |
 | 真实模型入口 | 缺配置、有效单模型 | 缺配置无报告且退出 2；只执行 5 项 |
 | 回归：redirect 与模型能力透传 | 相对 Location、非 HTTP(S)、第 11 跳、redirect 后私网；models.yaml 的 image flags 与用户 override | 先 `urljoin` 再验证最终 scheme，仍逐跳 SSRF；`ModelEntry` 原样透传既有 `supports_images`，六个内置 true、两个 false 和显式用户 false override 均锁定 |
 

@@ -1310,6 +1310,8 @@ UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run python -m tests.golden.runner
 1. 技术方案一致性评审：逐项对照 `spec.md`、五份 delta spec、Design Doc、计划和实现，修复错误、遗漏或漂移，并重新运行 `openspec validate hardening-core-correctness --strict`。
 2. 对抗性代码评审：用 plan `base-ref` 到当前候选 HEAD 的完整 review package 派发独立 whole-branch reviewer，覆盖正确性、安全、并发、资源生命周期和测试可信度；Critical/Important 发现必须由单一 fix worker 收敛并提交。这个 reviewer 同时满足 `review_mode: thorough` 的唯一 build-stage final whole-branch review，Task 11 checkoff 后不得再派发一个重复的 final code reviewer。任何源码、测试、规范或文档修复都会使本 Task 已有证据失效，必须从 Step 1 重新执行静态、专项、全量、黄金、CodeGraph 和本步骤两道评审，不能只重跑受影响测试。
 
+首轮最终评审接受四个 Important：MCP discovery description/name 的已知 secret 可进入 prompt/CLI；真实 `connect()` 异常已清理后组装层重复执行完整 close；shutdown future `cancel()` 的 cleanup control 会跳过 retry/join；Design Doc 错把完整 G01-G380 universe 校验归给 production runner。修复必须用 TDD 锁定前三项，把 runner/pytest 职责同步到 Design/OpenSpec，并将此前 Ruff、专项、全量、golden、CodeGraph 与评审证据全部作废后从 Step 1 重跑。
+
 - [ ] **Step 7: 固定已验证实现 HEAD，创建证据草稿并执行第三道验收评审**
 
 Step 1-6（包含前两道评审）通过后，立即把 `git rev-parse HEAD` 作为 `verified_head` 同时写入 `.comet/subagent-progress.md` 和 milestone 草稿；两个持久文件必须一致，后续命令每次重新读取而不依赖 shell 变量。里程碑必须标明这个精确 implementation HEAD，而不是之后的 evidence-only commit。按 `MILESTONE_GUIDE.md` 一次性创建 `milestones/milestone_013.md`，把实际命令、pass/skip 数、黄金通过率和前两道评审结论写入文件，并为第三道证据评审保留唯一、明确的 `pending` verdict/identity 槽位；将 `milestones/latest` 更新为唯一一行 `milestone_013.md`。M11/M12 仍是未完成规划；当前 `milestones/latest` 指向最后按时间完成的 `milestone_009.md`，因此 M13 的“前置里程碑”链接使用 `milestone_009.md`，正文同时说明 M9 是在 M10 后补做、M9/M10 均已完成及编号跳跃原因。逐条核对本计划末尾映射后，将 `tasks.md` 的 45 个 checkbox 定向改为 `[x]`；不能一次性盲目全选。同步更新 `.comet/subagent-progress.md`，记录最终任务、评审和验证证据，并保留同样的第三道评审 pending 槽位。
