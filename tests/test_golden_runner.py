@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -211,6 +212,35 @@ EXPECTED_BOUNDARY_EVIDENCE = {
     ),
 }
 
+_GOLDEN_HEADING_ID = re.compile(r"^#{1,6}[ \t]+(G\d+)\b", re.MULTILINE)
+
+
+def _golden_heading_ids(markdown: str) -> tuple[str, ...]:
+    return tuple(_GOLDEN_HEADING_ID.findall(markdown))
+
+
+def _assert_golden_candidate_catalog(markdown: str) -> None:
+    heading_ids = _golden_heading_ids(markdown)
+    expected_ids = frozenset(f"G{number:02d}" for number in range(1, 381))
+    candidate_ids = frozenset(heading_ids)
+
+    assert len(heading_ids) == 380
+    assert len(candidate_ids) == len(heading_ids)
+    assert candidate_ids == expected_ids
+    assert EXPECTED_IDS <= candidate_ids
+    assert len(candidate_ids - EXPECTED_IDS) == 360
+
+
+def _assert_readme_proxy_migration_contract(readme: str) -> None:
+    assert "[SECURITY][BREAKING]" in readme
+    assert "ProxyHandler({})" in readme
+    assert "NO_PROXY" in readme
+    assert "no_proxy" in readme
+    assert "不能恢复代理" in readme
+    assert "允许该进程直连" in readme
+    assert "在 ForgeAgent 外部预取到 `allowed_root` 后用 FileRead" in readme
+    assert "明确受信任的 MCP fetch 工具" in readme
+
 
 def _pass(_: Path) -> GoldenEvidence:
     return GoldenEvidence(detail="checked", evidence={"value": [None, True, 1, 1.5, "ok"]})
@@ -238,6 +268,32 @@ def test_manifest_has_exactly_the_approved_offline_and_real_ids():
         )
         == EXPECTED_REAL_IDS
     )
+
+
+def test_golden_candidate_catalog_rejects_duplicate_missing_extra_and_misnumbered_headings():
+    catalog = "".join(f"### G{number:02d}\n" for number in range(1, 381))
+    invalid_catalogs = (
+        catalog.replace("### G380\n", "### G379\n"),
+        catalog.replace("### G380\n", ""),
+        f"{catalog}### G381\n",
+        catalog.replace("### G380\n", "### G0380\n"),
+    )
+
+    for invalid_catalog in invalid_catalogs:
+        with pytest.raises(AssertionError):
+            _assert_golden_candidate_catalog(invalid_catalog)
+
+
+def test_golden_candidate_catalog_has_exactly_380_numbered_headings():
+    catalog_path = Path(__file__).parent.parent / "docs" / "golden-tasks-seed.md"
+
+    _assert_golden_candidate_catalog(catalog_path.read_text(encoding="utf-8"))
+
+
+def test_readme_documents_the_proxy_breaking_change_and_migration_paths():
+    readme_path = Path(__file__).parent.parent / "README.md"
+
+    _assert_readme_proxy_migration_contract(readme_path.read_text(encoding="utf-8"))
 
 
 def test_common_cases_return_the_exact_evidence_contract(tmp_path):
