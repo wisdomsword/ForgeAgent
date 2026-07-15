@@ -213,7 +213,7 @@
 - Review mode: `thorough`
 - Checkoff result: all five Task 5 plan steps and OpenSpec 4.1-4.3 passed exact-text `task-checkoff`.
 
-## Current Task
+## Superseded Task 6 Checkpoint
 
 - Plan task: `Task 6: 让 MCP close 使用绝对 deadline 且不抛异常`
 - OpenSpec mappings:
@@ -258,7 +258,7 @@
 
 - User decision: approved Scheme A, replacing another narrow patch with loop-owned reconcile plus generation tokens; focused redesign is authorized within the existing change.
 - Initial redesign commit: `20409b6` (`docs: redesign MCP lifecycle ownership`).
-- Current stage: `design-update`; source implementation remains paused until the revised written design is approved and the Task 6 implementation plan is rewritten.
+- Stage at this checkpoint: `design-update`; source implementation remained paused until the revised written design was approved and the Task 6 implementation plan was rewritten.
 - Preserved RED evidence: the two uncommitted `tests/test_mcp_manager.py` regressions above remain unchanged and failing against `cd36e31`.
 - OpenSpec mapping: pending tasks `4.4`, `4.5`, `4.6`; total change task count remains 38.
 - Structural contract: loop-owned `(generation, task, stop)` holder slots, `(generation, session)` session slots, independent `restart_after_generation`, exact-generation publish/finalize/call handling, closing barrier and loop-owned snapshot.
@@ -298,7 +298,7 @@
   `connect()` infrastructure exception to a fixed `MCPStartupError` after bounded cleanup.
 - Review status: independent thorough review pending before commit and Task 6C.
 
-### Task 6B/6C Review Repair In Progress
+### Task 6B/6C Review Repair History
 
 - Stage: `task-review`
 - Review mode: `thorough`; structural redesign review/fix budget reset by the approved Scheme A decision.
@@ -337,7 +337,7 @@
 - Fix evidence: reverse-combination RED `2 failed`; targeted GREEN `4 passed`; `tests/test_mcp_manager.py -W error` `97 passed, 1 skipped`; Ruff/diff checks passed.
 - Final independent reviewer: `019f6358-57fc-7d53-b695-f4a32e84c803` (`Bernoulli`).
 - Final review result: changes requested. Accepted findings: the sibling facade-coroutine cleanup, lifecycle `_submit()` cleanup and startup rollback still swallowed process-control exceptions behind ordinary primaries; done-finalizer registration and no-auto-replacement after active call failure lacked mutation-sensitive tests. Rejected finding: SDK-raised control exceptions inside a background holder remain deliberate fixed server-failure isolation because direct asyncio Task propagation would terminate the loop thread without safely signalling the caller.
-- Current repair: Gibbs resumed with TDD ownership limited to `src/forgeagent/mcp_manager.py` and `tests/test_mcp_manager.py`; caller-thread exception precedence is being unified and both mutation gaps are being closed. Task 6 remains in progress and MUST NOT be checked off yet.
+- Repair state at this checkpoint: Gibbs resumed with TDD ownership limited to `src/forgeagent/mcp_manager.py` and `tests/test_mcp_manager.py`; caller-thread exception precedence and both mutation gaps still required closure before Task 6 checkoff.
 
 ## Completed Task 3E
 
@@ -359,7 +359,7 @@
 
 ## Completed Task 6
 
-- Plan tasks: `6A`, `6B`, `6C`; OpenSpec mappings `4.4`, `4.5`, `4.6` complete.
+- Plan tasks: `6A`, `6B`, `6C`; OpenSpec mappings `1.1`, `4.4`, `4.5`, `4.6` complete. OpenSpec `1.1` is closed here because its proxy, generic-confirmer, same-round-completion and MCP-close RED evidence is now complete across Tasks 2, 3A, 4 and 6.
 - Stage: `done` after the user-approved structural generation/loop-owned redesign and repeated independent review.
 - Core implementation commits after the redesign: `d7ebecd`, `819074e`, `c0a877d`, `c1c88fd`, `8dc62c5`, `c425a2c`, `7accf0c`, `31c6172`, and `9e711e5` plus the earlier shutdown foundation commits recorded above.
 - Final caller-control repair: `c425a2c` unified ordinary-primary/control-cleanup precedence; a real-loop probe then proved direct control raises from loop tasks killed `run_forever()`. `7accf0c` transports lifecycle controls as private results to the synchronous caller and isolates holder/finalizer controls as fixed unavailable state. RED showed thread death, wrong `TimeoutError`, and unretrieved warnings; GREEN real-loop matrix preserved exact identity and loop usability.
