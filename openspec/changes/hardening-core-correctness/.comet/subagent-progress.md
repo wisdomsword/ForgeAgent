@@ -40,7 +40,7 @@
   - `2.1 增加大小写环境代理变量下 WebFetch 和 /search 必须直连的测试，并覆盖代理指向回环目标的绕过场景`
   - `2.2 让受保护的 URL opener 显式禁用环境代理，同时复用现有目标解析、地址分类和逐跳重定向校验`
   - `2.3 补齐私网、回环、链路本地、NAT64 和公网页面重定向到私网的回归覆盖`
-  - `2.4 文档化 ForgeAgent 专用显式代理的未来契约与“本里程碑不实现代理转发”的边界`
+- Deferred OpenSpec mapping: `2.4` remains pending for Task 10's release-facing enterprise-proxy migration documentation.
 - Stage: `done`
 - Base commit: `faa7b2e`
 - Implementer: `019f5aba-5787-74b2-9f86-572797b18a8e` (`Lorentz`)
