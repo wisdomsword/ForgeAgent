@@ -1151,9 +1151,9 @@ README 同时删除“裸 `models`/`reload`/`mcp ...` 仍可用”的过期说�
 
 - [ ] **Step 4: 将加固范围登记为 ACTION_PLAN M13**
 
-开始前把现有未暂存差异保存为 `/tmp/forgeagent-action-plan-user-before.patch`，该 patch 只属于用户的 M11/M12 工作。填充现有空置的 M13 行，记录本 change 的交付物、Ruff/完整 pytest/20 项离线黄金核心/CodeGraph 复审验证和三次评审门禁。保留用户 M11/M12 的内容与顺序，不修改或重编号它们。此步骤不创建里程碑文件、不更新 `milestones/latest`；`MILESTONE_GUIDE.md` 要求门禁全部通过后一次性产出收尾记录。
+开始前把当前工作树文件原样复制为 `/tmp/forgeagent-action-plan-user-before.md`。从该副本再生成 `/tmp/forgeagent-action-plan-expected-after.md`，只把现有空置 M13 行替换为本 change 的交付物、Ruff/完整 pytest/20 项离线黄金核心/CodeGraph 复审验证和三次评审门禁；用同一个 `apply_patch` 对工作树 M13 行做完全相同的定向修改。随后用 `cmp /tmp/forgeagent-action-plan-expected-after.md ACTION_PLAN.md` 证明除 M13 外所有用户字节均未变化。保留用户 M11/M12 的内容与顺序，不修改或重编号它们。此步骤不创建里程碑文件、不更新 `milestones/latest`；`MILESTONE_GUIDE.md` 要求门禁全部通过后一次性产出收尾记录。
 
-提交时可以先把工作树中的完整 `ACTION_PLAN.md` 加入 index，再对 index 反向应用保存的用户 patch；必须先运行 `git apply --cached --reverse --check /tmp/forgeagent-action-plan-user-before.patch`。随后 `git diff --cached -- ACTION_PLAN.md` 只能包含 M13，不能包含 M11/M12；提交后 `git diff -- ACTION_PLAN.md` 必须与保存的用户 patch语义和字节内容一致。不得用 restore/checkout 覆盖用户工作。
+M11/M12、表格重排和空 M13 当前位于同一个未提交 hunk，不能先整体 `git add` 再反向应用旧 patch。从 `git show HEAD:ACTION_PLAN.md` 生成 `/tmp/forgeagent-action-plan-m13-only.md`，仅把历史第三个 placeholder 行替换为同一 M13 内容；将该临时文件写成 git blob，并用 `git update-index --cacheinfo 100644,<blob>,ACTION_PLAN.md` 只更新 index。`git diff --cached -- ACTION_PLAN.md` 必须只包含 M13，不能包含 M11/M12或表格重排。不得对工作树使用 restore/checkout，也不得整体暂存 `ACTION_PLAN.md`。
 
 - [ ] **Step 5: 运行文档一致性测试**
 
@@ -1168,9 +1168,8 @@ rg -n "380.*validated|380.*已验证|complete\(\).*only|不支持.*stream|裸词
 
 ```bash
 git add README.md docs
-git add ACTION_PLAN.md
-git apply --cached --reverse --check /tmp/forgeagent-action-plan-user-before.patch
-git apply --cached --reverse /tmp/forgeagent-action-plan-user-before.patch
+action_plan_blob=$(git hash-object -w /tmp/forgeagent-action-plan-m13-only.md)
+git update-index --cacheinfo 100644,"$action_plan_blob",ACTION_PLAN.md
 git diff --cached -- ACTION_PLAN.md
 git commit -m "docs: align runtime contracts and golden validation"
 ```
@@ -1254,7 +1253,7 @@ UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run python -m tests.golden.runner
 
 全部门禁通过后立即记录 `verified_head=$(git rev-parse HEAD)`；里程碑必须写入这个精确 implementation HEAD，而不是之后的 evidence-only commit。按 `MILESTONE_GUIDE.md` 一次性创建 `milestones/milestone_013.md`，把实际命令、pass/skip 数、黄金通过率和三次评审结论写入文件，并将 `milestones/latest` 更新为唯一一行 `milestone_013.md`。M11/M12 仍是未完成规划，因此 M13 的“前置里程碑”链接写为最后已完成的 `milestone_010.md`，并在正文说明编号跳跃原因。逐条核对本计划末尾映射后，将 `tasks.md` 的 40 个 checkbox 定向改为 `[x]`；不能一次性盲目全选。同步更新 `.comet/subagent-progress.md`，记录最终任务、评审和验证证据。
 
-此 change 的预期工作树状态不是绝对 clean：允许且只允许保留 Task 10 开始前保存的用户 `ACTION_PLAN.md` M11/M12 差异。提交收尾前重新生成该文件的 worktree diff，并与 `/tmp/forgeagent-action-plan-user-before.patch` 做字节比较；除此之外不得有未提交文件。
+此 change 的预期工作树状态不是绝对 clean：允许且只允许保留 Task 10 开始前已有的 `ACTION_PLAN.md` 用户差异中除 M13 placeholder 外的内容。提交收尾前再次运行 `cmp /tmp/forgeagent-action-plan-expected-after.md ACTION_PLAN.md`，证明工作树仍是原用户文件加唯一批准的 M13 修改；除此之外不得有未提交文件。
 
 - [ ] **Step 8: 提交验证收尾**
 
