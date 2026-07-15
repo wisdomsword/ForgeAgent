@@ -997,60 +997,64 @@ def run_g43_real(workdir: Path, client: ModelClient) -> GoldenEvidence:
 
 def run_g06_offline(workdir: Path) -> GoldenEvidence:
     workdir.mkdir(parents=True, exist_ok=True)
-    target = workdir.parent / "g06-outside-secret.txt"
     secret = "g06-target-content-must-not-be-read"
-    target.write_text(secret, encoding="utf-8")
-    client = _RecordingMockClient(
-        script=[
-            _reply(_exec(f"print(open({str(target)!r}, encoding='utf-8').read())", "escape")),
-            _reply(_done()),
+    with TemporaryDirectory(prefix="forgeagent-g06-outside-") as outside_directory:
+        target = Path(outside_directory) / "g06-outside-secret.txt"
+        target.write_text(secret, encoding="utf-8")
+        client = _RecordingMockClient(
+            script=[
+                _reply(_exec(f"print(open({str(target)!r}, encoding='utf-8').read())", "escape")),
+                _reply(_done()),
+            ]
+        )
+
+        _, outcome = _run_task(workdir, client, "Read the supplied out-of-project file.")
+
+        require(len(outcome.rounds) == 2, "G06 task did not continue after restricted denial")
+        failed_round, completion_round = outcome.rounds
+        require(
+            len(failed_round.outcomes) == 1 and not failed_round.outcomes[0].success,
+            "G06 restricted operation was not recorded as a structured failure",
+        )
+        failed = failed_round.outcomes[0]
+        require(failed.exec_result is not None, "G06 restricted failure lacks an ExecResult")
+        require(
+            failed.detail == "restricted: file access outside allowed root denied",
+            "G06 restricted failure detail differs",
+        )
+        require(
+            secret not in failed.exec_result.stdout
+            and secret not in failed.exec_result.stderr
+            and secret not in (failed.exec_result.error or ""),
+            "G06 out-of-root target content was exposed",
+        )
+        require(
+            len(client.messages_by_call) >= 2, "G06 denial feedback was not returned to the task"
+        )
+        feedback = [
+            message.content
+            for message in client.messages_by_call[1]
+            if type(message.content) is str and "[Exec escape] FAILED:" in message.content
         ]
-    )
-
-    _, outcome = _run_task(workdir, client, "Read the supplied out-of-project file.")
-
-    require(len(outcome.rounds) == 2, "G06 task did not continue after restricted denial")
-    failed_round, completion_round = outcome.rounds
-    require(
-        len(failed_round.outcomes) == 1 and not failed_round.outcomes[0].success,
-        "G06 restricted operation was not recorded as a structured failure",
-    )
-    failed = failed_round.outcomes[0]
-    require(failed.exec_result is not None, "G06 restricted failure lacks an ExecResult")
-    require(
-        failed.detail == "restricted: file access outside allowed root denied",
-        "G06 restricted failure detail differs",
-    )
-    require(
-        secret not in failed.exec_result.stdout
-        and secret not in failed.exec_result.stderr
-        and secret not in (failed.exec_result.error or ""),
-        "G06 out-of-root target content was exposed",
-    )
-    require(len(client.messages_by_call) >= 2, "G06 denial feedback was not returned to the task")
-    feedback = [
-        message.content
-        for message in client.messages_by_call[1]
-        if type(message.content) is str and "[Exec escape] FAILED:" in message.content
-    ]
-    require(
-        len(feedback) == 1 and "restricted: file access outside allowed root denied" in feedback[0],
-        "G06 task feedback lacks the structured denial",
-    )
-    require(secret not in feedback[0], "G06 task feedback exposed target content")
-    require(
-        completion_round.completed and not completion_round.outcomes,
-        "G06 task did not reach an independent completion round",
-    )
-    return _evidence(
-        detail="restricted denial returned through task feedback",
-        evidence={
-            "rounds": 2,
-            "failed_round": 1,
-            "completion_round": 2,
-            "target_content_exposed": False,
-        },
-    )
+        require(
+            len(feedback) == 1
+            and "restricted: file access outside allowed root denied" in feedback[0],
+            "G06 task feedback lacks the structured denial",
+        )
+        require(secret not in feedback[0], "G06 task feedback exposed target content")
+        require(
+            completion_round.completed and not completion_round.outcomes,
+            "G06 task did not reach an independent completion round",
+        )
+        return _evidence(
+            detail="restricted denial returned through task feedback",
+            evidence={
+                "rounds": 2,
+                "failed_round": 1,
+                "completion_round": 2,
+                "target_content_exposed": False,
+            },
+        )
 
 
 def run_g14_offline(workdir: Path) -> GoldenEvidence:
@@ -1131,33 +1135,36 @@ def run_g14_offline(workdir: Path) -> GoldenEvidence:
 
 def run_g58_offline(workdir: Path) -> GoldenEvidence:
     workdir.mkdir(parents=True, exist_ok=True)
-    target = workdir.parent / "g58-outside-secret.txt"
     secret = "g58-target-content-must-not-be-read"
-    target.write_text(secret, encoding="utf-8")
-    result = RestrictedBackend(allowed_root=str(workdir), secret_values=set()).execute(
-        "import os\n"
-        f"os.chdir({str(workdir)!r})\n"
-        f"print(open('../{target.name}', encoding='utf-8').read())\n",
-        Runtime(),
-    )
+    with TemporaryDirectory(prefix="forgeagent-g58-outside-") as outside_directory:
+        target = Path(outside_directory) / "g58-outside-secret.txt"
+        target.write_text(secret, encoding="utf-8")
+        result = RestrictedBackend(allowed_root=str(workdir), secret_values=set()).execute(
+            "import os\n"
+            f"os.chdir({str(workdir)!r})\n"
+            f"print(open({str(target)!r}, encoding='utf-8').read())\n",
+            Runtime(),
+        )
 
-    require(not result.success, "G58 out-of-root read unexpectedly succeeded")
-    require(
-        result.error == "restricted: file access outside allowed root denied",
-        "G58 audit-hook failure detail differs",
-    )
-    require(
-        secret not in result.stdout and secret not in result.stderr and secret not in result.error,
-        "G58 out-of-root target content was exposed",
-    )
-    return _evidence(
-        detail="audit hook blocked the out-of-root read",
-        evidence={
-            "success": False,
-            "error": result.error,
-            "target_content_exposed": False,
-        },
-    )
+        require(not result.success, "G58 out-of-root read unexpectedly succeeded")
+        require(
+            result.error == "restricted: file access outside allowed root denied",
+            "G58 audit-hook failure detail differs",
+        )
+        require(
+            secret not in result.stdout
+            and secret not in result.stderr
+            and secret not in result.error,
+            "G58 out-of-root target content was exposed",
+        )
+        return _evidence(
+            detail="audit hook blocked the out-of-root read",
+            evidence={
+                "success": False,
+                "error": result.error,
+                "target_content_exposed": False,
+            },
+        )
 
 
 def run_g59_offline(workdir: Path) -> GoldenEvidence:
@@ -1245,8 +1252,27 @@ def run_g330_offline(workdir: Path) -> GoldenEvidence:
     public_url = "http://public.example/redirect"
     private_url = "http://private.example/metadata"
     resolved_hosts: list[str] = []
-    connection_calls: list[tuple[object, ...]] = []
+    connection_calls: list[tuple[str, int]] = []
+    closed_connections: list[tuple[str, int]] = []
     real_build_opener = urllib.request.build_opener
+
+    class FakeSocket:
+        def __init__(self, *_args, **_kwargs) -> None:
+            self._connected_address: tuple[str, int] | None = None
+
+        def settimeout(self, _timeout) -> None:
+            pass
+
+        def bind(self, _address) -> None:
+            pass
+
+        def connect(self, address) -> None:
+            self._connected_address = address
+            connection_calls.append(address)
+
+        def close(self) -> None:
+            if self._connected_address is not None:
+                closed_connections.append(self._connected_address)
 
     class SyntheticPublicRedirect(urllib.request.BaseHandler):
         handler_order = 100
@@ -1254,6 +1280,10 @@ def run_g330_offline(workdir: Path) -> GoldenEvidence:
         def http_open(self, request):
             if request.full_url != public_url:
                 return None
+            from forgeagent.ssrf_guard import _guarded_create_connection
+
+            connection = _guarded_create_connection(("public.example", 80), timeout=1)
+            connection.close()
             headers = EmailMessage()
             headers["Location"] = private_url
             response = urllib.response.addinfourl(io.BytesIO(), headers, request.full_url, 302)
@@ -1266,17 +1296,14 @@ def run_g330_offline(workdir: Path) -> GoldenEvidence:
     def resolve(host, port, *args, **kwargs):
         del args, kwargs
         resolved_hosts.append(host)
-        return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("10.0.0.8", port))]
-
-    def connect(*args, **kwargs):
-        connection_calls.append((*args, kwargs))
-        raise RuntimeError("G330 connection double fired")
+        address = {"public.example": "8.8.8.8", "private.example": "10.0.0.8"}[host]
+        return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (address, port))]
 
     blocked = False
     with (
         patch("forgeagent.ssrf_guard.urllib.request.build_opener", side_effect=build_opener),
         patch("forgeagent.ssrf_guard.socket.getaddrinfo", side_effect=resolve),
-        patch("forgeagent.ssrf_guard.socket.socket", side_effect=connect),
+        patch("forgeagent.ssrf_guard.socket.socket", side_effect=FakeSocket),
     ):
         try:
             guarded_urlopen(public_url, timeout=1)
@@ -1284,14 +1311,19 @@ def run_g330_offline(workdir: Path) -> GoldenEvidence:
             blocked = True
 
     require(blocked, "G330 private redirect was not blocked")
-    require(resolved_hosts == ["private.example"], "G330 redirect target resolution differs")
-    require(connection_calls == [], "G330 connected to the private redirect target")
+    require(
+        resolved_hosts == ["public.example", "private.example"],
+        "G330 guarded host resolution differs",
+    )
+    require(connection_calls == [("8.8.8.8", 80)], "G330 public connection count differs")
+    require(closed_connections == connection_calls, "G330 public connection was not closed")
     return _evidence(
         detail="private redirect was rejected before connect",
         evidence={
             "blocked": True,
             "resolved_hosts": resolved_hosts,
-            "connection_calls": 0,
+            "public_connection_calls": 1,
+            "private_connection_calls": 0,
         },
     )
 
@@ -1423,7 +1455,16 @@ def run_g355_offline(workdir: Path) -> GoldenEvidence:
         "available:add" in rendered and "Add two integers" in rendered,
         "G355 output lacks available add tool description",
     )
-    require("optional:echo" not in rendered, "G355 listed a tool from the unavailable server")
+    tool_labels = {
+        label
+        for line in rendered.splitlines()
+        for label in [line.strip().split(" ", maxsplit=1)[0]]
+        if line.startswith("  ") and label.partition(":")[2]
+    }
+    require(
+        tool_labels == {"available:echo", "available:add"},
+        "G355 rendered tool labels differ",
+    )
     require(manager._loop is None and manager._thread is None, "G355 manager did not close")
     require(pid_reaped, "G355 fixture process survived manager close")
     return _evidence(

@@ -9,6 +9,7 @@ import sys
 import time
 from enum import IntEnum
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import pytest
 
@@ -175,8 +176,9 @@ EXPECTED_BOUNDARY_EVIDENCE = {
         "private redirect was rejected before connect",
         {
             "blocked": True,
-            "resolved_hosts": ["private.example"],
-            "connection_calls": 0,
+            "resolved_hosts": ["public.example", "private.example"],
+            "public_connection_calls": 1,
+            "private_connection_calls": 0,
         },
     ),
     "G332": (
@@ -264,6 +266,83 @@ def test_boundary_cases_return_the_exact_evidence_contract():
     assert {
         result.scenario_id: (result.detail, result.evidence) for result in suite.results
     } == EXPECTED_BOUNDARY_EVIDENCE
+
+
+def _track_outside_fixture_roots(monkeypatch: pytest.MonkeyPatch) -> list[Path]:
+    roots: list[Path] = []
+
+    class TrackingTemporaryDirectory:
+        def __init__(self, *args, **kwargs) -> None:
+            self._temporary_directory = TemporaryDirectory(*args, **kwargs)
+
+        def __enter__(self) -> str:
+            directory = self._temporary_directory.__enter__()
+            roots.append(Path(directory))
+            return directory
+
+        def __exit__(self, *args) -> None:
+            self._temporary_directory.__exit__(*args)
+
+    monkeypatch.setattr(cases, "TemporaryDirectory", TrackingTemporaryDirectory)
+    return roots
+
+
+@pytest.mark.parametrize("runner", [cases.run_g06_offline, cases.run_g58_offline])
+def test_out_of_root_fixture_roots_are_independent_and_cleaned_after_repeat(
+    tmp_path, monkeypatch, runner
+):
+    roots = _track_outside_fixture_roots(monkeypatch)
+    workdir = tmp_path / "scenario"
+
+    runner(workdir)
+    runner(workdir)
+
+    assert len(roots) == 2
+    assert roots[0] != roots[1]
+    assert all(not root.exists() for root in roots)
+
+
+@pytest.mark.parametrize("runner", [cases.run_g06_offline, cases.run_g58_offline])
+def test_out_of_root_fixture_root_is_cleaned_after_golden_check_error(
+    tmp_path, monkeypatch, runner
+):
+    roots = _track_outside_fixture_roots(monkeypatch)
+
+    def force_check_failure(*_args, **_kwargs) -> None:
+        raise GoldenCheckError("forced fixture failure")
+
+    monkeypatch.setattr(cases, "require", force_check_failure)
+
+    with pytest.raises(GoldenCheckError, match="forced fixture failure"):
+        runner(tmp_path / "scenario")
+
+    assert len(roots) == 1
+    assert not roots[0].exists()
+
+
+def test_g330_guards_the_public_hop_before_blocking_the_private_redirect(tmp_path):
+    evidence = cases.run_g330_offline(tmp_path).evidence
+
+    assert evidence["resolved_hosts"] == ["public.example", "private.example"]
+    assert evidence["public_connection_calls"] == 1
+    assert evidence["private_connection_calls"] == 0
+
+
+def test_g355_rejects_an_injected_optional_tool_label(tmp_path, monkeypatch):
+    from forgeagent.mcp_manager import MCPToolInfo
+
+    list_tools = cases.MCPManager.list_tools
+
+    def inject_optional_tool(manager):
+        return [
+            *list_tools(manager),
+            MCPToolInfo(server="optional", name="add", description="Injected optional tool"),
+        ]
+
+    monkeypatch.setattr(cases.MCPManager, "list_tools", inject_optional_tool)
+
+    with pytest.raises(GoldenCheckError, match="tool labels"):
+        cases.run_g355_offline(tmp_path)
 
 
 def test_default_runner_completes_all_twenty_cases():
