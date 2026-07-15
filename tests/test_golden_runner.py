@@ -11,6 +11,9 @@ from pathlib import Path
 
 import pytest
 
+from forgeagent.client import MockClient
+from forgeagent.models import ClientError
+from tests.golden import cases
 from tests.golden.manifest import GOLDEN_SCENARIOS, GoldenCheckError, GoldenEvidence, GoldenScenario
 from tests.golden.runner import (
     EXPECTED_IDS,
@@ -24,6 +27,95 @@ from tests.golden.runner import (
     validate_manifest,
     write_reports,
 )
+
+COMMON_IDS = ("G01", "G03", "G05", "G08", "G11", "G13", "G15", "G17", "G27", "G43")
+EXPECTED_COMMON_EVIDENCE = {
+    "G01": (
+        "CSV summary matched",
+        {"rows": 3, "sum": 60.0, "mean": 20.0},
+    ),
+    "G03": (
+        "nested JSON was flattened exactly",
+        {
+            "columns": ["order_id", "customer", "city", "sku", "quantity"],
+            "rows": [
+                ["A-2", "Ada", "London", "P-2", "2"],
+                ["A-2", "Ada", "London", "P-1", "1"],
+                ["A-1", "Lin", "Shanghai", "P-3", "4"],
+            ],
+        },
+    ),
+    "G05": (
+        "cross-block state was read and used",
+        {
+            "state": 42,
+            "output": 50,
+            "side_effects": 1,
+            "state_reads": 1,
+            "returned_value_uses": 1,
+            "causal_delta": 8,
+        },
+    ),
+    "G08": (
+        "bug fix preserved the provided tests",
+        {"before_exit_code": 1, "after_exit_code": 0, "test_hash_unchanged": True},
+    ),
+    "G11": (
+        "CSV rows were merged and deduplicated exactly",
+        {
+            "columns": ["id", "name", "score"],
+            "rows": [["1", "Ada", "10"], ["2", "Ben", "20"], ["3", "Cora", "30"]],
+        },
+    ),
+    "G13": (
+        "completion required an independent third round",
+        {
+            "rounds": 3,
+            "failed_tool_round": 1,
+            "successful_tool_round": 2,
+            "completion_round": 3,
+        },
+    ),
+    "G15": (
+        "Edit produced one precise parseable version",
+        {
+            "edit_calls": 1,
+            "versions": [1, 2],
+            "history_size": 2,
+            "changed_line": 4,
+            "target_value": 15,
+            "ast_valid": True,
+        },
+    ),
+    "G17": (
+        "inner join matched exactly",
+        {
+            "columns": ["user_id", "name", "score"],
+            "rows": [["u2", "Grace", "88"], ["u1", "Ada", "91"]],
+        },
+    ),
+    "G27": (
+        "regression fix passed through an Edit version chain",
+        {
+            "before_exit_code": 1,
+            "after_exit_code": 0,
+            "edit_calls": 1,
+            "versions": [1, 2],
+        },
+    ),
+    "G43": (
+        "word-frequency Top-N matched exactly",
+        {
+            "top_n": [
+                ["forge", 4],
+                ["code", 2],
+                ["tests", 2],
+                ["agents", 1],
+                ["guide", 1],
+            ]
+        },
+    ),
+}
 
 
 def _pass(_: Path) -> GoldenEvidence:
@@ -52,6 +144,116 @@ def test_manifest_has_exactly_the_approved_offline_and_real_ids():
         )
         == EXPECTED_REAL_IDS
     )
+
+
+def test_common_cases_return_the_exact_evidence_contract(tmp_path):
+    selected = tuple(
+        scenario for scenario in GOLDEN_SCENARIOS if scenario.scenario_id in COMMON_IDS
+    )
+
+    suite = run_suite(selected, mode="offline")
+
+    assert suite.exit_code == 0
+    assert suite.passed == 10
+    assert {
+        result.scenario_id: (result.detail, result.evidence) for result in suite.results
+    } == EXPECTED_COMMON_EVIDENCE
+
+
+def test_default_runner_keeps_the_ten_boundary_cases_pending(tmp_path):
+    suite = run_suite(GOLDEN_SCENARIOS, mode="offline")
+
+    assert suite.exit_code == 1
+    assert suite.passed == 10
+    assert suite.failed == 10
+    assert [result.scenario_id for result in suite.results if not result.passed] == [
+        "G06",
+        "G14",
+        "G58",
+        "G59",
+        "G324",
+        "G329",
+        "G330",
+        "G332",
+        "G333",
+        "G355",
+    ]
+
+
+@pytest.mark.parametrize(
+    "second_block",
+    [
+        "int(utils.get_state('subtotal'))\nprint(50)",
+        "utils.get_state('subtotal') + 8\nprint(50)",
+    ],
+)
+def test_g05_rejects_dead_state_use_followed_by_a_hard_coded_result(tmp_path, second_block):
+    client = MockClient(
+        script=[
+            cases._reply(cases._exec(cases._g05_first_block(tmp_path), name="compute")),
+            cases._reply(cases._exec(second_block, name="finish")),
+            cases._reply(cases._done()),
+        ]
+    )
+
+    with pytest.raises(GoldenCheckError, match="causal replay"):
+        cases._run_g05_case(tmp_path, client)
+
+
+def test_g08_rejects_editing_the_provided_test_instead_of_fixing_source(tmp_path):
+    code = (
+        "from pathlib import Path\n"
+        f"Path({str(tmp_path / 'test_calculator.py')!r}).write_text("
+        "\"print('tests passed')\\n\", encoding='utf-8')\n"
+    )
+    client = MockClient(script=[cases._reply(cases._exec(code)), cases._reply(cases._done())])
+
+    with pytest.raises(GoldenCheckError, match="test file hash"):
+        cases._run_g08_case(tmp_path, client)
+
+
+@pytest.mark.parametrize(
+    ("runner_name", "initial_name", "replacement_name", "message"),
+    [
+        (
+            "_run_g15_case",
+            "G15_INITIAL_CODE",
+            "G15_EXPECTED_CODE",
+            "G15 must invoke Edit",
+        ),
+        (
+            "_run_g27_case",
+            "G27_INITIAL_CODE",
+            "G27_EXPECTED_CODE",
+            "G27 must invoke Edit",
+        ),
+    ],
+)
+def test_edit_cases_reject_whole_block_replacement(
+    tmp_path, runner_name, initial_name, replacement_name, message
+):
+    case_runner = getattr(cases, runner_name)
+    initial_code = getattr(cases, initial_name)
+    replacement_code = getattr(cases, replacement_name)
+    client = MockClient(
+        script=[
+            cases._reply(cases._exec(initial_code, name="target")),
+            cases._reply(cases._exec(replacement_code, name="target")),
+            cases._reply(cases._done()),
+        ]
+    )
+
+    with pytest.raises(GoldenCheckError, match=message):
+        case_runner(tmp_path, client)
+
+
+def test_case_judges_do_not_use_python_assert_statements():
+    import ast
+    import inspect
+
+    tree = ast.parse(inspect.getsource(cases))
+
+    assert not [node for node in ast.walk(tree) if isinstance(node, ast.Assert)]
 
 
 def test_manifest_uses_approved_titles_for_boundary_scenarios():
@@ -370,19 +572,177 @@ def test_standalone_offline_runner_ignores_hostile_parent_mcp_config(tmp_path):
     payload = json.loads((output_dir / "results.json").read_text(encoding="utf-8"))
     assert payload["mode"] == "offline"
     assert payload["total"] == 20
-    assert payload["passed"] == 0
+    assert payload["passed"] == 10
+    pending = [
+        result for result in payload["results"] if "implementation pending" in result["detail"]
+    ]
+    assert len(pending) == 10
 
 
-def test_real_main_keeps_the_callers_home_for_model_resolution(tmp_path, monkeypatch):
-    original = {name: os.environ.get(name) for name in ("HOME", "USERPROFILE", "XDG_CONFIG_HOME")}
-    observed_homes: list[dict[str, str | None]] = []
+def test_real_main_preserves_caller_home_and_parses_custom_model_without_network(tmp_path):
+    home = tmp_path / "caller-home"
+    config_dir = home / ".forgeagent"
+    config_dir.mkdir(parents=True)
+    (config_dir / "models.yaml").write_text(
+        """\
+models:
+  local-golden-model:
+    client_kind: openai_compatible
+    context_window: 32000
+    max_output_tokens: 4096
+    supports_thinking: false
+    thinking_always_on: false
+    supports_effort: false
+""",
+        encoding="utf-8",
+    )
+    (config_dir / "config.yaml").write_text(
+        """\
+groups:
+  local-golden:
+    api_key: local-test-key
+    base_url: https://example.invalid/v1
+    models: [local-golden-model]
+""",
+        encoding="utf-8",
+    )
+    output_dir = tmp_path / "real"
+    names = ("HOME", "USERPROFILE", "XDG_CONFIG_HOME")
+    environment = os.environ | {name: str(home) for name in names}
+    environment["FORGE_GOLDEN_OUTPUT_DIR"] = str(output_dir)
+    script = """\
+import json
+import os
+from datetime import UTC, datetime
+from tests.golden import runner
 
-    def build_client(_: str) -> object:
-        observed_homes.append({name: os.environ.get(name) for name in original})
-        return object()
+names = ("HOME", "USERPROFILE", "XDG_CONFIG_HOME")
+before = {name: os.environ.get(name) for name in names}
+observed = {}
 
-    monkeypatch.setattr("tests.golden.runner._build_real_client", build_client)
-    assert main(["--real-model", "gpt/5", "--output-dir", str(tmp_path / "real")]) == 1
-    assert observed_homes == [original]
-    payload = json.loads((tmp_path / "real" / "results.json").read_text(encoding="utf-8"))
+def no_network_suite(scenarios, *, mode, model, real_client):
+    observed["environment"] = {name: os.environ.get(name) for name in names}
+    observed["model"] = real_client.capability.model_id
+    observed["selected"] = [scenario.scenario_id for scenario in scenarios]
+    now = datetime.now(UTC).isoformat()
+    return runner.GoldenSuite(
+        mode=mode,
+        model=model,
+        started_at=now,
+        finished_at=now,
+        results=(),
+    )
+
+runner.run_suite = no_network_suite
+code = runner.main([
+    "--real-model",
+    "local-golden-model",
+    "--output-dir",
+    os.environ["FORGE_GOLDEN_OUTPUT_DIR"],
+])
+print(json.dumps({"code": code, "before": before, "observed": observed}, sort_keys=True))
+"""
+
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=Path(__file__).resolve().parents[1],
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    result = json.loads(completed.stdout.splitlines()[-1])
+    assert result["code"] == 0
+    assert result["before"] == {name: str(home) for name in names}
+    assert result["observed"]["environment"] == result["before"]
+    assert result["observed"]["model"] == "local-golden-model"
+    assert result["observed"]["selected"] == ["G01", "G03", "G08", "G11", "G43"]
+    assert json.loads((output_dir / "results.json").read_text(encoding="utf-8"))["mode"] == "real"
+
+
+@pytest.mark.parametrize("scenario_id", ["G01", "G03", "G08", "G11", "G43"])
+def test_real_and_offline_entrypoints_share_one_case_runner(scenario_id, tmp_path, monkeypatch):
+    runner_name = f"_run_{scenario_id.lower()}_case"
+    offline = getattr(cases, f"run_{scenario_id.lower()}_offline")
+    real = getattr(cases, f"run_{scenario_id.lower()}_real")
+    observed_clients: list[object] = []
+    sentinel = GoldenEvidence(detail="sentinel", evidence={})
+
+    def observe(_workdir, client):
+        observed_clients.append(client)
+        return sentinel
+
+    monkeypatch.setattr(cases, runner_name, observe)
+    real_client = object()
+
+    assert offline(tmp_path / "offline") is sentinel
+    assert real(tmp_path / "real", real_client) is sentinel
+    assert isinstance(observed_clients[0], MockClient)
+    assert observed_clients[1] is real_client
+
+
+def test_real_preflight_missing_local_credential_exits_two_without_report(tmp_path):
+    home = tmp_path / "caller-home"
+    config_dir = home / ".forgeagent"
+    config_dir.mkdir(parents=True)
+    (config_dir / "models.yaml").write_text(
+        """models:
+  missing-key-model:
+    client_kind: openai_compatible
+    context_window: 32000
+    max_output_tokens: 4096
+    supports_thinking: false
+    thinking_always_on: false
+    supports_effort: false
+""",
+        encoding="utf-8",
+    )
+    (config_dir / "config.yaml").write_text(
+        """groups:
+  local-golden:
+    api_key_env: GOLDEN_MISSING_KEY
+    models: [missing-key-model]
+""",
+        encoding="utf-8",
+    )
+    output_dir = tmp_path / "missing-key-report"
+    names = ("HOME", "USERPROFILE", "XDG_CONFIG_HOME")
+    environment = os.environ | {name: str(home) for name in names}
+    environment.pop("GOLDEN_MISSING_KEY", None)
+    script = f"""\
+from tests.golden import runner
+
+raise SystemExit(runner.main([
+    '--real-model',
+    'missing-key-model',
+    '--output-dir',
+    {str(output_dir)!r},
+]))
+"""
+
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=Path(__file__).resolve().parents[1],
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 2
+    assert "golden preflight failed" in completed.stdout
+    assert not output_dir.exists()
+
+
+def test_provider_auth_rejection_is_runtime_exit_one_with_report(tmp_path, monkeypatch):
+    errors = [ClientError(message="rejected", kind="auth", attempts=1) for _ in range(5)]
+    monkeypatch.setattr("tests.golden.runner._build_real_client", lambda _model: MockClient(errors))
+    output_dir = tmp_path / "provider-rejection"
+
+    assert main(["--real-model", "configured-model", "--output-dir", str(output_dir)]) == 1
+    payload = json.loads((output_dir / "results.json").read_text(encoding="utf-8"))
     assert payload["total"] == 5
+    assert payload["passed"] == 0
+    assert payload["failed"] == 5
