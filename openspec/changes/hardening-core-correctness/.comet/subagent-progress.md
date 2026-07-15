@@ -421,6 +421,9 @@
 - Fix RED evidence: exact wrapper/detail tests produced `2 failed, 23 passed`; expanded isolation/config/title matrix produced `5 failed, 23 passed`; direct-write atomic mutant produced `1 failed, 27 deselected` before restoration.
 - Fix GREEN evidence: runner contract `28 passed`; coordinator rerun also `28 passed`; scoped Ruff check/format and `git diff --check` passed.
 - Fix scope: `tests/golden/runner.py`, `tests/test_golden_runner.py`, `tests/golden/manifest.py`, and `tests/golden/cases.py`; no product source or concrete Task 8-9 case was added.
+- Re-reviewer: `019f6437-15c1-7ad2-880c-fdb6798d9ac7` (`Carson`).
+- Re-review result: one accepted Important test gap: no test directly observes `run_suite()` executing under isolated HOME. One proposed Important was rejected: `test_offline_main_restores_home_variables_after_normal_and_runner_failure` proves `main()` invokes `_load_offline_configuration_modules`, while `test_offline_configuration_preflight_loads_mcp_config_without_constructing_manager` proves that helper invokes `load_mcp_config`; removing either edge fails its corresponding test.
+- Stage: `final-fix`; review/fix round: `2/2`.
 - Review mode: `thorough`.
 - TDD mode: `tdd`; RED and GREEN evidence are required before review.
 - Allowed implementation files: `.gitignore`, `tests/golden/__init__.py`, `tests/golden/manifest.py`, `tests/golden/cases.py`, `tests/golden/runner.py`, `tests/test_golden_runner.py` only.
