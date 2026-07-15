@@ -58,7 +58,7 @@ logger = logging.getLogger(__name__)
 
 
 class MCPStartupError(RuntimeError):
-    """Required MCP services were unavailable during CLI startup."""
+    """MCP manager startup failed or an enabled required service was unavailable."""
 
 
 # Injectable client factory: (model) -> ModelClient. Default builds a real client from
