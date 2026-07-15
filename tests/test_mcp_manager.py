@@ -1127,6 +1127,43 @@ def test_tools_prompt_groups_by_server_and_flags_external():
         mgr.close()
 
 
+def test_discovery_masks_descriptions_excludes_sensitive_names_and_routes_safe_tool(monkeypatch):
+    secret = "discovery-secret"
+    monkeypatch.setattr(mcp_manager_module, "sensitive_env_values", lambda: {secret})
+    manager = MCPManager({"server": MCPServerConfig(command="unused")})
+    raw_tools = [
+        type("Tool", (), {"name": "safe", "description": f"safe {secret}"})(),
+        type("Tool", (), {"name": f"unsafe-{secret}", "description": "hidden"})(),
+    ]
+    state = manager._states["server"]
+    state.generation = 1
+    state.status = "available"
+    state.tools = manager._filter_tools("server", state.config, raw_tools)
+
+    listed = manager.list_tools()
+    prompt = manager.tools_prompt()
+
+    assert [tool.name for tool in listed] == ["safe"]
+    assert secret not in listed[0].description
+    assert secret not in prompt
+
+    async def route_safe_tool() -> tuple[dict, _SessionProbe]:
+        stop = asyncio.Event()
+        holder = asyncio.create_task(asyncio.Event().wait())
+        session = _SessionProbe("ok")
+        manager._holders["server"] = (1, holder, stop)
+        manager._sessions["server"] = (1, session)
+        try:
+            return await manager._call_tool_on_loop("server", "safe", {}), session
+        finally:
+            holder.cancel()
+            await asyncio.gather(holder, return_exceptions=True)
+
+    result, session = asyncio.run(route_safe_tool())
+    assert result == {"ok": True, "text": "ok"}
+    assert session.call_count == 1
+
+
 def test_auto_approve_reported_per_server_tool():
     mgr = MCPManager({"alpha": _server("alpha", autoApprove=["echo"])})
     try:
@@ -2991,6 +3028,38 @@ def test_close_preserves_process_control_exceptions(monkeypatch, interrupt):
     assert loop.close_calls == 1
     assert mgr._loop is None
     assert mgr._thread is None
+
+
+@pytest.mark.parametrize("control", [KeyboardInterrupt("cancel"), SystemExit("cancel")])
+def test_close_runs_retry_and_join_before_propagating_cancel_control(monkeypatch, control):
+    manager = MCPManager({}, shutdown_timeout=0.03, thread_join_timeout=0.02)
+    manager._loop = _LoopProbe()
+    manager._thread = _ThreadProbe(alive=True)
+    future = _FutureProbe(error=RuntimeError("ordinary shutdown failure"))
+    calls: list[str] = []
+
+    def cancel():
+        calls.append("cancel")
+        raise control
+
+    future.cancel = cancel
+    monkeypatch.setattr(
+        mcp_manager_module.asyncio,
+        "run_coroutine_threadsafe",
+        lambda coro, loop: (coro.close(), future)[1],
+    )
+    monkeypatch.setattr(manager, "_request_shutdown_retry", lambda deadline: calls.append("retry"))
+    monkeypatch.setattr(
+        manager,
+        "_stop_and_join",
+        lambda deadline, pending: calls.append("stop-and-join"),
+    )
+
+    with pytest.raises(type(control)) as raised:
+        manager.close()
+
+    assert raised.value is control
+    assert calls == ["cancel", "retry", "stop-and-join"]
 
 
 def test_close_without_loop_is_idempotent_and_clears_empty_resources():

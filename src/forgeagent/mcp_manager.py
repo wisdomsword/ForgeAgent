@@ -486,18 +486,20 @@ class MCPManager:
             if session is not None and self._session_slot_matches(name, generation, session):
                 self._sessions.pop(name, None)
 
-    @staticmethod
-    def _filter_tools(server: str, cfg: MCPServerConfig, tools) -> list[MCPToolInfo]:
+    def _filter_tools(self, server: str, cfg: MCPServerConfig, tools) -> list[MCPToolInfo]:
         """Map SDK tool objects to MCPToolInfo, applying the optional `expose` allowlist."""
         infos: list[MCPToolInfo] = []
         for t in tools:
             if cfg.expose is not None and t.name not in cfg.expose:
                 continue
+            name = mask_secrets(t.name, self._secret_values)
+            if name != t.name:
+                continue
             infos.append(
                 MCPToolInfo(
                     server=server,
-                    name=t.name,
-                    description=t.description or "",
+                    name=name,
+                    description=mask_secrets(t.description or "", self._secret_values),
                     input_schema=getattr(t, "inputSchema", None) or {},
                 )
             )
@@ -1365,17 +1367,33 @@ class MCPManager:
             raise
         except Exception as exc:  # noqa: BLE001 - public close is no-throw
             pending = self._shutdown_pending or fallback_pending
-            self._cancel_shutdown_future()
+            primary: BaseException = exc
+            try:
+                self._cancel_shutdown_future()
+            except BaseException as cleanup:
+                logger.warning(
+                    "MCP shutdown future cancellation failed: %s", type(cleanup).__name__
+                )
+                primary = _prefer_process_control(primary, cleanup)
             if self._shutdown_future is not None:
-                self._request_shutdown_retry(deadline)
+                try:
+                    self._request_shutdown_retry(deadline)
+                except BaseException as cleanup:
+                    logger.warning("MCP shutdown retry failed: %s", type(cleanup).__name__)
+                    primary = _prefer_process_control(primary, cleanup)
             logger.warning("MCP shutdown failed: %s", type(exc).__name__)
+            try:
+                self._stop_and_join(deadline, pending)
+            except BaseException as cleanup:
+                logger.warning("MCP shutdown finalization failed: %s", type(cleanup).__name__)
+                primary = _prefer_process_control(primary, cleanup)
+            if isinstance(primary, (KeyboardInterrupt, SystemExit)):
+                raise primary from None
+            return
         try:
             self._stop_and_join(deadline, pending)
         except Exception as exc:  # noqa: BLE001 - public close is no-throw
-            logger.warning(
-                "MCP shutdown finalization failed: %s",
-                type(exc).__name__,
-            )
+            logger.warning("MCP shutdown finalization failed: %s", type(exc).__name__)
 
 
 def _render_content(result) -> str:

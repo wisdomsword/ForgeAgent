@@ -698,12 +698,13 @@ def build_mcp_manager(console: Console) -> MCPManager | None:
     except (KeyboardInterrupt, SystemExit):
         raise
     except Exception as exc:
-        try:
-            manager.close()
-        except BaseException as cleanup:
-            if isinstance(cleanup, (KeyboardInterrupt, SystemExit)):
-                raise
-            logger.warning("MCP connect cleanup failed: %s", type(cleanup).__name__)
+        if not getattr(manager, "_closed", False):
+            try:
+                manager.close()
+            except BaseException as cleanup:
+                if isinstance(cleanup, (KeyboardInterrupt, SystemExit)):
+                    raise
+                logger.warning("MCP connect cleanup failed: %s", type(cleanup).__name__)
         raise MCPStartupError(f"MCP manager startup failed: {type(exc).__name__}") from None
     failures = manager.required_failures()
     if failures:

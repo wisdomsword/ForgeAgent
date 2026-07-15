@@ -854,6 +854,42 @@ def test_build_mcp_manager_maps_connect_infrastructure_error_after_cleanup(monke
     assert "startup-secret" not in str(raised.value)
 
 
+def test_build_mcp_manager_does_not_close_manager_already_closed_by_connect(monkeypatch):
+    import forgeagent.cli as cli_module
+
+    class SelfClosingInfrastructureFailureManager:
+        instance = None
+
+        def __init__(self, servers):
+            self._closed = False
+            self.close_calls = 0
+            self.__class__.instance = self
+
+        @property
+        def has_enabled_servers(self):
+            return True
+
+        def connect(self):
+            self.close()
+            raise RuntimeError("startup failure")
+
+        def close(self):
+            self.close_calls += 1
+            self._closed = True
+
+    monkeypatch.setattr(
+        cli_module,
+        "load_mcp_config",
+        lambda: {"required": MCPServerConfig(command="unused", required=True)},
+    )
+    monkeypatch.setattr(cli_module, "MCPManager", SelfClosingInfrastructureFailureManager)
+
+    with pytest.raises(cli_module.MCPStartupError):
+        cli_module.build_mcp_manager(_console())
+
+    assert SelfClosingInfrastructureFailureManager.instance.close_calls == 1
+
+
 @pytest.mark.parametrize(
     ("cleanup_error", "expected_error"),
     [
@@ -1833,6 +1869,29 @@ def test_handle_mcp_slash_status_lists_tools():
     text = console.export_text()
     assert "fs" in text
     assert "fs:read" in text and "read a file" in text
+
+
+def test_handle_mcp_slash_status_uses_masked_discovery_catalog(monkeypatch):
+    import forgeagent.mcp_manager as mcp_manager_module
+    from forgeagent.cli import _handle_mcp_slash
+
+    secret = "cli-discovery-secret"
+    monkeypatch.setattr(mcp_manager_module, "sensitive_env_values", lambda: {secret})
+    manager = MCPManager({"server": MCPServerConfig(command="unused")})
+    state = manager._states["server"]
+    state.status = "available"
+    state.tools = manager._filter_tools(
+        "server",
+        state.config,
+        [type("Tool", (), {"name": "safe", "description": f"description {secret}"})()],
+    )
+
+    console = _console()
+    _handle_mcp_slash("/mcp status", manager, console)
+    rendered = console.export_text()
+
+    assert secret not in rendered
+    assert "server:safe" in rendered
 
 
 def test_handle_mcp_slash_enable_disable_delegates():
