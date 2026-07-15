@@ -419,7 +419,7 @@ runner preflight 必须验证：
 
 ### 9.3 场景执行
 
-每个场景获得独立临时工作目录。case callable 负责 fixture 创建、Task/CLI/工具调用和显式 judge，并返回标准化 evidence。判定不得依赖 Python `assert`，以免 `python -O` 改变结果；失败通过专用 check error 或结构化结果表达。evidence 只能递归包含 JSON 标准值：`None`、`bool`、`str`、`int`、finite `float`、`list` 和键严格为 `str` 的 `dict`。runner 先用显式递归类型检查拒绝 tuple、非字符串 mapping key、Path/自定义对象和非有限浮点，再用 `json.dumps(..., allow_nan=False)` 做最终编码验证；不能依赖 encoder 把整数 key 静默转换为字符串。非法 evidence 转成该场景的固定失败结果并继续其余场景，不能让最终报告阶段整体崩溃。
+每个场景获得独立临时工作目录。case callable 负责 fixture 创建、Task/CLI/工具调用和显式 judge，并返回标准化 evidence。判定不得依赖 Python `assert`，以免 `python -O` 改变结果；失败通过专用 check error 或结构化结果表达。evidence 只能递归包含 JSON 标准值：`None`、`bool`、`str`、`int`、finite `float`、`list` 和键严格为 `str` 的 `dict`。递归检查使用精确内建类型（`type(value) is ...`，其中 `None` 用 identity），不能用 `isinstance` 接受 `IntEnum`、自定义 scalar 或 list/dict 子类；runner 再用 `json.dumps(..., allow_nan=False)` 做最终编码验证。tuple、非字符串 mapping key、Path/自定义对象、容器子类和非有限浮点都必须在编码前拒绝，不能依赖 encoder 把整数 key或 int 子类静默转换。非法 evidence 转成该场景的固定失败结果并继续其余场景，不能让最终报告阶段整体崩溃。
 
 离线模式只使用本地 fixture：进入 Agent 循环的场景使用 MockClient；网络、CLI、Tool、RestrictedBackend 和 MCP 生命周期等边界场景可以直接调用对应入口及本地 test double，而不伪造一次无意义的模型轮次。基础运行不得访问公网、Docker、真实模型配置或用户 home。
 

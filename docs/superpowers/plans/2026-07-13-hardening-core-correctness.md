@@ -954,7 +954,7 @@ git commit -m "fix: harden MCP lifecycle ownership and shutdown"
 
 - [ ] **Step 1: 写 manifest 和报告 RED 测试**
 
-测试固定 20 ID、唯一性、精确 5 real callable、未知/重复 ID preflight exit 2、两项 fake suite 的 0/1 exit、JSON/Markdown 同一 summary、preflight 不写报告、原子覆盖、单个 fake scenario 分别返回 `Path`、tuple、非字符串 mapping key、NaN/Infinity evidence 时只将该项记为固定失败且不强制转换并继续生成有效报告，以及含 `/`、`..`、Unicode/标点和规范化碰撞的 model id 始终映射到 root 内不同目录。另以 standalone 子进程把 HOME/USERPROFILE 指向含恶意 `.forgeagent/mcp.yaml` 的目录，断言 offline runner 在 manifest/cases/CLI/MCP 等配置敏感 import 前切换到自己的临时 home，20 项不读取该文件；再直接调用 `main()`，覆盖正常和失败 cleanup，断言 HOME/USERPROFILE/XDG_CONFIG_HOME 恢复原值或 unset 状态。
+测试固定 20 ID、唯一性、精确 5 real callable、未知/重复 ID preflight exit 2、两项 fake suite 的 0/1 exit、JSON/Markdown 同一 summary、preflight 不写报告、原子覆盖、单个 fake scenario 分别返回 `Path`、tuple、非字符串 mapping key、NaN/Infinity 以及 `IntEnum` 或自定义内建类型子类 evidence 时只将该项记为固定失败且不强制转换并继续生成有效报告，以及含 `/`、`..`、Unicode/标点和规范化碰撞的 model id 始终映射到 root 内不同目录。另以 standalone 子进程把 HOME/USERPROFILE 指向含恶意 `.forgeagent/mcp.yaml` 的目录，断言 offline runner 在 manifest/cases/CLI/MCP 等配置敏感 import 前切换到自己的临时 home，20 项不读取该文件；再直接调用 `main()`，覆盖正常和失败 cleanup，断言 HOME/USERPROFILE/XDG_CONFIG_HOME 恢复原值或 unset 状态。
 
 ```bash
 UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_golden_runner.py -q
@@ -991,7 +991,7 @@ manifest 中显式列出设计文档批准的 20 ID；只有 G01/G03/G08/G11/G43
 
 `validate_manifest()` 比较精确 frozenset、数量和 real set，并读取 `docs/golden-tasks-seed.md`，使用行首 heading/table 正则证明每个 ID 有定义。失败抛 `GoldenPreflightError`。
 
-`run_suite()` 对每项使用 `TemporaryDirectory`，捕获 `GoldenCheckError` 和 Exception 为失败结果但继续执行。成功 evidence 在加入 suite result 前用一个局部递归函数只接受 `None`/bool/str/int/finite float/list/`dict[str, value]`，明确拒绝 tuple、非字符串 key和自定义对象，再用 `json.dumps(..., allow_nan=False)` 做最终编码检查；验证失败按固定 detail 和空 evidence 记录该项失败，不包含对象 repr。preflight 在输出目录创建前完成。
+`run_suite()` 对每项使用 `TemporaryDirectory`，捕获 `GoldenCheckError` 和 Exception 为失败结果但继续执行。成功 evidence 在加入 suite result 前用一个局部递归函数按精确内建类型（`type(value) is ...`）只接受 `None`/bool/str/int/finite float/list/`dict[str, value]`，明确拒绝 tuple、非字符串 key、自定义对象和内建类型子类，再用 `json.dumps(..., allow_nan=False)` 做最终编码检查；验证失败按固定 detail 和空 evidence 记录该项失败，不包含对象 repr。preflight 在输出目录创建前完成。
 
 - [ ] **Step 4: 实现同源报告和 exit code**
 

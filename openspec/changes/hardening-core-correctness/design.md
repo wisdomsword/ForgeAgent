@@ -68,7 +68,7 @@ Loop startup 同样是 transaction，并持续到 initial holders submission/res
 
 ### 5. 黄金核心复用 pytest 和本地 fixtures
 
-建立单一 manifest 描述 20 个场景的 ID、输入、fixture、预期判定和标签。进入 Agent 循环的场景复用现有 MockClient；CLI、Tool、RestrictedBackend、guarded URL 和本地 stdio MCP 等边界场景允许直接调用对应入口，以本地 fixture 自动判定并输出机器可读结果及人类可读通过率报告。场景 evidence 只允许 `None`/bool/string/int/finite float/list/`dict[str, value]`；runner 先递归验证类型和 key，再严格编码，将 tuple、非字符串 key、非序列化值或非有限值收敛为单项失败，避免 encoder 静默改写 key或最后写报告时丢失整套结果。standalone offline entry 的模块顶层只导入标准库，必须先建立临时 `HOME`/`USERPROFILE`/`XDG_CONFIG_HOME`，再 local-import manifest/cases 及 CLI/MCP/model 配置相关模块，防止 import-time 默认路径读取真实用户配置，并在 `finally` 恢复原环境。该临时 home 只用于 offline；显式 real opt-in 保留调用者原始 home/XDG 后再 local-import 配置模块，以便合法的用户自定义模型和凭证仍可解析。基础 CI 只运行离线 fixture；其中 5 项标记为真实模型兼容，可通过显式命令和模型配置选择性运行，但结果不阻断基础 CI。真实模式与对应离线场景使用同一 fixture 和 judge，只替换 client，不放宽容差；真实模型偏差可以使该次非门禁运行失败。
+建立单一 manifest 描述 20 个场景的 ID、输入、fixture、预期判定和标签。进入 Agent 循环的场景复用现有 MockClient；CLI、Tool、RestrictedBackend、guarded URL 和本地 stdio MCP 等边界场景允许直接调用对应入口，以本地 fixture 自动判定并输出机器可读结果及人类可读通过率报告。场景 evidence 只允许精确内建类型的 `None`/bool/string/int/finite float/list/`dict[str, value]`；runner 先递归验证 type 和 key，再严格编码，将 tuple、非字符串 key、非序列化值、内建类型子类或非有限值收敛为单项失败，避免 encoder 静默改写 key/int 子类或最后写报告时丢失整套结果。standalone offline entry 的模块顶层只导入标准库，必须先建立临时 `HOME`/`USERPROFILE`/`XDG_CONFIG_HOME`，再 local-import manifest/cases 及 CLI/MCP/model 配置相关模块，防止 import-time 默认路径读取真实用户配置，并在 `finally` 恢复原环境。该临时 home 只用于 offline；显式 real opt-in 保留调用者原始 home/XDG 后再 local-import 配置模块，以便合法的用户自定义模型和凭证仍可解析。基础 CI 只运行离线 fixture；其中 5 项标记为真实模型兼容，可通过显式命令和模型配置选择性运行，但结果不阻断基础 CI。真实模式与对应离线场景使用同一 fixture 和 judge，只替换 client，不放宽容差；真实模型偏差可以使该次非门禁运行失败。
 
 其余 360 项保留为候选目录，不生成虚假的已验证状态。优先选择覆盖网络拒绝、确认拒绝、完成门控、MCP 降级/失败及代表性成功任务的场景。实现不新增评测框架依赖。
 

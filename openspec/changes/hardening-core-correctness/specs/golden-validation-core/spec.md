@@ -39,7 +39,7 @@ The golden runner MUST validate declared expectations for each scenario and SHAL
 - **THEN** that scenario's judge checks every declared observable condition and fails when any one is missing, so a hard-coded result or whole-block replacement cannot produce a false pass
 
 #### Scenario: Scenario returns invalid report evidence
-- **WHEN** a scenario returns evidence containing a tuple, non-string mapping key, non-JSON object or non-finite number
+- **WHEN** a scenario returns evidence containing a tuple, non-string mapping key, non-JSON object, subclass of an otherwise allowed built-in scalar/container, or non-finite number
 - **THEN** the runner rejects it without coercing keys or container types, records that scenario as failed with fixed serializable evidence, continues the remaining scenarios, and still emits complete JSON and Markdown reports instead of failing during final serialization
 
 #### Scenario: Real-model identifier contains path syntax
