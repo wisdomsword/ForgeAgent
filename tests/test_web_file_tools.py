@@ -123,11 +123,13 @@ def test_webfetch_success_saves_to_disk_and_masks_secrets(tmp_path, monkeypatch)
 
 
 def test_webfetch_success_detail_reports_utf8_artifact_byte_length(tmp_path, monkeypatch):
-    body = "héllo 世界"
+    secret = "supersecretvalue123"
+    body = f"héllo {secret} 世界"
     monkeypatch.setattr(
         "forgeagent.tools.guarded_urlopen",
         lambda url, **kw: _FakeResponse(body.encode("utf-8"), "text/plain"),
     )
+    monkeypatch.setattr("forgeagent.tools.sensitive_env_values", lambda: {secret})
 
     outcome = WebFetchTool().run(
         WebFetchArgs(url="http://example.com/utf8.txt"),
@@ -135,7 +137,11 @@ def test_webfetch_success_detail_reports_utf8_artifact_byte_length(tmp_path, mon
     )
 
     saved = next(tmp_path.glob("webfetch_*.txt"))
-    assert f"({len(saved.read_bytes())} bytes," in outcome.detail
+    saved_bytes = saved.read_bytes()
+    assert outcome.success is True
+    assert secret not in saved.read_text()
+    assert len(saved_bytes) != len(body.encode("utf-8"))
+    assert f"({len(saved_bytes)} bytes," in outcome.detail
 
 
 def test_webfetch_ssrf_guard_error_becomes_failed_outcome(monkeypatch):
