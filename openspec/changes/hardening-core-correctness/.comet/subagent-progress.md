@@ -373,7 +373,7 @@
 
 - Plan task: `Task 3D: 收口 CLI 确认通道与 M9 命令迁移`.
 - OpenSpec mapping: `3.10`.
-- Stage: `task-review`.
+- Stage: `final-fix`.
 - Base commit: `331b830`.
 - Dispatch checkpoint commit: `a494c78`; coordinator-only documentation commits advanced the shared branch while implementation ran, so the isolated implementation review range is the implementation commit's parent `7dcac1c` through `a48d487`.
 - Implementer: `019f63ef-7254-7fd0-8103-118aab16fedb` (`Kuhn`).
@@ -382,7 +382,9 @@
 - RED evidence: initial CLI run `6 failed, 118 passed`; expanded secret/literal matrix `16 failed, 118 passed`.
 - GREEN evidence: CLI `134 passed`; CLI/tools/WebFetch regression `197 passed`; scoped Ruff check/format and `git diff --check` passed.
 - Changed files: `src/forgeagent/cli.py`, `tests/test_cli.py`.
-- Review mode: `thorough`; review/fix round: `0/2`.
+- Reviewer: `019f63f9-9e36-7fa2-8722-496e5465631b` (`Archimedes`).
+- Review result: changes requested. Important: the non-TTY REPL integration test covered only WebFetch, discarded its `TaskOutcome`, did not assert the fixed no-channel detail, and omitted FileWrite plus non-auto-approved MCP.
+- Review mode: `thorough`; review/fix round: `1/2`.
 - TDD mode: `tdd`; RED and GREEN evidence are required before review.
 - Allowed implementation files: `src/forgeagent/cli.py`, `tests/test_cli.py` only.
 - Risk signals: security-sensitive external display/input handling and public REPL command-routing behavior. The implementer reported none, but the coordinator corrected that classification under the Comet risk checklist.
