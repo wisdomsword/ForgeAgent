@@ -1255,15 +1255,16 @@ UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run python -m tests.golden.runner
 
 查询 `guarded_urlopen`, `make_console_confirmer`, `_apply_declared_status`, `MCPManager.connect/close`, `GoldenScenario` 的调用方。确认 WebFetch/search、run/REPL、Task/Step、MCP CLI 和测试入口均覆盖。若 CodeGraph 报 different-worktree/stale，记录警告及原因，并以当前 worktree 的直接源码、diff 和测试复核所有受影响文件；不把主 checkout 索引误当作当前实现，也不自行运行 `codegraph init`。
 
-- [ ] **Step 6: 执行三道独立评审门禁**
+- [ ] **Step 6: 执行技术与代码两道独立评审门禁**
 
 1. 技术方案一致性评审：逐项对照 `spec.md`、五份 delta spec、Design Doc、计划和实现，修复错误、遗漏或漂移，并重新运行 `openspec validate hardening-core-correctness --strict`。
-2. 对抗性代码评审：用 plan `base-ref` 到当前候选 HEAD 的完整 review package 派发独立 whole-branch reviewer，覆盖正确性、安全、并发、资源生命周期和测试可信度；Critical/Important 发现必须由单一 fix worker 收敛并提交。任何源码、测试、规范或文档修复都会使本 Task 已有证据失效，必须从 Step 1 重新执行静态、专项、全量、黄金、CodeGraph 和三道评审，不能只重跑受影响测试。
-3. 验收证据评审：独立核对 Ruff、专项 pytest、全量 pytest、20 项黄金 JSON/Markdown/exit code 与文档声明，禁止把旧输出或预期值当成实测结果。
+2. 对抗性代码评审：用 plan `base-ref` 到当前候选 HEAD 的完整 review package 派发独立 whole-branch reviewer，覆盖正确性、安全、并发、资源生命周期和测试可信度；Critical/Important 发现必须由单一 fix worker 收敛并提交。这个 reviewer 同时满足 `review_mode: thorough` 的唯一 build-stage final whole-branch review，Task 11 checkoff 后不得再派发一个重复的 final code reviewer。任何源码、测试、规范或文档修复都会使本 Task 已有证据失效，必须从 Step 1 重新执行静态、专项、全量、黄金、CodeGraph 和本步骤两道评审，不能只重跑受影响测试。
 
-- [ ] **Step 7: 固定已验证实现 HEAD，创建实证里程碑并回填 40 项 tasks**
+- [ ] **Step 7: 固定已验证实现 HEAD，创建证据草稿并执行第三道验收评审**
 
-全部门禁通过后立即把 `git rev-parse HEAD` 作为 `verified_head` 同时写入 `.comet/subagent-progress.md` 和 milestone 草稿；两个持久文件必须一致，后续命令每次重新读取而不依赖 shell 变量。里程碑必须标明这个精确 implementation HEAD，而不是之后的 evidence-only commit。按 `MILESTONE_GUIDE.md` 一次性创建 `milestones/milestone_013.md`，把实际命令、pass/skip 数、黄金通过率和三次评审结论写入文件，并将 `milestones/latest` 更新为唯一一行 `milestone_013.md`。M11/M12 仍是未完成规划；当前 `milestones/latest` 指向最后按时间完成的 `milestone_009.md`，因此 M13 的“前置里程碑”链接使用 `milestone_009.md`，正文同时说明 M9 是在 M10 后补做、M9/M10 均已完成及编号跳跃原因。逐条核对本计划末尾映射后，将 `tasks.md` 的 40 个 checkbox 定向改为 `[x]`；不能一次性盲目全选。同步更新 `.comet/subagent-progress.md`，记录最终任务、评审和验证证据。实际草稿完成后，再由验收证据 reviewer 把 milestone/tasks/progress 中每个命令、计数、skip、commit和结论逐项对照原始输出及 `verified_head`；发现转录错误只修 evidence 文件并重复该草稿复核，不能发布未经复核的里程碑。
+Step 1-5 与前两道评审通过后，立即把 `git rev-parse HEAD` 作为 `verified_head` 同时写入 `.comet/subagent-progress.md` 和 milestone 草稿；两个持久文件必须一致，后续命令每次重新读取而不依赖 shell 变量。里程碑必须标明这个精确 implementation HEAD，而不是之后的 evidence-only commit。按 `MILESTONE_GUIDE.md` 一次性创建 `milestones/milestone_013.md`，把实际命令、pass/skip 数、黄金通过率和前两道评审结论写入文件，并为第三道证据评审保留唯一、明确的 `pending` verdict/identity 槽位；将 `milestones/latest` 更新为唯一一行 `milestone_013.md`。M11/M12 仍是未完成规划；当前 `milestones/latest` 指向最后按时间完成的 `milestone_009.md`，因此 M13 的“前置里程碑”链接使用 `milestone_009.md`，正文同时说明 M9 是在 M10 后补做、M9/M10 均已完成及编号跳跃原因。逐条核对本计划末尾映射后，将 `tasks.md` 的 40 个 checkbox 定向改为 `[x]`；不能一次性盲目全选。同步更新 `.comet/subagent-progress.md`，记录最终任务、评审和验证证据，并保留同样的第三道评审 pending 槽位。
+
+第三道验收证据评审在上述草稿全部存在后执行：由独立 reviewer 把 Ruff、专项 pytest、全量 pytest、20 项黄金 JSON/Markdown/exit code，以及 milestone/tasks/progress 中每个命令、计数、skip、commit、文档声明和 `verified_head` 逐项对照原始输出，禁止把旧输出或预期值当成实测结果。reviewer 通过时只允许把 milestone 与 progress 中预留的两个 pending 槽位改成自己的 verdict/identity，不得修改其他证据或产品文件；这样最终写入的第三道结论由 reviewer 自身产生，不需要第四次转录复核。只发现 evidence-only 转录错误时，reviewer 不填写通过槽位，由协调者修正证据文件并只重复本次证据评审；若发现源码、测试、规范或公开文档问题，则候选实现发生实质变化，必须从 Step 1 重新开始。未经该评审通过不得发布里程碑。
 
 此 change 的预期工作树状态不是绝对 clean：允许且只允许保留 Task 10 开始前已有的 `ACTION_PLAN.md` 用户差异中除 M13 placeholder 外的内容。提交收尾前重新计算 `ACTION_PLAN.md` SHA-256 并与持久 checkpoint 的 `expected_after_sha256` 比较；`/tmp` 文件仍存在时再补充 `cmp`，但它不是唯一证据。除此之外不得有未提交文件。
 
