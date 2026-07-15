@@ -462,3 +462,28 @@
 - Re-review result: changes requested. Important: recorder remained directly callable from model globals; G08 re-executed model-controlled source in an unrestricted subprocess and timeout did not own descendants. Minor: same-workdir replay restoration omitted directories/symlinks/metadata.
 - Final-fix design decision: keep instrumentation tests-only but execute model code in a nested namespace whose recorder stays in a wrapper closure; run counterfactual replay in an independent temporary allowed root instead of snapshot/restore; execute G08 tests through RestrictedBackend so its scrubbed environment, audit policy and timeout own the entire test process.
 - Stage: `final-fix`; review/fix round: `2/2`.
+- Final-fix agent: `019f647f-3005-7770-bd6b-f52162b7a0a4` (`Raman`).
+- Final-fix commit: `48de111` (`fix: isolate golden replay execution`).
+- Final-fix RED/GREEN evidence: G05/G08 regressions RED against `e6edd65`; focused final fixes `10 passed`; Task 8 files `66 passed`; restricted backend suite `38 passed`; coordinator full pytest with RuntimeWarning as errors `760 passed, 13 skipped`; Ruff and diff check passed.
+- Final reviewer: `019f6492-331b-7920-bf07-e321a72eff24` (`Huygens`).
+- Final review result: approved with no Critical, Important or Minor findings. Residual: real-model requests intentionally not run; CodeGraph index is primary-worktree baseline and final source was read directly from this worktree.
+- Task 8 checkoff: all six plan steps complete; OpenSpec `5.4` complete; `5.2` and `5.5` remain pending until Task 9 supplies all 20 offline cases and the ordinary pytest integration gate.
+
+## Completed Task 8
+
+- Plan task: `Task 8: 实现 10 项通用黄金任务和 5 项真实模型入口`.
+- Implementation commits: `bc50e55`, `4e345ba`, `48de111`; documentation/plan hardening commits: `abf3448`, `c6146cf`, `e6edd65`.
+- Evidence: 10 common cases and 5 real callables; standalone runner `20 total / 10 passed / 10 failed`, failed IDs exactly G06/G14/G58/G59/G324/G329/G330/G332/G333/G355, exit `1`; focused suite `66 passed`; full pytest `760 passed, 13 skipped`; full Ruff passed.
+- Review history: one implementation review and two repair rounds; final reviewer Huygens approved with no findings.
+- Scope note: all changes are tests/golden infrastructure and docs/progress; no product source changes in Task 8.
+
+## Current Task 9
+
+- Plan task: `Task 9: 实现 10 项加固边界黄金任务`.
+- OpenSpec mappings: remaining portion of `5.2` and `5.5`.
+- Stage: `implementing`.
+- Base commit: `48de111`.
+- Review mode: `thorough`; review/fix round: `0/2`.
+- TDD mode: `tdd`; RED and GREEN evidence are required before review.
+- Allowed implementation files: `tests/golden/cases.py`, `tests/golden/manifest.py`, `tests/test_golden_runner.py` only.
+- Risk signals: sandbox/audit-hook behavior, SSRF/confirmation doubles, MCP subprocess lifecycle and real `/mcp` slash routing, full 20/20 ordinary pytest integration, and preservation of Task 8 anti-cheating judges.
