@@ -81,14 +81,15 @@ class _GuardedHTTPSHandler(urllib.request.HTTPSHandler):
 
 class _GuardedRedirectHandler(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
-        scheme = urllib.parse.urlsplit(newurl).scheme.lower()
-        if scheme not in _ALLOWED_SCHEMES:
-            raise SSRFGuardError(f"redirect scheme {scheme!r} is not allowed")
         count = getattr(req, "_forgeagent_redirect_count", 0)
         if count >= _MAX_REDIRECTS:
             raise SSRFGuardError(f"redirect limit exceeded ({_MAX_REDIRECTS})")
-        redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
+        resolved_url = urllib.parse.urljoin(req.full_url, newurl)
+        redirected = super().redirect_request(req, fp, code, msg, headers, resolved_url)
         if redirected is not None:
+            scheme = urllib.parse.urlsplit(redirected.full_url).scheme.lower()
+            if scheme not in _ALLOWED_SCHEMES:
+                raise SSRFGuardError(f"redirect scheme {scheme!r} is not allowed")
             redirected._forgeagent_redirect_count = count + 1
         return redirected
 

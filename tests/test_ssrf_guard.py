@@ -181,6 +181,16 @@ def test_redirect_handler_allows_tenth_hop():
     assert redirected._forgeagent_redirect_count == 10
 
 
+def test_redirect_handler_resolves_relative_http_location_against_original_url():
+    handler = ssrf_guard._GuardedRedirectHandler()
+    request = urllib.request.Request("https://public.example/start")
+
+    redirected = handler.redirect_request(request, None, 302, "Found", {}, "/next")
+
+    assert redirected is not None
+    assert redirected.full_url == "https://public.example/next"
+
+
 def test_redirect_handler_rejects_eleventh_hop():
     handler = ssrf_guard._GuardedRedirectHandler()
     request = urllib.request.Request("https://example.com/0")
