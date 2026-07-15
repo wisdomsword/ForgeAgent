@@ -376,7 +376,8 @@ class WebFetchTool(Tool):
         preview = masked[:_FETCH_PREVIEW_CHARS]
         preview_note = " (preview truncated)" if len(masked) > _FETCH_PREVIEW_CHARS else ""
         detail = (
-            f"saved to {dest.name} ({len(masked)} bytes, {content_type}){truncated_note}\n"
+            f"saved to {dest.name} ({len(masked.encode('utf-8'))} bytes, "
+            f"{content_type}){truncated_note}\n"
             f"preview{preview_note}:\n{preview}"
         )
         return ToolOutcome(tool="WebFetch", success=True, detail=detail)

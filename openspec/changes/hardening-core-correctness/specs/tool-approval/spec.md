@@ -99,6 +99,10 @@ ForgeAgent SHALL interpret only slash-prefixed REPL inputs as embedded commands 
 ### Requirement: Restricted tool outcomes minimize sensitive exposure
 ForgeAgent MUST prevent WebFetch failure outcomes and FileWrite success or failure outcomes from reintroducing raw URLs, hostnames, content or host absolute paths after confirmation.
 
+#### Scenario: WebFetch success reports artifact byte length
+- **WHEN** a confirmed WebFetch request saves a response containing multibyte characters after secret masking
+- **THEN** the success detail reports `N bytes` where `N` is the actual UTF-8 byte length of the saved, masked artifact, not the Python character count
+
 #### Scenario: WebFetch is blocked by network policy
 - **WHEN** a confirmed WebFetch request fails with `SSRFGuardError`
 - **THEN** the tool returns the fixed detail `WebFetch blocked by network policy` without the original URL, hostname or exception text

@@ -122,6 +122,22 @@ def test_webfetch_success_saves_to_disk_and_masks_secrets(tmp_path, monkeypatch)
     assert "REDACTED" in saved_content
 
 
+def test_webfetch_success_detail_reports_utf8_artifact_byte_length(tmp_path, monkeypatch):
+    body = "héllo 世界"
+    monkeypatch.setattr(
+        "forgeagent.tools.guarded_urlopen",
+        lambda url, **kw: _FakeResponse(body.encode("utf-8"), "text/plain"),
+    )
+
+    outcome = WebFetchTool().run(
+        WebFetchArgs(url="http://example.com/utf8.txt"),
+        _webfetch_ctx(allowed_root=str(tmp_path)),
+    )
+
+    saved = next(tmp_path.glob("webfetch_*.txt"))
+    assert f"({len(saved.read_bytes())} bytes," in outcome.detail
+
+
 def test_webfetch_ssrf_guard_error_becomes_failed_outcome(monkeypatch):
     def _raise(url, **kw):
         raise SSRFGuardError(f"blocked non-public address for {url!r}")
