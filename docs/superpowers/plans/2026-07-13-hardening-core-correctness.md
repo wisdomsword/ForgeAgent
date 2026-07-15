@@ -575,7 +575,7 @@ git commit -m "fix: harden file tool path boundaries"
 - Verify later: `README.md`（Task 10 统一同步用户文档）
 
 **Interfaces:**
-- Produces: REPL 显式 terminal-capability 注入；MCP identifier/FileWrite safe-path 已知 secret 脱敏与单行 literal-safe Rich 渲染；仅 slash-prefixed REPL command 路由。
+- Produces: REPL 显式 terminal-capability 注入；MCP identifier/argument key/FileWrite safe-path 已知 secret 脱敏与单行 literal-safe Rich 渲染；仅 slash-prefixed REPL command 路由。
 - Consumes: `sys.stdin.isatty()`、`Console.is_terminal`、`mask_secrets()`、`sensitive_env_values()`、现有 `_confirmation_summary()` 和 slash handlers。
 
 - [ ] **Step 1: 写非 TTY、literal-safe confirmation、identifier/path 脱敏和裸词迁移 RED 测试**
@@ -584,8 +584,8 @@ git commit -m "fix: harden file tool path boundaries"
 
 - 非 TTY REPL 的 scripted response 请求 WebFetch/FileWrite 或非 auto-approved MCP 时，confirmation reader 若被调用就立即失败；断言工具返回 `rejected: no interactive confirmation channel available`，而 goal reader 仍可完成后续轮次。
 - TTY REPL 显式 terminal-capability 为真时仍调用同一个 `read_line` 完成 y/N 确认。
-- 已知环境 secret 出现在 MCP server、MCP tool、FileWrite 项目相对路径和外部 basename 时，summary 不包含原值；FileWrite content 仍不显示。
-- 参数化 `bad[/red]`、`[bold]fake[/bold]`、ANSI/C0/C1、CR/LF、U+2028/U+2029，以及 U+202E、U+2066/U+2069、U+200E 等 Unicode `Cf` 格式控制符到 MCP identifier 与 FileWrite path：确认输出不抛 `MarkupError`、不改变 `approve` 样式、不产生注入行或双向重排，控制/格式字符以可见转义呈现，且 `read_line` 只调用一次。
+- 已知环境 secret 出现在 MCP server、MCP tool、嵌套 arguments mapping key、FileWrite 项目相对路径和外部 basename 时，summary 不包含原值；结构化 secret-name 判断仍使用未脱敏原 key，FileWrite content 仍不显示。
+- 参数化 `bad[/red]`、`[bold]fake[/bold]`、ANSI/C0/C1、CR/LF、U+2028/U+2029、U+202E、U+2066/U+2069、U+200E 等 Unicode `Cf` 格式控制符，以及未配对 `\\ud800` surrogate 到 MCP identifier 与 FileWrite path：确认输出不抛 `MarkupError`/`UnicodeEncodeError`、不改变 `approve` 样式、不产生注入行或双向重排，控制/格式/surrogate 字符以可见转义呈现，且 `read_line` 只调用一次。
 - 参数化输入 `models`、`reload`、`mcp`、`mcp status` 都完整进入 `run_once()`，无 deprecation 文本；`/model`、`/reload`、`/mcp` 仍只走 handler。现有顶层 `main(["models"])` 测试继续通过。
 
 - [ ] **Step 2: 运行 RED 测试**
@@ -600,7 +600,7 @@ UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_cli.py -q
 
 `repl()` 增加 `confirmation_available: bool | None = None`；未提供时按 `console.is_terminal and sys.stdin.isatty()` 计算。只在该值为真时创建 confirmer，否则向 `run_once()` 传 `None`。测试可显式传 true/false，不把注入的 `read_line` 自动视为 TTY。
 
-`_confirmation_summary()` 一次读取已知 secret values：MCP server/tool、非敏感 arguments string 和 FileWrite 安全路径分别使用现有 `mask_secrets()`；结构化敏感键仍直接 `<redacted>`。完整摘要通过 Rich `Text` literal segment 输出，并用一个 confirmation-only single-line formatter把 C0/C1、DEL、CR/LF、U+2028/U+2029 和 `unicodedata.category(ch) == "Cf"` 的格式控制符转成可见 `\\xNN`/`\\uNNNN`/`\\UNNNNNNNN`；不得仅 escape markup 后让终端控制或 bidi 字符原样通过，也不得扩展为通用 sanitizer。
+`_confirmation_summary()` 一次读取已知 secret values并递归传给 arguments formatter：MCP server/tool、每个展示用 mapping key、非敏感 arguments string value 和 FileWrite 安全路径分别使用现有 `mask_secrets()`；结构化敏感键判断仍使用原 key并把对应 value 直接替换为 `<redacted>`。完整摘要通过 Rich `Text` literal segment 输出，并用一个 confirmation-only single-line formatter把 C0/C1、DEL、CR/LF、U+2028/U+2029，以及 `unicodedata.category(ch) in {"Cf", "Cs"}` 的格式控制符/未配对 surrogate 转成可见 `\\xNN`/`\\uNNNN`/`\\UNNNNNNNN`；不得仅 escape markup 后让终端控制、bidi 或不可编码 surrogate 原样通过，也不得扩展为通用 sanitizer。
 
 删除 REPL 的 bare-word compatibility rewrite；不修改 argparse 的顶层 `models` subcommand，也不改变 slash handler。
 
@@ -735,7 +735,7 @@ git commit -m "fix: require standalone task completion responses"
 
 - [x] **Step 1: 写配置、optional/required 和运行期 RED 测试**
 
-覆盖 omitted required=False、required+disabled 不阻断、optional timeout 降级、required unavailable 关闭 manager 后 exit 2、REPL enable/disable required 不退出。
+覆盖 omitted required=False、required+disabled 不阻断、optional timeout 降级、required unavailable 关闭 manager 后 exit 2、已有至少一个 enabled server/manager 时 REPL enable/disable required 不退出，以及全 disabled 配置的真实 CLI 组装返回 `None` 且不创建 loop。运行期 enable 测试不得用 fake manager 暗示 manager-less REPL 支持。
 
 ```bash
 UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_mcp_manager.py tests/test_cli.py -q
@@ -932,7 +932,7 @@ Expected: all MCP shutdown/startup/generation tests pass, fixture PIDs disappear
 - [ ] **Step 6: Commit the complete MCP lifecycle implementation**
 
 ```bash
-git add src/forgeagent/mcp_manager.py tests/test_mcp_manager.py tests/test_cli.py tests/mcp_fixture_server.py
+git add src/forgeagent/mcp_manager.py src/forgeagent/cli.py tests/test_mcp_manager.py tests/test_cli.py tests/mcp_fixture_server.py
 git commit -m "fix: harden MCP lifecycle ownership and shutdown"
 ```
 
@@ -948,11 +948,11 @@ git commit -m "fix: harden MCP lifecycle ownership and shutdown"
 
 **Interfaces:**
 - Produces: `GoldenScenario`、`GoldenEvidence`、`GoldenResult`、`validate_manifest()`、`run_suite()`、`main()`。
-- Consumes: MockClient/real ModelClient、Task/CLI entrypoints、独立临时目录。
+- Consumes: MockClient/real ModelClient、Task/CLI entrypoints、独立临时目录；offline entry 在配置敏感 import 前安装的临时 HOME/USERPROFILE/XDG_CONFIG_HOME。
 
 - [ ] **Step 1: 写 manifest 和报告 RED 测试**
 
-测试固定 20 ID、唯一性、精确 5 real callable、未知/重复 ID preflight exit 2、两项 fake suite 的 0/1 exit、JSON/Markdown 同一 summary、preflight 不写报告、原子覆盖、单个 fake scenario 返回 `Path`/NaN evidence 时只将该项记为固定失败并继续生成有效报告，以及含 `/`、`..`、Unicode/标点和规范化碰撞的 model id 始终映射到 root 内不同目录。
+测试固定 20 ID、唯一性、精确 5 real callable、未知/重复 ID preflight exit 2、两项 fake suite 的 0/1 exit、JSON/Markdown 同一 summary、preflight 不写报告、原子覆盖、单个 fake scenario 返回 `Path`/NaN evidence 时只将该项记为固定失败并继续生成有效报告，以及含 `/`、`..`、Unicode/标点和规范化碰撞的 model id 始终映射到 root 内不同目录。另以 standalone 子进程把 HOME/USERPROFILE 指向含恶意 `.forgeagent/mcp.yaml` 的目录，断言 offline runner 在 manifest/cases/CLI/MCP 等配置敏感 import 前切换到自己的临时 home，20 项不读取该文件，退出后父进程环境不变。
 
 ```bash
 UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest tests/test_golden_runner.py -q
@@ -984,6 +984,8 @@ class GoldenScenario:
 manifest 中显式列出设计文档批准的 20 ID；只有 G01/G03/G08/G11/G43 设置 real callable。
 
 - [ ] **Step 3: 实现 runner preflight 和结果模型**
+
+`tests/golden/__init__.py` 保持无副作用；`runner.py` module top-level 只导入标准库，并以 `TYPE_CHECKING` 保留类型。offline `main()` 先解析参数，创建临时 home，临时设置 HOME、USERPROFILE、XDG_CONFIG_HOME，再 local-import manifest/cases 及可能读取配置的 CLI/MCP/model 模块；suite 和报告完成后恢复环境。real opt-in 可读取显式模型/凭证环境，但不得为 offline 路径提前 import 配置敏感模块。
 
 `validate_manifest()` 比较精确 frozenset、数量和 real set，并读取 `docs/golden-tasks-seed.md`，使用行首 heading/table 正则证明每个 ID 有定义。失败抛 `GoldenPreflightError`。
 
@@ -1076,7 +1078,7 @@ G06 restricted 越权返回结构化失败且未读取目标；G14 timeout 轮�
 
 - [ ] **Step 2: 实现 SSRF/确认四项判定**
 
-G329 private/metadata 在 socket connect 前拒绝；G330 public-first-hop double 的第二跳 private 被拒；G332 无 confirmer 时不发网络、true confirmer 时成功；G333 false confirmer 不写文件但后续 Exec 可在 allowed_root 内写入，证明确认门不是文件安全边界。
+G329 通过 confirmed `WebFetchTool` 调用 private/metadata literal，精确断言 `WebFetch blocked by network policy` 且 guarded connector 计数为 0；不再断言底层 guard exception 文本。G330 使用 resolver/redirect/connection doubles 构造 public first hop → private second hop，第二跳在连接前拒绝且不绑定本地端口。G332 无 confirmer 时精确断言 `rejected: no interactive confirmation channel available` 和 fake network 计数为 0；true confirmer 对同一 URL 使用 fake public response成功，禁止真实 socket。G333 false confirmer 不写文件但后续 Exec 可在 allowed_root 内写入，证明确认门不是文件安全边界。
 
 - [ ] **Step 3: 实现 MCP G355 产品级冒烟**
 
@@ -1149,7 +1151,9 @@ README 同时删除“裸 `models`/`reload`/`mcp ...` 仍可用”的过期说�
 
 - [ ] **Step 4: 将加固范围登记为 ACTION_PLAN M13**
 
-填充现有空置的 M13 行，记录本 change 的交付物、Ruff/完整 pytest/20 项离线黄金核心/CodeGraph 复审验证和三次评审门禁。保留用户 M11/M12 的内容与顺序，不修改或重编号它们。此步骤不创建里程碑文件、不更新 `milestones/latest`；`MILESTONE_GUIDE.md` 要求门禁全部通过后一次性产出收尾记录。
+开始前把现有未暂存差异保存为 `/tmp/forgeagent-action-plan-user-before.patch`，该 patch 只属于用户的 M11/M12 工作。填充现有空置的 M13 行，记录本 change 的交付物、Ruff/完整 pytest/20 项离线黄金核心/CodeGraph 复审验证和三次评审门禁。保留用户 M11/M12 的内容与顺序，不修改或重编号它们。此步骤不创建里程碑文件、不更新 `milestones/latest`；`MILESTONE_GUIDE.md` 要求门禁全部通过后一次性产出收尾记录。
+
+提交时可以先把工作树中的完整 `ACTION_PLAN.md` 加入 index，再对 index 反向应用保存的用户 patch；必须先运行 `git apply --cached --reverse --check /tmp/forgeagent-action-plan-user-before.patch`。随后 `git diff --cached -- ACTION_PLAN.md` 只能包含 M13，不能包含 M11/M12；提交后 `git diff -- ACTION_PLAN.md` 必须与保存的用户 patch语义和字节内容一致。不得用 restore/checkout 覆盖用户工作。
 
 - [ ] **Step 5: 运行文档一致性测试**
 
@@ -1163,7 +1167,11 @@ rg -n "380.*validated|380.*已验证|complete\(\).*only|不支持.*stream|裸词
 - [ ] **Step 6: 提交文档同步**
 
 ```bash
-git add README.md ACTION_PLAN.md docs
+git add README.md docs
+git add ACTION_PLAN.md
+git apply --cached --reverse --check /tmp/forgeagent-action-plan-user-before.patch
+git apply --cached --reverse /tmp/forgeagent-action-plan-user-before.patch
+git diff --cached -- ACTION_PLAN.md
 git commit -m "docs: align runtime contracts and golden validation"
 ```
 
@@ -1171,12 +1179,13 @@ git commit -m "docs: align runtime contracts and golden validation"
 
 **Files:**
 - Modify: `openspec/changes/hardening-core-correctness/tasks.md`
+- Modify: `openspec/changes/hardening-core-correctness/.comet/subagent-progress.md`
 - Create: `milestones/milestone_013.md`
 - Modify: `milestones/latest`
 - Generated only: `artifacts/golden/offline/results.json`, `artifacts/golden/offline/report.md`
 
 **Interfaces:**
-- Produces: 40/40 tasks 勾选、实证里程碑、完整离线报告、可进入 Comet verify 的提交状态。
+- Produces: 40/40 tasks 勾选、实证里程碑、完整离线报告、与已验证实现 HEAD 精确关联且可进入 Comet verify 的提交状态。
 - Consumes: 所有实现提交、OpenSpec specs、Design Doc、base ref。
 
 - [ ] **Step 1: 运行静态检查**
@@ -1187,7 +1196,7 @@ UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run ruff check src tests
 
 预期：`All checks passed!`。
 
-然后以 plan header 的 `base-ref` 为边界列出本 change 新增或修改的 Python 文件，对该列表运行 `ruff format`，再对同一列表运行 `ruff format --check`。若列表为空则跳过；不得为通过门禁而格式化未被本 change 修改的文件。
+然后以 plan header 的 `base-ref` 为边界列出本 change 新增或修改的 Python 文件，对该列表只运行 `ruff format --check`。若列表为空则跳过；验证步骤不得修改文件。若 changed-file format check 失败，派发单一 formatting fix worker，仅修复这些文件并提交，然后从本 Task Step 1 重新开始，不能沿用修复前的静态、测试、黄金或评审证据。不得为通过门禁而格式化未被本 change 修改的文件。
 
 最后额外运行 `ruff format --check src tests` 作为全仓诊断。若失败，逐项与 `base-ref` diff 比对：本 change 改动文件的失败是阻塞项；仅存在于未改动文件的历史格式差异记录为 baseline debt，不扩大本 change。当前基线命令为：
 
@@ -1238,19 +1247,25 @@ UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run python -m tests.golden.runner
 - [ ] **Step 6: 执行三道独立评审门禁**
 
 1. 技术方案一致性评审：逐项对照 `spec.md`、五份 delta spec、Design Doc、计划和实现，修复错误、遗漏或漂移，并重新运行 `openspec validate hardening-core-correctness --strict`。
-2. 对抗性代码评审：用 merge-base 到 HEAD 的完整 review package 派发独立 whole-branch reviewer，覆盖正确性、安全、并发、资源生命周期和测试可信度；Critical/Important 发现必须由单一 fix worker 收敛并重新评审、重跑受影响测试。
+2. 对抗性代码评审：用 plan `base-ref` 到当前候选 HEAD 的完整 review package 派发独立 whole-branch reviewer，覆盖正确性、安全、并发、资源生命周期和测试可信度；Critical/Important 发现必须由单一 fix worker 收敛并提交。任何源码、测试、规范或文档修复都会使本 Task 已有证据失效，必须从 Step 1 重新执行静态、专项、全量、黄金、CodeGraph 和三道评审，不能只重跑受影响测试。
 3. 验收证据评审：独立核对 Ruff、专项 pytest、全量 pytest、20 项黄金 JSON/Markdown/exit code 与文档声明，禁止把旧输出或预期值当成实测结果。
 
-- [ ] **Step 7: 创建实证里程碑并回填 40 项 tasks**
+- [ ] **Step 7: 固定已验证实现 HEAD，创建实证里程碑并回填 40 项 tasks**
 
-全部门禁通过后，按 `MILESTONE_GUIDE.md` 一次性创建 `milestones/milestone_013.md`，把实际命令、pass/skip 数、黄金通过率和三次评审结论写入文件，并将 `milestones/latest` 更新为唯一一行 `milestone_013.md`。M11/M12 仍是未完成规划，因此 M13 的“前置里程碑”链接写为最后已完成的 `milestone_010.md`，并在正文说明编号跳跃原因。逐条核对本计划末尾映射后，将 `tasks.md` 的 40 个 checkbox 定向改为 `[x]`；不能一次性盲目全选。
+全部门禁通过后立即记录 `verified_head=$(git rev-parse HEAD)`；里程碑必须写入这个精确 implementation HEAD，而不是之后的 evidence-only commit。按 `MILESTONE_GUIDE.md` 一次性创建 `milestones/milestone_013.md`，把实际命令、pass/skip 数、黄金通过率和三次评审结论写入文件，并将 `milestones/latest` 更新为唯一一行 `milestone_013.md`。M11/M12 仍是未完成规划，因此 M13 的“前置里程碑”链接写为最后已完成的 `milestone_010.md`，并在正文说明编号跳跃原因。逐条核对本计划末尾映射后，将 `tasks.md` 的 40 个 checkbox 定向改为 `[x]`；不能一次性盲目全选。同步更新 `.comet/subagent-progress.md`，记录最终任务、评审和验证证据。
+
+此 change 的预期工作树状态不是绝对 clean：允许且只允许保留 Task 10 开始前保存的用户 `ACTION_PLAN.md` M11/M12 差异。提交收尾前重新生成该文件的 worktree diff，并与 `/tmp/forgeagent-action-plan-user-before.patch` 做字节比较；除此之外不得有未提交文件。
 
 - [ ] **Step 8: 提交验证收尾**
 
 ```bash
-git add openspec/changes/hardening-core-correctness/tasks.md milestones
+git add openspec/changes/hardening-core-correctness/tasks.md \
+  openspec/changes/hardening-core-correctness/.comet/subagent-progress.md \
+  milestones
 git commit -m "chore: record hardening verification evidence"
 ```
+
+提交后运行 `git diff --check`、strict OpenSpec validation，并验证 `git diff --name-only "$verified_head"..HEAD` 只包含 `tasks.md`、`.comet/subagent-progress.md` 和 milestone evidence 文件。最终报告同时列出 `verified_head` 与 evidence-only final HEAD；因为最后提交已证明只含验收记录，不用重跑产品测试。
 
 ## OpenSpec Tasks Coverage Map
 

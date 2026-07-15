@@ -38,7 +38,7 @@ ForgeAgent 专用显式代理契约只在文档中定义为未来能力，运行
 
 ### 2. 扩展现有 confirmer，而非新增审批子系统
 
-保留当前 callable confirmer 注入方式，使其能够格式化 `MCPArgs`、`WebFetchArgs` 和 `FileWriteArgs`。CLI 是否提供交互 confirmer 由终端能力决定，而不再依赖是否配置 MCP：单次 run 和 REPL 都只有在 stdin/stdout 为 TTY 时自动询问；非 TTY 时返回拒绝且不读取确认输入。`--interactive` 只保留 Survey 语义。MCP server/tool 标识和 FileWrite 安全路径摘要也必须经过已知环境 secret 脱敏，并以 Rich literal 单行显示；C0/C1、换行、Unicode line separator 和 `Cf` 格式控制符必须显示为转义序列，不能把它们当作可信元数据或允许 bidi 控制重排审批文本。
+保留当前 callable confirmer 注入方式，使其能够格式化 `MCPArgs`、`WebFetchArgs` 和 `FileWriteArgs`。CLI 是否提供交互 confirmer 由终端能力决定，而不再依赖是否配置 MCP：单次 run 和 REPL 都只有在 stdin/stdout 为 TTY 时自动询问；非 TTY 时返回拒绝且不读取确认输入。`--interactive` 只保留 Survey 语义。MCP server/tool 标识、arguments mapping key 和 FileWrite 安全路径摘要也必须经过已知环境 secret 脱敏，并以 Rich literal 单行显示；C0/C1、换行、Unicode line separator、`Cf` 格式控制符和 `Cs` surrogate 必须显示为转义序列，不能把它们当作可信元数据、允许 bidi 控制重排审批文本，或在终端编码时使确认崩溃。
 
 M9 规定的一个里程碑裸词兼容期已经结束。REPL 只路由 slash-prefixed 内嵌命令；裸 `models`、`reload`、`mcp` 和 `mcp ...` 恢复为普通模型目标。顶层 `forgeagent models` 子命令保持不变。
 
@@ -54,7 +54,7 @@ M9 规定的一个里程碑裸词兼容期已经结束。REPL 只路由 slash-pr
 
 ### 4. MCP 失败策略由服务级 `required` 决定
 
-MCP 配置在每个服务上增加布尔字段 `required`，默认 `false`。可选服务连接失败时记录只含服务名与固定类别/异常类型的脱敏诊断并从可用工具集合移除；任一必需服务连接失败时，CLI 启动失败并返回非零状态，同时清理已启动服务。全部 initial holder 在第一次 await 前创建，并从共享 monotonic 起点并发等待 ready，避免多个卡死服务把启动等待放大为 N 倍连接 timeout。
+MCP 配置在每个服务上增加布尔字段 `required`，默认 `false`。可选服务连接失败时记录只含服务名与固定类别/异常类型的脱敏诊断并从可用工具集合移除；任一已启用的必需服务连接失败时，CLI 启动失败并返回非零状态，同时清理已启动服务。全部 initial holder 在第一次 await 前创建，并从共享 monotonic 起点并发等待 ready，避免多个卡死服务把启动等待放大为 N 倍连接 timeout。运行期 enable/disable 只承诺 manager 已因至少一个初始 enabled server 存在的 REPL；全 disabled 配置继续不创建 manager/loop，本 change 不增加 manager-less 会话动态启动能力。
 
 `MCPManager.close()` 使用单一 absolute deadline 约束公开 holder wait、cancel 和 thread join，允许重复调用，收集或记录关闭错误但不替换已有任务结果或启动错误。主线程保存的 concurrent shutdown future 只是首次 bounded waiting facade；loop thread 保存唯一 generation-aware shutdown task，outer await 用 shield，future timeout/cancel 不得取消或复制权威 drain。facade 提交本身失败时，主线程关闭未调度 coroutine并 best-effort 请求同一 loop-owned drain，但绝不能根据暂时为空的 holder/session/lifecycle 容器伪造 completion。公开 deadline 到达后，若 async context finalizer 尚未完成，drain 继续在 live loop 上清理，不能提前 stop loop；普通内部异常按 slot 隔离，只有最终 cleanup 不变量成立才发布 completion，否则同一 task 等待 repeated-close retry signal，不结束也不 busy-loop。loop task 独占 closing state、slot snapshot、Task wait/cancel 和 conditional remove。主线程使用 pre-submit name fallback 诊断，不与活跃 loop 竞态修改 holders/sessions。loop thread 使用固定名称；warning 记录 thread name/ident、alive 状态和脱敏 pending server 名称，不记录 arguments、env 或 server 内容。daemon thread 若被同步代码完全卡死，可能暂时保有 transport、file descriptor 或 MCP child process；Python 没有安全强杀线程的 API且 manager 没有 SDK child handle，CLI 必须优先按 deadline 返回并明确报告 shutdown incomplete。此时保留 shutdown future/task、holders、sessions、loop、thread 引用；重复 close 唤醒既有 drain并用线程安全 completion event 消费新 shutdown 预算，再 bounded stop/join，不创建第二个 facade/task。只有 cleanup completion 已证明、线程停止且 `loop.close()` 成功后才清除引用；loop close 失败保留停止的 loop 供后续 close 重试。
 
@@ -68,7 +68,7 @@ Loop startup 同样是 transaction，并持续到 initial holders submission/res
 
 ### 5. 黄金核心复用 pytest 和本地 fixtures
 
-建立单一 manifest 描述 20 个场景的 ID、输入、fixture、预期判定和标签。进入 Agent 循环的场景复用现有 MockClient；CLI、Tool、RestrictedBackend、guarded URL 和本地 stdio MCP 等边界场景允许直接调用对应入口，以本地 fixture 自动判定并输出机器可读结果及人类可读通过率报告。场景 evidence 只允许标准 JSON 值；runner 在接纳结果时严格验证并将非序列化/非有限值收敛为单项失败，避免最后写报告时丢失整套结果。基础 CI 只运行离线 fixture；其中 5 项标记为真实模型兼容，可通过显式命令和模型配置选择性运行，但结果不阻断基础 CI。真实模式与对应离线场景使用同一 fixture 和 judge，只替换 client，不放宽容差；真实模型偏差可以使该次非门禁运行失败。
+建立单一 manifest 描述 20 个场景的 ID、输入、fixture、预期判定和标签。进入 Agent 循环的场景复用现有 MockClient；CLI、Tool、RestrictedBackend、guarded URL 和本地 stdio MCP 等边界场景允许直接调用对应入口，以本地 fixture 自动判定并输出机器可读结果及人类可读通过率报告。场景 evidence 只允许标准 JSON 值；runner 在接纳结果时严格验证并将非序列化/非有限值收敛为单项失败，避免最后写报告时丢失整套结果。standalone offline entry 的模块顶层只导入标准库，必须先建立临时 `HOME`/`USERPROFILE`/`XDG_CONFIG_HOME`，再 local-import manifest/cases 及 CLI/MCP/model 配置相关模块，防止 import-time 默认路径读取真实用户配置。基础 CI 只运行离线 fixture；其中 5 项标记为真实模型兼容，可通过显式命令和模型配置选择性运行，但结果不阻断基础 CI。真实模式与对应离线场景使用同一 fixture 和 judge，只替换 client，不放宽容差；真实模型偏差可以使该次非门禁运行失败。
 
 其余 360 项保留为候选目录，不生成虚假的已验证状态。优先选择覆盖网络拒绝、确认拒绝、完成门控、MCP 降级/失败及代表性成功任务的场景。实现不新增评测框架依赖。
 
@@ -78,7 +78,7 @@ CLI/MCP 测试必须显式隔离 HOME 或配置根目录，任何测试都不得
 
 ### 7. 文件路径包含判定使用 canonical commonpath
 
-WebFetch 生成的 artifact 与 FileRead、FileWrite、FileList 均通过主进程现有 `_validate_path()` 先 realpath root/target，再用 `os.path.commonpath()` 判断包含关系；restricted audit hook 独立实施同一不变量。该规则必须正确处理 `allowed_root="/"`、不同驱动器、非法 NUL 路径和预置 artifact symlink 指向 root 外的情况。安全失败消息不得包含模型提供的绝对路径或宿主 canonical root；不新增共享策略模块。
+WebFetch 生成的直接子文件 artifact 与 FileRead、FileWrite、FileList 均通过主进程现有 `_validate_path()` 先 realpath root/target，再用 `os.path.commonpath()` 判断包含关系；restricted audit hook 独立实施同一不变量。该规则必须正确处理 `allowed_root="/"`、不同驱动器、非法 NUL 路径和预置同名 artifact symlink 指向 root 外的情况。当前 artifact filename 没有中间目录；通用后代/祖先 component 解析由 File 工具用例覆盖。安全失败消息不得包含模型提供的绝对路径或宿主 canonical root；不新增共享策略模块。
 
 FileWrite 使用 canonical target，因此替换模型最初提供的 symlink alias 不能改变写入位置；但宿主并发写者仍可在检查和打开之间替换 canonical target 本身或其祖先路径组件。完整消除需要跨平台 descriptor-relative 文件 API 重写，本 change 不采用 POSIX-only `openat/O_NOFOLLOW` 或 Linux-only `openat2`。该竞态作为 trusted 同进程代码、MCP 进程或宿主其他进程可触发的残余威胁记录，不把 File 工具描述为抵抗恶意宿主并发写者的 OS 级边界。
 

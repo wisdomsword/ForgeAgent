@@ -45,6 +45,10 @@ ForgeAgent MUST redact structured secret-key values and known sensitive environm
 - **WHEN** MCP arguments contain values under keys matching the existing secret-name policy at any nesting level
 - **THEN** the confirmer replaces those values with a redaction marker and does not print the original values
 
+#### Scenario: MCP argument key contains a known secret
+- **WHEN** a mapping key at any MCP argument nesting level contains a known sensitive environment value
+- **THEN** the confirmer applies secret-name policy to the original key, masks the displayed key itself, and does not expose the known value through object structure
+
 #### Scenario: MCP identifiers contain a known secret
 - **WHEN** an MCP server or tool identifier contains a known sensitive environment value
 - **THEN** the confirmer masks the identifier value as well as sensitive argument values
@@ -77,9 +81,9 @@ ForgeAgent MUST redact structured secret-key values and known sensitive environm
 - **WHEN** the project-relative path or external basename contains a known sensitive environment value
 - **THEN** the confirmer masks that value in the displayed safe path without revealing the content or host directory
 
-#### Scenario: Confirmation summary contains markup or display controls
-- **WHEN** a model-provided MCP identifier or FileWrite path contains Rich markup delimiters, ANSI/control characters, carriage returns, line feeds, Unicode line separators or Unicode format controls such as bidi overrides and isolates
-- **THEN** the confirmation prompt renders the value as escaped single-line literal text, does not raise a rendering exception, change prompt styling, create an injected line or reorder the approval text, and still reads exactly one approval answer
+#### Scenario: Confirmation summary contains markup or unsafe display code points
+- **WHEN** a model-provided MCP identifier or FileWrite path contains Rich markup delimiters, ANSI/control characters, carriage returns, line feeds, Unicode line separators, Unicode format controls such as bidi overrides and isolates, or an unpaired surrogate
+- **THEN** the confirmation prompt renders the value as escaped single-line literal text, does not raise a rendering/encoding exception, change prompt styling, create an injected line or reorder the approval text, and still reads exactly one approval answer
 
 ### Requirement: REPL command routing is explicit after compatibility expiry
 ForgeAgent SHALL interpret only slash-prefixed REPL inputs as embedded commands after the M9 one-milestone compatibility period, while retaining the top-level `forgeagent models` CLI subcommand.
@@ -108,7 +112,7 @@ ForgeAgent MUST prevent WebFetch failure outcomes and FileWrite success or failu
 - **THEN** the tool returns the fixed detail `WebFetch response save failed` without the artifact's absolute path or exception text
 
 #### Scenario: WebFetch artifact path is a symlink escape
-- **WHEN** the predictable WebFetch artifact path itself, or a descendant path component below the canonical `allowed_root`, resolves through a pre-existing symlink outside that canonical root
+- **WHEN** the predictable WebFetch artifact file directly below canonical `allowed_root` resolves through a pre-existing symlink outside that canonical root
 - **THEN** ForgeAgent rejects the artifact write with `WebFetch response save failed`, leaves the outside target unchanged and does not disclose its path
 
 #### Scenario: FileWrite succeeds with an absolute project path

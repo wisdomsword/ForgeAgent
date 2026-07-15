@@ -722,10 +722,10 @@ golden set 是**产品级功能验收**（任务能不能被正确完成），�
 
 | ID | 描述 | Pass 判定 |
 |---|---|---|
-| G329 | WebFetch 目标为 127.0.0.1/169.254.169.254 等私有/链路本地/云 metadata 地址（T10a 功能侧冒烟） | 结构化失败反馈含"blocked non-public address"等效原因；未发起真实 TCP 连接（插桩确认在 `_create_connection` 处被拦，非目标端口拒连） |
-| G330 | 重定向链后跳指向内网地址 | 两个本地 mock server 构造两跳重定向：第一跳通过校验，第二跳因目标非公网被 `SSRFGuardError` 拦截；插桩确认 `_create_connection` 恰好被调用两次，第二次抛出（不是第一跳放行后失控） |
+| G329 | WebFetch 目标为 127.0.0.1/169.254.169.254 等私有/链路本地/云 metadata 地址（T10a 功能侧冒烟） | 通过 confirmed `WebFetchTool` 调用 private/metadata literal，精确返回 `WebFetch blocked by network policy`；guarded connector 计数为 0，不发起真实 TCP 连接，也不依赖底层 guard 异常文本 |
+| G330 | 重定向链后跳指向内网地址 | 用 resolver/redirect/connection doubles 构造 public first hop 到 private second hop；第二跳在连接前被拒，connection double 证明未连接 private target；不绑定本地端口或启动真实 HTTP server |
 | G331 | WebFetch 目标为 `file://` URL | 结构化失败反馈的原因是 scheme 不支持（而非 SSRF 地址被拦），未发生任何文件系统读取副作用 |
-| G332 | restricted 档下 WebFetch 未经确认门批准 vs 批准后 | 无 confirmer 批准时返回"not approved"结构化失败且未发起网络请求；mock confirmer 返回 True 时同一 URL 抓取成功——确认门是 WebFetch 的真实安全边界（T10a） |
+| G332 | restricted 档下 WebFetch 未经确认门批准 vs 批准后 | 无 confirmer 时精确返回 `rejected: no interactive confirmation channel available`，fake network 计数为 0；mock confirmer 返回 True 时同一 URL 由 fake public response 成功完成，禁止真实 socket——确认门是 WebFetch 的真实安全边界（T10a） |
 | G333 | FileWrite 确认门非安全边界的对照验证 | restricted 档下确认门拒绝 FileWrite（不落盘）；随后一个 Exec 代码块对同一 allowed_root 内路径执行写入照常成功——证明真正边界是 project-root 锁定与 Exec 的 audit hook，不是确认门（§3.5 已裁决结论） |
 
 ### 代码修改/小型重构（新增 4：G334–G337）
@@ -846,4 +846,3 @@ golden set 是**产品级功能验收**（任务能不能被正确完成），�
 | **合计** | 100% | 15 | 15 | 50 | 120 | 100 | 20 | 20 | 40 | **380** | 100% |
 
 380 个整体与 §六.5 配比精确一致（152/95/76/38/19 = 40/25/20/10/5%，无需取整近似）。M9 新增覆盖三个正交增量（§一裁决 8 的覆盖要求）：**流式降级路径**（`--stream` 附终端走真流式 vs 非 TTY 自动降级为 `complete()`，中途断连收敛为 `ClientError`，G357-359/G375-377）、**多模态拒绝路径**（图片大小/数量上限、`supports_images=False` 的显式拒绝、提示注入兜底验证，G345-351/G362）、**指令路由**（`/model`/`/search`/`/image`/`/mcp`/`/help`/裸 `/` 菜单的行为与错误处理，G352-356/G364-366/G378-380）。流式/多模态相关断言优先用插桩的 `complete()`/`stream()` 互斥测试 double 驱动（证明分支选择而非仅凭输出吻合推断，延续 `tests/test_step.py` `_ScriptedStreamClient` 的验证模式），不依赖真实模型的流式行为差异；系统性安全断言（T11a-T11c）归 `tests/test_step.py`/`tests/test_web_search.py`/`tests/test_cli.py`，golden set 只保留上述功能侧冒烟，延续 G06/G14/G24/G333 一路的分工原则。
-

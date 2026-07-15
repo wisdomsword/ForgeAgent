@@ -34,8 +34,12 @@ ForgeAgent MUST return a non-zero CLI startup result when a required MCP server 
 - **THEN** the CLI reports a startup error, closes already-started MCP resources and exits non-zero before running the task
 
 #### Scenario: User changes a required server during an active REPL
-- **WHEN** the REPL has already started and the user explicitly disables or enables a server configured with `required: true`
+- **WHEN** the REPL has already started with an MCP manager because at least one server was enabled at startup, and the user explicitly disables or enables a server configured with `required: true`
 - **THEN** ForgeAgent updates and reports that server's runtime status without terminating the existing REPL session
+
+#### Scenario: Every configured server is disabled at startup
+- **WHEN** all MCP server entries are disabled when the CLI is assembled
+- **THEN** ForgeAgent starts without an MCP manager or loop, does not fail because a disabled server is required, and does not promise runtime enable from that manager-less session
 
 ### Requirement: MCP runtime holder ownership is loop-owned and generation-safe
 ForgeAgent MUST serialize holder desired-state reconciliation on the MCP loop thread, MUST store each holder slot as a generation-bound task plus stop event and each session as a generation-bound slot, MUST bind replacement intent to an exact generation separately from teardown state, and MUST prevent an older generation from removing, cancelling or mutating a newer generation's holder, session, status or tools.

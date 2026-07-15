@@ -148,7 +148,7 @@ network:
 
 `Confirmer = Callable[[BaseModel], bool]` 保持不变。CLI 内部增加一个小型 formatter，由 `make_console_confirmer()` 调用：
 
-- `MCPArgs`：显示经过 `mask_secrets()` 的 `server:tool`。arguments 递归遍历 dict/list；键名匹配现有 `is_secret_name()` 时，无论值长度都显示 `<redacted>`；其他字符串再用同一组 `sensitive_env_values()` 替换已知环境 secret value。server/tool 不是可信元数据，不能绕过提示脱敏。
+- `MCPArgs`：显示经过 `mask_secrets()` 的 `server:tool`。arguments 递归遍历 dict/list；原始键名匹配现有 `is_secret_name()` 时，无论值长度都显示 `<redacted>`；展示用 mapping key 本身也必须经过同一组 `sensitive_env_values()` 的 `mask_secrets()`，其他字符串 value 再替换已知环境 secret value。递归过程一次读取并传递 secret set，不能只保护 value 而让 secret 出现在 key。server/tool 不是可信元数据，不能绕过提示脱敏。
 - `WebFetchArgs`：通过 `urllib.parse` 清除 URL userinfo 和 fragment，替换敏感 query key 的值，再用 `mask_secrets()` 处理已知 secret value。path 在匹配前 percent-decode。hostname 先 percent-decode，再以 ASCII DNS 大小写不敏感语义执行一次从左到右、非重叠替换；候选 secret 按长度降序排列，确保同一位置优先匹配最长值。替换只作用于 hostname component，不对原始 URL 做正则改写。重建前重新编码 hostname；percent-decode 后产生的 `@`、`/`、`?`、`#` 等结构字符不得直接进入 netloc，无合法 hostname 表示时返回 `<redacted malformed URL>`。IPv6 身份由原始 netloc 是否使用方括号决定：只有原始 bracketed host 才允许解码后的 `:`，普通 DNS hostname 中 encoded `:` 视为 malformed；合法 IPv6 和 RFC 6874 zone-id 保留结构化方括号与编码。
 - `FileWriteArgs`：不回显 content。绝对路径在 cwd 内时显示项目相对路径，在 cwd 外时只显示 `.../<basename>`；相对路径保持规范化相对形式。安全路径摘要仍需经过 `mask_secrets()`，避免 basename 或相对路径段携带已知环境 secret。提示同时显示 `len(content)` 计算的字符数，并固定标记为 `characters`，不得误标为 bytes。
 - 其他 `BaseModel`：只显示类型名，避免访问不存在的字段或意外回显敏感数据。
@@ -173,12 +173,12 @@ WebFetch formatter 在一次调用开始时只读取一次 `sensitive_env_values
 实施期 thorough review 发现确认后的工具结果同样会进入 Step feedback 和 CLI console。用户于 2026-07-13 选择把该问题纳入当前 change，并批准固定安全结果消息方案：
 
 - WebFetch 捕获 `SSRFGuardError` 时返回固定 `WebFetch blocked by network policy`；打开、读取或关闭响应时发生 `OSError`、`http.client.HTTPException` 或非法 URL `ValueError` 时返回固定 `WebFetch request failed`；artifact 写入 `OSError` 返回固定 `WebFetch response save failed`。不得把底层异常、原始 URL、hostname 或宿主路径写入 `ToolOutcome.detail`。
-- WebFetch 的可预测 artifact 名称在写入前必须交给 `_validate_path()`，并使用其返回的 canonical target 写入；预置 artifact symlink 或 canonical root 之下的后代 symlink component 指向 root 外时返回 `WebFetch response save failed`，不得触碰外部目标。`allowed_root` 自身可以是用户明确配置的 symlink alias，其 `realpath` 才是授权根。该检查与 FileWrite 共享现有函数，不新增 artifact policy 层。
+- WebFetch 的可预测 artifact 名称直接位于 `allowed_root`，写入前必须交给 `_validate_path()`，并使用其返回的 canonical target；预置同名 artifact symlink 指向 root 外时返回 `WebFetch response save failed`，不得触碰外部目标。`allowed_root` 自身可以是用户明确配置的 symlink alias，其 `realpath` 才是授权根。通用后代/祖先 symlink component 解析继续由 File 工具的 `_validate_path()` 用例覆盖；当前 artifact filename 不虚构不存在的中间目录。该检查与 FileWrite 共享现有函数，不新增 artifact policy 层。
 - FileWrite 通过 project-root 校验并成功写入后，只返回由已解析目标相对 canonical `allowed_root` 计算出的 project-relative 路径：`base = Path(os.path.realpath(ctx.allowed_root))`，再对 `_validate_path()` 返回的 `resolved` 使用 `relative_to(base)`。不复用模型提供的原始路径，也不假定 `ctx.allowed_root` 已经是绝对路径。
 - FileWrite 写入阶段发生 `OSError` 或路径语法产生 `ValueError` 时返回固定 `FileWrite failed`。越界、无交互通道和用户拒绝继续使用既有固定消息。
 - FileRead/FileList 的路径校验和文件系统失败分别返回固定 `FileRead failed` / `FileList failed`，不回显异常文本、模型提供的绝对路径或 canonical root。MCP 结果契约和全局 `mask_secrets()` 行为保持不变。
 - 不新增通用 result sanitizer。固定消息牺牲部分底层诊断细节，以避免平台相关异常字符串重新引入 URL、hostname 或宿主绝对路径泄漏。
-- 确认摘要最终作为 Rich `Text` 的 literal segment 输出，不把完整 f-string 交给 markup parser。MCP identifier 和 FileWrite display path 在 secret masking 后还要规范为单行可见文本：C0/C1、DEL、CR/LF、Unicode line/paragraph separator，以及 Unicode category `Cf` 的格式控制符（含 bidi embedding/override/isolate 与 directional marks）使用 `\\xNN`/`\\uNNNN`/`\\UNNNNNNNN` 转义；普通 `[`/`]` 保持字面值。这样模型内容既不能闭合样式标签、伪造第二行提示，也不能用不可见方向控制重排审批文本。该 helper 只服务确认显示，不扩展为通用 sanitizer。
+- 确认摘要最终作为 Rich `Text` 的 literal segment 输出，不把完整 f-string 交给 markup parser。MCP identifier 和 FileWrite display path 在 secret masking 后还要规范为单行可见文本：C0/C1、DEL、CR/LF、Unicode line/paragraph separator、Unicode category `Cf` 的格式控制符（含 bidi embedding/override/isolate 与 directional marks），以及 category `Cs` 的未配对 surrogate，使用 `\\xNN`/`\\uNNNN`/`\\UNNNNNNNN` 转义；普通 `[`/`]` 保持字面值。这样模型内容既不能闭合样式标签、伪造第二行提示、用不可见方向控制重排审批文本，也不能在 UTF-8 终端编码阶段触发审批前崩溃。该 helper 只服务确认显示，不扩展为通用 sanitizer。
 
 测试必须覆盖：percent-encoded、大小写变化和重叠的 hostname secret；encoded `@`、`/`、`?`、`#`、`:`；普通 IPv6 与 zone-id 字面量；userinfo/fragment 丢弃；hostname 局部 helper 与 path/query 全局 `mask_secrets()` 不重复或漏脱敏；携带原始 URL/hostname 的 WebFetch guard/network/HTTP protocol 异常；WebFetch artifact 写入异常包含绝对路径；预置 artifact symlink/ancestor 指向 root 外且外部目标不变；FileWrite 使用绝对路径和相对 `allowed_root="."` 时只回显 canonical project-relative 路径；FileRead/FileWrite/FileList 的越界、非法路径和文件系统异常不回显宿主路径。失败结果还需通过现有 Step feedback 与 CLI `render_outcome()` 路径验证不再泄漏。
 
@@ -417,7 +417,9 @@ runner preflight 必须验证：
 
 离线模式只使用本地 fixture：进入 Agent 循环的场景使用 MockClient；网络、CLI、Tool、RestrictedBackend 和 MCP 生命周期等边界场景可以直接调用对应入口及本地 test double，而不伪造一次无意义的模型轮次。基础运行不得访问公网、Docker、真实模型配置或用户 home。
 
-G13 的离线脚本在工具失败/成功轮携带提前 `completed: true`，同时验证错误反馈环和严格两阶段完成。G03 judge 必须解析并逐行核对扁平 CSV；G05 必须用运行时插桩证明第二块调用 `get_state()` 且副作用恰好一次；G08 必须核对给定测试文件 hash 不变；G15 必须同时验证 Edit version+1、旧历史保留、仅目标 diff 和 AST；G27 必须验证初始 FAIL、最终 PASS 和 Edit 版本链。最终值或测试通过只是这些场景的必要条件，不是充分条件。MCP required/close 的细粒度故障矩阵保留在专项测试；G355 只承担产品级状态/工具目录和 optional 降级冒烟。
+standalone runner 还必须在配置敏感 import 之前建立隔离边界。`tests/golden/__init__.py` 保持无副作用，`runner.py` 顶层只导入标准库；offline `main()` 解析参数后先创建临时 home并临时设置 `HOME`、`USERPROFILE`、`XDG_CONFIG_HOME`，再 local-import manifest、cases、CLI、MCP 和模型配置相关模块，完成 suite/report 后恢复环境。测试从一个含恶意 `~/.forgeagent/mcp.yaml` 的父环境启动真实子进程，证明该文件既不会被 import-time default path 捕获，也不会影响 20 项结果。real opt-in 可以消费显式模型/凭证环境，但不能让 offline 路径提前 import 配置敏感模块。
+
+G13 的离线脚本在工具失败/成功轮携带提前 `completed: true`，同时验证错误反馈环和严格两阶段完成。G03 judge 必须解析并逐行核对扁平 CSV；G05 必须用运行时插桩证明第二块调用 `get_state()` 且副作用恰好一次；G08 必须核对给定测试文件 hash 不变；G15 必须同时验证 Edit version+1、旧历史保留、仅目标 diff 和 AST；G27 必须验证初始 FAIL、最终 PASS 和 Edit 版本链。G329 通过 confirmed `WebFetchTool` 精确断言固定 network-policy outcome 和零 connector；G330 用 resolver/redirect/connection doubles 验证第二跳私网在连接前拒绝；G332 无 confirmer 时精确断言 no-channel outcome 和零 fake-network 调用，批准分支只使用 fake public response。最终值或测试通过只是这些场景的必要条件，不是充分条件。MCP required/close 的细粒度故障矩阵保留在专项测试；G355 只承担产品级状态/工具目录和 optional 降级冒烟。
 
 现有 `test_mock_replay_e2e.py` 的 G01/G05/G13 逻辑迁移到 cases 供 runner 与 pytest 共享，不复制一套脚本和 judge。
 
@@ -451,7 +453,7 @@ runner 本里程碑明确顺序执行，不承诺多个进程同时写同一个 
 | MCP lifecycle - startup transaction | Thread.start 抛错、start 后 gate release 在 set 前/后抛 KeyboardInterrupt/SystemExit、initial holder submission/result 异常、多个 hung holder、join timeout | cancel-aware gate→loop stop→bounded join；停止后 rollback 为可重试状态；ready timeout 不随 server 数量线性增长；仍活时保留 refs/closed warning；普通异常固定 startup error，原控制异常不被替换 |
 | MCP close | 正常、完全忽略 stop、lifecycle cancel/内部异常、重复 close、结果保留、thread join 超时 warning、join 期间 completion、公开 deadline 后 finalizer 完成、延迟停止后再次 close | 绝对 deadline 内返回；future timeout cancel 并保留引用；loop drain 可越过 caller deadline但 finalizer 完成后才 stop；单个 cancel/cleanup 异常不跳过其他 slot或伪造 completion；同次 join 后重读 completion；cleanup complete + thread stopped 后才 close/clear；PID 消失；warning 无敏感参数；原结果不被覆盖 |
 | 测试隔离 | 真实 home 放置恶意 mcp.yaml 后运行 suite | 测试只读取临时 home，结果不变 |
-| 黄金 runner | manifest 变异、20 pass、单项 fail、preflight fail | ID/数量锁定；JSON/Markdown 同源；退出码 0/1/2 |
+| 黄金 runner | manifest 变异、standalone 恶意 HOME、20 pass、单项/非法 evidence fail、preflight fail | 配置敏感 import 前隔离 home；ID/数量锁定；非标准 JSON evidence 只失败单项；JSON/Markdown 同源；退出码 0/1/2 |
 | 真实模型入口 | 缺配置、有效单模型 | 缺配置无报告且退出 2；只执行 5 项 |
 
 ## 11. 文档与迁移

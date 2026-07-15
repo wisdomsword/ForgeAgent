@@ -7,6 +7,10 @@ ForgeAgent SHALL maintain a trusted core manifest containing exactly G01, G03, G
 - **WHEN** the golden core command runs in an isolated environment with no network or model credentials
 - **THEN** all 20 scenarios execute and each produces an automatic pass or fail result
 
+#### Scenario: Standalone offline entry ignores user configuration before imports
+- **WHEN** the standalone golden command is launched with a parent home containing a hostile `.forgeagent/mcp.yaml`
+- **THEN** it installs a temporary HOME, USERPROFILE and XDG_CONFIG_HOME before importing manifest, cases, CLI, MCP or model configuration modules, executes without reading the hostile file, and leaves the parent process environment unchanged
+
 #### Scenario: Manifest selection is validated
 - **WHEN** the golden runner performs preflight validation
 - **THEN** it rejects duplicate, missing, additional or substituted scenario IDs before executing the suite
