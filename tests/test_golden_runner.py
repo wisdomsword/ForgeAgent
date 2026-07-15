@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from enum import IntEnum
 from pathlib import Path
 
@@ -13,6 +14,7 @@ import pytest
 
 from forgeagent.client import MockClient
 from forgeagent.models import ClientError
+from forgeagent.runtime import Runtime
 from tests.golden import cases
 from tests.golden.manifest import GOLDEN_SCENARIOS, GoldenCheckError, GoldenEvidence, GoldenScenario
 from tests.golden.runner import (
@@ -229,6 +231,58 @@ def test_g05_rejects_conditional_hardcode_with_counterfactual_fallback(tmp_path)
         cases._run_g05_case(tmp_path, client)
 
 
+def test_g05_model_code_cannot_call_the_recorder_or_forge_sink_evidence(tmp_path):
+    backend = cases._ObservedRestrictedBackend(tmp_path)
+    runtime = Runtime()
+    first = backend.execute(cases._g05_first_block(tmp_path), runtime)
+    second = backend.execute(
+        "value = int(utils.get_state('subtotal'))\n"
+        "_golden_record('sink', 50)\n"
+        "print(50 if value == 42 else value + 8)",
+        runtime,
+    )
+
+    assert first.success
+    assert not second.success
+    assert "NameError" in (second.error or "")
+    assert "_golden_record" in (second.error or "")
+    assert not [item for item in backend.observations() if item.get("kind") == "sink"]
+
+
+def test_g05_causal_probe_does_not_leave_directories_or_symlinks_in_workdir(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    probe_directory = tmp_path / "probe-only-directory"
+    probe_symlink = tmp_path / "probe-only-symlink"
+    second_block = (
+        "from pathlib import Path\n"
+        "import os\n"
+        "value = int(utils.get_state('subtotal'))\n"
+        "if value != 42:\n"
+        "    Path('probe-only-directory').mkdir(exist_ok=True)\n"
+        "    os.symlink('probe-only-directory', 'probe-only-symlink')\n"
+        "print(50 if value == 42 else value + 8)"
+    )
+    client = MockClient(
+        script=[
+            cases._reply(cases._exec(cases._g05_first_block(tmp_path), name="compute")),
+            cases._reply(cases._exec(second_block, name="finish")),
+            cases._reply(cases._done()),
+        ]
+    )
+
+    try:
+        with pytest.raises(GoldenCheckError):
+            cases._run_g05_case(tmp_path, client)
+        probe_artifacts_persisted = probe_directory.exists() or probe_symlink.is_symlink()
+    finally:
+        if probe_symlink.is_symlink():
+            probe_symlink.unlink()
+        if probe_directory.exists():
+            probe_directory.rmdir()
+
+    assert not probe_artifacts_persisted
+
+
 def test_g08_rejects_editing_the_provided_test_instead_of_fixing_source(tmp_path):
     code = (
         "from pathlib import Path\n"
@@ -254,12 +308,54 @@ def test_g08_rejects_source_that_exits_zero_before_assertions_complete(tmp_path)
         cases._run_g08_case(tmp_path, client)
 
 
-def test_g08_subprocess_timeout_is_a_fixed_golden_failure(tmp_path):
-    test_file = tmp_path / "hang.py"
-    test_file.write_text("while True:\n    pass\n", encoding="utf-8")
+def test_g08_restricted_test_execution_blocks_out_of_root_source_side_effect(tmp_path):
+    workdir = tmp_path / "scenario"
+    external_target = tmp_path / "outside.txt"
+    external_target.write_text("unchanged", encoding="utf-8")
+    source = workdir / "calculator.py"
+    generated_source = (
+        "from pathlib import Path\n"
+        f"Path({str(external_target)!r}).write_text('changed', encoding='utf-8')\n"
+        "def clamp(value, lower, upper):\n"
+        "    return min(max(value, lower), upper)\n"
+    )
+    code = (
+        "from pathlib import Path\n"
+        f"Path({str(source)!r}).write_text({generated_source!r}, encoding='utf-8')\n"
+    )
+    client = MockClient(script=[cases._reply(cases._exec(code)), cases._reply(cases._done())])
 
-    with pytest.raises(GoldenCheckError, match="G08 test subprocess timed out"):
-        cases._run_python_test(tmp_path, test_file.name, timeout_seconds=0.05)
+    with pytest.raises(GoldenCheckError, match="provided tests did not pass"):
+        cases._run_g08_case(workdir, client)
+
+    assert external_target.read_text(encoding="utf-8") == "unchanged"
+
+
+def test_g08_test_timeout_is_fixed_and_restricted_worker_is_reaped(tmp_path):
+    test_file = tmp_path / "hang.py"
+    pid_file = tmp_path / "worker.pid"
+    test_file.write_text(
+        "import os\n"
+        "from pathlib import Path\n"
+        f"Path({str(pid_file)!r}).write_text(str(os.getpid()), encoding='utf-8')\n"
+        "while True:\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(GoldenCheckError, match="G08 test execution timed out"):
+        cases._run_python_test(tmp_path, test_file.name, timeout_seconds=1.0)
+
+    worker_pid = int(pid_file.read_text(encoding="utf-8"))
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline:
+        try:
+            os.kill(worker_pid, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.01)
+    else:
+        pytest.fail(f"restricted worker {worker_pid} survived the G08 timeout")
 
 
 def test_g13_rejects_when_failed_tool_feedback_is_not_sent_to_round_two(tmp_path, monkeypatch):

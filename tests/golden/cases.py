@@ -7,15 +7,14 @@ import csv
 import hashlib
 import json
 import secrets
-import subprocess
-import sys
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 from forgeagent.client import MockClient, ModelClient
-from forgeagent.executor import RestrictedBackend
+from forgeagent.executor import ExecResult, RestrictedBackend
 from forgeagent.models import (
     AssistantMessage,
     ClientError,
@@ -242,88 +241,102 @@ class _ObservedRestrictedBackend(RestrictedBackend):
         self._executions = 0
         self._marker = secrets.token_hex(24)
         self._marker_file = workdir / ".g05-observation.jsonl"
-        self._probe_marker_file = workdir / ".g05-causal-probe.jsonl"
         self._probe_state = secrets.randbelow(1_000_000) + 1_000
         self._probe_stdout = ""
         self._probe_observations: list[dict[str, object]] = []
 
     def execute(self, code: str, runtime: Runtime):
         if self._executions == 1:
-            snapshot = self._snapshot_workdir()
-            probe_backend = RestrictedBackend(allowed_root=self._allowed_root, secret_values=set())
-            probe_runtime = Runtime({"subtotal": self._probe_state})
-            try:
+            with TemporaryDirectory(prefix="forgeagent-g05-replay-") as replay_directory:
+                replay_root = Path(replay_directory)
+                replay_marker_file = replay_root / ".g05-causal-probe.jsonl"
+                probe_backend = RestrictedBackend(
+                    allowed_root=str(replay_root), secret_values=set()
+                )
+                probe_runtime = Runtime({"subtotal": self._probe_state})
                 probe = probe_backend.execute(
-                    self._instrument(code, marker_file=self._probe_marker_file),
+                    self._instrument(
+                        code,
+                        marker_file=replay_marker_file,
+                        execution_root=replay_root,
+                    ),
                     probe_runtime,
                 )
                 self._probe_stdout = probe.stdout.strip() if probe.success else ""
-                self._probe_observations = self._read_observations(self._probe_marker_file)
-            finally:
-                self._restore_workdir(snapshot)
+                self._probe_observations = self._read_observations(replay_marker_file)
         self._executions += 1
         if self._executions == 2:
-            code = self._instrument(code, marker_file=self._marker_file)
+            code = self._instrument(
+                code,
+                marker_file=self._marker_file,
+                execution_root=self._workdir,
+            )
         return super().execute(code, runtime)
 
-    def _instrument(self, code: str, *, marker_file: Path) -> str:
-        prefix = f"""
-import json as _golden_json
-_golden_marker_file = {str(marker_file)!r}
-_golden_marker = {self._marker!r}
-_golden_original_get_state = utils.get_state
-def _golden_record(kind, payload):
-    with open(_golden_marker_file, 'a', encoding='utf-8') as _golden_handle:
-        _golden_handle.write(_golden_json.dumps(
-            {{'marker': _golden_marker, 'kind': kind, 'payload': payload}}
-        ) + '\\n')
-class _GoldenTaintedNumber:
-    def __init__(self, value, derived=False):
-        self.value = value
-        self.derived = derived
-    def _used(self):
-        _golden_record('use', self.value)
-    def __add__(self, other):
-        self._used()
-        return _GoldenTaintedNumber(self.value + other, derived=True)
-    def __radd__(self, other):
-        self._used()
-        return _GoldenTaintedNumber(other + self.value, derived=True)
-    def __int__(self):
-        self._used()
-        return int(self.value)
-    def __float__(self):
-        self._used()
-        return float(self.value)
-    def __str__(self):
-        if self.derived:
-            _golden_record('sink', self.value)
-        else:
+    def _instrument(self, code: str, *, marker_file: Path, execution_root: Path) -> str:
+        return f"""
+def _golden_execute_model_block():
+    import json
+    import os
+
+    marker_file = {str(marker_file)!r}
+    marker = {self._marker!r}
+    original_get_state = utils.get_state
+
+    def record(kind, payload):
+        with open(marker_file, 'a', encoding='utf-8') as handle:
+            handle.write(json.dumps(
+                {{'marker': marker, 'kind': kind, 'payload': payload}}
+            ) + '\\n')
+
+    class TaintedNumber:
+        def __init__(self, value, derived=False):
+            self.value = value
+            self.derived = derived
+
+        def _used(self):
+            record('use', self.value)
+
+        def __add__(self, other):
             self._used()
-        return str(self.value)
-def _golden_get_state(key, default=None):
-    value = _golden_original_get_state(key, default)
-    _golden_record('read', {{'key': key, 'value': value}})
-    return _GoldenTaintedNumber(value)
-utils.get_state = _golden_get_state
+            return TaintedNumber(self.value + other, derived=True)
+
+        def __radd__(self, other):
+            self._used()
+            return TaintedNumber(other + self.value, derived=True)
+
+        def __int__(self):
+            self._used()
+            return int(self.value)
+
+        def __float__(self):
+            self._used()
+            return float(self.value)
+
+        def __str__(self):
+            if self.derived:
+                record('sink', self.value)
+            else:
+                self._used()
+            return str(self.value)
+
+    class WrappedUtils:
+        def get_state(self, key, default=None):
+            value = original_get_state(key, default)
+            record('read', {{'key': key, 'value': value}})
+            return TaintedNumber(value)
+
+    os.chdir({str(execution_root)!r})
+    model_globals = {{
+        '__builtins__': __builtins__,
+        '__name__': '__forgeagent_block__',
+        'utils': WrappedUtils(),
+    }}
+    exec(compile({code!r}, '<forgeagent-model-block>', 'exec'), model_globals, model_globals)
+
+_golden_execute_model_block()
+del _golden_execute_model_block
 """
-        return prefix + "\n" + code
-
-    def _snapshot_workdir(self) -> dict[Path, bytes]:
-        return {
-            path.relative_to(self._workdir): path.read_bytes()
-            for path in self._workdir.rglob("*")
-            if path.is_file() and not path.is_symlink()
-        }
-
-    def _restore_workdir(self, snapshot: dict[Path, bytes]) -> None:
-        for path in self._workdir.rglob("*"):
-            if path.is_file() and path.relative_to(self._workdir) not in snapshot:
-                path.unlink()
-        for relative, content in snapshot.items():
-            path = self._workdir / relative
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(content)
 
     def _read_observations(self, marker_file: Path) -> list[dict[str, object]]:
         if not marker_file.exists():
@@ -433,21 +446,22 @@ print("G08 assertions completed")
 G08_TEST_WITNESS = "G08 assertions completed"
 
 
-def _run_python_test(
-    workdir: Path, filename: str, *, timeout_seconds: float = 5.0
-) -> tuple[int, str]:
-    try:
-        completed = subprocess.run(
-            [sys.executable, filename],
-            cwd=workdir,
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=timeout_seconds,
-        )
-    except subprocess.TimeoutExpired as exc:
-        _invalid("G08 test subprocess timed out", exc)
-    return completed.returncode, completed.stdout
+def _run_python_test(workdir: Path, filename: str, *, timeout_seconds: float = 5.0) -> ExecResult:
+    test_path = workdir / filename
+    code = (
+        "import os, runpy, sys\n"
+        f"os.chdir({str(workdir)!r})\n"
+        f"sys.path.insert(0, {str(workdir)!r})\n"
+        f"runpy.run_path({str(test_path)!r}, run_name='__main__')\n"
+    )
+    result = RestrictedBackend(
+        allowed_root=str(workdir),
+        timeout_seconds=timeout_seconds,
+        secret_values=set(),
+    ).execute(code, Runtime())
+    timeout_error = f"execution timed out after {timeout_seconds}s (process killed)"
+    require(result.error != timeout_error, "G08 test execution timed out")
+    return result
 
 
 def _run_g08_case(workdir: Path, client: ModelClient) -> GoldenEvidence:
@@ -457,8 +471,8 @@ def _run_g08_case(workdir: Path, client: ModelClient) -> GoldenEvidence:
     source.write_text(G08_INITIAL_CODE, encoding="utf-8")
     test_file.write_text(G08_TEST_CODE, encoding="utf-8")
     before_hash = hashlib.sha256(test_file.read_bytes()).hexdigest()
-    before_exit, _ = _run_python_test(workdir, test_file.name)
-    require(before_exit != 0, "G08 provided tests did not fail before the fix")
+    before_result = _run_python_test(workdir, test_file.name)
+    require(not before_result.success, "G08 provided tests did not fail before the fix")
     goal = (
         f"Fix the boundary bug in {source} so the provided test {test_file} passes. "
         "Do not modify the test file. Execute the fix and verification before completing."
@@ -467,11 +481,17 @@ def _run_g08_case(workdir: Path, client: ModelClient) -> GoldenEvidence:
     _require_completed(outcome, "G08")
     after_hash = hashlib.sha256(test_file.read_bytes()).hexdigest()
     require(after_hash == before_hash, "G08 test file hash changed")
-    after_exit, after_stdout = _run_python_test(workdir, test_file.name)
-    require(after_exit == 0, "G08 provided tests did not pass after the fix")
+    after_result = _run_python_test(workdir, test_file.name)
+    if after_result.error and "sandbox worker failed (exit 0)" in after_result.error:
+        require(False, "G08 test completion witness is missing")
+    require(after_result.success, "G08 provided tests did not pass after the fix")
     require(
-        after_stdout.splitlines() == [G08_TEST_WITNESS],
+        after_result.stdout.splitlines() == [G08_TEST_WITNESS],
         "G08 test completion witness is missing",
+    )
+    require(
+        hashlib.sha256(test_file.read_bytes()).hexdigest() == before_hash,
+        "G08 test file hash changed",
     )
     return _evidence(
         detail="bug fix preserved the provided tests",
