@@ -446,3 +446,12 @@
 - TDD mode: `tdd`; RED and GREEN evidence are required before review.
 - Allowed implementation files: `tests/golden/cases.py`, `tests/golden/manifest.py`, `tests/test_mock_replay_e2e.py`, `tests/test_golden_runner.py` only.
 - Risk signals: machine-judged acceptance logic, shared offline/real fixtures, restricted subprocess execution, mutation-resistant Edit/state/test-hash assertions, and an expected diff over 200 lines.
+- Coordinator design correction: `abf3448` strengthens G05 from a use marker alone to a random alternate-state causal replay; strict OpenSpec validation passed.
+- Implementation commit: `bc50e55` (`test: implement trusted golden task core`).
+- Implementer report: `.superpowers/sdd/task-8-report.md`; focused GREEN `54 passed`; standalone runner `10 passed / 10 pending`, expected exit `1`; Ruff check/format and diff check passed.
+- Coordinator verification before review: focused Task 8 `54 passed`; mutation-focused G05/G08/G15/G27/real-preflight `7 passed`; full pytest with RuntimeWarning promoted to failure `748 passed, 13 skipped`; full Ruff passed.
+- Reviewer: `019f645e-3308-7d93-b9e9-f18c35e873f8` (`Newton`).
+- Review result: changes requested. Accepted findings: G05 lacks a derived-output sink marker; G15/G27 do not bind exact Edit arguments; G27 does not bind the final successful Exec to `target`; G13 does not prove failed feedback reaches the next client request; G08 lacks a post-assertion witness and subprocess timeout; G01/G43 accept wrong JSON scalar types; real preflight does not check environment after `main()` returns.
+- Review adjudication: the suggested one-probe conditional example is addressed with taint propagation from `+8` to the actual stdout sink, not with source heuristics or unbounded extra probes. This retains the random counterfactual and rejects conversion/branch/dead-add hard-coded output.
+- Stage: `fixing`; review/fix round: `1/2`.
+- Fix agent: `019f6467-e5e4-7741-9e3f-6878ff3ca2a2` (`Ptolemy`).
