@@ -1946,12 +1946,62 @@ def test_repl_bare_former_commands_run_as_goals(goal, monkeypatch):
     assert seen == [goal]
 
 
-def test_repl_non_tty_rejects_restricted_call_without_reading_confirmation(monkeypatch):
+class _NonAutoApprovedMCP:
+    """MCP stub for the real REPL/Task/Tool path; calls must stay blocked."""
+
+    def __init__(self):
+        self.auto_approval_checks: list[tuple[str, str]] = []
+        self.calls: list[tuple[str, str, dict]] = []
+
+    def tools_prompt(self):
+        return ""
+
+    def is_auto_approved(self, server, tool):
+        self.auto_approval_checks.append((server, tool))
+        return False
+
+    def call_tool(self, server, tool, arguments):
+        self.calls.append((server, tool, arguments))
+        return {"ok": True, "text": "unexpected MCP execution"}
+
+    def close(self):
+        pass
+
+
+@pytest.mark.parametrize(
+    ("scenario", "tool_call", "uses_mcp"),
+    [
+        (
+            "web fetch",
+            '<!-- ToolCall: {"name":"WebFetch","arguments":{"url":"https://example.com"}} -->',
+            False,
+        ),
+        (
+            "file write",
+            '<!-- ToolCall: {"name":"FileWrite","arguments":'
+            '{"path":"blocked.txt","content":"should not be written"}} -->',
+            False,
+        ),
+        (
+            "non-auto-approved MCP",
+            '<!-- ToolCall: {"name":"MCP","arguments":'
+            '{"server":"fake","tool":"write","arguments":{"value":"x"}}} -->',
+            True,
+        ),
+    ],
+    ids=["web-fetch", "file-write", "mcp"],
+)
+def test_repl_non_tty_rejects_restricted_calls_and_continues(
+    monkeypatch, scenario, tool_call, uses_mcp
+):
     import forgeagent.cli as cli_module
 
-    inputs = iter(["fetch", "second goal", "quit"])
+    first_goal = f"trigger {scenario}"
+    inputs = iter([first_goal, "second goal", "quit"])
     seen_goals: list[str] = []
+    outcomes: dict[str, TaskOutcome] = {}
     confirmation_reads = 0
+    fake_mcp = _NonAutoApprovedMCP() if uses_mcp else None
 
     def read_line(prompt):
         nonlocal confirmation_reads
@@ -1960,29 +2010,23 @@ def test_repl_non_tty_rejects_restricted_call_without_reading_confirmation(monke
             raise AssertionError("confirmation reader must not run without a TTY")
         return next(inputs)
 
+    real_run_once = cli_module.run_once
+
     def run_goal(goal, **kwargs):
         seen_goals.append(goal)
-        if goal == "fetch":
-            assert kwargs["confirmer"] is None
-            return run_once(
-                goal,
-                tier="restricted",
-                model="claude-sonnet-5",
-                client_factory=_factory(
-                    [
-                        _reply(
-                            '<!-- ToolCall: {"name":"WebFetch","arguments":'
-                            '{"url":"https://example.com"}} -->'
-                        ),
-                        _reply(_done()),
-                    ]
-                ),
-                console=_console(),
-                confirmer=kwargs["confirmer"],
-            )
-        return None
+        assert kwargs["confirmer"] is None
+        script = [_reply(tool_call), _reply(_done())] if goal == first_goal else [_reply(_done())]
+        outcome = real_run_once(
+            goal,
+            **{
+                **kwargs,
+                "client_factory": lambda model: MockClient(script=script),
+            },
+        )
+        outcomes[goal] = outcome
+        return outcome
 
-    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda console: None)
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda console: fake_mcp)
     monkeypatch.setattr(cli_module, "run_once", run_goal)
     cli_module.repl(
         tier="restricted",
@@ -1990,11 +2034,19 @@ def test_repl_non_tty_rejects_restricted_call_without_reading_confirmation(monke
         client_factory=_factory([]),
         console=_console(),
         read_line=read_line,
-        confirmation_available=False,
     )
 
+    first_round = outcomes[first_goal].rounds[0]
+    assert len(first_round.outcomes) == 1
+    assert first_round.outcomes[0].detail == (
+        "rejected: no interactive confirmation channel available"
+    )
     assert confirmation_reads == 0
-    assert seen_goals == ["fetch", "second goal"]
+    assert seen_goals == [first_goal, "second goal"]
+    assert outcomes["second goal"].status.completed is True
+    if fake_mcp is not None:
+        assert fake_mcp.auto_approval_checks == [("fake", "write")]
+        assert fake_mcp.calls == []
 
 
 def test_repl_explicit_tty_confirmation_uses_injected_read_line(monkeypatch):
