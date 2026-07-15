@@ -356,3 +356,15 @@
 - Final review result: approved with no Critical, Important or Minor findings. Independent mutation rechecks failed as expected and restored focused suite reported `191 passed`.
 - Changed files: `src/forgeagent/tools.py`, `tests/test_web_file_tools.py`.
 - Residual risk: the documented hostile-host concurrent pathname-open TOCTOU remains; no platform-specific fd API was added.
+
+## Completed Task 6
+
+- Plan tasks: `6A`, `6B`, `6C`; OpenSpec mappings `4.4`, `4.5`, `4.6` complete.
+- Stage: `done` after the user-approved structural generation/loop-owned redesign and repeated independent review.
+- Core implementation commits after the redesign: `d7ebecd`, `819074e`, `c0a877d`, `c1c88fd`, `8dc62c5`, `c425a2c`, `7accf0c`, `31c6172`, and `9e711e5` plus the earlier shutdown foundation commits recorded above.
+- Final caller-control repair: `c425a2c` unified ordinary-primary/control-cleanup precedence; a real-loop probe then proved direct control raises from loop tasks killed `run_forever()`. `7accf0c` transports lifecycle controls as private results to the synchronous caller and isolates holder/finalizer controls as fixed unavailable state. RED showed thread death, wrong `TimeoutError`, and unretrieved warnings; GREEN real-loop matrix preserved exact identity and loop usability.
+- Final SDK-call repair: `31c6172` isolates `KeyboardInterrupt`/`SystemExit` raised by `session.call_tool()` as type-only structured current-generation failure, preserves `CancelledError`, tears down the exact holder without implicit restart, and leaves the loop alive. Independent reviewer `019f63b2-f224-7653-8585-322acc954e48` (`Chandrasekhar`) approved with no findings.
+- CLI integration: `0492b4d` returns before constructing a manager for all-disabled config and renders fixed masked Rich-literal pending output for `/mcp` timeouts. Reviewer `019f6397-49b6-7102-91c9-d0098e43f859` (`Darwin`) approved. Holistic reviewer `019f63c0-a812-7ba1-823a-f3bef863318b` (`Hegel`) then found real `enable()` swallowed its timeout; `9e711e5` removed that swallow and added real blocked-loop manager/CLI integration tests. Final reviewer `019f63e1-b1e9-7eb3-ad2b-651f5dc21435` (`Franklin`) approved with no findings.
+- Final coordinator evidence: MCP+CLI `257 passed, 1 skipped`; full suite `682 passed, 13 skipped`; both ran with `RuntimeWarning` and `PytestUnraisableExceptionWarning` promoted to errors. Repository Ruff lint passed; all seven Task 6-owned Python files passed format check; strict OpenSpec validation and `git diff --check` passed.
+- Skip evidence: one explicitly slow historical MCP hang test; ten Docker capability skips; one local bind capability skip; one outbound-network capability skip.
+- Residual risk: a synchronously hard-stuck daemon loop may temporarily retain transport/FD/child-process resources after the public deadline; references and sanitized warning remain for bounded repeated close, as documented. No Python thread force-kill is claimed.
