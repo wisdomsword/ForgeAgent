@@ -1008,6 +1008,68 @@ def test_disable_facade_timeout_does_not_discard_queued_lifecycle_intent():
             loop.close()
 
 
+def test_enable_facade_timeout_delivers_intent_and_closes_cleanly(monkeypatch):
+    mgr = MCPManager(
+        {"pending": MCPServerConfig(command="unused")},
+        connect_timeout=-4.98,
+        shutdown_timeout=0.03,
+        thread_join_timeout=0.02,
+    )
+    loop = asyncio.new_event_loop()
+    loop_messages = []
+    loop.set_exception_handler(lambda _loop, context: loop_messages.append(context["message"]))
+    thread = threading.Thread(target=loop.run_forever, daemon=True)
+    blocked = threading.Event()
+    release = threading.Event()
+    intent_ran = threading.Event()
+    mgr._loop = loop
+    mgr._thread = thread
+
+    async def holder(name, generation, ready, stop):
+        intent_ran.set()
+        ready.set()
+        await stop.wait()
+
+    def block_loop() -> None:
+        blocked.set()
+        release.wait(timeout=1)
+
+    monkeypatch.setattr(mgr, "_holder", holder)
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        thread.start()
+        loop.call_soon_threadsafe(block_loop)
+        assert blocked.wait(timeout=1)
+        started = time.monotonic()
+        try:
+            with pytest.raises(concurrent.futures.TimeoutError):
+                mgr.enable("pending")
+            assert time.monotonic() - started < 0.5
+
+            release.set()
+            assert intent_ran.wait(timeout=1)
+            deadline = time.monotonic() + 1
+            while mgr._lifecycle_tasks and time.monotonic() < deadline:
+                time.sleep(0.005)
+            assert mgr._lifecycle_tasks == set()
+            assert mgr.close() is None
+            thread.join(timeout=1)
+            gc.collect()
+        finally:
+            release.set()
+            if thread.is_alive():
+                loop.call_soon_threadsafe(loop.stop)
+                thread.join(timeout=1)
+            if not loop.is_closed():
+                loop.close()
+
+    assert not thread.is_alive()
+    assert loop.is_closed()
+    assert loop_messages == []
+    assert not any(isinstance(item.message, RuntimeWarning) for item in caught)
+
+
 @pytest.mark.parametrize(
     "facade_error",
     [concurrent.futures.TimeoutError(), concurrent.futures.CancelledError()],

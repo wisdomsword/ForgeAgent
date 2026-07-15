@@ -946,10 +946,7 @@ class MCPManager:
         if self._loop is None:
             state.config.enabled = True
             return True
-        try:
-            self._submit(self._enable_on_loop(server), timeout=self._connect_timeout + 5)
-        except concurrent.futures.TimeoutError:
-            return True
+        self._submit(self._enable_on_loop(server), timeout=self._connect_timeout + 5)
         return True
 
     def disable(self, server: str) -> bool:

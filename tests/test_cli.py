@@ -6,8 +6,12 @@ config-error behavior.
 """
 
 import asyncio
+import gc
 import logging
 import sys
+import threading
+import time
+import warnings
 from urllib.parse import parse_qsl, unquote, urlsplit
 
 import pytest
@@ -17,7 +21,7 @@ from rich.console import Console
 from forgeagent.cli import build_parser, main, render_outcome, run_once
 from forgeagent.client import MockClient
 from forgeagent.executor import TrustedBackend
-from forgeagent.mcp_manager import MCPServerConfig
+from forgeagent.mcp_manager import MCPManager, MCPServerConfig
 from forgeagent.model_registry import RegistryError
 from forgeagent.models import AssistantMessage, StreamEvent, StreamEventKind, TokenUsage
 from forgeagent.protocol import FileListArgs, FileWriteArgs, MCPArgs, ToolCall, WebFetchArgs
@@ -1364,6 +1368,69 @@ def test_handle_mcp_command_timeout_prints_masked_literal_pending(monkeypatch, a
     assert rendered == f"MCP {action} pending: ***REDACTED***[bold]literal[/bold]\n"
     assert secret not in rendered
     assert exception_text not in rendered
+
+
+def test_handle_mcp_enable_with_real_blocked_manager_prints_pending(monkeypatch):
+    import forgeagent.cli as cli_module
+
+    mgr = MCPManager(
+        {"pending": MCPServerConfig(command="unused")},
+        connect_timeout=-4.98,
+        shutdown_timeout=0.03,
+        thread_join_timeout=0.02,
+    )
+    loop = asyncio.new_event_loop()
+    loop_messages = []
+    loop.set_exception_handler(lambda _loop, context: loop_messages.append(context["message"]))
+    thread = threading.Thread(target=loop.run_forever, daemon=True)
+    blocked = threading.Event()
+    release = threading.Event()
+    intent_ran = threading.Event()
+    mgr._loop = loop
+    mgr._thread = thread
+
+    async def holder(name, generation, ready, stop):
+        intent_ran.set()
+        ready.set()
+        await stop.wait()
+
+    def block_loop() -> None:
+        blocked.set()
+        release.wait(timeout=1)
+
+    monkeypatch.setattr(mgr, "_holder", holder)
+    console = _console()
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        thread.start()
+        loop.call_soon_threadsafe(block_loop)
+        assert blocked.wait(timeout=1)
+        try:
+            cli_module._handle_mcp_command("mcp enable pending", mgr, console)
+            assert console.export_text() == "MCP enable pending: pending\n"
+
+            release.set()
+            assert intent_ran.wait(timeout=1)
+            deadline = time.monotonic() + 1
+            while mgr._lifecycle_tasks and time.monotonic() < deadline:
+                time.sleep(0.005)
+            assert mgr._lifecycle_tasks == set()
+            assert mgr.close() is None
+            thread.join(timeout=1)
+            gc.collect()
+        finally:
+            release.set()
+            if thread.is_alive():
+                loop.call_soon_threadsafe(loop.stop)
+                thread.join(timeout=1)
+            if not loop.is_closed():
+                loop.close()
+
+    assert not thread.is_alive()
+    assert loop.is_closed()
+    assert loop_messages == []
+    assert not any(isinstance(item.message, RuntimeWarning) for item in caught)
 
 
 @pytest.mark.parametrize("action", ["enable", "disable"])
