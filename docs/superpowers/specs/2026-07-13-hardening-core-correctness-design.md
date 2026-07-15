@@ -172,7 +172,7 @@ WebFetch formatter 在一次调用开始时只读取一次 `sensitive_env_values
 
 实施期 thorough review 发现确认后的工具结果同样会进入 Step feedback 和 CLI console。用户于 2026-07-13 选择把该问题纳入当前 change，并批准固定安全结果消息方案：
 
-- WebFetch 捕获 `SSRFGuardError` 时返回固定 `WebFetch blocked by network policy`；打开、读取或关闭响应时发生 `OSError`、`http.client.HTTPException` 或非法 URL `ValueError` 时返回固定 `WebFetch request failed`；artifact 写入 `OSError` 返回固定 `WebFetch response save failed`。不得把底层异常、原始 URL、hostname 或宿主路径写入 `ToolOutcome.detail`。
+- WebFetch 捕获 `SSRFGuardError` 时返回固定 `WebFetch blocked by network policy`；打开、读取或关闭响应时发生 `OSError`、`http.client.HTTPException` 或非法 URL `ValueError` 时返回固定 `WebFetch request failed`；response 已读取后，artifact digest/filename 推导、canonical path 验证或写入发生 `ValueError`/`OSError` 时返回固定 `WebFetch response save failed`。这包括 URL 的未配对 surrogate 位于不会发往服务器的 fragment、网络层成功但完整 URL 无法按 UTF-8 编码的情况。不得把底层异常、原始 URL、hostname 或宿主路径写入 `ToolOutcome.detail`。
 - WebFetch 的可预测 artifact 名称直接位于 `allowed_root`，写入前必须交给 `_validate_path()`，并使用其返回的 canonical target；预置同名 artifact symlink 指向 root 外时返回 `WebFetch response save failed`，不得触碰外部目标。`allowed_root` 自身可以是用户明确配置的 symlink alias，其 `realpath` 才是授权根。通用后代/祖先 symlink component 解析继续由 File 工具的 `_validate_path()` 用例覆盖；当前 artifact filename 不虚构不存在的中间目录。该检查与 FileWrite 共享现有函数，不新增 artifact policy 层。
 - FileWrite 通过 project-root 校验并成功写入后，只返回由已解析目标相对 canonical `allowed_root` 计算出的 project-relative 路径：`base = Path(os.path.realpath(ctx.allowed_root))`，再对 `_validate_path()` 返回的 `resolved` 使用 `relative_to(base)`。不复用模型提供的原始路径，也不假定 `ctx.allowed_root` 已经是绝对路径。
 - FileWrite 写入阶段发生 `OSError` 或路径语法产生 `ValueError` 时返回固定 `FileWrite failed`。越界、无交互通道和用户拒绝继续使用既有固定消息。
@@ -180,7 +180,7 @@ WebFetch formatter 在一次调用开始时只读取一次 `sensitive_env_values
 - 不新增通用 result sanitizer。固定消息牺牲部分底层诊断细节，以避免平台相关异常字符串重新引入 URL、hostname 或宿主绝对路径泄漏。
 - 确认摘要最终作为 Rich `Text` 的 literal segment 输出，不把完整 f-string 交给 markup parser。MCP identifier 和 FileWrite display path 在 secret masking 后还要规范为单行可见文本：C0/C1、DEL、CR/LF、Unicode line/paragraph separator、Unicode category `Cf` 的格式控制符（含 bidi embedding/override/isolate 与 directional marks），以及 category `Cs` 的未配对 surrogate，使用 `\\xNN`/`\\uNNNN`/`\\UNNNNNNNN` 转义；普通 `[`/`]` 保持字面值。这样模型内容既不能闭合样式标签、伪造第二行提示、用不可见方向控制重排审批文本，也不能在 UTF-8 终端编码阶段触发审批前崩溃。该 helper 只服务确认显示，不扩展为通用 sanitizer。
 
-测试必须覆盖：percent-encoded、大小写变化和重叠的 hostname secret；encoded `@`、`/`、`?`、`#`、`:`；普通 IPv6 与 zone-id 字面量；userinfo/fragment 丢弃；hostname 局部 helper 与 path/query 全局 `mask_secrets()` 不重复或漏脱敏；携带原始 URL/hostname 的 WebFetch guard/network/HTTP protocol 异常；WebFetch artifact 写入异常包含绝对路径；预置 artifact symlink/ancestor 指向 root 外且外部目标不变；FileWrite 使用绝对路径和相对 `allowed_root="."` 时只回显 canonical project-relative 路径；FileRead/FileWrite/FileList 的越界、非法路径和文件系统异常不回显宿主路径。失败结果还需通过现有 Step feedback 与 CLI `render_outcome()` 路径验证不再泄漏。
+测试必须覆盖：percent-encoded、大小写变化和重叠的 hostname secret；encoded `@`、`/`、`?`、`#`、`:`；普通 IPv6 与 zone-id 字面量；userinfo/fragment 丢弃；hostname 局部 helper 与 path/query 全局 `mask_secrets()` 不重复或漏脱敏；携带原始 URL/hostname 的 WebFetch guard/network/HTTP protocol 异常；WebFetch artifact 写入异常包含绝对路径；未配对 surrogate fragment 在 response 成功后的 artifact naming 固定失败；预置同名 artifact symlink 指向 root 外且外部目标不变；mock `_validate_path()` 返回不同 root 内 target 时实际写入该返回值；FileWrite 使用绝对路径和相对 `allowed_root="."` 时只回显 canonical project-relative 路径；FileRead/FileWrite/FileList 的越界、非法路径和文件系统异常不回显宿主路径。失败结果还需通过现有 Step feedback 与 CLI `render_outcome()` 路径验证不再泄漏。
 
 ### 5.4 共享路径边界
 

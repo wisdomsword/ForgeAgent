@@ -108,7 +108,7 @@ ForgeAgent MUST prevent WebFetch failure outcomes and FileWrite success or failu
 - **THEN** the tool returns the fixed detail `WebFetch request failed` without the original URL, hostname or exception text
 
 #### Scenario: WebFetch cannot save the fetched response
-- **WHEN** a confirmed WebFetch request reads the response successfully but writing the artifact raises `OSError`
+- **WHEN** a confirmed WebFetch request reads the response successfully but artifact digest/filename derivation, canonical path validation or writing raises `ValueError` or `OSError`, including an unpaired surrogate in a URL fragment that cannot be UTF-8 encoded for the digest
 - **THEN** the tool returns the fixed detail `WebFetch response save failed` without the artifact's absolute path or exception text
 
 #### Scenario: WebFetch artifact path is a symlink escape
