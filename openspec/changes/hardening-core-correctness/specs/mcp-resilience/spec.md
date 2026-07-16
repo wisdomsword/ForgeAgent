@@ -27,7 +27,7 @@ ForgeAgent SHALL continue startup when an optional MCP server fails to connect, 
 - **THEN** `server_status()`, startup diagnostics and REPL status output identify the server and fixed cause without containing the secret or raw exception text
 
 ### Requirement: MCP discovery metadata does not expose known secrets
-ForgeAgent MUST apply the existing sensitive-environment value policy before discovered MCP metadata or configured server identity reaches the model prompt, CLI tool listing, public status or required-startup diagnostics. A tool or server routing identity that contains a known secret MUST NOT be advertised because a masked display alias cannot be routed safely back to the original SDK identity. Internal lifecycle and call routing MUST continue to use the original configured server identity.
+ForgeAgent MUST apply the existing sensitive-environment value policy before discovered MCP metadata or configured server identity reaches the model prompt, CLI, ToolOutcome feedback, structured call errors, public status, required-startup diagnostics or lifecycle logs. A tool or server routing identity that contains a known secret MUST NOT be advertised because a masked display alias cannot be routed safely back to the original SDK identity. Public server labels MUST be stable and collision-free; internal lifecycle, approval and call routing MUST continue to use the original configured identity.
 
 #### Scenario: Tool description contains a known secret
 - **WHEN** MCP discovery returns a tool whose description contains a known sensitive environment value
@@ -39,7 +39,15 @@ ForgeAgent MUST apply the existing sensitive-environment value policy before dis
 
 #### Scenario: Server identity contains a known secret
 - **WHEN** a configured server identity would change under known-secret masking
-- **THEN** ForgeAgent excludes that server's tools from the available catalog and prompt, masks the identity in public status, required-startup and `/mcp` diagnostics, and retains the original identity only for internal lifecycle and call routing
+- **THEN** ForgeAgent excludes that server's tools from the available catalog and prompt, uses the same public label in status, required-startup, `/mcp`, ToolOutcome, structured error and lifecycle log output, and retains the original identity only for internal lifecycle, approval and call routing
+
+#### Scenario: Redacted server labels collide
+- **WHEN** two raw server identities mask to the same text or collide with an already-safe configured identity
+- **THEN** ForgeAgent preserves every safe raw label, assigns deterministic non-secret numeric suffixes to the redacted identities, reports every status/failure without overwrite, and lets enable/disable feedback select the exact raw server's public label
+
+#### Scenario: Manual or replayed MCP call contains a known secret
+- **WHEN** a ToolCall supplies a secret-bearing server or tool identity even though it was not advertised
+- **THEN** approval and call routing receive the raw identity while the next-round feedback and CLI outcome contain only the manager-owned public server label and masked tool label
 
 ### Requirement: Required MCP failures abort startup
 ForgeAgent MUST return a non-zero CLI startup result when a required MCP server fails to connect, MUST NOT start the task, and MUST perform bounded cleanup of MCP resources that were already started. Normal cleanup MUST release those resources. When an event-loop thread is hard-stuck, the required CLI failure MAY remain incomplete at the public deadline only while retaining cleanup evidence and emitting a sanitized warning. If the authoritative drain does not yet exist, the queued shutdown facade or fallback callback on the live loop/thread MUST keep the manager state strongly reachable; if the drain exists, that sole loop-owned drain MUST keep it reachable. When the loop recovers, queued work MUST create or reuse the sole authoritative drain and continue cleanup; an existing drain MUST continue directly. Because `build_mcp_manager()` closes and raises `MCPStartupError`, the CLI MUST NOT expose or promise a later `close()` handle, and this path MUST NOT add a global registry, `atexit` hook, or new API. A direct API caller that still holds the `MCPManager`, and ordinary manager lifecycle repeated `close()` calls, MAY use a new bounded close retry.
@@ -219,7 +227,11 @@ ForgeAgent MUST keep a new loop worker behind a publication gate until manager s
 
 #### Scenario: Close is called more than once
 - **WHEN** `close()` is invoked after resources have already been closed or a previous close partially failed
-- **THEN** the call completes without reopening resources or creating a second loop-owned shutdown task or waiting facade; it signals the existing drain, waits on the thread-safe completion event within the new absolute deadline, performs a bounded stop/join retry, and clears retained references only after cleanup completion and thread stop are both proven
+- **THEN** the call completes without reopening resources or creating a second loop-owned shutdown task or waiting facade; it independently signals the existing drain, waits on the thread-safe completion event and performs bounded stop/join within the new absolute deadline, so one cleanup exception cannot skip later sites, and clears retained references only after cleanup completion and thread stop are both proven
+
+#### Scenario: Repeated close or stop/join cleanup receives process control
+- **WHEN** drain retry, completion wait, loop stop, thread join/state read or loop close raises `KeyboardInterrupt` or `SystemExit`
+- **THEN** ForgeAgent records that first control object, continues every still-valid bounded cleanup site, retains resources when liveness or loop closure is unproven, and propagates the original control only after cleanup
 
 #### Scenario: Shutdown fails after task result exists
 - **WHEN** task execution has produced a result and an MCP shutdown step fails

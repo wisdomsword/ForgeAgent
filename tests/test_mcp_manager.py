@@ -1185,6 +1185,58 @@ def test_discovery_excludes_sensitive_server_identity_from_public_catalog(monkey
     assert secret not in repr(manager.required_failures())
 
 
+def test_public_server_identity_labels_are_stable_and_collision_free(monkeypatch):
+    first_secret = "first-server-secret"
+    second_secret = "second-server-secret"
+    first = f"external-{first_secret}"
+    second = f"external-{second_secret}"
+    safe = "external-***REDACTED***"
+    monkeypatch.setattr(
+        mcp_manager_module,
+        "sensitive_env_values",
+        lambda: {first_secret, second_secret},
+    )
+    manager = MCPManager(
+        {
+            first: MCPServerConfig(command="unused", required=True),
+            second: MCPServerConfig(command="unused", required=True),
+            safe: MCPServerConfig(command="unused", required=True),
+        }
+    )
+    manager._states[first].status = "unavailable: RuntimeError"
+    manager._states[second].status = "unavailable: TimeoutError"
+    manager._states[safe].status = "unavailable: disabled"
+
+    labels = [manager.public_server_name(name) for name in (first, second, safe)]
+    statuses = manager.server_status()
+    failures = manager.required_failures()
+
+    assert labels == ["external-***REDACTED*** #2", "external-***REDACTED*** #3", safe]
+    assert list(statuses) == labels
+    assert len(statuses) == 3
+    assert len(failures) == 3
+    assert first_secret not in repr(statuses)
+    assert second_secret not in repr(statuses)
+
+
+def test_mcp_structured_call_errors_use_public_server_identity(monkeypatch):
+    secret = "call-server-secret"
+    server = f"external-{secret}"
+    monkeypatch.setattr(mcp_manager_module, "sensitive_env_values", lambda: {secret})
+    manager = MCPManager({server: MCPServerConfig(command="unused")})
+
+    unavailable = manager.call_tool(server, "safe", {})
+    unknown = manager.call_tool(f"unknown-{secret}", "safe", {})
+    manager._loop = _LoopProbe()
+    manager._states[server].status = "available"
+    no_session = asyncio.run(manager._call_tool_on_loop(server, "safe", {}))
+
+    for result in (unavailable, unknown, no_session):
+        assert result["ok"] is False
+        assert secret not in result["text"]
+        assert "***REDACTED***" in result["text"]
+
+
 def test_auto_approve_reported_per_server_tool():
     mgr = MCPManager({"alpha": _server("alpha", autoApprove=["echo"])})
     try:
@@ -3121,6 +3173,147 @@ def test_close_control_primary_still_runs_retry_and_join_after_cancel_control(
 
     assert raised.value is primary
     assert calls == ["cancel", "retry", "stop-and-join"]
+
+
+@pytest.mark.parametrize("control", [KeyboardInterrupt("retry"), SystemExit("retry")])
+def test_repeated_close_control_still_runs_wait_and_stop_join(monkeypatch, control):
+    manager = MCPManager({}, shutdown_timeout=0.03, thread_join_timeout=0.02)
+    manager._closed = True
+    manager._loop = _LoopProbe()
+    manager._thread = _ThreadProbe(alive=True)
+    calls: list[str] = []
+
+    class CompletionProbe:
+        def wait(self, timeout):
+            calls.append("wait")
+            return False
+
+    manager._shutdown_complete = CompletionProbe()
+
+    def retry(deadline):
+        calls.append("retry")
+        raise control
+
+    monkeypatch.setattr(manager, "_request_shutdown_retry", retry)
+    monkeypatch.setattr(
+        manager,
+        "_stop_and_join",
+        lambda deadline, pending: calls.append("stop-and-join"),
+    )
+
+    with pytest.raises(type(control)) as raised:
+        manager.close()
+
+    assert raised.value is control
+    assert calls == ["retry", "wait", "stop-and-join"]
+
+
+@pytest.mark.parametrize("control", [KeyboardInterrupt("wait"), SystemExit("wait")])
+def test_repeated_close_wait_control_still_runs_stop_join(monkeypatch, control):
+    manager = MCPManager({}, shutdown_timeout=0.03, thread_join_timeout=0.02)
+    manager._closed = True
+    manager._loop = _LoopProbe()
+    manager._thread = _ThreadProbe(alive=True)
+    calls: list[str] = []
+
+    class CompletionProbe:
+        def wait(self, timeout):
+            calls.append("wait")
+            raise control
+
+    manager._shutdown_complete = CompletionProbe()
+    monkeypatch.setattr(manager, "_request_shutdown_retry", lambda deadline: calls.append("retry"))
+    monkeypatch.setattr(
+        manager,
+        "_stop_and_join",
+        lambda deadline, pending: calls.append("stop-and-join"),
+    )
+
+    with pytest.raises(type(control)) as raised:
+        manager.close()
+
+    assert raised.value is control
+    assert calls == ["retry", "wait", "stop-and-join"]
+
+
+@pytest.mark.parametrize("control", [KeyboardInterrupt("stop"), SystemExit("stop")])
+def test_stop_and_join_control_still_joins_and_closes_loop(control):
+    manager = MCPManager({}, shutdown_timeout=0.03, thread_join_timeout=0.02)
+    loop = _LoopProbe(stop_error=control)
+    thread = _ThreadProbe(alive=True, alive_results=[False])
+    manager._loop = loop
+    manager._thread = thread
+    manager._shutdown_complete.set()
+
+    with pytest.raises(type(control)) as raised:
+        manager._stop_and_join(time.monotonic() + 1, frozenset())
+
+    assert raised.value is control
+    assert len(thread.join_timeouts) == 1
+    assert loop.close_calls == 1
+    assert manager._loop is None
+    assert manager._thread is None
+
+
+@pytest.mark.parametrize("control", [KeyboardInterrupt("join"), SystemExit("join")])
+def test_stop_and_join_join_control_still_checks_state_and_closes_loop(control):
+    manager = MCPManager({}, shutdown_timeout=0.03, thread_join_timeout=0.02)
+    loop = _LoopProbe()
+    thread = _ThreadProbe(alive=True, alive_results=[False], join_error=control)
+    manager._loop = loop
+    manager._thread = thread
+    manager._shutdown_complete.set()
+
+    with pytest.raises(type(control)) as raised:
+        manager._stop_and_join(time.monotonic() + 1, frozenset())
+
+    assert raised.value is control
+    assert loop.stop_calls == 1
+    assert loop.close_calls == 1
+    assert manager._loop is None
+    assert manager._thread is None
+
+
+@pytest.mark.parametrize("control", [KeyboardInterrupt("state"), SystemExit("state")])
+def test_stop_and_join_state_control_retains_resources_after_join(control):
+    manager = MCPManager({}, shutdown_timeout=0.03, thread_join_timeout=0.02)
+    loop = _LoopProbe()
+
+    class StateControlThread(_ThreadProbe):
+        def is_alive(self):
+            raise control
+
+    thread = StateControlThread(alive=True)
+    manager._loop = loop
+    manager._thread = thread
+    manager._shutdown_complete.set()
+
+    with pytest.raises(type(control)) as raised:
+        manager._stop_and_join(time.monotonic() + 1, frozenset())
+
+    assert raised.value is control
+    assert len(thread.join_timeouts) == 1
+    assert loop.close_calls == 0
+    assert manager._loop is loop
+    assert manager._thread is thread
+
+
+@pytest.mark.parametrize("control", [KeyboardInterrupt("close"), SystemExit("close")])
+def test_stop_and_join_loop_close_control_retains_resources(control):
+    manager = MCPManager({}, shutdown_timeout=0.03, thread_join_timeout=0.02)
+    loop = _LoopProbe(close_error=control)
+    thread = _ThreadProbe(alive=True, alive_results=[False])
+    manager._loop = loop
+    manager._thread = thread
+    manager._shutdown_complete.set()
+
+    with pytest.raises(type(control)) as raised:
+        manager._stop_and_join(time.monotonic() + 1, frozenset())
+
+    assert raised.value is control
+    assert loop.close_calls == 1
+    assert manager._loop is loop
+    assert manager._thread is thread
 
 
 def test_close_without_loop_is_idempotent_and_clears_empty_resources():

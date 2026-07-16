@@ -255,6 +255,87 @@ def test_mcp_confirmer_denial_blocks_call():
     assert fake.calls == []  # denied -> server never called
 
 
+def test_mcp_outcome_uses_public_identity_but_routes_raw_identity(monkeypatch):
+    import forgeagent.mcp_manager as mcp_manager_module
+    from forgeagent.mcp_manager import MCPManager, MCPServerConfig
+
+    server_secret = "feedback-server-secret"
+    tool_secret = "feedback-tool-secret"
+    server = f"external-{server_secret}"
+    tool = f"read-{tool_secret}"
+    monkeypatch.setattr(
+        mcp_manager_module,
+        "sensitive_env_values",
+        lambda: {server_secret, tool_secret},
+    )
+    manager = MCPManager({server: MCPServerConfig(command="unused")})
+    seen: list[tuple[str, str]] = []
+    original_auto_approved = manager.is_auto_approved
+
+    def is_auto_approved(raw_server: str, raw_tool: str) -> bool:
+        seen.append((raw_server, raw_tool))
+        return original_auto_approved(raw_server, raw_tool)
+
+    monkeypatch.setattr(manager, "is_auto_approved", is_auto_approved)
+    outcome = MCPTool().run(
+        MCPArgs(server=server, tool=tool),
+        _mcp_ctx(mcp=manager, confirmer=lambda args: False),
+    )
+
+    assert seen == [(server, tool)]
+    assert outcome.success is False
+    assert server_secret not in outcome.block_name
+    assert tool_secret not in outcome.block_name
+    assert server_secret not in outcome.detail
+    assert tool_secret not in outcome.detail
+    assert "***REDACTED***" in outcome.block_name
+
+
+def test_mcp_call_failure_uses_public_identity_but_calls_raw_identity(monkeypatch):
+    import forgeagent.mcp_manager as mcp_manager_module
+    from forgeagent.mcp_manager import MCPManager, MCPServerConfig
+
+    secret = "call-feedback-secret"
+    server = f"external-{secret}"
+    tool = f"read-{secret}"
+    monkeypatch.setattr(mcp_manager_module, "sensitive_env_values", lambda: {secret})
+    manager = MCPManager({server: MCPServerConfig(command="unused")})
+    calls: list[tuple[str, str, dict]] = []
+    original_call = manager.call_tool
+
+    def call_tool(raw_server: str, raw_tool: str, arguments: dict):
+        calls.append((raw_server, raw_tool, arguments))
+        return original_call(raw_server, raw_tool, arguments)
+
+    monkeypatch.setattr(manager, "call_tool", call_tool)
+    outcome = MCPTool().run(
+        MCPArgs(server=server, tool=tool, arguments={"value": "safe"}),
+        _mcp_ctx(mcp=manager, confirmer=lambda args: True),
+    )
+
+    assert calls == [(server, tool, {"value": "safe"})]
+    assert outcome.success is False
+    assert secret not in outcome.block_name
+    assert secret not in outcome.detail
+    assert "***REDACTED***" in outcome.block_name
+    assert "***REDACTED***" in outcome.detail
+
+
+def test_mcp_no_manager_outcome_masks_known_identity(monkeypatch):
+    import forgeagent.tools as tools_module
+
+    secret = "no-manager-secret"
+    monkeypatch.setattr(tools_module, "sensitive_env_values", lambda: {secret})
+
+    outcome = MCPTool().run(
+        MCPArgs(server=f"external-{secret}", tool=f"read-{secret}"),
+        _mcp_ctx(mcp=None),
+    )
+
+    assert secret not in outcome.block_name
+    assert "***REDACTED***" in outcome.block_name
+
+
 def test_mcp_no_confirmer_denies_non_approved_call():
     # No confirmer wired and not auto-approved -> treated as denial (never silently runs).
     fake = _FakeMCP()

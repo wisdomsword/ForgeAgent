@@ -285,7 +285,15 @@ class MCPTool(Tool):
 
     def run(self, args: BaseModel, ctx: ToolContext) -> ToolOutcome:
         assert isinstance(args, MCPArgs)
-        label = f"{args.server}:{args.tool}"
+        labeler = getattr(ctx.mcp, "public_tool_label", None)
+        if callable(labeler):
+            label = labeler(args.server, args.tool)
+        else:
+            secret_values = sensitive_env_values()
+            label = (
+                f"{mask_secrets(args.server, secret_values)}:"
+                f"{mask_secrets(args.tool, secret_values)}"
+            )
         if ctx.mcp is None:
             return ToolOutcome(
                 tool="MCP",

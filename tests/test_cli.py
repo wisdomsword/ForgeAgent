@@ -1944,6 +1944,37 @@ def test_handle_mcp_slash_status_masks_sensitive_server_identity(monkeypatch):
     assert ":safe" not in rendered
 
 
+def test_handle_mcp_disable_uses_exact_collision_free_public_label(monkeypatch):
+    import forgeagent.mcp_manager as mcp_manager_module
+    from forgeagent.cli import _handle_mcp_command
+
+    first_secret = "first-cli-secret"
+    second_secret = "second-cli-secret"
+    first = f"external-{first_secret}"
+    second = f"external-{second_secret}"
+    safe = "external-***REDACTED***"
+    monkeypatch.setattr(
+        mcp_manager_module,
+        "sensitive_env_values",
+        lambda: {first_secret, second_secret},
+    )
+    manager = MCPManager(
+        {
+            first: MCPServerConfig(command="unused"),
+            second: MCPServerConfig(command="unused"),
+            safe: MCPServerConfig(command="unused"),
+        }
+    )
+
+    console = _console()
+    _handle_mcp_command(f"mcp disable {second}", manager, console)
+    rendered = console.export_text()
+
+    assert first_secret not in rendered
+    assert second_secret not in rendered
+    assert "external-***REDACTED*** #3: unavailable: disabled" in rendered
+
+
 def test_handle_mcp_slash_enable_disable_delegates():
     from forgeagent.cli import _handle_mcp_slash
 

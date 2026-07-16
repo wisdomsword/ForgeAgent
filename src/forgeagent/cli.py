@@ -383,13 +383,15 @@ def _handle_mcp_command(goal: str, mcp: MCPManager | None, console: Console) -> 
             console.print(f"  {name}: {status}")
     elif action in {"enable", "disable"} and len(parts) > 2:
         server = parts[2]
+        labeler = getattr(mcp, "public_server_name", None)
+        safe_server = (
+            labeler(server) if callable(labeler) else mask_secrets(server, sensitive_env_values())
+        )
         try:
             ok = mcp.enable(server) if action == "enable" else mcp.disable(server)
         except TimeoutError:
-            safe_server = mask_secrets(server, sensitive_env_values())
             console.print(Text(f"MCP {action} pending: {safe_server}"))
             return
-        safe_server = mask_secrets(server, sensitive_env_values())
         if ok:
             status = mcp.server_status().get(safe_server, "unavailable")
             console.print(f"[green]{action}d[/green] {safe_server}: {status}")
