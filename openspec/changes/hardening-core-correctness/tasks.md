@@ -54,17 +54,17 @@
 - [x] 6.2 更新文本协议规范，纳入 WebFetch、FileRead/FileWrite 及严格两阶段完成语义
 - [x] 6.3 更新威胁模型、CLI 和发布说明，说明默认直连、环境代理禁用及企业代理迁移路径、symlink target/ancestor-component swap、MCP discovery description/inputSchema/server identity secret 与 collision-free public label、incomplete-shutdown 残余威胁、TTY 确认和 MCP `required` 行为
 - [x] 6.4 更新黄金任务说明和 README，将 20 项标为可执行可信核心、其余 360 项标为候选，并说明 5 项真实模型运行不是 CI 门禁
-- [ ] 6.5 按 `MILESTONE_GUIDE.md` 更新 ACTION_PLAN、相关历史状态说明、新加固里程碑文件和 `milestones/latest`，保留实证测试结果
+- [x] 6.5 按 `MILESTONE_GUIDE.md` 更新 ACTION_PLAN、相关历史状态说明、新加固里程碑文件和 `milestones/latest`，保留实证测试结果
 - [x] 6.6 恢复被过度压缩的当前模型/文本协议/T1-T11 契约，修复 `ModelEntry.supports_images` 透传，并删除未实现 package workflow 与不存在 rlimit 的虚假声明
 - [x] 6.7 校准 required MCP hard-stuck CLI queued-shutdown drain、direct-manager close retry、connect cleanup ownership、shutdown cleanup control、MCP discovery schema/raw-public identity 分工与 collision-free labels、finite public schema、lifecycle lock publication/removal、golden runner explicit isolated `user_path`、WebFetch malformed-surrogate fixed ASCII summary、golden runner/doc-consistency 职责、`completed: false` 终态、正式代理 Migration Plan 和 tier-independent File TOCTOU 的 Design/OpenSpec/计划语义
 
 ## 7. 综合验证与审查
 
-- [ ] 7.1 运行 Ruff 静态检查并修复本 change 引入的问题
-- [ ] 7.2 在隔离 HOME 下运行完整 pytest并将 RuntimeWarning/unraisable callback 提升为失败，确保环境能力不足只产生有理由的 skip，不依赖人工 deselect
-- [ ] 7.3 运行 SSRF/代理、CLI 确认、Step 完成和 MCP 生命周期专项测试，将 RuntimeWarning/unraisable callback 提升为失败，并记录命令、结果与任何环境限制
-- [ ] 7.4 运行 20 项离线黄金核心并核对逐项结果、报告、通过率和退出码；有凭证时仅补充非门禁的 5 项真实模型报告
-- [ ] 7.5 对照 `spec.md`、本 change specs 和 CodeGraph 调用路径执行代码审查，确认没有扩大范围、遗漏调用方或产生文档漂移
+- [x] 7.1 运行 Ruff 静态检查并修复本 change 引入的问题
+- [x] 7.2 在隔离 HOME 下运行完整 pytest并将 RuntimeWarning/unraisable callback 提升为失败，确保环境能力不足只产生有理由的 skip，不依赖人工 deselect
+- [x] 7.3 运行 SSRF/代理、CLI 确认、Step 完成和 MCP 生命周期专项测试，将 RuntimeWarning/unraisable callback 提升为失败，并记录命令、结果与任何环境限制
+- [x] 7.4 运行 20 项离线黄金核心并核对逐项结果、报告、通过率和退出码；有凭证时仅补充非门禁的 5 项真实模型报告
+- [x] 7.5 对照 `spec.md`、本 change specs 和 CodeGraph 调用路径执行代码审查，确认没有扩大范围、遗漏调用方或产生文档漂移
 
 Final-review fix wave synchronization (base candidate `c24622d`): Task 2 evidence must include the real urllib shared 30x opener path classifying file/FTP/unsupported redirects as `SSRFGuardError` for 301/302/303/307/308 before any destination handler or connection; Task 3 evidence must include top-level and nested MCP confirmation display-label collisions preserving every raw argument entry without secret disclosure; Task 4 documentation must clarify first process-control precedence only within one synchronous `close()` invocation and must not persist or rethrow already delivered controls across later close calls; Task 5 evidence must include G59/G324 unique outside-root temporary fixtures, cleanup on failure paths and stale fixed-sibling immunity. This wave invalidates all older comprehensive static/test/golden/CodeGraph/review evidence and verdicts; Task 7 must restart from its first verification step after this fix wave.
 
