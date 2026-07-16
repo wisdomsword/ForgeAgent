@@ -347,11 +347,11 @@ def _load_manifest() -> tuple[GoldenScenario, ...]:
     return GOLDEN_SCENARIOS
 
 
-def _load_offline_configuration_modules() -> None:
+def _load_offline_configuration_modules(user_path: Path) -> None:
     """Bind all home-derived defaults only after offline home isolation is active."""
     from forgeagent import cli, mcp_manager, model_registry
 
-    mcp_manager.load_mcp_config()
+    mcp_manager.load_mcp_config(user_path=user_path)
     del cli, mcp_manager, model_registry
 
 
@@ -408,7 +408,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                     mode="real", model_id=args.real_model
                 )
             else:
-                _load_offline_configuration_modules()
+                user_path = Path(os.environ["HOME"]) / ".forgeagent" / "mcp.yaml"
+                _load_offline_configuration_modules(user_path)
                 validate_manifest(scenarios)
                 output_dir = args.output_dir or default_output_dir(mode="offline", model_id=None)
             _prepare_output_dir(output_dir)

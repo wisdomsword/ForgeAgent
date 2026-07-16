@@ -1003,7 +1003,7 @@ def test_offline_main_restores_home_variables_after_normal_and_runner_failure(
     output_dir = tmp_path / "normal"
     observed_homes: list[dict[str, str | None]] = []
 
-    def observe_isolated_imports() -> None:
+    def observe_isolated_imports(_user_path: Path) -> None:
         observed_homes.append({name: os.environ.get(name) for name in original})
 
     monkeypatch.setattr(
@@ -1030,7 +1030,10 @@ def test_offline_reports_run_inside_isolated_home_and_restore_after_report_error
     observed: list[dict[str, str | None]] = []
     actual_write_reports = write_reports
 
-    monkeypatch.setattr("tests.golden.runner._load_offline_configuration_modules", lambda: None)
+    monkeypatch.setattr(
+        "tests.golden.runner._load_offline_configuration_modules",
+        lambda _user_path: None,
+    )
 
     def observe_write_reports(suite, output_dir):
         observed.append({name: os.environ.get(name) for name in names})
@@ -1077,14 +1080,15 @@ def test_offline_main_calls_real_suite_inside_isolated_home_and_restores_environ
 
 
 def test_offline_configuration_preflight_loads_mcp_config_without_constructing_manager(
+    tmp_path,
     monkeypatch,
 ):
     import forgeagent.mcp_manager as mcp_manager
 
-    calls: list[bool] = []
+    calls: list[Path] = []
 
-    def observe_load_mcp_config():
-        calls.append(True)
+    def observe_load_mcp_config(*, user_path: Path):
+        calls.append(user_path)
         return {}
 
     class ForbiddenManager:
@@ -1093,10 +1097,38 @@ def test_offline_configuration_preflight_loads_mcp_config_without_constructing_m
 
     monkeypatch.setattr(mcp_manager, "load_mcp_config", observe_load_mcp_config)
     monkeypatch.setattr(mcp_manager, "MCPManager", ForbiddenManager)
+    user_path = tmp_path / ".forgeagent" / "mcp.yaml"
 
-    _load_offline_configuration_modules()
+    _load_offline_configuration_modules(user_path)
 
-    assert calls == [True]
+    assert calls == [user_path]
+
+
+def test_embedded_offline_main_ignores_preimported_home_bound_mcp_default(
+    tmp_path,
+    monkeypatch,
+):
+    import forgeagent.mcp_manager as mcp_manager
+    from tests.golden import runner
+
+    preimported_user_path = tmp_path / "preimport-home" / ".forgeagent" / "mcp.yaml"
+    preimported_user_path.parent.mkdir(parents=True)
+    preimported_user_path.write_text("mcpServers: [not-a-mapping]", encoding="utf-8")
+    monkeypatch.setattr(mcp_manager, "DEFAULT_USER_MCP_PATH", preimported_user_path)
+    actual_load = mcp_manager.load_mcp_config
+    observed: list[tuple[Path | None, Path]] = []
+
+    def observe_load_mcp_config(*args, **kwargs):
+        observed.append((kwargs.get("user_path"), Path(os.environ["HOME"])))
+        return actual_load(*args, **kwargs)
+
+    monkeypatch.setattr(mcp_manager, "load_mcp_config", observe_load_mcp_config)
+
+    assert runner.main(["--output-dir", str(tmp_path / "offline-report")]) == 0
+    assert len(observed) == 1
+    user_path, isolated_home = observed[0]
+    assert user_path == isolated_home / ".forgeagent" / "mcp.yaml"
+    assert user_path != preimported_user_path
 
 
 def test_standalone_offline_runner_ignores_hostile_parent_mcp_config(tmp_path):

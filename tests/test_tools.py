@@ -321,6 +321,31 @@ def test_mcp_call_failure_uses_public_identity_but_calls_raw_identity(monkeypatc
     assert "***REDACTED***" in outcome.detail
 
 
+def test_mcp_unknown_outcome_uses_fixed_collision_free_category_and_routes_raw_identity():
+    from forgeagent.mcp_manager import MCPManager, MCPServerConfig
+
+    manager = MCPManager({"unknown": MCPServerConfig(command="unused")})
+    calls: list[tuple[str, str, dict]] = []
+    original_call = manager.call_tool
+
+    def call_tool(raw_server: str, raw_tool: str, arguments: dict):
+        calls.append((raw_server, raw_tool, arguments))
+        return original_call(raw_server, raw_tool, arguments)
+
+    manager.call_tool = call_tool
+    outcome = MCPTool().run(
+        MCPArgs(server="manual-raw-server", tool="echo", arguments={"value": "safe"}),
+        _mcp_ctx(mcp=manager, confirmer=lambda args: True),
+    )
+
+    assert calls == [("manual-raw-server", "echo", {"value": "safe"})]
+    assert outcome.success is False
+    assert outcome.block_name == "unknown #2:echo"
+    assert outcome.detail == "unknown MCP server 'unknown #2'"
+    assert "manual-raw-server" not in outcome.block_name
+    assert "manual-raw-server" not in outcome.detail
+
+
 def test_mcp_no_manager_outcome_masks_known_identity(monkeypatch):
     import forgeagent.tools as tools_module
 

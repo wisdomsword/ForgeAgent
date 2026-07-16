@@ -266,7 +266,11 @@ def _confirmation_summary(args: BaseModel) -> str:
             f"{mask_secrets(args.tool, secret_values)} {arguments}"
         )
     if isinstance(args, WebFetchArgs):
-        return f"WebFetch {_redact_confirmation_url(args.url, secret_values)}"
+        try:
+            safe_url = _redact_confirmation_url(args.url, secret_values)
+        except (UnicodeError, ValueError):
+            safe_url = "<redacted malformed URL>"
+        return f"WebFetch {safe_url}"
     if isinstance(args, FileWriteArgs):
         safe_path = _confirmation_filewrite_path(args.path, secret_values)
         return f"FileWrite {safe_path} ({len(args.content)} characters)"

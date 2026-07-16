@@ -258,6 +258,31 @@ def test_confirmation_summary_never_echoes_malformed_url_material(url):
     assert summary == "WebFetch <redacted malformed URL>"
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://surrogate-secret-value\ud800.example.com/public",
+        "https://example.com/surrogate-secret-value\ud800/public",
+        "https://example.com/public?q=surrogate-secret-value\ud800",
+    ],
+    ids=["hostname", "path", "query"],
+)
+def test_confirmation_summary_contains_unpaired_surrogate_in_url_components(
+    monkeypatch,
+    url,
+):
+    from forgeagent.cli import _confirmation_summary
+
+    secret = "surrogate-secret-value"
+    monkeypatch.setattr("forgeagent.cli.sensitive_env_values", lambda: {secret})
+
+    summary = _confirmation_summary(WebFetchArgs(url=url))
+
+    assert summary == "WebFetch <redacted malformed URL>"
+    assert summary.isascii()
+    assert secret not in summary
+
+
 def test_confirmation_summary_preserves_normalized_project_relative_filewrite_path(
     tmp_path, monkeypatch
 ):

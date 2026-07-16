@@ -1230,6 +1230,38 @@ def test_discovery_drops_structurally_unsafe_public_schema(monkeypatch, input_sc
     assert tools[0].input_schema == {}
 
 
+@pytest.mark.parametrize("non_finite", [float("nan"), float("inf"), float("-inf")])
+def test_discovery_drops_entire_schema_for_nested_non_finite_float(non_finite):
+    manager = MCPManager({"server": MCPServerConfig(command="unused")})
+    input_schema = {
+        "properties": {
+            "score": {
+                "examples": [
+                    {"value": non_finite},
+                ]
+            }
+        }
+    }
+
+    tools = manager._filter_tools(
+        "server",
+        manager._states["server"].config,
+        [
+            type(
+                "Tool",
+                (),
+                {
+                    "name": "safe",
+                    "description": "safe description",
+                    "inputSchema": input_schema,
+                },
+            )()
+        ],
+    )
+
+    assert tools[0].input_schema == {}
+
+
 def test_discovery_excludes_sensitive_server_identity_from_public_catalog(monkeypatch):
     secret = "server-identity-secret"
     server = f"external-{secret}"
@@ -1285,6 +1317,29 @@ def test_public_server_identity_labels_are_stable_and_collision_free(monkeypatch
     assert second_secret not in repr(statuses)
 
 
+def test_unknown_server_category_is_fixed_and_avoids_configured_label_collision():
+    manager = MCPManager({"unknown": MCPServerConfig(command="unused")})
+
+    first_label = manager.public_server_name("manual-alpha")
+    second_label = manager.public_server_name("manual-beta")
+    first_error = manager.call_tool("manual-alpha", "safe", {})
+    second_error = manager.call_tool("manual-beta", "safe", {})
+    configured_error = manager.call_tool("unknown", "safe", {})
+
+    assert manager.public_server_name("unknown") == "unknown"
+    assert first_label == second_label == "unknown #2"
+    assert first_label not in manager.server_status()
+    assert first_error == {
+        "ok": False,
+        "text": "unknown MCP server 'unknown #2'",
+    }
+    assert second_error == first_error
+    assert configured_error == {
+        "ok": False,
+        "text": "MCP server 'unknown' is unavailable",
+    }
+
+
 def test_mcp_structured_call_errors_use_public_server_identity(monkeypatch):
     secret = "call-server-secret"
     server = f"external-{secret}"
@@ -1297,10 +1352,11 @@ def test_mcp_structured_call_errors_use_public_server_identity(monkeypatch):
     manager._states[server].status = "available"
     no_session = asyncio.run(manager._call_tool_on_loop(server, "safe", {}))
 
-    for result in (unavailable, unknown, no_session):
+    for result in (unavailable, no_session):
         assert result["ok"] is False
         assert secret not in result["text"]
         assert "***REDACTED***" in result["text"]
+    assert unknown == {"ok": False, "text": "unknown MCP server 'unknown'"}
 
 
 def test_auto_approve_reported_per_server_tool():
@@ -3338,6 +3394,60 @@ def test_repeated_close_preflight_control_still_runs_retry_and_join(monkeypatch,
     assert calls == ["retry", "stop-and-join"]
 
 
+@pytest.mark.parametrize(
+    "preflight_control",
+    [KeyboardInterrupt("preflight"), SystemExit("preflight")],
+)
+@pytest.mark.parametrize(
+    "retry_error",
+    [
+        RuntimeError("retry"),
+        KeyboardInterrupt("retry"),
+        SystemExit("retry"),
+    ],
+)
+def test_repeated_close_preflight_control_remains_authoritative_over_retry_error(
+    monkeypatch,
+    preflight_control,
+    retry_error,
+):
+    manager = MCPManager({}, shutdown_timeout=0.03, thread_join_timeout=0.02)
+    manager._closed = True
+    manager._loop = _LoopProbe()
+    calls: list[str] = []
+
+    class PreflightThread(_ThreadProbe):
+        def is_alive(self):
+            raise preflight_control
+
+    class CompletionProbe:
+        def wait(self, timeout):
+            calls.append("wait")
+            return False
+
+    def retry(deadline):
+        calls.append("retry")
+        raise retry_error
+
+    manager._thread = PreflightThread(alive=True)
+    manager._shutdown_complete = CompletionProbe()
+    monkeypatch.setattr(manager, "_request_shutdown_retry", retry)
+    monkeypatch.setattr(
+        manager,
+        "_stop_and_join",
+        lambda deadline, pending: calls.append("stop-and-join"),
+    )
+
+    raised = None
+    try:
+        manager.close()
+    except BaseException as exc:
+        raised = exc
+
+    assert raised is preflight_control
+    assert calls == ["retry", "wait", "stop-and-join"]
+
+
 @pytest.mark.parametrize("control", [KeyboardInterrupt("wait"), SystemExit("wait")])
 def test_repeated_close_wait_control_still_runs_stop_join(monkeypatch, control):
     manager = MCPManager({}, shutdown_timeout=0.03, thread_join_timeout=0.02)
@@ -3694,6 +3804,132 @@ def test_timed_out_disable_then_close_leaves_no_lifecycle_waiter(monkeypatch):
                 loop.call_soon_threadsafe(loop_state["cleanup_release"].set)
             except RuntimeError:
                 pass
+        if thread.is_alive():
+            loop.call_soon_threadsafe(loop.stop)
+            thread.join(timeout=1)
+        if not loop.is_closed():
+            loop.close()
+
+
+def test_first_close_rejects_lifecycle_operation_registered_after_snapshot(monkeypatch):
+    manager = MCPManager({}, shutdown_timeout=0.03, thread_join_timeout=0.02)
+    loop = asyncio.new_event_loop()
+    thread = threading.Thread(
+        target=loop.run_forever,
+        name="forgeagent-mcp-loop",
+        daemon=True,
+    )
+    manager._loop = loop
+    manager._thread = thread
+    thread.start()
+    late_release = asyncio.Event()
+
+    async def late_operation() -> None:
+        await late_release.wait()
+
+    operation = mcp_manager_module._LoopOwnedOperation(late_operation())
+    original_ensure = manager._ensure_shutdown_task
+
+    def ensure_then_attempt_late_registration(deadline: float):
+        shutdown_task = original_ensure(deadline)
+        manager._start_owned_operation(operation)
+        return shutdown_task
+
+    monkeypatch.setattr(
+        manager,
+        "_ensure_shutdown_task",
+        ensure_then_attempt_late_registration,
+    )
+
+    try:
+        assert manager.close() is None
+        thread.join(timeout=1)
+
+        assert not thread.is_alive()
+        assert operation.task is None
+        assert manager._shutdown_complete.is_set()
+        assert manager._loop is None
+        assert manager._thread is None
+    finally:
+        if thread.is_alive():
+
+            async def finish_late_operation() -> None:
+                late_release.set()
+                if operation.task is not None:
+                    await operation.task
+                await asyncio.sleep(0)
+                manager._ensure_shutdown_task(time.monotonic() + 1)
+
+            asyncio.run_coroutine_threadsafe(finish_late_operation(), loop).result(timeout=1)
+            thread.join(timeout=1)
+        if thread.is_alive():
+            loop.call_soon_threadsafe(loop.stop)
+            thread.join(timeout=1)
+        if not loop.is_closed():
+            loop.close()
+
+
+def test_first_close_snapshots_registered_lifecycle_operation_on_loop(monkeypatch):
+    manager = MCPManager({}, shutdown_timeout=0.03, thread_join_timeout=0.02)
+    loop = asyncio.new_event_loop()
+    thread = threading.Thread(
+        target=loop.run_forever,
+        name="forgeagent-mcp-loop",
+        daemon=True,
+    )
+    manager._loop = loop
+    manager._thread = thread
+    operation_cancelled = threading.Event()
+    thread.start()
+
+    async def live_operation() -> None:
+        try:
+            await asyncio.Event().wait()
+        finally:
+            operation_cancelled.set()
+
+    operation = mcp_manager_module._LoopOwnedOperation(live_operation())
+
+    async def register_operation() -> None:
+        manager._start_owned_operation(operation)
+        await asyncio.sleep(0)
+
+    asyncio.run_coroutine_threadsafe(register_operation(), loop).result(timeout=1)
+    assert operation.task is not None
+    assert operation.task in manager._lifecycle_tasks
+    original_ensure = manager._ensure_shutdown_task
+    observed: list[object] = []
+
+    def observe_loop_owned_snapshot(deadline: float):
+        observed.append(manager._shutdown_lifecycle_snapshot)
+        shutdown_task = original_ensure(deadline)
+        observed.append(operation.task in (manager._shutdown_lifecycle_snapshot or ()))
+        return shutdown_task
+
+    monkeypatch.setattr(manager, "_ensure_shutdown_task", observe_loop_owned_snapshot)
+
+    try:
+        assert manager.close() is None
+        thread.join(timeout=1)
+
+        assert observed == [None, True]
+        assert operation_cancelled.is_set()
+        assert operation.task.cancelled()
+        assert not thread.is_alive()
+        assert manager._shutdown_complete.is_set()
+        assert manager._loop is None
+        assert manager._thread is None
+    finally:
+        if thread.is_alive():
+
+            async def finish_shutdown() -> None:
+                if operation.task is not None and not operation.task.done():
+                    operation.task.cancel()
+                    await asyncio.gather(operation.task, return_exceptions=True)
+                await original_ensure(time.monotonic() + 1)
+
+            asyncio.run_coroutine_threadsafe(finish_shutdown(), loop).result(timeout=1)
+            thread.join(timeout=1)
         if thread.is_alive():
             loop.call_soon_threadsafe(loop.stop)
             thread.join(timeout=1)

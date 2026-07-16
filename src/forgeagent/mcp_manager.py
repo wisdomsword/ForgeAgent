@@ -24,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import logging
+import math
 import os
 import re
 import threading
@@ -49,6 +50,7 @@ CALL_TIMEOUT = 30.0
 _ENV_PLACEHOLDER = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 _UNAVAILABLE_CAUSE = re.compile(r"^unavailable: ([A-Za-z_][A-Za-z0-9_]*)")
 _LOOP_THREAD_NAME = "forgeagent-mcp-loop"
+_UNKNOWN_SERVER_LABEL = "unknown"
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +111,9 @@ def _mask_mcp_schema(value: object, secret_values: set[str]) -> tuple[object, bo
     """Recursively mask JSON-like schema data; reject key collisions or custom values."""
     if isinstance(value, str):
         return mask_secrets(value, secret_values), True
-    if value is None or type(value) in {bool, int, float}:
+    if type(value) is float:
+        return (value, True) if math.isfinite(value) else ({}, False)
+    if value is None or type(value) in {bool, int}:
         return value, True
     if isinstance(value, list):
         result = []
@@ -275,13 +279,20 @@ class MCPManager:
         self._public_server_names = _build_public_server_names(
             list(self._states), self._secret_values
         )
+        used_labels = set(self._public_server_names.values())
+        self._unknown_server_name = _UNKNOWN_SERVER_LABEL
+        suffix = 2
+        while self._unknown_server_name in used_labels:
+            self._unknown_server_name = f"{_UNKNOWN_SERVER_LABEL} #{suffix}"
+            suffix += 1
 
     @property
     def has_enabled_servers(self) -> bool:
         return any(s.config.enabled for s in self._states.values())
 
     def _consume_owned_operation_result(self, task: asyncio.Task) -> None:
-        self._lifecycle_tasks.discard(task)
+        with self._lifecycle_barrier:
+            self._lifecycle_tasks.discard(task)
         if task.cancelled():
             return
         try:
@@ -297,33 +308,47 @@ class MCPManager:
             return _LifecycleControlResult(control)
 
     def _start_owned_operation(self, operation: _LoopOwnedOperation) -> None:
-        if operation.task is not None or operation.start_error is not None:
-            return
-        coroutine = operation.coroutine
-        if coroutine is None:
-            return
-        guarded_coroutine = self._run_owned_operation(coroutine)
-        try:
-            task = asyncio.create_task(guarded_coroutine)
-        except BaseException as primary:
-            selected = primary
-            logger.warning("MCP lifecycle operation start failed: %s", type(primary).__name__)
-            guarded_coroutine.close()
+        with self._lifecycle_barrier:
+            if operation.task is not None or operation.start_error is not None:
+                return
+            coroutine = operation.coroutine
+            if coroutine is None:
+                return
+            if self._closed or self._closing:
+                selected: BaseException = RuntimeError("MCP manager is closed")
+                operation.coroutine = None
+                try:
+                    coroutine.close()
+                except BaseException as cleanup:
+                    logger.warning(
+                        "MCP lifecycle coroutine cleanup failed: %s",
+                        type(cleanup).__name__,
+                    )
+                    selected = _prefer_process_control(selected, cleanup)
+                operation.start_error = selected
+                return
+            guarded_coroutine = self._run_owned_operation(coroutine)
             try:
-                coroutine.close()
-            except BaseException as cleanup:
-                logger.warning(
-                    "MCP lifecycle coroutine cleanup failed: %s",
-                    type(cleanup).__name__,
-                )
-                selected = _prefer_process_control(selected, cleanup)
-            operation.start_error = selected
+                task = asyncio.create_task(guarded_coroutine)
+            except BaseException as primary:
+                selected = primary
+                logger.warning("MCP lifecycle operation start failed: %s", type(primary).__name__)
+                guarded_coroutine.close()
+                try:
+                    coroutine.close()
+                except BaseException as cleanup:
+                    logger.warning(
+                        "MCP lifecycle coroutine cleanup failed: %s",
+                        type(cleanup).__name__,
+                    )
+                    selected = _prefer_process_control(selected, cleanup)
+                operation.start_error = selected
+                operation.coroutine = None
+                return
             operation.coroutine = None
-            return
-        operation.coroutine = None
-        operation.task = task
-        self._lifecycle_tasks.add(task)
-        task.add_done_callback(self._consume_owned_operation_result)
+            operation.task = task
+            self._lifecycle_tasks.add(task)
+            task.add_done_callback(self._consume_owned_operation_result)
 
     async def _wait_for_owned_operation(self, operation: _LoopOwnedOperation):
         self._start_owned_operation(operation)
@@ -846,7 +871,7 @@ class MCPManager:
 
     def public_server_name(self, server: str) -> str:
         """Return the stable public label for a configured or caller-supplied identity."""
-        return self._public_server_names.get(server, mask_secrets(server, self._secret_values))
+        return self._public_server_names.get(server, self._unknown_server_name)
 
     def public_tool_label(self, server: str, tool: str) -> str:
         """Return a feedback-safe label while internal routing keeps raw identities."""
@@ -1093,7 +1118,9 @@ class MCPManager:
         self._shutdown_deadline = deadline
         self._shutdown_retry = asyncio.Event()
         self._shutdown_snapshot = dict(self._holders)
-        self._shutdown_lifecycle_snapshot = frozenset(self._lifecycle_tasks)
+        if self._shutdown_lifecycle_snapshot is None:
+            with self._lifecycle_barrier:
+                self._shutdown_lifecycle_snapshot = frozenset(self._lifecycle_tasks)
         self._shutdown_pending = frozenset(self._shutdown_snapshot)
         for state in self._states.values():
             state.restart_after_generation = None
@@ -1204,8 +1231,10 @@ class MCPManager:
                 }
                 lifecycle_pending = {task for task in lifecycle_snapshot if not task.done()}
 
+            with self._lifecycle_barrier:
+                for lifecycle_task in lifecycle_snapshot:
+                    self._lifecycle_tasks.discard(lifecycle_task)
             for lifecycle_task in lifecycle_snapshot:
-                self._lifecycle_tasks.discard(lifecycle_task)
                 if not lifecycle_task.cancelled():
                     try:
                         lifecycle_task.exception()
@@ -1421,7 +1450,7 @@ class MCPManager:
                 self._request_shutdown_retry(deadline)
             except BaseException as exc:
                 logger.warning("MCP shutdown retry failed: %s", type(exc).__name__)
-                selected = exc
+                selected = exc if selected is None else _prefer_process_control(selected, exc)
             try:
                 self._shutdown_complete.wait(
                     timeout=_remaining(deadline, reserve=self._thread_join_timeout)
