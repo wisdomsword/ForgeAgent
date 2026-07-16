@@ -1187,6 +1187,7 @@ def test_standalone_offline_runner_ignores_hostile_parent_mcp_config(tmp_path):
         capture_output=True,
         text=True,
         check=False,
+        timeout=30,
     )
 
     assert completed.returncode == 0, completed.stderr
@@ -1274,6 +1275,7 @@ print(json.dumps(
         capture_output=True,
         text=True,
         check=False,
+        timeout=30,
     )
 
     assert completed.returncode == 0, completed.stderr
@@ -1354,6 +1356,7 @@ raise SystemExit(runner.main([
         capture_output=True,
         text=True,
         check=False,
+        timeout=30,
     )
 
     assert completed.returncode == 2

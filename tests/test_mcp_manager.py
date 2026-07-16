@@ -4035,15 +4035,21 @@ def test_multiple_hung_initial_holders_share_ready_deadline(monkeypatch):
 
     waiters_started = 0
     all_waiters_started = asyncio.Event()
+    real_wait_for = asyncio.wait_for
 
     async def concurrent_timeout(awaitable, timeout):
         nonlocal waiters_started
-        waiters_started += 1
-        if waiters_started == 3:
-            all_waiters_started.set()
-        await all_waiters_started.wait()
-        awaitable.close()
-        raise TimeoutError
+        try:
+            waiters_started += 1
+            if waiters_started == 3:
+                all_waiters_started.set()
+            try:
+                await real_wait_for(all_waiters_started.wait(), timeout=1)
+            except TimeoutError as exc:
+                raise AssertionError("holders did not begin waiting concurrently") from exc
+            raise TimeoutError
+        finally:
+            awaitable.close()
 
     monkeypatch.setattr(mcp_manager_module.asyncio, "wait_for", concurrent_timeout)
     asyncio.run(mgr._start_holders(["one", "two", "three"]))
