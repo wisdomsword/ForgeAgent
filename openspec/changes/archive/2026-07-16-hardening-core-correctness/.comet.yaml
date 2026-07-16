@@ -18,7 +18,7 @@ verification_report: docs/superpowers/reports/2026-07-17-hardening-core-correctn
 branch_status: handled
 created_at: 2026-07-13
 verified_at: 2026-07-16
-archived: false
+archived: true
 direct_override: null
 handoff_context: openspec/changes/hardening-core-correctness/.comet/handoff/design-context.json
 handoff_hash: 1e828b304218e0d381a08f610af0c9c356c925391c11f5f8bf6a579df87032ac

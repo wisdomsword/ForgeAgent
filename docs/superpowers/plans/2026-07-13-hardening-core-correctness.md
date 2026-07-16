@@ -2,6 +2,7 @@
 change: hardening-core-correctness
 design-doc: docs/superpowers/specs/2026-07-13-hardening-core-correctness-design.md
 base-ref: 44456c57e2ef76990f44846eadb83bc8d5e25166
+archived-with: 2026-07-16-hardening-core-correctness
 ---
 
 # ForgeAgent Core Correctness Hardening Implementation Plan

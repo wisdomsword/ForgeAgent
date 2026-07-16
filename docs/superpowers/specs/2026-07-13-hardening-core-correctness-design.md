@@ -2,6 +2,8 @@
 comet_change: hardening-core-correctness
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-07-16-hardening-core-correctness
+status: final
 ---
 
 # ForgeAgent 核心正确性加固技术设计

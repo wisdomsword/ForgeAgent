@@ -4,5 +4,6 @@
   "openspec_tasks": "openspec/changes/hardening-core-correctness/tasks.md",
   "openspec_delta_spec": "openspec/changes/hardening-core-correctness/specs/completion-integrity/spec.md",
   "handoff_context": "openspec/changes/hardening-core-correctness/.comet/handoff/design-context.json",
-  "handoff_markdown": "openspec/changes/hardening-core-correctness/.comet/handoff/design-context.md"
+  "handoff_markdown": "openspec/changes/hardening-core-correctness/.comet/handoff/design-context.md",
+  "archive_directory": "openspec/changes/archive/2026-07-16-hardening-core-correctness"
 }
