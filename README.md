@@ -196,4 +196,3 @@ uv run pytest      # 运行全部测试（无需 key、无需网络）
 uv run ruff check  # 静态检查
 ```
 
-参考项目 `resource/agent/` 为只读借鉴对象，不属本项目代码，已排除在检查与测试之外。
