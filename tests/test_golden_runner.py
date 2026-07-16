@@ -387,7 +387,15 @@ def _track_outside_fixture_roots(monkeypatch: pytest.MonkeyPatch) -> list[Path]:
     return roots
 
 
-@pytest.mark.parametrize("runner", [cases.run_g06_offline, cases.run_g58_offline])
+@pytest.mark.parametrize(
+    "runner",
+    [
+        cases.run_g06_offline,
+        cases.run_g58_offline,
+        cases.run_g59_offline,
+        cases.run_g324_offline,
+    ],
+)
 def test_out_of_root_fixture_roots_are_independent_and_cleaned_after_repeat(
     tmp_path, monkeypatch, runner
 ):
@@ -402,7 +410,15 @@ def test_out_of_root_fixture_roots_are_independent_and_cleaned_after_repeat(
     assert all(not root.exists() for root in roots)
 
 
-@pytest.mark.parametrize("runner", [cases.run_g06_offline, cases.run_g58_offline])
+@pytest.mark.parametrize(
+    "runner",
+    [
+        cases.run_g06_offline,
+        cases.run_g58_offline,
+        cases.run_g59_offline,
+        cases.run_g324_offline,
+    ],
+)
 def test_out_of_root_fixture_root_is_cleaned_after_golden_check_error(
     tmp_path, monkeypatch, runner
 ):
@@ -418,6 +434,25 @@ def test_out_of_root_fixture_root_is_cleaned_after_golden_check_error(
 
     assert len(roots) == 1
     assert not roots[0].exists()
+
+
+@pytest.mark.parametrize(
+    ("runner", "old_fixed_name"),
+    [
+        (cases.run_g59_offline, "g59-outside-write.txt"),
+        (cases.run_g324_offline, "g324-outside-write.txt"),
+    ],
+)
+def test_out_of_root_write_cases_do_not_depend_on_stale_fixed_siblings(
+    tmp_path, runner, old_fixed_name
+):
+    stale_target = tmp_path / old_fixed_name
+    stale_target.write_text("preexisting stale sibling", encoding="utf-8")
+
+    evidence = runner(tmp_path / "scenario")
+
+    assert stale_target.read_text(encoding="utf-8") == "preexisting stale sibling"
+    assert evidence.evidence["target_exists"] is False
 
 
 def test_g330_guards_the_public_hop_before_blocking_the_private_redirect(tmp_path):

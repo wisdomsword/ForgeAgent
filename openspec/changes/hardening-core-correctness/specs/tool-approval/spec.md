@@ -39,7 +39,7 @@ ForgeAgent SHALL attach the generic confirmer to restricted WebFetch, FileWrite 
 - **THEN** ForgeAgent treats the explicit configuration as pre-approval and executes without an interactive prompt
 
 ### Requirement: Confirmation prompts minimize sensitive exposure
-ForgeAgent MUST redact structured secret-key values and known sensitive environment values from confirmation prompts, MUST NOT display FileWrite content, and MUST minimize disclosure of absolute file paths while retaining enough information for the user to identify the target.
+ForgeAgent MUST redact structured secret-key values and known sensitive environment values from confirmation prompts, MUST NOT display FileWrite content, and MUST minimize disclosure of absolute file paths while retaining enough information for the user to identify the target. Masking MCP argument display keys MUST NOT mutate raw arguments or collapse distinct mapping entries; when two entries in the same mapping would display with the same masked label, ForgeAgent MUST allocate deterministic collision-free display labels by preserving the first label and suffixing later colliding labels with non-secret numeric suffixes.
 
 #### Scenario: MCP arguments contain nested sensitive keys
 - **WHEN** MCP arguments contain values under keys matching the existing secret-name policy at any nesting level
@@ -48,6 +48,10 @@ ForgeAgent MUST redact structured secret-key values and known sensitive environm
 #### Scenario: MCP argument key contains a known secret
 - **WHEN** a mapping key at any MCP argument nesting level contains a known sensitive environment value
 - **THEN** the confirmer applies secret-name policy to the original key, masks the displayed key itself, and does not expose the known value through object structure
+
+#### Scenario: MCP argument display keys collide after masking
+- **WHEN** top-level or nested MCP argument keys are distinct in raw input but display as the same masked label
+- **THEN** the confirmation summary preserves every entry under deterministic collision-free display labels, redacts only values required by the secret-name policy, leaves non-secret values visible, leaves the raw input unchanged and does not disclose the masked secret
 
 #### Scenario: MCP identifiers contain a known secret
 - **WHEN** an MCP server or tool identifier contains a known sensitive environment value

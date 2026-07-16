@@ -27,7 +27,7 @@ ForgeAgent MUST validate the effective destination of the initial request and ev
 - **THEN** ForgeAgent applies the forbidden-address result and rejects the request
 
 ### Requirement: Redirect processing is bounded and scheme restricted
-ForgeAgent MUST maintain its own maximum of 10 redirect hops and MUST reject any redirect whose resolved scheme is not HTTP or HTTPS.
+ForgeAgent MUST maintain its own maximum of 10 redirect hops and MUST reject any redirect whose resolved scheme is not HTTP or HTTPS. Redirect scheme classification MUST happen in ForgeAgent's guard-owned shared 30x urllib path for 301, 302, 303, 307 and 308 after resolving `Location` or `URI` against the current request URL, before urllib's standard scheme gate, any destination protocol handler or any destination connection can run.
 
 #### Scenario: Redirect chain exceeds the hard limit
 - **WHEN** a response chain attempts an eleventh redirect
@@ -35,7 +35,11 @@ ForgeAgent MUST maintain its own maximum of 10 redirect hops and MUST reject any
 
 #### Scenario: HTTP response redirects to a non-HTTP scheme
 - **WHEN** an HTTP or HTTPS response redirects to FTP, file or another unsupported scheme
-- **THEN** ForgeAgent rejects the redirect before any handler for that scheme can access the destination
+- **THEN** ForgeAgent raises `SSRFGuardError` from the guard redirect layer before any handler for that scheme can access the destination
+
+#### Scenario: Shared 30x redirect path sees file before redirect_request
+- **WHEN** urllib routes a 301, 302, 303, 307 or 308 response through its real shared redirect error handler and the resolved `Location` target is `file:` or another unsupported scheme
+- **THEN** ForgeAgent classifies the redirect as an SSRF guard violation before urllib can raise its own `HTTPError` or invoke any file, FTP or other destination handler
 
 ### Requirement: Proxy support remains explicit and disabled
 ForgeAgent SHALL document that future proxy routing requires a ForgeAgent-owned configuration contract and MUST NOT treat operating-system or environment proxy configuration as that contract.

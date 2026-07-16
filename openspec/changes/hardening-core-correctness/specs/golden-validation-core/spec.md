@@ -39,6 +39,10 @@ The complete `G01` through `G380` unique, continuous and 360-item non-core check
 ### Requirement: Golden scenarios are machine judged and reported
 The golden runner MUST validate declared expectations for each scenario and SHALL emit both machine-readable results and a human-readable summary containing counts and pass rate.
 
+#### Scenario: Out-of-root boundary fixtures use unique temporary roots
+- **WHEN** G59 or G324 exercises an out-of-root write target, including repeat execution or a forced golden-check failure path
+- **THEN** the scenario allocates a unique outside-root temporary directory, cleans it on all paths, does not depend on a fixed filename in the global parent directory, and is unaffected by stale files at the old fixed sibling names
+
 #### Scenario: All expectations pass
 - **WHEN** every scenario satisfies its declared outcome
 - **THEN** the runner reports 20 passed, 0 failed and a 100 percent pass rate with a successful process exit

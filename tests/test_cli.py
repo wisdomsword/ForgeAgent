@@ -6,7 +6,9 @@ config-error behavior.
 """
 
 import asyncio
+import copy
 import gc
+import json
 import logging
 import sys
 import threading
@@ -74,6 +76,74 @@ def test_confirmation_summary_masks_nested_mcp_secret_arguments(monkeypatch):
     for secret in ("nested-token", "nested-password", "known-secret-value", "nested-key"):
         assert secret not in summary
     assert "<redacted>" in summary
+
+
+def _mcp_summary_arguments(summary: str) -> dict:
+    return json.loads(summary.split(" ", 2)[2])
+
+
+def test_confirmation_summary_preserves_top_level_colliding_mcp_argument_labels(
+    monkeypatch,
+):
+    from forgeagent.cli import _confirmation_summary
+
+    secret = "opaque-value-12345"
+    raw_arguments = {
+        f"unsafe-{secret}": "public-left",
+        "unsafe-***REDACTED***": "public-right",
+        "api_token": "hidden-token",
+    }
+    original_arguments = raw_arguments.copy()
+    monkeypatch.setattr("forgeagent.cli.sensitive_env_values", lambda: {secret})
+
+    summary = _confirmation_summary(
+        MCPArgs(server="github", tool="create_issue", arguments=raw_arguments)
+    )
+    displayed = _mcp_summary_arguments(summary)
+
+    assert raw_arguments == original_arguments
+    assert secret not in summary
+    assert "hidden-token" not in summary
+    assert displayed["unsafe-***REDACTED***"] == "public-left"
+    assert displayed["unsafe-***REDACTED*** 2"] == "public-right"
+    assert displayed["api_token"] == "<redacted>"
+
+
+def test_confirmation_summary_preserves_nested_colliding_mcp_argument_labels(
+    monkeypatch,
+):
+    from forgeagent.cli import _confirmation_summary
+
+    secret = "opaque-value-12345"
+    raw_arguments = {
+        "outer": {
+            f"field-{secret}": "public-nested-left",
+            "field-***REDACTED***": "public-nested-right",
+            "password": "hidden-password",
+        },
+        "items": [
+            {
+                f"item-{secret}": "public-list-left",
+                "item-***REDACTED***": "public-list-right",
+            }
+        ],
+    }
+    original_arguments = copy.deepcopy(raw_arguments)
+    monkeypatch.setattr("forgeagent.cli.sensitive_env_values", lambda: {secret})
+
+    summary = _confirmation_summary(
+        MCPArgs(server="github", tool="create_issue", arguments=raw_arguments)
+    )
+    displayed = _mcp_summary_arguments(summary)
+
+    assert raw_arguments == original_arguments
+    assert secret not in summary
+    assert "hidden-password" not in summary
+    assert displayed["outer"]["field-***REDACTED***"] == "public-nested-left"
+    assert displayed["outer"]["field-***REDACTED*** 2"] == "public-nested-right"
+    assert displayed["outer"]["password"] == "<redacted>"
+    assert displayed["items"][0]["item-***REDACTED***"] == "public-list-left"
+    assert displayed["items"][0]["item-***REDACTED*** 2"] == "public-list-right"
 
 
 def test_confirmation_summary_redacts_url_userinfo_and_sensitive_query(monkeypatch):

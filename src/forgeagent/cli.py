@@ -177,14 +177,22 @@ def make_console_asker(console: Console, read_line: Callable[[str], str] = input
 
 def _redact_confirmation_value(value, secret_values: set[str]):
     if isinstance(value, dict):
-        return {
-            mask_secrets(str(key), secret_values): (
+        displayed = {}
+        used_labels: set[str] = set()
+        for key, item in value.items():
+            base_label = mask_secrets(str(key), secret_values)
+            label = base_label
+            suffix = 2
+            while label in used_labels:
+                label = f"{base_label} {suffix}"
+                suffix += 1
+            used_labels.add(label)
+            displayed[label] = (
                 "<redacted>"
                 if is_secret_name(str(key))
                 else _redact_confirmation_value(item, secret_values)
             )
-            for key, item in value.items()
-        }
+        return displayed
     if isinstance(value, list):
         return [_redact_confirmation_value(item, secret_values) for item in value]
     if isinstance(value, str):

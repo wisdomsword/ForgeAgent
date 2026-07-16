@@ -206,6 +206,57 @@ def test_redirect_handler_rejects_non_http_scheme(url):
 
 
 @pytest.mark.parametrize("redirect_code", [301, 302, 303, 307, 308])
+@pytest.mark.parametrize(
+    "target_url",
+    ["file:///etc/passwd", "ftp://example.com/private", "gopher://example.com/private"],
+)
+def test_guarded_urlopen_classifies_unsupported_redirect_before_destination_access(
+    monkeypatch, redirect_code, target_url
+):
+    real_build_opener = urllib.request.build_opener
+    destination_attempts = []
+
+    class _SyntheticRedirectPipelineHandler(urllib.request.BaseHandler):
+        handler_order = 100
+
+        def http_open(self, request):
+            if request.full_url != "http://public.example/redirect":
+                return None
+            headers = Message()
+            headers["Location"] = target_url
+            response = urllib.response.addinfourl(
+                io.BytesIO(), headers, request.full_url, redirect_code
+            )
+            response.msg = "synthetic redirect"
+            return response
+
+        def file_open(self, request):
+            destination_attempts.append(request.full_url)
+            pytest.fail("redirect attempted file destination handler")
+
+        def ftp_open(self, request):
+            destination_attempts.append(request.full_url)
+            pytest.fail("redirect attempted FTP destination handler")
+
+    def _build_opener_with_synthetic_redirect(*handlers):
+        return real_build_opener(_SyntheticRedirectPipelineHandler(), *handlers)
+
+    def _unexpected_socket(*args, **kwargs):
+        pytest.fail("unsupported redirect attempted socket construction")
+
+    monkeypatch.setattr(
+        "forgeagent.ssrf_guard.urllib.request.build_opener",
+        _build_opener_with_synthetic_redirect,
+    )
+    monkeypatch.setattr("forgeagent.ssrf_guard.socket.socket", _unexpected_socket)
+
+    with pytest.raises(SSRFGuardError, match="redirect scheme"):
+        guarded_urlopen("http://public.example/redirect", timeout=1)
+
+    assert destination_attempts == []
+
+
+@pytest.mark.parametrize("redirect_code", [301, 302, 303, 307, 308])
 def test_guarded_urlopen_blocks_loopback_redirect_before_socket_construction(
     monkeypatch, redirect_code
 ):

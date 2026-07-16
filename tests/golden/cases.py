@@ -1169,44 +1169,46 @@ def run_g58_offline(workdir: Path) -> GoldenEvidence:
 
 def run_g59_offline(workdir: Path) -> GoldenEvidence:
     workdir.mkdir(parents=True, exist_ok=True)
-    target = workdir.parent / "g59-outside-write.txt"
-    result = RestrictedBackend(allowed_root=str(workdir), secret_values=set()).execute(
-        "import os\n"
-        f"os.chdir({str(workdir)!r})\n"
-        f"open('../{target.name}', 'w', encoding='utf-8').write('outside')\n",
-        Runtime(),
-    )
+    with TemporaryDirectory(prefix="forgeagent-g59-outside-") as outside_directory:
+        target = Path(outside_directory) / "g59-outside-write.txt"
+        result = RestrictedBackend(allowed_root=str(workdir), secret_values=set()).execute(
+            "import os\n"
+            f"os.chdir({str(workdir)!r})\n"
+            f"open({str(target)!r}, 'w', encoding='utf-8').write('outside')\n",
+            Runtime(),
+        )
 
-    require(not result.success, "G59 out-of-root write unexpectedly succeeded")
-    require(
-        result.error == "restricted: file access outside allowed root denied",
-        "G59 audit-hook failure detail differs",
-    )
-    require(not target.exists(), "G59 created the out-of-root target")
-    return _evidence(
-        detail="audit hook blocked the out-of-root write",
-        evidence={"success": False, "error": result.error, "target_exists": False},
-    )
+        require(not result.success, "G59 out-of-root write unexpectedly succeeded")
+        require(
+            result.error == "restricted: file access outside allowed root denied",
+            "G59 audit-hook failure detail differs",
+        )
+        require(not target.exists(), "G59 created the out-of-root target")
+        return _evidence(
+            detail="audit hook blocked the out-of-root write",
+            evidence={"success": False, "error": result.error, "target_exists": False},
+        )
 
 
 def run_g324_offline(workdir: Path) -> GoldenEvidence:
     workdir.mkdir(parents=True, exist_ok=True)
-    target = workdir.parent / "g324-outside-write.txt"
-    outcome = FileWriteTool().run(
-        FileWriteArgs(path=str(target), content="outside"),
-        _tool_context(workdir, confirmer=lambda _args: True),
-    )
+    with TemporaryDirectory(prefix="forgeagent-g324-outside-") as outside_directory:
+        target = Path(outside_directory) / "g324-outside-write.txt"
+        outcome = FileWriteTool().run(
+            FileWriteArgs(path=str(target), content="outside"),
+            _tool_context(workdir, confirmer=lambda _args: True),
+        )
 
-    require(not outcome.success, "G324 out-of-root FileWrite unexpectedly succeeded")
-    require(
-        outcome.detail == "FileWrite path is outside project root",
-        "G324 FileWrite failure detail differs",
-    )
-    require(not target.exists(), "G324 created the out-of-root target")
-    return _evidence(
-        detail="FileWrite rejected the out-of-root target",
-        evidence={"success": False, "detail": outcome.detail, "target_exists": False},
-    )
+        require(not outcome.success, "G324 out-of-root FileWrite unexpectedly succeeded")
+        require(
+            outcome.detail == "FileWrite path is outside project root",
+            "G324 FileWrite failure detail differs",
+        )
+        require(not target.exists(), "G324 created the out-of-root target")
+        return _evidence(
+            detail="FileWrite rejected the out-of-root target",
+            evidence={"success": False, "detail": outcome.detail, "target_exists": False},
+        )
 
 
 def run_g329_offline(workdir: Path) -> GoldenEvidence:

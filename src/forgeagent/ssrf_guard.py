@@ -80,6 +80,22 @@ class _GuardedHTTPSHandler(urllib.request.HTTPSHandler):
 
 
 class _GuardedRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def http_error_302(self, req, fp, code, msg, headers):
+        if "location" in headers:
+            newurl = headers["location"]
+        elif "uri" in headers:
+            newurl = headers["uri"]
+        else:
+            return None
+
+        resolved_url = urllib.parse.urljoin(req.full_url, newurl)
+        scheme = urllib.parse.urlsplit(resolved_url).scheme.lower()
+        if scheme not in _ALLOWED_SCHEMES:
+            raise SSRFGuardError(f"redirect scheme {scheme!r} is not allowed")
+        return super().http_error_302(req, fp, code, msg, headers)
+
+    http_error_301 = http_error_303 = http_error_307 = http_error_308 = http_error_302
+
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         count = getattr(req, "_forgeagent_redirect_count", 0)
         if count >= _MAX_REDIRECTS:

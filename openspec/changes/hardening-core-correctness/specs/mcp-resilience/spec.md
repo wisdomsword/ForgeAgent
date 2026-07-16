@@ -235,7 +235,7 @@ ForgeAgent MUST keep a new loop worker behind a publication gate until manager s
 
 #### Scenario: Close is called more than once
 - **WHEN** `close()` is invoked after resources have already been closed or a previous close partially failed
-- **THEN** the call completes without reopening resources or creating a second loop-owned shutdown task or waiting facade; it independently signals the existing drain, waits on the thread-safe completion event and performs bounded stop/join within the new absolute deadline, so one cleanup exception cannot skip later sites. The exact process-control object captured by the first close preflight remains authoritative over retry ordinary errors and later cleanup controls, cleanup still runs, and retained references clear only after cleanup completion and thread stop are both proven
+- **THEN** the call completes without reopening resources or creating a second loop-owned shutdown task or waiting facade; it independently signals the existing drain, waits on the thread-safe completion event and performs bounded stop/join within the new absolute deadline, so one cleanup exception cannot skip later sites. Within a single synchronous `close()` invocation, the first captured process-control object remains authoritative over later cleanup controls and ordinary errors while cleanup still runs. A process-control object already delivered by an earlier `close()` call MUST NOT be persisted or rethrown by a later `close()` call. Retained references clear only after cleanup completion and thread stop are both proven
 
 #### Scenario: Repeated close or stop/join cleanup receives process control
 - **WHEN** drain retry, completion wait, loop stop, thread join/state read or loop close raises `KeyboardInterrupt` or `SystemExit`
