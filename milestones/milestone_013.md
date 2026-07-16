@@ -1,6 +1,6 @@
 # 里程碑 M13: 核心正确性加固
 
-- 状态: 已完成（以“验收证据独立评审”槽位转为 APPROVED 为生效条件）
+- 状态: 已完成（以所有验收证据槽位均为 APPROVED 为生效条件）
 - 起止: 2026-07-13 ~ 2026-07-17
 - 对应 ACTION_PLAN 行: M13（见该文件 §四 里程碑表）
 - 前置里程碑: [milestone_009](milestone_009.md)（M9 是在 M10 完成后补做的最后一个既有里程碑；M9/M10 均已完成，M11/M12 仍是后续规划，因此本次加固按批准编号记录为 M13）
@@ -78,7 +78,9 @@
 - [x] 离线黄金核心：runner 退出 `0`；JSON schema `forgeagent.golden.v1` 和 Markdown 均报告 `20/20`、失败 `0`、`100.0%`
 - [x] CodeGraph 报告索引属于主 checkout；按计划记录警告后，用当前 worktree 直接复核 WebFetch/search、run/REPL/Task/Step、MCP CLI 和 golden runner/pytest 调用面
 - [x] `openspec validate hardening-core-correctness --strict` 和 `git diff --check` 通过；`ACTION_PLAN.md` SHA-256 为 `64ab3ca0b0b12e341233332481a5c83189d840f9bdf5b3a1ee0a8ed741bc5a15`
+- [x] Comet build guard dry-run 全部通过；该 guard 只原生推断 npm/Maven/Cargo，本 uv/Python 项目使用其显式 `COMET_SKIP_BUILD=1` 分支，实际 Ruff、专项、全量和黄金验证仍由上述原始日志承担
 - [x] 验收证据独立评审: APPROVED by reviewer `Kuhn` (`019f6c3d-9adf-7151-9aa4-3cfc5fb423fc`)
+- [x] Build guard 证据修正复评: APPROVED by reviewer `Kuhn` (`019f6c3d-9adf-7151-9aa4-3cfc5fb423fc`)
 
 ## 遗留问题
 
@@ -91,4 +93,4 @@
 
 M13 的已验证实现固定为 `6f347d3e0006de36dae9789f9cf2e4c126aff675`。网络、工具确认/最小披露、两阶段完成、MCP required/generation/close/cancellation 和 20 项离线黄金核心均已实现，Ruff、专项/全量 pytest、黄金 runner、CodeGraph 调用面、技术一致性和 whole-branch 代码评审均通过。
 
-下一步只允许独立验收证据 reviewer 对照原始命令输出审查本文件、tasks 和 `.comet/subagent-progress.md`，并把上述验收证据槽位改为自己的 APPROVED verdict/identity。若发现 evidence-only 转录错误，仅修正证据并重复验收评审；若发现源码、测试、spec 或公开文档问题，必须取消本 verified HEAD 并从 Task 11 Step 1 重跑。验收通过后提交 evidence-only 文件，确认 verified HEAD 到最终 HEAD 仅含 tasks/progress/milestone/ACTION_PLAN M13 记录，然后进入 Comet verify。M11/M12 仍是后续规划，不属于 M13 实现。
+下一步只允许独立验收证据 reviewer 对照原始命令输出审查本文件、tasks、`.comet/subagent-progress.md` 和 Task 11 plan checklist，并把尚未完成的验收证据槽位改为自己的 APPROVED verdict/identity。若发现 evidence-only 转录错误，仅修正证据并重复验收评审；若发现源码、测试、spec 或公开文档问题，必须取消本 verified HEAD 并从 Task 11 Step 1 重跑。验收通过后提交 evidence-only 文件，确认 verified HEAD 到最终 HEAD 仅含 tasks/progress/milestone 和 plan checklist 证据；ACTION_PLAN M13 已在 verified HEAD 中，用户 M11/M12 差异继续不提交。随后运行 build guard 并进入 Comet verify。M11/M12 仍是后续规划，不属于 M13 实现。

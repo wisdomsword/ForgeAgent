@@ -1255,7 +1255,7 @@ characterization tests 分别证明 `completed: false` 的 refused/need_info/fai
 - Produces: 45/45 tasks 勾选、实证里程碑、完整离线报告、与已验证实现 HEAD 精确关联且可进入 Comet verify 的提交状态。
 - Consumes: 所有实现提交、OpenSpec specs、Design Doc、base ref。
 
-- [ ] **Step 1: 运行静态检查**
+- [x] **Step 1: 运行静态检查**
 
 ```bash
 UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run ruff check src tests
@@ -1271,7 +1271,7 @@ UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run ruff check src tests
 git diff --name-only --diff-filter=ACMR 44456c57e2ef76990f44846eadb83bc8d5e25166 HEAD -- '*.py'
 ```
 
-- [ ] **Step 2: 运行专项测试**
+- [x] **Step 2: 运行专项测试**
 
 ```bash
 UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest \
@@ -1289,7 +1289,7 @@ UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest \
 
 预期：全部可运行测试 PASS；环境能力 skip 带明确原因。
 
-- [ ] **Step 3: 运行隔离全量测试**
+- [x] **Step 3: 运行隔离全量测试**
 
 ```bash
 UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest -q -ra \
@@ -1299,7 +1299,7 @@ UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run pytest -q -ra \
 
 预期：无人工 deselect；所有失败必须先按 systematic-debugging 修复，不能进入下一步。
 
-- [ ] **Step 4: 运行 20 项离线黄金核心**
+- [x] **Step 4: 运行 20 项离线黄金核心**
 
 ```bash
 UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run python -m tests.golden.runner
@@ -1307,11 +1307,11 @@ UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run python -m tests.golden.runner
 
 预期：20/20、100.0%、退出 0；核对 JSON 与 Markdown summary 一致。没有显式模型和凭证时不运行 real 模式。
 
-- [ ] **Step 5: 使用 CodeGraph 做最终调用面复审**
+- [x] **Step 5: 使用 CodeGraph 做最终调用面复审**
 
 查询 `guarded_urlopen`, `make_console_confirmer`, `_apply_declared_status`, `MCPManager.connect/close`, `GoldenScenario` 的调用方。确认 WebFetch/search、run/REPL、Task/Step、MCP CLI 和测试入口均覆盖。若 CodeGraph 报 different-worktree/stale，记录警告及原因，并以当前 worktree 的直接源码、diff 和测试复核所有受影响文件；不把主 checkout 索引误当作当前实现，也不自行运行 `codegraph init`。
 
-- [ ] **Step 6: 执行技术与代码两道独立评审门禁**
+- [x] **Step 6: 执行技术与代码两道独立评审门禁**
 
 1. 技术方案一致性评审：逐项对照 `spec.md`、五份 delta spec、Design Doc、计划和实现，修复错误、遗漏或漂移，并重新运行 `openspec validate hardening-core-correctness --strict`。
 2. 对抗性代码评审：用 plan `base-ref` 到当前候选 HEAD 的完整 review package 派发独立 whole-branch reviewer，覆盖正确性、安全、并发、资源生命周期和测试可信度；Critical/Important 发现必须由单一 fix worker 收敛并提交。这个 reviewer 同时满足 `review_mode: thorough` 的唯一 build-stage final whole-branch review，Task 11 checkoff 后不得再派发一个重复的 final code reviewer。任何源码、测试、规范或文档修复都会使本 Task 已有证据失效，必须从 Step 1 重新执行静态、专项、全量、黄金、CodeGraph 和本步骤两道评审，不能只重跑受影响测试。
@@ -1334,7 +1334,7 @@ UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run python -m tests.golden.runner
 
 Holder cancellation follow-up confirms the cancellation catch must follow nested async-context ownership rather than sit outside both contexts: body cancellation publishes ready before session teardown, session-enter cancellation publishes ready before stdio teardown, and the saved original cancellation must dominate teardown `BaseException`, a second `CancelledError`, or `return True` suppression after each layer and after both async-with statements exit. Generation-safe finally/done-finalizer cleanup, no implicit replacement, loop usability and warning-free completion remain mandatory; this source/test/contract repair invalidates prior Step 1-6 evidence and requires a fresh restart.
 
-- [ ] **Step 7: 固定已验证实现 HEAD，创建证据草稿并执行第三道验收评审**
+- [x] **Step 7: 固定已验证实现 HEAD，创建证据草稿并执行第三道验收评审**
 
 Step 1-6（包含前两道评审）通过后，立即把 `git rev-parse HEAD` 作为 `verified_head` 同时写入 `.comet/subagent-progress.md` 和 milestone 草稿；两个持久文件必须一致，后续命令每次重新读取而不依赖 shell 变量。里程碑必须标明这个精确 implementation HEAD，而不是之后的 evidence-only commit。按 `MILESTONE_GUIDE.md` 一次性创建 `milestones/milestone_013.md`，把实际命令、pass/skip 数、黄金通过率和前两道评审结论写入文件，并为第三道证据评审保留唯一、明确的 `pending` verdict/identity 槽位；将 `milestones/latest` 更新为唯一一行 `milestone_013.md`。M11/M12 仍是未完成规划；当前 `milestones/latest` 指向最后按时间完成的 `milestone_009.md`，因此 M13 的“前置里程碑”链接使用 `milestone_009.md`，正文同时说明 M9 是在 M10 后补做、M9/M10 均已完成及编号跳跃原因。逐条核对本计划末尾映射后，将 `tasks.md` 的 45 个 checkbox 定向改为 `[x]`；不能一次性盲目全选。同步更新 `.comet/subagent-progress.md`，记录最终任务、评审和验证证据，并保留同样的第三道评审 pending 槽位。
 
@@ -1342,7 +1342,7 @@ Step 1-6（包含前两道评审）通过后，立即把 `git rev-parse HEAD` �
 
 此 change 的预期工作树状态不是绝对 clean：允许且只允许保留 Task 10 开始前已有的 `ACTION_PLAN.md` 用户差异中除 M13 placeholder 外的内容。提交收尾前重新计算 `ACTION_PLAN.md` SHA-256 并与持久 checkpoint 的 `expected_after_sha256` 比较；`/tmp` 文件仍存在时再补充 `cmp`，但它不是唯一证据。除此之外不得有未提交文件。
 
-- [ ] **Step 8: 提交验证收尾**
+- [x] **Step 8: 提交验证收尾**
 
 ```bash
 git add openspec/changes/hardening-core-correctness/tasks.md \
@@ -1352,7 +1352,7 @@ git add openspec/changes/hardening-core-correctness/tasks.md \
 git commit -m "chore: record hardening verification evidence"
 ```
 
-提交后从 milestone 与 progress 重新读取并比较 `verified_head`，运行 `git diff --check`、strict OpenSpec validation，并验证 `git diff --name-only "$verified_head"..HEAD` 只包含 `tasks.md`、`.comet/subagent-progress.md` 和 milestone evidence 文件。最终报告同时列出 `verified_head` 与 evidence-only final HEAD；因为最后提交已证明只含验收记录，不用重跑产品测试。
+提交后从 milestone 与 progress 重新读取并比较 `verified_head`，运行 `git diff --check`、strict OpenSpec validation，并验证 `git diff --name-only "$verified_head"..HEAD` 只包含 `tasks.md`、`.comet/subagent-progress.md`、milestone evidence 文件和本计划的 Task 11 checklist/evidence-boundary 更新。最终报告同时列出 `verified_head` 与 evidence-only final HEAD；因为最后提交已证明只含验收记录，不用重跑产品测试。
 
 ## OpenSpec Tasks Coverage Map
 
