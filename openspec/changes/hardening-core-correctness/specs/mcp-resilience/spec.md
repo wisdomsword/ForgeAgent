@@ -144,8 +144,8 @@ ForgeAgent MUST serialize holder desired-state reconciliation on the MCP loop th
 - **THEN** ForgeAgent isolates it as a fixed unavailable or structured call failure for that generation, removes partial/stale ownership, signals exact teardown, keeps the loop available for cleanup and other holders, avoids automatic restart loops, and does not expose the exception text; `CancelledError` retains cancellation semantics
 
 #### Scenario: Active holder task is cancelled
-- **WHEN** the actual `MCPManager._holder()` task is cancelled while its MCP SDK async transport and session contexts are active
-- **THEN** ForgeAgent sets that generation's ready event and re-raises `CancelledError`, the task remains cancelled, async-context and done-finalizer cleanup remove only its exact session/holder and clear its teardown generation, no replacement starts without explicit restart intent, the event loop remains usable, and no unretrieved-task warning is emitted; this does not weaken `KeyboardInterrupt`/`SystemExit` isolation
+- **WHEN** the actual `MCPManager._holder()` task is cancelled in the ClientSession body or while ClientSession `__aenter__` is still pending after stdio has entered
+- **THEN** ForgeAgent saves the original `CancelledError` and sets that generation's ready event before beginning the owning session or stdio teardown; after each context and both contexts exit, it re-raises the saved cancellation so teardown throwing any `BaseException`, throwing a second `CancelledError`, or returning `True` cannot replace or suppress the original cancellation. The task remains cancelled with the original cancellation data, async-context and done-finalizer cleanup remove only its exact session/holder and clear its teardown generation, no replacement starts without explicit restart intent, the event loop remains usable, and no unretrieved-task warning is emitted; this does not weaken `KeyboardInterrupt`/`SystemExit` isolation when no holder cancellation was saved
 
 #### Scenario: Multiple initial holders do not multiply connection timeout
 - **WHEN** multiple enabled MCP servers all fail to signal ready

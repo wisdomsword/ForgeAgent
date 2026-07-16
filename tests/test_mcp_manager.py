@@ -4906,6 +4906,8 @@ def test_real_holder_cancellation_before_ready_sets_ready_and_finalizes(monkeypa
     lifecycle = []
     loop_messages = []
     initialize_started = None
+    teardown_started = None
+    teardown_release = None
 
     class FakeSession:
         def __init__(self, *args):
@@ -4916,6 +4918,9 @@ def test_real_holder_cancellation_before_ready_sets_ready_and_finalizes(monkeypa
             return self
 
         async def __aexit__(self, *exc_info):
+            lifecycle.append("session-exit-start")
+            teardown_started.set()
+            await teardown_release.wait()
             lifecycle.append("session-exit")
 
         async def initialize(self):
@@ -4938,13 +4943,15 @@ def test_real_holder_cancellation_before_ready_sets_ready_and_finalizes(monkeypa
     monkeypatch.setattr(mcp_stdio, "stdio_client", lambda params: FakeStdioClient())
 
     async def cancel_initializing_holder():
-        nonlocal initialize_started
+        nonlocal initialize_started, teardown_release, teardown_started
         loop = asyncio.get_running_loop()
         loop.set_exception_handler(lambda _loop, context: loop_messages.append(context["message"]))
         initialize_started = asyncio.Event()
+        teardown_started = asyncio.Event()
+        teardown_release = asyncio.Event()
         ready = mgr._start_holder("pending")
         generation, holder_task, _stop = mgr._holders["pending"]
-        await initialize_started.wait()
+        await asyncio.wait_for(initialize_started.wait(), timeout=1)
         state = mgr._states["pending"]
         state.tearing_down_generation = generation
 
@@ -4953,9 +4960,14 @@ def test_real_holder_cancellation_before_ready_sets_ready_and_finalizes(monkeypa
         assert mgr._sessions == {}
 
         holder_task.cancel()
+        try:
+            await asyncio.wait_for(teardown_started.wait(), timeout=1)
+            assert ready.is_set() is True
+            assert holder_task.done() is False
+        finally:
+            teardown_release.set()
         with pytest.raises(asyncio.CancelledError):
             await holder_task
-        assert ready.is_set() is True
         await asyncio.sleep(0)  # run the holder's done callback
 
         loop_probe = loop.create_future()
@@ -4981,6 +4993,213 @@ def test_real_holder_cancellation_before_ready_sets_ready_and_finalizes(monkeypa
         "stdio-enter",
         "session-enter",
         "initialize",
+        "session-exit-start",
+        "session-exit",
+        "stdio-exit",
+    ]
+    assert loop_messages == []
+    assert caught == []
+
+
+def test_real_holder_session_enter_cancellation_sets_ready_before_stdio_teardown(monkeypatch):
+    import mcp
+    import mcp.client.stdio as mcp_stdio
+
+    mgr = MCPManager({"pending": MCPServerConfig(command="unused")})
+    lifecycle = []
+    loop_messages = []
+    session_enter_started = None
+    teardown_started = None
+    teardown_release = None
+
+    class FakeSession:
+        def __init__(self, *args):
+            pass
+
+        async def __aenter__(self):
+            lifecycle.append("session-enter-start")
+            session_enter_started.set()
+            await asyncio.Future()
+
+        async def __aexit__(self, *exc_info):
+            raise AssertionError("an incomplete session enter must not exit")
+
+    class FakeStdioClient:
+        async def __aenter__(self):
+            lifecycle.append("stdio-enter")
+            return object(), object()
+
+        async def __aexit__(self, *exc_info):
+            lifecycle.append("stdio-exit-start")
+            teardown_started.set()
+            await teardown_release.wait()
+            lifecycle.append("stdio-exit")
+
+    monkeypatch.setattr(mcp, "ClientSession", FakeSession)
+    monkeypatch.setattr(mcp_stdio, "stdio_client", lambda params: FakeStdioClient())
+
+    async def cancel_session_enter():
+        nonlocal session_enter_started, teardown_release, teardown_started
+        loop = asyncio.get_running_loop()
+        loop.set_exception_handler(lambda _loop, context: loop_messages.append(context["message"]))
+        session_enter_started = asyncio.Event()
+        teardown_started = asyncio.Event()
+        teardown_release = asyncio.Event()
+        ready = mgr._start_holder("pending")
+        generation, holder_task, _stop = mgr._holders["pending"]
+        await asyncio.wait_for(session_enter_started.wait(), timeout=1)
+        state = mgr._states["pending"]
+        state.tearing_down_generation = generation
+
+        assert ready.is_set() is False
+        assert lifecycle == ["stdio-enter", "session-enter-start"]
+
+        holder_task.cancel("body-cancel")
+        try:
+            await asyncio.wait_for(teardown_started.wait(), timeout=1)
+            assert ready.is_set() is True
+            assert holder_task.done() is False
+        finally:
+            teardown_release.set()
+        with pytest.raises(asyncio.CancelledError) as caught:
+            await holder_task
+        assert caught.value.args == ("body-cancel",)
+        await asyncio.sleep(0)  # run the holder's done callback
+
+        loop_probe = loop.create_future()
+        loop.call_soon(loop_probe.set_result, "usable")
+        assert await loop_probe == "usable"
+        return generation, holder_task
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        generation, holder_task = asyncio.run(cancel_session_enter())
+        gc.collect()
+
+    state = mgr._states["pending"]
+    assert holder_task.cancelled() is True
+    assert state.generation == generation
+    assert state.tearing_down_generation is None
+    assert state.restart_after_generation is None
+    assert state.status == "unavailable"
+    assert state.tools == []
+    assert mgr._sessions == {}
+    assert mgr._holders == {}
+    assert lifecycle == [
+        "stdio-enter",
+        "session-enter-start",
+        "stdio-exit-start",
+        "stdio-exit",
+    ]
+    assert loop_messages == []
+    assert caught == []
+
+
+@pytest.mark.parametrize(
+    "teardown_case",
+    [
+        "session-error",
+        "stdio-error",
+        "session-suppress",
+        "stdio-suppress",
+        "session-cancel",
+    ],
+)
+def test_real_holder_cancellation_dominates_teardown(teardown_case, monkeypatch):
+    import mcp
+    import mcp.client.stdio as mcp_stdio
+
+    mgr = MCPManager({"pending": MCPServerConfig(command="unused")})
+    lifecycle = []
+    loop_messages = []
+
+    class FakeTool:
+        name = "echo"
+        description = "Echo"
+        inputSchema = {}
+
+    class FakeToolList:
+        tools = [FakeTool()]
+
+    class FakeSession:
+        def __init__(self, *args):
+            pass
+
+        async def __aenter__(self):
+            lifecycle.append("session-enter")
+            return self
+
+        async def __aexit__(self, *exc_info):
+            lifecycle.append("session-exit")
+            if teardown_case == "session-error":
+                raise RuntimeError("session teardown failed")
+            if teardown_case == "session-cancel":
+                raise asyncio.CancelledError("teardown-cancel")
+            return teardown_case == "session-suppress"
+
+        async def initialize(self):
+            lifecycle.append("initialize")
+
+        async def list_tools(self):
+            lifecycle.append("list-tools")
+            return FakeToolList()
+
+    class FakeStdioClient:
+        async def __aenter__(self):
+            lifecycle.append("stdio-enter")
+            return object(), object()
+
+        async def __aexit__(self, *exc_info):
+            lifecycle.append("stdio-exit")
+            if teardown_case == "stdio-error":
+                raise RuntimeError("stdio teardown failed")
+            return teardown_case == "stdio-suppress"
+
+    monkeypatch.setattr(mcp, "ClientSession", FakeSession)
+    monkeypatch.setattr(mcp_stdio, "stdio_client", lambda params: FakeStdioClient())
+
+    async def cancel_active_holder():
+        loop = asyncio.get_running_loop()
+        loop.set_exception_handler(lambda _loop, context: loop_messages.append(context["message"]))
+        ready = mgr._start_holder("pending")
+        await ready.wait()
+        generation, holder_task, _stop = mgr._holders["pending"]
+        state = mgr._states["pending"]
+        state.tearing_down_generation = generation
+
+        assert state.status == "available"
+        assert mgr._sessions["pending"][0] == generation
+
+        holder_task.cancel("body-cancel")
+        with pytest.raises(asyncio.CancelledError) as caught:
+            await holder_task
+        assert caught.value.args == ("body-cancel",)
+        await asyncio.sleep(0)  # run the holder's done callback
+
+        loop_probe = loop.create_future()
+        loop.call_soon(loop_probe.set_result, "usable")
+        assert await loop_probe == "usable"
+        return generation, holder_task
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        generation, holder_task = asyncio.run(cancel_active_holder())
+        gc.collect()
+
+    state = mgr._states["pending"]
+    assert holder_task.cancelled() is True
+    assert state.generation == generation
+    assert state.tearing_down_generation is None
+    assert state.restart_after_generation is None
+    assert state.status == "unavailable"
+    assert state.tools == []
+    assert mgr._sessions == {}
+    assert mgr._holders == {}
+    assert lifecycle == [
+        "stdio-enter",
+        "session-enter",
+        "initialize",
+        "list-tools",
         "session-exit",
         "stdio-exit",
     ]

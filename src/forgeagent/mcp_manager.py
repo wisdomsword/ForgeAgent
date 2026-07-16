@@ -538,31 +538,55 @@ class MCPManager:
             env={**os.environ, **_resolve_env(cfg.env)},
         )
         session: object | None = None
+        cancellation: asyncio.CancelledError | None = None
         try:
             async with stdio_client(params) as (read, write):
-                async with ClientSession(read, write) as session:
-                    await session.initialize()
-                    if not self._holder_can_publish(name, generation, stop):
+                try:
+                    async with ClientSession(read, write) as session:
+                        try:
+                            await session.initialize()
+                            if not self._holder_can_publish(name, generation, stop):
+                                ready.set()
+                                return
+                            listed = await session.list_tools()
+                            if not self._holder_can_publish(name, generation, stop):
+                                ready.set()
+                                return
+                            state.tools = self._filter_tools(name, cfg, listed.tools)
+                            self._sessions[name] = (generation, session)
+                            if self._holder_can_publish(name, generation, stop):
+                                state.status = "available"
+                            else:
+                                state.tools = []
+                                if self._session_slot_matches(name, generation, session):
+                                    self._sessions.pop(name, None)
+                            ready.set()
+                            await stop.wait()  # hold both async-with scopes open
+                        except asyncio.CancelledError as exc:
+                            cancellation = exc
+                            ready.set()
+                            raise
+                except asyncio.CancelledError as exc:
+                    if cancellation is None:
+                        cancellation = exc
                         ready.set()
-                        return
-                    listed = await session.list_tools()
-                    if not self._holder_can_publish(name, generation, stop):
-                        ready.set()
-                        return
-                    state.tools = self._filter_tools(name, cfg, listed.tools)
-                    self._sessions[name] = (generation, session)
-                    if self._holder_can_publish(name, generation, stop):
-                        state.status = "available"
-                    else:
-                        state.tools = []
-                        if self._session_slot_matches(name, generation, session):
-                            self._sessions.pop(name, None)
-                    ready.set()
-                    await stop.wait()  # hold both async-with scopes open
+                    raise cancellation from None
+                except BaseException:
+                    if cancellation is not None:
+                        raise cancellation from None
+                    raise
+                if cancellation is not None:
+                    raise cancellation from None
+            if cancellation is not None:
+                raise cancellation from None
         except asyncio.CancelledError:
             ready.set()
+            if cancellation is not None:
+                raise cancellation from None
             raise
         except BaseException as exc:  # noqa: BLE001 - isolate: never leak past this holder
+            if cancellation is not None:
+                raise cancellation from None
             if self._holder_slot_matches(name, generation, stop=stop) and not self._closing:
                 state.tools = []
                 state.status = f"unavailable: {type(exc).__name__}"
