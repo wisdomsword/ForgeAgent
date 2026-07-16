@@ -335,7 +335,8 @@ def run_once(
 
     `asker` handles Survey mid-task questions. Default (None) is headless — a Survey call
     ends the task with NEEDS_INFO. REPL wires a console asker; `run` leaves it None.
-    `mcp`/`confirmer` wire the MCP tool + its confirmation gate when servers are configured.
+    `mcp` wires the MCP catalog/manager; `confirmer` independently gates side-effecting
+    MCP/WebFetch/FileWrite calls.
     `usage_total` is the session-scoped token accumulator (docs/m10 §3.2): the REPL passes
     the same instance across tasks so it keeps growing; a bare `run_once` call with no
     accumulator gets a fresh one, since the task itself is the whole session then.
