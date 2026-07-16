@@ -5115,6 +5115,7 @@ def test_real_holder_cancellation_dominates_teardown(teardown_case, monkeypatch)
     mgr = MCPManager({"pending": MCPServerConfig(command="unused")})
     lifecycle = []
     loop_messages = []
+    stdio_received = []
 
     class TeardownBaseException(BaseException):
         pass
@@ -5158,6 +5159,7 @@ def test_real_holder_cancellation_dominates_teardown(teardown_case, monkeypatch)
             return object(), object()
 
         async def __aexit__(self, *exc_info):
+            stdio_received.append(exc_info)
             lifecycle.append("stdio-exit")
             if teardown_case == "stdio-error":
                 raise RuntimeError("stdio teardown failed")
@@ -5215,6 +5217,11 @@ def test_real_holder_cancellation_dominates_teardown(teardown_case, monkeypatch)
         "session-exit",
         "stdio-exit",
     ]
+    assert len(stdio_received) == 1
+    stdio_type, stdio_error, _stdio_traceback = stdio_received[0]
+    assert stdio_type is asyncio.CancelledError
+    assert isinstance(stdio_error, asyncio.CancelledError)
+    assert stdio_error.args == ("body-cancel",)
     assert loop_messages == []
     assert caught == []
 
