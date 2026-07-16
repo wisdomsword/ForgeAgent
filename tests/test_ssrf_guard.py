@@ -256,12 +256,13 @@ def test_guarded_urlopen_classifies_unsupported_redirect_before_destination_acce
     assert destination_attempts == []
 
 
+@pytest.mark.parametrize("redirect_code", [301, 302, 303, 307, 308])
 @pytest.mark.parametrize(
     "target_url",
     ["file:///etc/passwd", "ftp://example.com/private", "gopher://example.com/private"],
 )
 def test_guarded_urlopen_prioritizes_redirect_limit_over_unsupported_scheme(
-    monkeypatch, target_url
+    monkeypatch, redirect_code, target_url
 ):
     real_build_opener = urllib.request.build_opener
     destination_attempts = []
@@ -276,7 +277,9 @@ def test_guarded_urlopen_prioritizes_redirect_limit_over_unsupported_scheme(
             request._forgeagent_redirect_count = 10
             headers = Message()
             headers["Location"] = target_url
-            response = urllib.response.addinfourl(io.BytesIO(), headers, request.full_url, 302)
+            response = urllib.response.addinfourl(
+                io.BytesIO(), headers, request.full_url, redirect_code
+            )
             response.msg = "synthetic eleventh redirect"
             return response
 
