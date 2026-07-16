@@ -256,6 +256,97 @@ def test_guarded_urlopen_classifies_unsupported_redirect_before_destination_acce
     assert destination_attempts == []
 
 
+@pytest.mark.parametrize(
+    "target_url",
+    ["file:///etc/passwd", "ftp://example.com/private", "gopher://example.com/private"],
+)
+def test_guarded_urlopen_prioritizes_redirect_limit_over_unsupported_scheme(
+    monkeypatch, target_url
+):
+    real_build_opener = urllib.request.build_opener
+    destination_attempts = []
+    initial_url = "http://public.example/redirect"
+
+    class _SyntheticEleventhRedirectHandler(urllib.request.BaseHandler):
+        handler_order = 100
+
+        def http_open(self, request):
+            if request.full_url != initial_url:
+                return None
+            request._forgeagent_redirect_count = 10
+            headers = Message()
+            headers["Location"] = target_url
+            response = urllib.response.addinfourl(io.BytesIO(), headers, request.full_url, 302)
+            response.msg = "synthetic eleventh redirect"
+            return response
+
+        def _unexpected_destination(self, request):
+            destination_attempts.append(request.full_url)
+            pytest.fail("eleventh redirect attempted destination access")
+
+        file_open = ftp_open = gopher_open = _unexpected_destination
+
+    def _build_opener_with_synthetic_redirect(*handlers):
+        return real_build_opener(_SyntheticEleventhRedirectHandler(), *handlers)
+
+    def _unexpected_socket(*args, **kwargs):
+        pytest.fail("eleventh redirect attempted socket construction")
+
+    monkeypatch.setattr(
+        "forgeagent.ssrf_guard.urllib.request.build_opener",
+        _build_opener_with_synthetic_redirect,
+    )
+    monkeypatch.setattr("forgeagent.ssrf_guard.socket.socket", _unexpected_socket)
+
+    with pytest.raises(SSRFGuardError, match="redirect limit exceeded"):
+        guarded_urlopen(initial_url, timeout=1)
+
+    assert destination_attempts == []
+
+
+def test_guarded_urlopen_follows_relative_http_308_with_actual_opener_offline(monkeypatch):
+    real_build_opener = urllib.request.build_opener
+    requests = []
+    initial_url = "http://public.example/redirect"
+    target_url = "http://public.example/final"
+
+    class _SyntheticHTTP308Handler(urllib.request.BaseHandler):
+        handler_order = 100
+
+        def http_open(self, request):
+            requests.append((request.full_url, request.get_method()))
+            headers = Message()
+            if request.full_url == initial_url:
+                headers["Location"] = "/final"
+                response = urllib.response.addinfourl(io.BytesIO(), headers, request.full_url, 308)
+            elif request.full_url == target_url:
+                response = urllib.response.addinfourl(
+                    io.BytesIO(b"synthetic-308-ok"), headers, request.full_url, 200
+                )
+            else:
+                pytest.fail(f"unexpected synthetic URL: {request.full_url}")
+            response.msg = "synthetic HTTP response"
+            return response
+
+    def _build_opener_with_synthetic_http(*handlers):
+        return real_build_opener(_SyntheticHTTP308Handler(), *handlers)
+
+    def _unexpected_socket(*args, **kwargs):
+        pytest.fail("offline redirect characterization attempted socket construction")
+
+    monkeypatch.setattr(
+        "forgeagent.ssrf_guard.urllib.request.build_opener",
+        _build_opener_with_synthetic_http,
+    )
+    monkeypatch.setattr("forgeagent.ssrf_guard.socket.socket", _unexpected_socket)
+
+    response = guarded_urlopen(initial_url, timeout=1)
+
+    assert response.status == 200
+    assert response.read() == b"synthetic-308-ok"
+    assert requests == [(initial_url, "GET"), (target_url, "GET")]
+
+
 @pytest.mark.parametrize("redirect_code", [301, 302, 303, 307, 308])
 def test_guarded_urlopen_blocks_loopback_redirect_before_socket_construction(
     monkeypatch, redirect_code

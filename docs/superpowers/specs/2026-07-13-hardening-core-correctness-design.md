@@ -461,7 +461,7 @@ runner 本里程碑明确顺序执行，不承诺多个进程同时写同一个 
 
 | 能力 | 关键测试 | 主要证据 |
 | --- | --- | --- |
-| 代理/SSRF | 大小写 proxy env、loopback、private、NAT64、redirect private、11 跳、真实 opener 30x 管线中的 FTP/file/unsupported redirect | 实际校验 host 是目标而非代理；blocked target 未连接；301/302/303/307/308 均在任何 destination handler/connection 前由 `SSRFGuardError` 分类；redirect limit/scheme 明确拒绝 |
+| 代理/SSRF | 大小写 proxy env、loopback、private、NAT64、redirect private、11 跳（含 unsupported Location）、真实 opener 30x 管线中的 FTP/file/unsupported redirect、相对 HTTP 308 | 实际校验 host 是目标而非代理；blocked target 未连接；301/302/303/307/308 均在任何 destination handler/connection 前由 `SSRFGuardError` 分类；第 11 跳即使同时为 file/FTP/gopher 也优先返回 redirect-limit error；实际 opener 离线跟随相对 HTTP 308 到 synthetic public target 并返回 response，零 socket；redirect limit/scheme 明确拒绝 |
 | 网络消费端错误 | WebFetch InvalidURL/BadStatusLine/LineTooLong/IncompleteRead/RemoteDisconnected/close error/artifact OSError；search representative protocol error/unknown charset/unpaired-surrogate query | HTTPException 基类覆盖代表性叶子；工具级异常不逃逸；固定消息不含 URL/hostname/path；search 返回 unavailable 或 UTF-8 fallback；未配对 surrogate 返回 fixed unavailable 且零 request |
 | confirmer 与结果最小披露 | MCP/WebFetch/FileWrite formatter、EOF、空输入、带空白的 yes/no、非 TTY REPL、MCP identifier/FileWrite path secret、masked MCP argument key collision、Rich markup/terminal controls、嵌套 secret key、encoded/case/overlap hostname、encoded delimiters、IPv6/zone id、URL component mask、WebFetch hostname/path/query unpaired surrogate、WebFetch 失败、artifact symlink escape、FileWrite 成功/失败 outcome、到期裸词路由 | 无属性错误；模型文本按单行 literal 渲染且不注入样式/换行；masked key 碰撞使用 collision-free display label 且不改 raw arguments、不丢值、不泄漏 secret；无跨组件或双重脱敏；hostname/path/query surrogate 的 UnicodeError/ValueError 均精确返回 ASCII `WebFetch <redacted malformed URL>` 且不使用 generic sanitizer；prompt、ToolOutcome、Step feedback 不回显敏感 URL/hostname/宿主绝对路径；artifact 不写出 root；TTY 与非 TTY 原因正确；仅 slash command 被路由 |
 | 文件路径边界 | root allowed_root、相对 root、NUL、越界、symlink resolve、FileRead/List/Write OSError、restricted audit | commonpath 正确接受 root 子路径并拒绝越界；无 ValueError 逃逸；固定失败消息无绝对路径 |
@@ -475,7 +475,7 @@ runner 本里程碑明确顺序执行，不承诺多个进程同时写同一个 
 | 测试隔离 | 真实 home 放置恶意 mcp.yaml 后运行 suite | 测试只读取临时 home，结果不变 |
 | 黄金 runner | manifest 变异、standalone 恶意 HOME、embedded main 的 pre-import MCP module 与显式 isolated `user_path`、20 pass、单项/非法 evidence fail、G59/G324 unique outside-root fixture cleanup、core-definition preflight、完整 catalog 文档门禁 | 配置敏感 import 前隔离 home；embedded main 从临时 HOME 派生并传递 `user_path`，不使用预导入 `mcp_manager` 的旧 bound default；G59/G324 不依赖全局 fixed sibling filename，重复/失败路径清理临时 root；runner 锁定 20 core/5 real/核心定义；pytest 独立锁定 G01-G380 与 20/360；非标准 JSON evidence 只失败单项；JSON/Markdown 同源；退出码 0/1/2 |
 | 真实模型入口 | 缺配置、有效单模型 | 缺配置无报告且退出 2；只执行 5 项 |
-| 回归：redirect 与模型能力透传 | 相对 Location、真实 opener shared 30x file/FTP/unsupported scheme、第 11 跳、redirect 后私网；models.yaml 的 image flags 与用户 override | 先 `urljoin` 再验证最终 scheme，301/302/303/307/308 均在 guard 层抛 `SSRFGuardError` 且不触达 destination handler/connection，仍逐跳 SSRF；`ModelEntry` 原样透传既有 `supports_images`，六个内置 true、两个 false 和显式用户 false override 均锁定 |
+| 回归：redirect 与模型能力透传 | 相对 Location、真实 opener shared 30x file/FTP/unsupported scheme、第 11 跳及 scheme precedence、redirect 后私网、实际 opener 相对 HTTP 308；models.yaml 的 image flags 与用户 override | 先 `urljoin` 再验证最终 scheme，301/302/303/307/308 均在 guard 层抛 `SSRFGuardError` 且不触达 destination handler/connection；第 11 跳的 limit error 优先于 unsupported scheme；实际 opener 308 只使用 synthetic HTTP response 且无 socket，仍逐跳 SSRF；`ModelEntry` 原样透传既有 `supports_images`，六个内置 true、两个 false 和显式用户 false override 均锁定 |
 
 ## 11. 文档与迁移
 

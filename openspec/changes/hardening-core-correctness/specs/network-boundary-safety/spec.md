@@ -27,11 +27,11 @@ ForgeAgent MUST validate the effective destination of the initial request and ev
 - **THEN** ForgeAgent applies the forbidden-address result and rejects the request
 
 ### Requirement: Redirect processing is bounded and scheme restricted
-ForgeAgent MUST maintain its own maximum of 10 redirect hops and MUST reject any redirect whose resolved scheme is not HTTP or HTTPS. Redirect scheme classification MUST happen in ForgeAgent's guard-owned shared 30x urllib path for 301, 302, 303, 307 and 308 after resolving `Location` or `URI` against the current request URL, before urllib's standard scheme gate, any destination protocol handler or any destination connection can run.
+ForgeAgent MUST maintain its own maximum of 10 redirect hops and MUST reject any redirect whose resolved scheme is not HTTP or HTTPS. Redirect scheme classification MUST happen in ForgeAgent's guard-owned shared 30x urllib path for 301, 302, 303, 307 and 308 after resolving `Location` or `URI` against the current request URL, before urllib's standard scheme gate, any destination protocol handler or any destination connection can run. When an eleventh redirect also has an unsupported scheme, the hop-limit error MUST take precedence over scheme classification.
 
 #### Scenario: Redirect chain exceeds the hard limit
 - **WHEN** a response chain attempts an eleventh redirect
-- **THEN** ForgeAgent raises an explicit SSRF guard error identifying that the redirect limit was exceeded before opening the eleventh destination
+- **THEN** ForgeAgent raises an explicit SSRF guard error identifying that the redirect limit was exceeded before scheme classification or opening the eleventh destination
 
 #### Scenario: HTTP response redirects to a non-HTTP scheme
 - **WHEN** an HTTP or HTTPS response redirects to FTP, file or another unsupported scheme

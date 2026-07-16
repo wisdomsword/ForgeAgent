@@ -88,6 +88,9 @@ class _GuardedRedirectHandler(urllib.request.HTTPRedirectHandler):
         else:
             return None
 
+        count = getattr(req, "_forgeagent_redirect_count", 0)
+        if count >= _MAX_REDIRECTS:
+            raise SSRFGuardError(f"redirect limit exceeded ({_MAX_REDIRECTS})")
         resolved_url = urllib.parse.urljoin(req.full_url, newurl)
         scheme = urllib.parse.urlsplit(resolved_url).scheme.lower()
         if scheme not in _ALLOWED_SCHEMES:
