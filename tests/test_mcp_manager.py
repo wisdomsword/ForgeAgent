@@ -5103,6 +5103,9 @@ def test_real_holder_session_enter_cancellation_sets_ready_before_stdio_teardown
         "session-suppress",
         "stdio-suppress",
         "session-cancel",
+        "session-base",
+        "stdio-base",
+        "stdio-cancel",
     ],
 )
 def test_real_holder_cancellation_dominates_teardown(teardown_case, monkeypatch):
@@ -5112,6 +5115,9 @@ def test_real_holder_cancellation_dominates_teardown(teardown_case, monkeypatch)
     mgr = MCPManager({"pending": MCPServerConfig(command="unused")})
     lifecycle = []
     loop_messages = []
+
+    class TeardownBaseException(BaseException):
+        pass
 
     class FakeTool:
         name = "echo"
@@ -5135,6 +5141,8 @@ def test_real_holder_cancellation_dominates_teardown(teardown_case, monkeypatch)
                 raise RuntimeError("session teardown failed")
             if teardown_case == "session-cancel":
                 raise asyncio.CancelledError("teardown-cancel")
+            if teardown_case == "session-base":
+                raise TeardownBaseException("session teardown failed")
             return teardown_case == "session-suppress"
 
         async def initialize(self):
@@ -5153,6 +5161,10 @@ def test_real_holder_cancellation_dominates_teardown(teardown_case, monkeypatch)
             lifecycle.append("stdio-exit")
             if teardown_case == "stdio-error":
                 raise RuntimeError("stdio teardown failed")
+            if teardown_case == "stdio-base":
+                raise TeardownBaseException("stdio teardown failed")
+            if teardown_case == "stdio-cancel":
+                raise asyncio.CancelledError("teardown-cancel")
             return teardown_case == "stdio-suppress"
 
     monkeypatch.setattr(mcp, "ClientSession", FakeSession)
@@ -5162,7 +5174,7 @@ def test_real_holder_cancellation_dominates_teardown(teardown_case, monkeypatch)
         loop = asyncio.get_running_loop()
         loop.set_exception_handler(lambda _loop, context: loop_messages.append(context["message"]))
         ready = mgr._start_holder("pending")
-        await ready.wait()
+        await asyncio.wait_for(ready.wait(), timeout=1)
         generation, holder_task, _stop = mgr._holders["pending"]
         state = mgr._states["pending"]
         state.tearing_down_generation = generation
