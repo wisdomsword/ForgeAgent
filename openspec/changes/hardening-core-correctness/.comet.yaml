@@ -1,6 +1,6 @@
 workflow: full
 language: zh-CN
-phase: verify
+phase: archive
 context_compression: off
 build_mode: subagent-driven-development
 build_pause: null
@@ -13,11 +13,11 @@ auto_transition: true
 base_ref: 44456c57e2ef76990f44846eadb83bc8d5e25166
 design_doc: docs/superpowers/specs/2026-07-13-hardening-core-correctness-design.md
 plan: docs/superpowers/plans/2026-07-13-hardening-core-correctness.md
-verify_result: pending
-verification_report: null
-branch_status: pending
+verify_result: pass
+verification_report: docs/superpowers/reports/2026-07-17-hardening-core-correctness-verify.md
+branch_status: handled
 created_at: 2026-07-13
-verified_at: null
+verified_at: 2026-07-16
 archived: false
 direct_override: null
 handoff_context: openspec/changes/hardening-core-correctness/.comet/handoff/design-context.json
