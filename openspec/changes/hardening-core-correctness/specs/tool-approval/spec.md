@@ -73,6 +73,10 @@ ForgeAgent MUST redact structured secret-key values and known sensitive environm
 - **WHEN** known secret values appear across hostname, path and query components
 - **THEN** hostname matching and global `mask_secrets()` each operate once on their assigned components, and the rebuilt URL is not globally masked a second time
 
+#### Scenario: WebFetch URL contains an unpaired surrogate
+- **WHEN** a WebFetch confirmation URL contains an unpaired surrogate in its hostname, path or query
+- **THEN** the confirmer returns exactly the fixed ASCII summary `WebFetch <redacted malformed URL>`; it does not apply a generic sanitizer, preserve any URL component, or expose the surrogate or surrounding raw material
+
 #### Scenario: FileWrite uses an absolute path and sensitive content
 - **WHEN** FileWrite requests an absolute path and arbitrary content
 - **THEN** the confirmer displays a project-relative path when possible or a basename-only external path, displays only the content character count labeled `characters`, and never displays the content
@@ -82,7 +86,7 @@ ForgeAgent MUST redact structured secret-key values and known sensitive environm
 - **THEN** the confirmer masks that value in the displayed safe path without revealing the content or host directory
 
 #### Scenario: Confirmation summary contains markup or unsafe display code points
-- **WHEN** a model-provided MCP identifier, nested argument mapping key or string value, or FileWrite path contains Rich markup delimiters, ANSI/control characters, carriage returns, line feeds, Unicode line separators, Unicode format controls such as bidi overrides and isolates, or an unpaired surrogate
+- **WHEN** a model-provided MCP identifier, nested argument mapping key or string value, or FileWrite path contains Rich markup delimiters, ANSI/control characters, carriage returns, line feeds, Unicode line separators, Unicode format controls such as bidi overrides and isolates, or an unpaired surrogate in those non-WebFetch display values
 - **THEN** the confirmation prompt renders the value as escaped single-line literal text, does not raise a rendering/encoding exception, change prompt styling, create an injected line or reorder the approval text, and still reads exactly one approval answer
 
 ### Requirement: REPL command routing is explicit after compatibility expiry

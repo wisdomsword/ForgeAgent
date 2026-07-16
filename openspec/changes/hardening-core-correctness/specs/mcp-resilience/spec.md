@@ -27,7 +27,7 @@ ForgeAgent SHALL continue startup when an optional MCP server fails to connect, 
 - **THEN** `server_status()`, startup diagnostics and REPL status output identify the server and fixed cause without containing the secret or raw exception text
 
 ### Requirement: MCP discovery metadata does not expose known secrets
-ForgeAgent MUST apply the existing sensitive-environment value policy before discovered MCP metadata or configured server identity reaches the model prompt, CLI, ToolOutcome feedback, structured call errors, public status, required-startup diagnostics or lifecycle logs. JSON-like input schemas MUST be recursively masked; if a masked key collides or a value is not JSON-like, the public schema MUST be `{}`. A tool or server routing identity that contains a known secret MUST NOT be advertised because a masked display alias cannot be routed safely back to the original SDK identity. Public server labels MUST be stable and collision-free; internal lifecycle, approval and call routing MUST continue to use the original configured identity.
+ForgeAgent MUST apply the existing sensitive-environment value policy before discovered MCP metadata or configured server identity reaches the model prompt, CLI, ToolOutcome feedback, structured call errors, public status, required-startup diagnostics or lifecycle logs. JSON-like input schemas MUST be recursively masked; exact built-in floats MUST be finite, and any nested NaN, positive infinity or negative infinity MUST make the public schema `{}`; a masked key collision or any other non-JSON-like value MUST have the same result. A tool or configured server routing identity that contains a known secret MUST NOT be advertised because a masked display alias cannot be routed safely back to the original SDK identity. Public configured-server labels MUST be stable and collision-free; an unknown or manually supplied raw server identity MUST map to one manager-owned fixed category label allocated without collision against configured public labels and never derived from that raw input. Internal lifecycle, approval and call routing MUST continue to use the original identity.
 
 #### Scenario: Tool description contains a known secret
 - **WHEN** MCP discovery returns a tool whose description contains a known sensitive environment value
@@ -122,6 +122,10 @@ ForgeAgent MUST serialize holder desired-state reconciliation on the MCP loop th
 #### Scenario: Close races holder task allocation
 - **WHEN** the caller publishes close after loop reconciliation has entered holder startup but before task creation and slot publication finish
 - **THEN** one lifecycle barrier orders the operations atomically: close-first leaves generation unchanged, while start-first publishes the complete generation/task/stop slot and finalizer before close can proceed, so shutdown cannot miss an untracked task
+
+#### Scenario: Close races lifecycle-operation registration
+- **WHEN** first close overlaps loop-owned lifecycle-operation startup or completion removal
+- **THEN** the same lifecycle barrier orders close against coroutine/task allocation, operation-set registration and done-callback removal: close-first creates no operation task, start-first fully registers the task before releasing the lock, and the loop-owned first-close snapshot uses that lock and completes without leaving the operation untracked
 
 #### Scenario: Enable or connect is requested after close
 - **WHEN** the manager is closed or loop-owned shutdown has entered closing state
@@ -231,7 +235,7 @@ ForgeAgent MUST keep a new loop worker behind a publication gate until manager s
 
 #### Scenario: Close is called more than once
 - **WHEN** `close()` is invoked after resources have already been closed or a previous close partially failed
-- **THEN** the call completes without reopening resources or creating a second loop-owned shutdown task or waiting facade; it independently signals the existing drain, waits on the thread-safe completion event and performs bounded stop/join within the new absolute deadline, so one cleanup exception cannot skip later sites, and clears retained references only after cleanup completion and thread stop are both proven
+- **THEN** the call completes without reopening resources or creating a second loop-owned shutdown task or waiting facade; it independently signals the existing drain, waits on the thread-safe completion event and performs bounded stop/join within the new absolute deadline, so one cleanup exception cannot skip later sites. The exact process-control object captured by the first close preflight remains authoritative over retry ordinary errors and later cleanup controls, cleanup still runs, and retained references clear only after cleanup completion and thread stop are both proven
 
 #### Scenario: Repeated close or stop/join cleanup receives process control
 - **WHEN** drain retry, completion wait, loop stop, thread join/state read or loop close raises `KeyboardInterrupt` or `SystemExit`

@@ -15,6 +15,10 @@ ForgeAgent SHALL maintain a trusted core manifest containing exactly G01, G03, G
 - **WHEN** offline `main()` returns normally or a runner failure exits through its cleanup path in the same process
 - **THEN** HOME, USERPROFILE and XDG_CONFIG_HOME are restored to their exact prior value or unset state
 
+#### Scenario: Embedded offline entry uses the isolated MCP path explicitly
+- **WHEN** embedded offline `main()` runs after `forgeagent.mcp_manager` was imported while HOME pointed elsewhere
+- **THEN** it derives `user_path` from the temporarily isolated HOME and passes that explicit path to `load_mcp_config`, so the old home-bound module default cannot affect the run
+
 #### Scenario: Manifest selection is validated
 - **WHEN** the golden runner performs preflight validation
 - **THEN** it rejects duplicate, missing, additional or substituted trusted-core manifest IDs and missing trusted-core task definitions before executing the suite; full catalog-universe validation remains outside the production runner
