@@ -415,7 +415,7 @@ class FileReadTool(Tool):
     """Read a file under `ctx.allowed_root`, masking secrets before returning it.
 
     No confirmer gate by default (read is lower-risk than write); when a confirmer is
-    configured (non-trusted tiers) this only logs the path being read, it never blocks.
+    configured for a non-trusted tier, this logs only the validated, masked project path.
     """
 
     name = "FileRead"
@@ -423,10 +423,15 @@ class FileReadTool(Tool):
 
     def run(self, args: BaseModel, ctx: ToolContext) -> ToolOutcome:
         assert isinstance(args, FileReadArgs)
-        if ctx.confirmer is not None and ctx.tier != "trusted":
-            _logger.info("FileRead: %s", args.path)
         try:
             resolved = _validate_path(args.path, ctx.allowed_root)
+            if ctx.confirmer is not None and ctx.tier != "trusted":
+                canonical_root = Path(os.path.realpath(ctx.allowed_root))
+                relative_path = resolved.relative_to(canonical_root)
+                _logger.info(
+                    "FileRead: %s",
+                    mask_secrets(str(relative_path), sensitive_env_values()),
+                )
             content = resolved.read_text(encoding="utf-8", errors="replace")
         except (PermissionError, OSError, ValueError):
             return ToolOutcome(tool="FileRead", success=False, detail="FileRead failed")

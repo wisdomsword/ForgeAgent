@@ -152,6 +152,14 @@ This requirement prevents static symlink escape by returning and using the canon
 - **WHEN** FileRead or FileList rejects an out-of-root target or receives a filesystem error whose text contains an absolute path
 - **THEN** it returns the fixed detail `FileRead failed` or `FileList failed` without the model path, canonical root or exception text
 
+#### Scenario: Non-trusted FileRead records a sanitized audit path
+- **WHEN** restricted or container FileRead has a confirmer and receives an absolute in-root model path containing a known secret or non-canonical components
+- **THEN** after successful path validation it preserves the normal FileRead result, does not call the confirmer or console, and emits one Python logger INFO audit containing only the known-secret-masked canonical project-relative path, without the raw model path, absolute root or secret
+
+#### Scenario: Rejected FileRead path is not audited
+- **WHEN** non-trusted FileRead receives a syntactically invalid or out-of-root path
+- **THEN** it returns the fixed `FileRead failed` result and emits no path-bearing audit record, so the raw input, canonical root and known secret are not logged
+
 ### Requirement: Survey interaction remains separately controlled
 ForgeAgent MUST keep `--interactive` scoped to Survey behavior and SHALL NOT require that flag for automatic TTY confirmation of WebFetch, FileWrite or MCP.
 

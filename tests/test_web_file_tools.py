@@ -11,6 +11,7 @@ guard itself is covered by tests/test_ssrf_guard.py.
 
 import hashlib
 import http.client
+import logging
 import os
 from pathlib import Path
 from unittest.mock import patch
@@ -361,6 +362,66 @@ def test_file_read_within_root_masks_secrets(tmp_path, monkeypatch):
     assert outcome.success is True
     assert "supersecretvalue123" not in outcome.detail
     assert "REDACTED" in outcome.detail
+
+
+@pytest.mark.parametrize("tier", ["restricted", "container"])
+def test_file_read_audit_logs_only_masked_canonical_project_relative_path(
+    tier, tmp_path, monkeypatch, caplog
+):
+    secret = "known-secret-value"
+    allowed_root = tmp_path / f"project-{secret}"
+    report_dir = allowed_root / f"reports-{secret}"
+    report_dir.mkdir(parents=True)
+    (report_dir / "result.txt").write_text("unchanged file result")
+    raw_model_path = str(allowed_root / "staging" / ".." / report_dir.name / "result.txt")
+    confirmer_calls = []
+    monkeypatch.setattr("forgeagent.tools.sensitive_env_values", lambda: {secret})
+    caplog.set_level(logging.INFO, logger="forgeagent.tools")
+    ctx = _file_ctx(
+        tier=tier,
+        confirmer=lambda args: confirmer_calls.append(args) or False,
+        allowed_root=str(allowed_root),
+    )
+
+    outcome = FileReadTool().run(FileReadArgs(path=raw_model_path), ctx)
+
+    assert outcome.success is True
+    assert outcome.detail == "unchanged file result"
+    assert confirmer_calls == []
+    records = [record for record in caplog.records if record.name == "forgeagent.tools"]
+    assert [record.getMessage() for record in records] == [
+        "FileRead: reports-***REDACTED***/result.txt"
+    ]
+    assert raw_model_path not in caplog.text
+    assert str(allowed_root) not in caplog.text
+    assert secret not in caplog.text
+
+
+@pytest.mark.parametrize("path_kind", ["invalid", "outside"])
+def test_file_read_rejected_paths_emit_no_audit_log(path_kind, tmp_path, monkeypatch, caplog):
+    secret = "known-secret-value"
+    allowed_root = tmp_path / "project"
+    allowed_root.mkdir()
+    raw_model_path = (
+        f"bad\x00{secret}"
+        if path_kind == "invalid"
+        else str(tmp_path.parent / f"outside-{secret}" / "result.txt")
+    )
+    monkeypatch.setattr("forgeagent.tools.sensitive_env_values", lambda: {secret})
+    caplog.set_level(logging.INFO, logger="forgeagent.tools")
+    ctx = _file_ctx(
+        tier="restricted",
+        confirmer=lambda args: True,
+        allowed_root=str(allowed_root),
+    )
+
+    outcome = FileReadTool().run(FileReadArgs(path=raw_model_path), ctx)
+
+    assert outcome.success is False
+    assert outcome.detail == "FileRead failed"
+    assert [record for record in caplog.records if record.name == "forgeagent.tools"] == []
+    assert raw_model_path not in caplog.text
+    assert secret not in caplog.text
 
 
 def test_file_read_escaping_root_is_blocked(tmp_path):

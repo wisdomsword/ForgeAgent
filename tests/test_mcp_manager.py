@@ -4898,6 +4898,189 @@ def test_disable_during_holder_initialization_never_publishes_available(monkeypa
             loop.close()
 
 
+def test_real_holder_cancellation_before_ready_sets_ready_and_finalizes(monkeypatch):
+    import mcp
+    import mcp.client.stdio as mcp_stdio
+
+    mgr = MCPManager({"pending": MCPServerConfig(command="unused")})
+    lifecycle = []
+    loop_messages = []
+    initialize_started = None
+
+    class FakeSession:
+        def __init__(self, *args):
+            pass
+
+        async def __aenter__(self):
+            lifecycle.append("session-enter")
+            return self
+
+        async def __aexit__(self, *exc_info):
+            lifecycle.append("session-exit")
+
+        async def initialize(self):
+            lifecycle.append("initialize")
+            initialize_started.set()
+            await asyncio.Future()
+
+        async def list_tools(self):
+            raise AssertionError("cancelled initialization must not list tools")
+
+    class FakeStdioClient:
+        async def __aenter__(self):
+            lifecycle.append("stdio-enter")
+            return object(), object()
+
+        async def __aexit__(self, *exc_info):
+            lifecycle.append("stdio-exit")
+
+    monkeypatch.setattr(mcp, "ClientSession", FakeSession)
+    monkeypatch.setattr(mcp_stdio, "stdio_client", lambda params: FakeStdioClient())
+
+    async def cancel_initializing_holder():
+        nonlocal initialize_started
+        loop = asyncio.get_running_loop()
+        loop.set_exception_handler(lambda _loop, context: loop_messages.append(context["message"]))
+        initialize_started = asyncio.Event()
+        ready = mgr._start_holder("pending")
+        generation, holder_task, _stop = mgr._holders["pending"]
+        await initialize_started.wait()
+        state = mgr._states["pending"]
+        state.tearing_down_generation = generation
+
+        assert ready.is_set() is False
+        assert lifecycle == ["stdio-enter", "session-enter", "initialize"]
+        assert mgr._sessions == {}
+
+        holder_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await holder_task
+        assert ready.is_set() is True
+        await asyncio.sleep(0)  # run the holder's done callback
+
+        loop_probe = loop.create_future()
+        loop.call_soon(loop_probe.set_result, "usable")
+        assert await loop_probe == "usable"
+        return generation, holder_task
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        generation, holder_task = asyncio.run(cancel_initializing_holder())
+        gc.collect()
+
+    state = mgr._states["pending"]
+    assert holder_task.cancelled() is True
+    assert state.generation == generation
+    assert state.tearing_down_generation is None
+    assert state.restart_after_generation is None
+    assert state.status == "unavailable"
+    assert state.tools == []
+    assert mgr._sessions == {}
+    assert mgr._holders == {}
+    assert lifecycle == [
+        "stdio-enter",
+        "session-enter",
+        "initialize",
+        "session-exit",
+        "stdio-exit",
+    ]
+    assert loop_messages == []
+    assert caught == []
+
+
+def test_real_holder_cancellation_propagates_and_finalizes_without_replacement(monkeypatch):
+    import mcp
+    import mcp.client.stdio as mcp_stdio
+
+    mgr = MCPManager({"pending": MCPServerConfig(command="unused")})
+    lifecycle = []
+    loop_messages = []
+
+    class FakeTool:
+        name = "echo"
+        description = "Echo"
+        inputSchema = {}
+
+    class FakeToolList:
+        tools = [FakeTool()]
+
+    class FakeSession:
+        def __init__(self, *args):
+            pass
+
+        async def __aenter__(self):
+            lifecycle.append("session-enter")
+            return self
+
+        async def __aexit__(self, *exc_info):
+            lifecycle.append("session-exit")
+
+        async def initialize(self):
+            lifecycle.append("initialize")
+
+        async def list_tools(self):
+            lifecycle.append("list-tools")
+            return FakeToolList()
+
+    class FakeStdioClient:
+        async def __aenter__(self):
+            lifecycle.append("stdio-enter")
+            return object(), object()
+
+        async def __aexit__(self, *exc_info):
+            lifecycle.append("stdio-exit")
+
+    monkeypatch.setattr(mcp, "ClientSession", FakeSession)
+    monkeypatch.setattr(mcp_stdio, "stdio_client", lambda params: FakeStdioClient())
+
+    async def cancel_active_holder():
+        loop = asyncio.get_running_loop()
+        loop.set_exception_handler(lambda _loop, context: loop_messages.append(context["message"]))
+        ready = mgr._start_holder("pending")
+        await ready.wait()
+        generation, holder_task, _stop = mgr._holders["pending"]
+        state = mgr._states["pending"]
+        state.tearing_down_generation = generation
+
+        assert ready.is_set()
+        assert state.status == "available"
+        assert mgr._sessions["pending"][0] == generation
+
+        holder_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await holder_task
+        await asyncio.sleep(0)  # run the holder's done callback
+
+        loop_probe = loop.create_future()
+        loop.call_soon(loop_probe.set_result, "usable")
+        assert await loop_probe == "usable"
+        return generation, holder_task
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        generation, holder_task = asyncio.run(cancel_active_holder())
+        gc.collect()
+
+    state = mgr._states["pending"]
+    assert holder_task.cancelled() is True
+    assert state.generation == generation
+    assert state.tearing_down_generation is None
+    assert state.restart_after_generation is None
+    assert state.status == "unavailable"
+    assert mgr._sessions == {}
+    assert mgr._holders == {}
+    assert lifecycle == [
+        "stdio-enter",
+        "session-enter",
+        "initialize",
+        "list-tools",
+        "session-exit",
+        "stdio-exit",
+    ]
+    assert loop_messages == []
+    assert caught == []
+
+
 def test_mid_call_crash_marks_server_unavailable():
     # Review finding #5: after a call crashes the server, it must be marked unavailable
     # (dropped from the catalog) so later rounds don't keep hitting a dead process.

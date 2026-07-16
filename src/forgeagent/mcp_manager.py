@@ -517,9 +517,9 @@ class MCPManager:
     ) -> None:
         """Keep one generation's session alive until stop; publish it on success.
 
-        `except BaseException` (not Exception) is deliberate: asyncio's CancelledError is
-        a BaseException, and a holder dying must never leak out to kill the loop or the
-        other holders — it just marks this one server unavailable (spike D1/D6).
+        Cancellation remains task cancellation so the holder finalizer can observe it.
+        Other BaseExceptions, including process-control exceptions, stay isolated to this
+        server and mark it unavailable without killing the loop (spike D1/D6).
         """
         # Imported here (not at module top) so importing this module never requires the
         # mcp SDK — only actually connecting to a server does.
@@ -559,6 +559,9 @@ class MCPManager:
                             self._sessions.pop(name, None)
                     ready.set()
                     await stop.wait()  # hold both async-with scopes open
+        except asyncio.CancelledError:
+            ready.set()
+            raise
         except BaseException as exc:  # noqa: BLE001 - isolate: never leak past this holder
             if self._holder_slot_matches(name, generation, stop=stop) and not self._closing:
                 state.tools = []
