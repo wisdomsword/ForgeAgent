@@ -1164,6 +1164,72 @@ def test_discovery_masks_descriptions_excludes_sensitive_names_and_routes_safe_t
     assert session.call_count == 1
 
 
+def test_discovery_masks_secret_values_in_input_schema(monkeypatch):
+    secret = "schema-secret-value"
+    monkeypatch.setattr(mcp_manager_module, "sensitive_env_values", lambda: {secret})
+    manager = MCPManager({"server": MCPServerConfig(command="unused")})
+    state = manager._states["server"]
+    state.status = "available"
+    state.tools = manager._filter_tools(
+        "server",
+        state.config,
+        [
+            type(
+                "Tool",
+                (),
+                {
+                    "name": "safe",
+                    "description": "safe description",
+                    "inputSchema": {
+                        "properties": {
+                            f"token-{secret}": {
+                                "description": secret,
+                                "default": secret,
+                            }
+                        },
+                        "required": [f"token-{secret}"],
+                    },
+                },
+            )()
+        ],
+    )
+
+    schema = manager.list_tools()[0].input_schema
+    assert secret not in repr(schema)
+    assert "***REDACTED***" in repr(schema)
+
+
+@pytest.mark.parametrize(
+    "input_schema",
+    [
+        {"field-schema-secret": 1, "field-***REDACTED***": 2},
+        {"default": object()},
+    ],
+)
+def test_discovery_drops_structurally_unsafe_public_schema(monkeypatch, input_schema):
+    secret = "schema-secret"
+    monkeypatch.setattr(mcp_manager_module, "sensitive_env_values", lambda: {secret})
+    manager = MCPManager({"server": MCPServerConfig(command="unused")})
+
+    tools = manager._filter_tools(
+        "server",
+        manager._states["server"].config,
+        [
+            type(
+                "Tool",
+                (),
+                {
+                    "name": "safe",
+                    "description": "safe description",
+                    "inputSchema": input_schema,
+                },
+            )()
+        ],
+    )
+
+    assert tools[0].input_schema == {}
+
+
 def test_discovery_excludes_sensitive_server_identity_from_public_catalog(monkeypatch):
     secret = "server-identity-secret"
     server = f"external-{secret}"
@@ -3206,6 +3272,70 @@ def test_repeated_close_control_still_runs_wait_and_stop_join(monkeypatch, contr
 
     assert raised.value is control
     assert calls == ["retry", "wait", "stop-and-join"]
+
+
+@pytest.mark.parametrize("control", [KeyboardInterrupt("preflight"), SystemExit("preflight")])
+def test_first_close_preflight_control_still_drains_before_propagating(monkeypatch, control):
+    manager = MCPManager({}, shutdown_timeout=0.03, thread_join_timeout=0.02)
+    loop = _LoopProbe()
+    manager._loop = loop
+    manager._shutdown_complete.set()
+    future = _FutureProbe()
+
+    class PreflightThread(_ThreadProbe):
+        def is_alive(self):
+            if not hasattr(self, "checked"):
+                self.checked = True
+                raise control
+            self.alive = False
+            return False
+
+    thread = PreflightThread(alive=True)
+    manager._thread = thread
+    monkeypatch.setattr(
+        mcp_manager_module.asyncio,
+        "run_coroutine_threadsafe",
+        lambda coro, submitted_loop: (coro.close(), future)[1],
+    )
+
+    with pytest.raises(type(control)) as raised:
+        manager.close()
+
+    assert raised.value is control
+    assert loop.stop_calls == 1
+    assert loop.close_calls == 1
+    assert manager._loop is None
+    assert manager._thread is None
+
+
+@pytest.mark.parametrize("control", [KeyboardInterrupt("preflight"), SystemExit("preflight")])
+def test_repeated_close_preflight_control_still_runs_retry_and_join(monkeypatch, control):
+    manager = MCPManager({}, shutdown_timeout=0.03, thread_join_timeout=0.02)
+    manager._closed = True
+    manager._loop = _LoopProbe()
+    manager._shutdown_complete.set()
+    calls: list[str] = []
+
+    class PreflightThread(_ThreadProbe):
+        def is_alive(self):
+            if not hasattr(self, "checked"):
+                self.checked = True
+                raise control
+            return True
+
+    manager._thread = PreflightThread(alive=True)
+    monkeypatch.setattr(manager, "_request_shutdown_retry", lambda deadline: calls.append("retry"))
+    monkeypatch.setattr(
+        manager,
+        "_stop_and_join",
+        lambda deadline, pending: calls.append("stop-and-join"),
+    )
+
+    with pytest.raises(type(control)) as raised:
+        manager.close()
+
+    assert raised.value is control
+    assert calls == ["retry", "stop-and-join"]
 
 
 @pytest.mark.parametrize("control", [KeyboardInterrupt("wait"), SystemExit("wait")])

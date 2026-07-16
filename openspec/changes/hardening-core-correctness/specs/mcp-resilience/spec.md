@@ -27,11 +27,15 @@ ForgeAgent SHALL continue startup when an optional MCP server fails to connect, 
 - **THEN** `server_status()`, startup diagnostics and REPL status output identify the server and fixed cause without containing the secret or raw exception text
 
 ### Requirement: MCP discovery metadata does not expose known secrets
-ForgeAgent MUST apply the existing sensitive-environment value policy before discovered MCP metadata or configured server identity reaches the model prompt, CLI, ToolOutcome feedback, structured call errors, public status, required-startup diagnostics or lifecycle logs. A tool or server routing identity that contains a known secret MUST NOT be advertised because a masked display alias cannot be routed safely back to the original SDK identity. Public server labels MUST be stable and collision-free; internal lifecycle, approval and call routing MUST continue to use the original configured identity.
+ForgeAgent MUST apply the existing sensitive-environment value policy before discovered MCP metadata or configured server identity reaches the model prompt, CLI, ToolOutcome feedback, structured call errors, public status, required-startup diagnostics or lifecycle logs. JSON-like input schemas MUST be recursively masked; if a masked key collides or a value is not JSON-like, the public schema MUST be `{}`. A tool or server routing identity that contains a known secret MUST NOT be advertised because a masked display alias cannot be routed safely back to the original SDK identity. Public server labels MUST be stable and collision-free; internal lifecycle, approval and call routing MUST continue to use the original configured identity.
 
 #### Scenario: Tool description contains a known secret
 - **WHEN** MCP discovery returns a tool whose description contains a known sensitive environment value
 - **THEN** the catalog, generated tools prompt and `/mcp` listing contain the redaction marker instead of the secret while preserving the safe tool name and its original call routing
+
+#### Scenario: Input schema contains a known secret
+- **WHEN** MCP discovery returns a JSON-like `inputSchema` whose keys or string values contain a known sensitive environment value
+- **THEN** ForgeAgent recursively masks those keys and values before returning the catalog; if masking makes the schema structurally ambiguous or a non-JSON-like value is present, it returns an empty public schema instead of raw data
 
 #### Scenario: Tool name contains a known secret
 - **WHEN** MCP discovery returns a tool whose name would change under known-secret masking
@@ -232,6 +236,10 @@ ForgeAgent MUST keep a new loop worker behind a publication gate until manager s
 #### Scenario: Repeated close or stop/join cleanup receives process control
 - **WHEN** drain retry, completion wait, loop stop, thread join/state read or loop close raises `KeyboardInterrupt` or `SystemExit`
 - **THEN** ForgeAgent records that first control object, continues every still-valid bounded cleanup site, retains resources when liveness or loop closure is unproven, and propagates the original control only after cleanup
+
+#### Scenario: Close preflight receives process control
+- **WHEN** the initial or repeated `close()` preflight `thread.is_alive()` check raises `KeyboardInterrupt` or `SystemExit`
+- **THEN** ForgeAgent conservatively treats the thread as alive, starts or reuses the shutdown drain, completes all still-valid bounded cleanup, and propagates the same control object only after cleanup
 
 #### Scenario: Shutdown fails after task result exists
 - **WHEN** task execution has produced a result and an MCP shutdown step fails

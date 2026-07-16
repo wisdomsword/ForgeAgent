@@ -105,6 +105,36 @@ def _build_public_server_names(names: list[str], secret_values: set[str]) -> dic
     return labels
 
 
+def _mask_mcp_schema(value: object, secret_values: set[str]) -> tuple[object, bool]:
+    """Recursively mask JSON-like schema data; reject key collisions or custom values."""
+    if isinstance(value, str):
+        return mask_secrets(value, secret_values), True
+    if value is None or type(value) in {bool, int, float}:
+        return value, True
+    if isinstance(value, list):
+        result = []
+        for item in value:
+            masked, valid = _mask_mcp_schema(item, secret_values)
+            if not valid:
+                return {}, False
+            result.append(masked)
+        return result, True
+    if isinstance(value, dict):
+        result = {}
+        for key, item in value.items():
+            if not isinstance(key, str):
+                return {}, False
+            public_key = mask_secrets(key, secret_values)
+            if public_key in result:
+                return {}, False
+            masked, valid = _mask_mcp_schema(item, secret_values)
+            if not valid:
+                return {}, False
+            result[public_key] = masked
+        return result, True
+    return {}, False
+
+
 class MCPServerConfig(BaseModel):
     """One MCP server entry from mcp.yaml (Claude Desktop / Cursor `mcpServers` shape)."""
 
@@ -526,12 +556,17 @@ class MCPManager:
             name = mask_secrets(t.name, self._secret_values)
             if name != t.name:
                 continue
+            input_schema, schema_valid = _mask_mcp_schema(
+                getattr(t, "inputSchema", None) or {}, self._secret_values
+            )
             infos.append(
                 MCPToolInfo(
                     server=server,
                     name=name,
                     description=mask_secrets(t.description or "", self._secret_values),
-                    input_schema=getattr(t, "inputSchema", None) or {},
+                    input_schema=input_schema
+                    if schema_valid and isinstance(input_schema, dict)
+                    else {},
                 )
             )
         return infos
@@ -1352,11 +1387,19 @@ class MCPManager:
         deadline = time.monotonic() + self._shutdown_timeout + self._thread_join_timeout
         fallback_pending = frozenset(self._holders)
         pending: set[str] | frozenset[str] = fallback_pending
+        preflight_control: BaseException | None = None
 
         thread_alive = False
         if self._thread is not None:
             try:
                 thread_alive = self._thread.is_alive()
+            except (KeyboardInterrupt, SystemExit) as exc:
+                logger.warning(
+                    "MCP loop thread state check failed: %s",
+                    type(exc).__name__,
+                )
+                preflight_control = exc
+                thread_alive = True
             except Exception as exc:  # noqa: BLE001 - retain resources conservatively
                 logger.warning(
                     "MCP loop thread state check failed: %s",
@@ -1373,7 +1416,7 @@ class MCPManager:
             return
 
         if not first_close:
-            selected: BaseException | None = None
+            selected: BaseException | None = preflight_control
             try:
                 self._request_shutdown_retry(deadline)
             except BaseException as exc:
@@ -1426,7 +1469,10 @@ class MCPManager:
                 timeout=_remaining(deadline, reserve=self._thread_join_timeout)
             )
         except (KeyboardInterrupt, SystemExit) as primary:
-            selected: BaseException = primary
+            selected: BaseException = (
+                preflight_control if preflight_control is not None else primary
+            )
+            selected = _prefer_process_control(selected, primary)
             try:
                 self._cancel_shutdown_future()
             except BaseException as cleanup:
@@ -1445,7 +1491,7 @@ class MCPManager:
             raise selected from None
         except Exception as exc:  # noqa: BLE001 - public close is no-throw
             pending = self._shutdown_pending or fallback_pending
-            primary: BaseException = exc
+            primary: BaseException = preflight_control or exc
             try:
                 self._cancel_shutdown_future()
             except BaseException as cleanup:
@@ -1468,10 +1514,14 @@ class MCPManager:
             if isinstance(primary, (KeyboardInterrupt, SystemExit)):
                 raise primary from None
             return
+        selected: BaseException | None = preflight_control
         try:
             self._stop_and_join(deadline, pending)
-        except Exception as exc:  # noqa: BLE001 - public close is no-throw
+        except BaseException as exc:
             logger.warning("MCP shutdown finalization failed: %s", type(exc).__name__)
+            selected = exc if selected is None else _prefer_process_control(selected, exc)
+        if isinstance(selected, (KeyboardInterrupt, SystemExit)):
+            raise selected from None
 
 
 def _render_content(result) -> str:
