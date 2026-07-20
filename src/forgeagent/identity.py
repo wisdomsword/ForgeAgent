@@ -132,8 +132,15 @@ def _read_user_level_file(home: str, filename: str) -> str | None:
     forgeagent_dir = os.path.join(home, ".forgeagent")
     try:
         resolved = _resolve_identity_file(forgeagent_dir, filename, containment_root=home)
-    except _IdentityPathError as exc:
-        raise IdentityConfigError(f"{filename} has an unsafe path") from exc
+    except _IdentityPathError:
+        # Raise after leaving the handler so the internal path exception (and any
+        # metadata OSError it wraps) is not retained as the public error context.
+        resolved = None
+        unsafe_path = True
+    else:
+        unsafe_path = False
+    if unsafe_path:
+        raise IdentityConfigError(f"{filename} has an unsafe path")
     if resolved is None:
         return None
     raw_bytes = _read_resolved_bytes(resolved, filename)

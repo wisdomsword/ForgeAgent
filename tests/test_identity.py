@@ -333,3 +333,83 @@ def test_identity_diagnostic_escapes_control_characters(tmp_path):
     diagnostics = []
     identity_module._emit_identity_diagnostic(diagnostics.append, "diagnostic\nline\twith\x1b[31m")
     assert diagnostics == [r"diagnostic\x0aline\x09with\x1b[31m"]
+
+
+def test_user_identity_path_error_does_not_retain_oserror_cause_chain(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    root = tmp_path / "root"
+    home.mkdir()
+    root.mkdir()
+    soul_path = home / ".forgeagent" / "SOUL.md"
+    _write(str(soul_path), "identity")
+    original_lstat = identity_module.os.lstat
+    leaked_path = f"{tmp_path}/identity-secret-path"
+
+    def fail_selected_path(path):
+        if os.fspath(path) == str(soul_path):
+            raise PermissionError(f"denied {leaked_path}\n\x1b[31msecret")
+        return original_lstat(path)
+
+    monkeypatch.setattr(identity_module.os, "lstat", fail_selected_path)
+    with pytest.raises(identity_module.IdentityConfigError) as raised:
+        identity_module.load_identity(str(home), str(root))
+
+    error = raised.value
+    causes = []
+    current = error
+    while current is not None:
+        causes.append(current)
+        current = current.__cause__
+    contexts = []
+    current = error
+    while current is not None:
+        contexts.append(current)
+        current = current.__context__
+    assert error.__cause__ is None
+    assert all(leaked_path not in str(cause) for cause in causes)
+    assert all("\n" not in str(cause) and "\x1b" not in str(cause) for cause in causes)
+    assert all(not isinstance(context, OSError) for context in contexts)
+    assert all(leaked_path not in str(context) for context in contexts)
+
+
+def test_load_identity_rejects_masked_user_total_over_limit(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    root = tmp_path / "root"
+    home.mkdir()
+    root.mkdir()
+    secret = "secret89"
+    monkeypatch.setenv("FORGEAGENT_TEST_TOKEN", secret)
+    repeated = secret * ((32 * 1024) // len(secret))
+    _write(str(home / ".forgeagent" / "SOUL.md"), repeated)
+    _write(str(home / ".forgeagent" / "USER.md"), repeated)
+
+    masked_repeated = identity_module._mask(repeated)
+    assert 2 * len(masked_repeated.encode("utf-8")) > identity_module._MAX_EFFECTIVE_TOTAL_BYTES
+
+    with pytest.raises(identity_module.IdentityConfigError, match="combined masked"):
+        identity_module.load_identity(str(home), str(root))
+
+
+def test_load_identity_strips_largest_project_file_for_masked_total_without_truncation(
+    tmp_path,
+):
+    home = tmp_path / "home"
+    root = tmp_path / "root"
+    home.mkdir()
+    root.mkdir()
+    soul = "s" * (32 * 1024)
+    user = "u" * (32 * 1024)
+    agents = "a" * 30_000
+    memory = "m" * (32 * 1024)
+    _write(str(home / ".forgeagent" / "SOUL.md"), soul)
+    _write(str(home / ".forgeagent" / "USER.md"), user)
+    _write(str(root / ".forgeagent" / "AGENTS.md"), agents)
+    _write(str(root / ".forgeagent" / "MEMORY.md"), memory)
+    diagnostics = []
+
+    snapshot = identity_module.load_identity(str(home), str(root), diagnostic=diagnostics.append)
+
+    assert snapshot.agents == agents
+    assert snapshot.memory is None
+    assert any(message.startswith("MEMORY.md stripped:") for message in diagnostics)
+    assert all("truncat" not in message.lower() for message in diagnostics)
