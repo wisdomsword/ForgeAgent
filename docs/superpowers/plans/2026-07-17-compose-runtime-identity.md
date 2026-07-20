@@ -20,6 +20,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 - 不增加依赖：`jinja2>=3.1` 已在 `pyproject.toml`，不引入新包。不修改 `resource/agent/`。不硬编码任何厂商端点/API key。
 - Ponytail 最小范围：不新增 manager/factory/策略抽象层；`load_identity`/`resolve_project_trust`/`compose_system_prompt` 三个函数即完整接口，不拆出额外协调对象。
 - 所有身份行为变更先建立可观察的 RED（失败测试证明当前行为缺失或错误），再写最小 GREEN；每个任务的测试与实现放在同一 Step 或紧邻 Step，任务验收后立即提交（不得积攒到任务末尾统一提交）。
+- **TDD 顺序覆盖：** 本计划的 Step 编号用于定义需求范围、文件边界和最终验收，不授权按“生产代码在前、测试在后”的文字顺序执行。`tdd_mode: tdd` 时，implementer 必须先从相关测试 Step 提取当前最小行为，写测试并观察预期 RED，再实现对应生产代码得到 GREEN；资源/配置等无法单独形成行为测试的机械步骤可作为该 RED/GREEN 循环的最小前置，但不得先实现可执行生产逻辑。每个任务报告必须记录 RED 与 GREEN 的命令和摘要。
 - `home`/`allowed_root` 派生路径必须在调用时解析，禁止 `model_registry.DEFAULT_USER_MODELS_PATH` 式模块级 `Path.home()` 绑定（spec「import 后切换 HOME」场景）。
 - 项目级路径校验复用 `tools.py:_validate_path()` 的 `realpath()` + `commonpath()` + `normcase()` 模式，不重新发明。
 - 身份加载/信任诊断通过一个可注入的 `Callable[[str], None] | None` 输出；所有诊断只能包含固定标签、大小、异常类型和已掩码文本，禁止泄漏原始 secret、完整项目路径或未转义控制字符。
