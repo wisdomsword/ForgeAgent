@@ -45,7 +45,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 - `ApprovedIdentity`（frozen dataclass）：`soul: str | None`, `user: str | None`, `project_agents: str | None`, `memory: str | None`
 - `compose_system_prompt(identity: ApprovedIdentity) -> str`
 
-- [ ] **Step 1: 提取协议段为包资源 `protocol.md`**
+- [x] **Step 1: 提取协议段为包资源 `protocol.md`**
 
   把 `src/forgeagent/task.py` 里 `DEFAULT_SYSTEM_PROMPT` 运行时字符串的**求值结果**（反斜杠续行已合并、无转义）原样写入新文件。这是唯一权威来源迁移的第一步；`task.py` 暂不改动（Task 3 才切换消费方，避免这一步的变更范围外溢）。
 
@@ -92,7 +92,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：`protocol.md byte-identical to DEFAULT_SYSTEM_PROMPT: OK`
 
-- [ ] **Step 2: 创建中性默认 SOUL `default_soul.md`**
+- [x] **Step 2: 创建中性默认 SOUL `default_soul.md`**
 
   创建 `src/forgeagent/res/prompts/default_soul.md`（Design Doc §default_soul.md 最终文本，逐字复制，末尾保留单个换行）：
 
@@ -137,7 +137,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：`default_soul.md contract checks: OK`
 
-- [ ] **Step 3: 创建 `system.j2` 模板**
+- [x] **Step 3: 创建 `system.j2` 模板**
 
   创建 `src/forgeagent/res/prompts/system.j2`（Design Doc §段落顺序与 system.j2 的固定顺序，逐字复制）：
 
@@ -190,7 +190,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：`system.j2 loads and renders: OK`
 
-- [ ] **Step 4: 实现 `IdentitySnapshot`/`ApprovedIdentity` 类型与 `compose_system_prompt`**
+- [x] **Step 4: 实现 `IdentitySnapshot`/`ApprovedIdentity` 类型与 `compose_system_prompt`**
 
   创建 `src/forgeagent/identity.py`：
 
@@ -304,7 +304,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：`compose_system_prompt: OK`
 
-- [ ] **Step 5: 打包资源纳入 `res/prompts/**`（提前小步做 tasks.md 1.4 的一部分）**
+- [x] **Step 5: 打包资源纳入 `res/prompts/**`（提前小步做 tasks.md 1.4 的一部分）**
 
   修改 `pyproject.toml`：
 
@@ -329,7 +329,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：`pyproject.toml artifacts updated: OK`
 
-- [ ] **Step 6: 组合矩阵测试骨架（对齐 tasks.md 3.1 的一部分，先建最小 RED/GREEN）**
+- [x] **Step 6: 组合矩阵测试骨架（对齐 tasks.md 3.1 的一部分，先建最小 RED/GREEN）**
 
   创建 `tests/test_identity.py`（Task 2/3 会继续追加 `load_identity`/`resolve_project_trust` 测试到同一文件）：
 
@@ -431,7 +431,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：18 项测试全部 PASSED（16 组合矩阵 + 顺序 + 协议固定，此 Step 结束时零 FAILED）。
 
-- [ ] **Step 7: Ruff 检查本任务新增文件**
+- [x] **Step 7: Ruff 检查本任务新增文件**
 
   ```bash
   .venv/bin/ruff check src/forgeagent/identity.py tests/test_identity.py
