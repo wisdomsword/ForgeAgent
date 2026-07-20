@@ -1,0 +1,15 @@
+{
+  "change": "compose-runtime-identity",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "a5ee1f31de1626234f35ad8e186a9e47d899b476be6a902663deb5263a138067",
+  "files": [
+    { "path": "openspec/changes/compose-runtime-identity/proposal.md", "sha256": "95eeecbe926ce7f31fbf3cd84df8ae5b4d774157597014f38f24714cbcc03a40" },
+    { "path": "openspec/changes/compose-runtime-identity/design.md", "sha256": "8ae206a2e74ba920eb177e3a4cd3854ba2bea7eac8ff0c178329f24af60f925b" },
+    { "path": "openspec/changes/compose-runtime-identity/tasks.md", "sha256": "71b5990f1278ae8cfc5287aa0b6a18b39a7160afee056684659bdc1f688877b9" },
+    { "path": "openspec/changes/compose-runtime-identity/specs/golden-validation-core/spec.md", "sha256": "6f1d0a9bf7655ea835aabed73978978d77856a6b5b1645a804a8f1243cacdfde" },
+    { "path": "openspec/changes/compose-runtime-identity/specs/runtime-identity/spec.md", "sha256": "59280ead999048c4cf6245d33b6711f7de5be4bd766f8c8eeca23f8f681b3164" }
+  ]
+}

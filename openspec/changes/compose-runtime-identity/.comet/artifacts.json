@@ -1,0 +1,8 @@
+{
+  "openspec_proposal": "openspec/changes/compose-runtime-identity/proposal.md",
+  "openspec_design": "openspec/changes/compose-runtime-identity/design.md",
+  "openspec_tasks": "openspec/changes/compose-runtime-identity/tasks.md",
+  "openspec_delta_spec": "openspec/changes/compose-runtime-identity/specs/runtime-identity/spec.md",
+  "handoff_context": "openspec/changes/compose-runtime-identity/.comet/handoff/design-context.json",
+  "handoff_markdown": "openspec/changes/compose-runtime-identity/.comet/handoff/design-context.md"
+}
