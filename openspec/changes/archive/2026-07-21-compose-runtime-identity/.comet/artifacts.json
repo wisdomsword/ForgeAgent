@@ -4,5 +4,6 @@
   "openspec_tasks": "openspec/changes/compose-runtime-identity/tasks.md",
   "openspec_delta_spec": "openspec/changes/compose-runtime-identity/specs/runtime-identity/spec.md",
   "handoff_context": "openspec/changes/compose-runtime-identity/.comet/handoff/design-context.json",
-  "handoff_markdown": "openspec/changes/compose-runtime-identity/.comet/handoff/design-context.md"
+  "handoff_markdown": "openspec/changes/compose-runtime-identity/.comet/handoff/design-context.md",
+  "archive_directory": "openspec/changes/archive/2026-07-21-compose-runtime-identity"
 }

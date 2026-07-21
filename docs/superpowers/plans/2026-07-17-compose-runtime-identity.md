@@ -2,6 +2,7 @@
 change: compose-runtime-identity
 design-doc: docs/superpowers/specs/2026-07-17-compose-runtime-identity-design.md
 base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
+archived-with: 2026-07-21-compose-runtime-identity
 ---
 
 # ForgeAgent Runtime Identity Layer Implementation Plan
@@ -29,6 +30,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 - 每次理解或修改现有调用路径（`Task.__init__`、`cli.py` 的 `run_once`/`repl`）前先用 CodeGraph 复核实际签名和调用点，不凭记忆假设。
 - 20 项离线 golden 可信核心（`README.md` 列出的 G01-G355 子集）在没有自定义身份文件时不得回归；新增 G381-G400 保持既有 40/25/20/10/5% 类别配比，且不得宣称候选已验证。
 
+archived-with: 2026-07-21-compose-runtime-identity
 ---
 
 ### Task 1: 包内提示词资源与纯组合器（tasks.md 1.1）
@@ -440,6 +442,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：两条命令均无错误输出（`All checks passed!` / 无 diff）。
 
+archived-with: 2026-07-21-compose-runtime-identity
 ---
 
 ### Task 2: 身份加载 `load_identity`（tasks.md 1.2）
@@ -1093,6 +1096,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：两条命令均无错误输出。
 
+archived-with: 2026-07-21-compose-runtime-identity
 ---
 
 ### Task 3: 信任记录持久化与 `resolve_project_trust`（tasks.md 2.1）
@@ -1649,6 +1653,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：两条命令均无错误输出。
 
+archived-with: 2026-07-21-compose-runtime-identity
 ---
 
 ### Task 4: Task 类迁移到身份快照消费（tasks.md 1.3）
@@ -1847,6 +1852,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：两条命令均无错误输出。
 
+archived-with: 2026-07-21-compose-runtime-identity
 ---
 
 ### Task 5: CLI 身份接入与 `--no-identity` 开关（tasks.md 2.2）
@@ -2263,6 +2269,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：pytest 全部 PASSED；ruff 两条命令均无错误输出。
 
+archived-with: 2026-07-21-compose-runtime-identity
 ---
 
 ### Task 6: `/reload` 扩展为同时重读身份文件（tasks.md 2.3）
@@ -2422,6 +2429,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：pytest 全部 PASSED；ruff 两条命令均无错误输出。
 
+archived-with: 2026-07-21-compose-runtime-identity
 ---
 
 ### Task 7: wheel/sdist 安装后资源加载验证（tasks.md 1.4 收尾）
@@ -2563,6 +2571,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：两条命令均无错误输出。
 
+archived-with: 2026-07-21-compose-runtime-identity
 ---
 
 ### Task 8: 组合矩阵×确认结果与项目根/磁盘时序补测（tasks.md 3.1/3.2）
@@ -2939,6 +2948,7 @@ Task 1 Step 6 的 16 组合矩阵只覆盖 `compose_system_prompt` 单层（输�
 
   预期输出：pytest 全部 PASSED；ruff 两条命令均无错误输出。
 
+archived-with: 2026-07-21-compose-runtime-identity
 ---
 
 ### Task 9: 固定协议完整性、SOUL 优先级、Kiro 身份污染回归与离线 golden 门禁（tasks.md 3.3）
@@ -3160,6 +3170,7 @@ tasks.md 3.3 涵盖四类验证：① 固定协议字节完整性（全链路级
 
   预期输出：pytest 全部 PASSED；ruff 两条命令均无错误输出。
 
+archived-with: 2026-07-21-compose-runtime-identity
 ---
 
 ### Task 10: 候选目录扩充 G381-G400 + 一致性门更新 + 独立 mock replay 机器（tasks.md 3.4）
@@ -3489,6 +3500,7 @@ tasks.md 3.4 三件事：① 在 `docs/golden-tasks-seed.md` 候选目录按 8/5
 
   预期输出：pytest 全部 PASSED；ruff 两条命令均无错误输出。
 
+archived-with: 2026-07-21-compose-runtime-identity
 ---
 
 ### Task 11: 更新威胁模型 T12 与用户文档（tasks.md 4.1）
@@ -3602,6 +3614,7 @@ Interfaces: 无新增生产接口。文档引用 Task 2 的 `_resolve_identity_f
 
   预期输出：pytest 全部 PASSED；ruff 两条命令均无错误输出。
 
+archived-with: 2026-07-21-compose-runtime-identity
 ---
 
 ### Task 12: 综合验证、三轮评审与任务收尾（tasks.md 4.2）
@@ -3736,6 +3749,7 @@ git commit -m "chore: record M15 compose-runtime-identity verification evidence"
 
   预期输出：diff 仅含上述四类文件；OpenSpec validation 通过。
 
+archived-with: 2026-07-21-compose-runtime-identity
 ---
 
 ## OpenSpec Tasks Coverage Map
@@ -3764,3 +3778,4 @@ git commit -m "chore: record M15 compose-runtime-identity verification evidence"
 - **Execution safety**：目录级与文件级 symlink 逃逸、项目段超限诊断、畸形/不可读记录不覆盖、写失败 memory-only、secret 掩码结果变化、确认后磁盘替换与真实 headless 子进程复用均有独立证据；信任记录 v1 保持 last-writer-wins 无锁语义（丢失确认只会重新询问，绝不产生未经确认注入）。综合验证不使用人工 deselect，且以执行隔离时记录的 dirty 基线保护既有用户文件。
 - **Placeholder scan**：无 `TODO`/`FIXME`/`<placeholder>` 或独立 `...` 占位行；跨大函数修改使用精确 unified diff，所有测试文件名、命令、断言和预期结果均为具体可执行形式。
 - **Documentation consistency**：README `## 身份与提示词` 新段落、威胁模型 T12 行、golden 候选/可信核心计数（400 项/380 项）在 Task 11 具体规定；milestone_015.md 前置里程碑链接、三轮评审形式、verified_head 机制在 Task 12 具体规定。
+

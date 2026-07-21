@@ -31,13 +31,13 @@ ForgeAgent SHALL maintain a trusted core manifest containing exactly G01, G03, G
 - **THEN** every manifest ID has a corresponding task definition in the candidate catalog
 
 ### Requirement: Golden catalog has one exact ID universe
-The candidate catalog SHALL contain each and only each ID from `G01` through `G380`, inclusive. The trusted core SHALL be the exact 20-ID set above; its complement SHALL contain exactly 360 non-core candidates. Validation MUST reject duplicate, missing, additional or substituted catalog IDs before any claim about core or candidate counts.
+The candidate catalog SHALL contain each and only each ID from `G01` through `G400`, inclusive. The trusted core SHALL remain the exact existing 20-ID set; its complement SHALL contain exactly 380 non-core candidates. Validation MUST reject duplicate, missing, additional or substituted catalog IDs before any claim about core or candidate counts.
 
-The complete `G01` through `G380` unique, continuous and 360-item non-core check SHALL be owned by the documentation-consistency pytest gate, not by the production golden runner preflight.
+The complete `G01` through `G400` unique, continuous and 380-item non-core check SHALL be owned by the documentation-consistency pytest gate, not by the production golden runner preflight. The twenty M15 additions SHALL use IDs G381-G400 and SHALL preserve the catalog-wide 40/25/20/10/5 category distribution by adding exactly 8 file/data, 5 Python execution/sandbox, 4 code modification, 2 network/API and 1 system-query scenario.
 
 #### Scenario: Candidate ID universe is exact
 - **WHEN** catalog consistency validation reads the candidate documentation and trusted-core manifest
-- **THEN** it accepts only the unique inclusive `G01` through `G380` universe, exactly 20 core IDs and exactly 360 non-core IDs
+- **THEN** it accepts only the unique inclusive `G01` through `G400` universe, exactly 20 core IDs and exactly 380 non-core IDs, with the complete catalog retaining the exact approved category distribution
 
 ### Requirement: Golden scenarios are machine judged and reported
 The golden runner MUST validate declared expectations for each scenario and SHALL emit both machine-readable results and a human-readable summary containing counts and pass rate.
@@ -82,11 +82,11 @@ Exactly G01, G03, G08, G11 and G43 SHALL be tagged as compatible with an explici
 - **THEN** the runner exits with status 2 before executing scenarios and does not generate a pass-rate report
 
 ### Requirement: Candidate catalog is not presented as validated
-ForgeAgent documentation SHALL distinguish the 20 executable trusted-core scenarios from the remaining candidate task catalog and MUST NOT describe candidates as validated without executable evidence.
+ForgeAgent documentation SHALL distinguish the 20 executable trusted-core scenarios from the remaining candidate task catalog and MUST NOT describe candidates as validated without executable evidence. M15 identity behavior SHALL use dedicated deterministic pytest/mock-replay evidence; merely adding G381-G400 definitions to the candidate catalog SHALL NOT count as execution evidence.
 
 #### Scenario: User reads golden task documentation
-- **WHEN** documentation lists the wider task catalog
-- **THEN** it labels exactly 20 scenarios as executable trusted core and exactly 360 other IDs in the `G01` through `G380` universe as non-core candidates
+- **WHEN** documentation lists the wider task catalog after the M15 extension
+- **THEN** it labels exactly 20 scenarios as executable trusted core and exactly 380 other IDs in the `G01` through `G400` universe as non-core candidates
 
 ### Requirement: Public protocol documentation matches runtime behavior
 The milestone SHALL update model-client, text-protocol, threat-model, README and milestone documentation so claims about streaming, multimodal input, WebFetch/File tools, proxy behavior and golden validation match the verified implementation.
@@ -94,3 +94,4 @@ The milestone SHALL update model-client, text-protocol, threat-model, README and
 #### Scenario: Documentation is reviewed after implementation
 - **WHEN** the change is ready for verification
 - **THEN** affected documents no longer contradict supported runtime contracts or claim unexecuted validation
+
