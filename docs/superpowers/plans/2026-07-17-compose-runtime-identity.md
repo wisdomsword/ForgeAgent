@@ -3175,7 +3175,7 @@ tasks.md 3.4 三件事：① 在 `docs/golden-tasks-seed.md` 候选目录按 8/5
 **Interfaces:**
 - 无新增生产接口；复用 `compose_system_prompt`、`ApprovedIdentity`、`MockClient`、`Task`
 
-- [ ] **Step 1: 候选目录追加 G381-G400（8/5/4/2/1 配比，主题：M15 身份子系统）**
+- [x] **Step 1: 候选目录追加 G381-G400（8/5/4/2/1 配比，主题：M15 身份子系统）**
 
   在 `docs/golden-tasks-seed.md` 顶部三处计数更新：
 
@@ -3268,7 +3268,7 @@ tasks.md 3.4 三件事：① 在 `docs/golden-tasks-seed.md` 候选目录按 8/5
 
   预期输出：`G381-G400 present exactly once and in order`。
 
-- [ ] **Step 2: 扩展 `_CANDIDATE_ID` 正则覆盖 G381-G400**
+- [x] **Step 2: 扩展 `_CANDIDATE_ID` 正则覆盖 G381-G400**
 
   `tests/golden/runner.py` 现有：
 
@@ -3300,7 +3300,7 @@ tasks.md 3.4 三件事：① 在 `docs/golden-tasks-seed.md` 候选目录按 8/5
 
   预期输出：`31-400 all match, 401/30 correctly rejected`。
 
-- [ ] **Step 3: 更新 `tests/test_golden_runner.py` 的范围断言与 G380→G400 边界测试锚点**
+- [x] **Step 3: 更新 `tests/test_golden_runner.py` 的范围断言与 G380→G400 边界测试锚点**
 
   三处调整：
 
@@ -3372,7 +3372,7 @@ tasks.md 3.4 三件事：① 在 `docs/golden-tasks-seed.md` 候选目录按 8/5
 
   预期输出：相关测试全部 PASSED（含 `test_golden_candidate_catalog_has_structured_definitions_and_candidates` 对真实 `docs/golden-tasks-seed.md` 的结构校验）。
 
-- [ ] **Step 4: 独立专项 mock replay 机器——验证 SOUL/AGENTS 输入可见性（不宣称真实模型遵循证据）**
+- [x] **Step 4: 独立专项 mock replay 机器——验证 SOUL/AGENTS 输入可见性（不宣称真实模型遵循证据）**
 
   新建 `tests/test_golden_candidates_identity.py`：这是一个与候选目录定义**分离**的可执行验证机器——候选表格里的文字描述（如 G381"完整出现在...段"）本身不是断言，必须有独立代码跑通对应场景才算数。本文件复用 `_RecordingTaskClient`（与 Task 9 Step 3 相同模式）驱动一次真实的 `Task.run()`，而不是只调用 `compose_system_prompt()`——因为 G381/G383 的 pass 判定描述的是"完整出现在组合系统提示词"这一端到端语义，跳过 `Task` 直接测组合器会漏掉 `_build_system_prompt` 这一层集成逻辑。
 
@@ -3478,7 +3478,7 @@ tasks.md 3.4 三件事：① 在 `docs/golden-tasks-seed.md` 候选目录按 8/5
 
   预期输出：3 项测试全部 PASSED。
 
-- [ ] **Step 5: 全量回归 + Ruff**
+- [x] **Step 5: 全量回归 + Ruff（候选目录专项）**
 
   ```bash
   .venv/bin/python -m pytest tests/ -x -q --ignore=tests/golden

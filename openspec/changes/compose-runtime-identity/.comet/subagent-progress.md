@@ -4,19 +4,19 @@
 - Review mode: `standard`
 - TDD mode: `tdd`
 - Worktree: `/Users/admin/Code/llm-agent/ForgeAgent/.worktrees/compose-runtime-identity`
-- Current plan task: `Task 9: 固定协议与身份优先级回归（tasks.md 3.3）`
-- OpenSpec mapping: `3.3 固定协议完整性、SOUL 优先级、Kiro 污染回归和 20 项离线可信核心回放`
+- Current plan task: `Task 10: 候选目录 G381-G400 与一致性/专项 replay（tasks.md 3.4）`
+- OpenSpec mapping: `3.4 新增 G381-G400 候选并更新 G01-G400 一致性门与独立专项 mock replay`
 - Stage: `done`
-- Implementer dispatch: `/root/task_9_protocol_replay` (closeout reused `/root/task_6_reload_reviewer` after full-suite polling hang)
-- Brief: `.superpowers/sdd/task-9-brief.md`
-- Report: `.superpowers/sdd/task-9-report.md`
-- Implementation commit: `e545d2e` (`test(identity): guard protocol and persona integrity`)
-- Changed files: `tests/test_identity.py`, `tests/test_task.py`
-- RED evidence: temporary protocol mutation caused 4 expected failures; restored implementation passed
-- GREEN evidence: protocol/SOUL `4 passed`; Task context `2 passed`; offline 20-case golden `1 passed`; Ruff/format passed; non-packaging regression `967 passed, 13 skipped`
-- Risk signals: protocol integrity; prompt injection/Kiro contamination; golden/replay regression
+- Implementer dispatch: `/root/task_10_candidates_replay` (closeout reused `/root/task_6_reload_reviewer`)
+- Brief: `.superpowers/sdd/task-10-brief.md`
+- Report: `.superpowers/sdd/task-10-report.md`
+- Implementation commit: `6a302f1` (`test(golden): expand runtime identity candidates`)
+- Changed files: `docs/golden-tasks-seed.md`, `tests/golden/runner.py`, `tests/test_golden_runner.py`, `tests/test_golden_candidates_identity.py`
+- RED evidence: parser rejected G381; catalog gate found G381-G400 missing; corrected G385 section assertion
+- GREEN evidence: identity replay `4 passed`; catalog/coverage `3 passed`; full runner `75 passed`; Ruff/format/diff passed
+- Risk signals: dataset/schema consistency; replay harness; evidence semantics
 - Task review triggered: `yes` (standard risk review)
-- Task reviewer dispatch: `/root/task_9_protocol_reviewer` Approved
-- Review-fix round: `0/1`
-- Review result: spec compliant; task quality approved; Critical/Important/Minor none
+- Task reviewer dispatch: `/root/task_10_candidates_reviewer` Approved with Minor docs duplicate
+- Review-fix round: `1/1`
+- Review result: Approved; Critical/Important none; Minor duplicate M9 summary fixed in `5295836`
 - Unresolved feedback: none
