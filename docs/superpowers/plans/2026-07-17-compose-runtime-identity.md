@@ -3710,7 +3710,7 @@ M15 前置里程碑链接为 `milestone_013.md`（M11/M12/M14 跳过，M13 是�
 
   此 change 不假设工作树绝对 clean。执行隔离完成后，先把 `git status --porcelain=v1` 的**既有 dirty 基线**逐项记录进 `.comet/subagent-progress.md`；当前审查时已知存在未跟踪的 agent/skill 配置等非 M15 文件，必须原样保留。提交收尾前允许的未提交项仅为该基线中仍未改变的条目；任何新增、消失或内容变化都必须归因，不能硬编码成“只允许 ACTION_PLAN.md”。
 
-- [ ] **Step 8: 提交验证收尾**
+- [x] **Step 8: 提交验证收尾**
 
 ```bash
 git add openspec/changes/compose-runtime-identity/tasks.md \

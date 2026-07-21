@@ -4,6 +4,7 @@
 - Review mode: `standard`
 - TDD mode: `tdd`
 verified_head: 901b9a8d7573e18d9408264ad25f193506a0eb30
+evidence_head: bf505b8
 - Worktree: `/Users/admin/Code/llm-agent/ForgeAgent/.worktrees/compose-runtime-identity`
 - Current plan task: `Task 12: 综合验证、三轮最终评审与证据汇总（tasks.md 4.2）`
 - OpenSpec mapping: `4.2 运行专项/全量 pytest、Ruff、离线 golden 和三轮最终评审，记录证据`
