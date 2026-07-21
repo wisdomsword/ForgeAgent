@@ -2432,7 +2432,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 **Interfaces:**
 - 无新增运行时接口；本任务只验证 Task 1 Step 5 已写入 `pyproject.toml` 的 `artifacts` 声明在真实构建产物里生效。
 
-- [ ] **Step 1: 构建 wheel/sdist 并在隔离虚拟环境安装后验证三个 `.j2`/`.md` 资源可加载**
+- [x] **Step 1: 构建 wheel/sdist 并在隔离虚拟环境安装后验证三个 `.j2`/`.md` 资源可加载**
 
   这一步用 `uv build` 产出真实构建产物，再用一个全新虚拟环境安装（不复用当前开发环境的 `src/` 路径导入），证明 `importlib.resources` 读到的是打包进 wheel 的文件，不是开发目录下的源文件：
 
@@ -2454,7 +2454,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：`ls` 列出恰好一个 `.whl` 与一个 `.tar.gz`；安装无错误；最终打印 `wheel install resource loading: OK`（这证明 `compose_system_prompt` 在一个从未 `pip install -e` 过当前源码目录的全新环境里，仍能通过 `importlib.resources` 找到 `system.j2`/`protocol.md`/`default_soul.md` 三个包内资源——如果 `pyproject.toml` 的 `artifacts` glob 写错，这一步会直接报 `FileNotFoundError`）。
 
-- [ ] **Step 2: sdist 内容体检（确认三个资源文件确实被打包，不是侥幸通过 Step 1 的 wheel-only 路径）**
+- [x] **Step 2: sdist 内容体检（确认三个资源文件确实被打包，不是侥幸通过 Step 1 的 wheel-only 路径）**
 
   ```bash
   .venv/bin/python -c "
@@ -2477,7 +2477,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：`sdist contains all prompt resources: OK`
 
-- [ ] **Step 3: 记录为真实打包回归测试（Task 12 专项与全量都会执行）**
+- [x] **Step 3: 记录为真实打包回归测试（Task 12 专项与全量都会执行）**
 
   创建 `tests/test_packaging.py`。不要只加 `@pytest.mark.slow` 后声称默认 pytest 会跳过——当前 `pyproject.toml` 没有 `-m 'not slow'`，marker 不会自动 deselect。该测试应在 Task 12 专项和全量中真实执行：
 
@@ -2554,7 +2554,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：1 项测试 PASSED（首次运行耗时较长，因为需要真实构建 wheel/sdist 并创建独立虚拟环境）。
 
-- [ ] **Step 4: Ruff 检查（wheel/sdist 资源验证）**
+- [x] **Step 4: Ruff 检查（wheel/sdist 资源验证）**
 
   ```bash
   .venv/bin/ruff check tests/test_packaging.py

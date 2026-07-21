@@ -4,19 +4,19 @@
 - Review mode: `standard`
 - TDD mode: `tdd`
 - Worktree: `/Users/admin/Code/llm-agent/ForgeAgent/.worktrees/compose-runtime-identity`
-- Current plan task: `Task 6: /reload 扩展为同时重读身份文件（tasks.md 2.3）`
-- OpenSpec mapping: `2.3 扩展 /reload，使后续任务重新读取身份文件并让变化的项目内容重新进入确认流程`
+- Current plan task: `Task 7: wheel/sdist 安装后资源加载验证（tasks.md 1.4 收尾）`
+- OpenSpec mapping: `1.4 通过真实 wheel/sdist 安装验证身份提示资源可加载`
 - Stage: `done`
-- Implementer dispatch: `/root/task_5_cli_identity` (reused after Task 6 implementer hit platform 429)
-- Brief: `.superpowers/sdd/task-6-brief.md`
-- Report: `.superpowers/sdd/task-6-report.md`
-- Implementation commit: `96d88c3` (`feat(cli): reload runtime identity`)
-- Changed files: `src/forgeagent/cli.py`, `tests/test_cli.py`
-- RED evidence: 1 passed, 1 expected failure (`assert 1 == 2`)
-- GREEN evidence: focused `2 passed`; CLI `152 passed`; regression `941 passed, 13 skipped`; static probe and Ruff passed
-- Risk signals: public CLI/API; cross-module identity/trust wiring; source/test diff 95 insertions
+- Implementer dispatch: `/root/task_7_packaging` (closeout reused `/root/task_6_reload_reviewer` after network hang)
+- Brief: `.superpowers/sdd/task-7-brief.md`
+- Report: `.superpowers/sdd/task-7-report.md`
+- Implementation commit: `4b765bc` (`test(packaging): verify identity prompt resources`)
+- Changed files: `tests/test_packaging.py`
+- RED evidence: uv build blocked by uncached hatchling and sandbox DNS; static contract test was then made runnable
+- GREEN evidence: TOML/resource static contract, development resource probe, Ruff and diff check passed; real wheel/sdist remains unverified in this environment
+- Risk signals: packaging/artifact verification; isolated install; test invokes uv build/install
 - Task review triggered: `yes` (standard risk review)
-- Task reviewer dispatch: `/root/task_6_reload_reviewer` Approved
-- Review-fix round: `0/1`
-- Review result: spec compliant; task quality approved; Critical/Important/Minor none
-- Unresolved feedback: `none`
+- Task reviewer dispatch: `/root/task_7_packaging_reviewer` Not Approved
+- Review-fix round: `1/1`
+- Review result: fix `0bee38c` re-reviewed and Approved; Critical/Important/Minor none
+- Unresolved feedback: real wheel/sdist build remains environment-blocked by hatchling/DNS and is recorded as unverified
