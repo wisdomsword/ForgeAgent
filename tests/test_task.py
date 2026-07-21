@@ -1,11 +1,13 @@
 """Unit tests for the Task loop (M3-4)."""
 
 import json
+import threading
 
 from forgeagent.client import MockClient
 from forgeagent.identity import ApprovedIdentity
 from forgeagent.models import AssistantMessage, StreamEvent, StreamEventKind, TokenUsage
-from forgeagent.task import Task
+from forgeagent.step import Termination
+from forgeagent.task import Task, TaskStatus
 
 
 def _reply(text: str, stop_reason: str = "end_turn") -> AssistantMessage:
@@ -38,6 +40,25 @@ def test_task_completes_normally():
     outcome = task.run("do a thing")
     assert outcome.status.completed is True
     assert outcome.status.reason == "completed"
+
+
+def test_task_status_exposes_cancelled_without_marking_solved():
+    status = TaskStatus(completed=False, reason=Termination.CANCELLED)
+
+    assert status.solved is False
+
+
+def test_task_forwards_cancel_event_to_step():
+    event = threading.Event()
+    event.set()
+    client = MockClient(script=[_reply(_done())])
+
+    outcome = Task(client).run("do a thing", cancel_event=event)
+
+    assert client.calls_made == 0
+    assert outcome.status.completed is False
+    assert outcome.status.solved is False
+    assert outcome.status.reason == Termination.CANCELLED
 
 
 def test_task_refused():

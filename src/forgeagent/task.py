@@ -10,6 +10,7 @@ The system prompt combines the approved runtime identity with the fixed protocol
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable
 from pathlib import Path
 
@@ -143,7 +144,13 @@ class Task:
             return base
         return f"{base}\n\n{tools_section}"
 
-    def run(self, goal: str, *, images: list[ImageItem] | None = None) -> TaskOutcome:
+    def run(
+        self,
+        goal: str,
+        *,
+        images: list[ImageItem] | None = None,
+        cancel_event: threading.Event | None = None,
+    ) -> TaskOutcome:
         """Run the task for `goal` and return its terminal outcome.
 
         `images` (M9 Phase 4, the REPL `/image` command and `run --image`) attaches
@@ -171,6 +178,7 @@ class Task:
             tier=self._tier,
             allowed_root=self._allowed_root,
             on_stream_text=self._on_stream_text,
+            cancel_event=cancel_event,
         )
         rounds = step.run(messages)
         return TaskOutcome(status=self._derive_status(rounds), rounds=rounds)

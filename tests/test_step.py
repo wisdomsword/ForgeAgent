@@ -5,6 +5,7 @@ text-protocol markup from docs/text-protocol-spec.md.
 """
 
 import json
+import threading
 
 import pytest
 
@@ -22,7 +23,7 @@ from forgeagent.models import (
 )
 from forgeagent.protocol import EditArgs, FileReadArgs, ToolCall
 from forgeagent.runtime import Runtime
-from forgeagent.step import RoundResult, Step, _apply_edit
+from forgeagent.step import RoundResult, Step, Termination, _apply_edit
 from forgeagent.tools import ToolOutcome
 
 
@@ -62,6 +63,74 @@ def _done(confidence=0.9) -> str:
 
 
 # --- loop control ------------------------------------------------------------
+
+
+def test_step_cancel_event_stops_before_next_model_call():
+    event = threading.Event()
+    event.set()
+    client = MockClient(script=[_reply(_done())])
+    step = Step(client, TrustedBackend(), Runtime(), cancel_event=event)
+
+    rounds = step.run(_user())
+
+    assert client.calls_made == 0
+    assert rounds[-1].stopped_reason == Termination.CANCELLED
+
+
+def test_step_cancel_event_wins_before_completed_result_is_published():
+    event = threading.Event()
+
+    class _CancellingClient(MockClient):
+        def complete(self, messages, params=None):
+            reply = super().complete(messages, params)
+            event.set()
+            return reply
+
+    client = _CancellingClient(script=[_reply(_done())])
+    step = Step(client, TrustedBackend(), Runtime(), cancel_event=event)
+
+    rounds = step.run(_user())
+
+    assert client.calls_made == 1
+    assert rounds[-1].completed is False
+    assert rounds[-1].stopped_reason == Termination.CANCELLED
+
+
+def test_step_cancel_event_is_checked_after_tool_execution():
+    event = threading.Event()
+
+    class _CancellingBackend(TrustedBackend):
+        def execute(self, code, runtime):
+            result = super().execute(code, runtime)
+            event.set()
+            return result
+
+    client = MockClient(script=[_reply(_exec_call("print('done')")), _reply(_done())])
+    step = Step(client, _CancellingBackend(secret_values=set()), Runtime(), cancel_event=event)
+
+    rounds = step.run(_user())
+
+    assert client.calls_made == 1
+    assert rounds[-1].outcomes[0].success is True
+    assert rounds[-1].stopped_reason == Termination.CANCELLED
+
+
+def test_step_cancel_event_wins_before_client_error_is_published():
+    event = threading.Event()
+
+    class _CancellingClient(MockClient):
+        def complete(self, messages, params=None):
+            result = super().complete(messages, params)
+            event.set()
+            return result
+
+    client = _CancellingClient(script=[ClientError(message="offline", kind="network", attempts=1)])
+    step = Step(client, TrustedBackend(), Runtime(), cancel_event=event)
+
+    rounds = step.run(_user())
+
+    assert rounds[-1].text == ""
+    assert rounds[-1].stopped_reason == Termination.CANCELLED
 
 
 def test_prose_answer_is_nudged_once_then_accepted():

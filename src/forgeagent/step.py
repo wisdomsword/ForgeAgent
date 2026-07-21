@@ -16,6 +16,7 @@ runtime concern.
 from __future__ import annotations
 
 import json
+import threading
 from collections.abc import Callable
 from enum import StrEnum
 from typing import TYPE_CHECKING
@@ -81,6 +82,7 @@ class Termination(StrEnum):
     EMPTY_RESPONSE = "empty_response"  # no tool activity and no prose to accept
     MAX_ROUNDS = "max_rounds"  # ran out of rounds with work still in flight
     CLIENT_ERROR = "client_error"  # transport/client failure (suffixed with :kind)
+    CANCELLED = "cancelled"  # caller requested cooperative cancellation
 
 
 # Provider stop_reason values, normalised. Anthropic and OpenAI-compatible clients pass
@@ -189,6 +191,7 @@ class Step:
         tier: Tier = "restricted",
         allowed_root: str = ".",
         on_stream_text: Callable[[str, StreamEventKind], None] | None = None,
+        cancel_event: threading.Event | None = None,
     ):
         self._client = client
         self._backend = backend
@@ -200,6 +203,7 @@ class Step:
         # THINKING_DELTA as it arrives. Never sees DONE — the aggregated AssistantMessage
         # is this method's return value, not something the callback needs.
         self._on_stream_text = on_stream_text
+        self._cancel_event = cancel_event
         # Static AST layer: advisory feedback before execution (not a security boundary).
         self._analyzer = analyzer or CodeAnalyzer()
         self.blocks = CodeBlockStore()
@@ -219,6 +223,9 @@ class Step:
             allowed_root=allowed_root,
         )
         self.rounds: list[RoundResult] = []
+
+    def _cancelled(self) -> bool:
+        return self._cancel_event is not None and self._cancel_event.is_set()
 
     def _stream_or_complete(self, convo: list[Message]) -> AssistantMessage | ClientError:
         """No callback -> plain complete() (today's path, unchanged). With a callback,
@@ -248,8 +255,18 @@ class Step:
         convo = list(messages)
         prose_nudged = False
         for _ in range(self._max_rounds):
+            if self._cancelled():
+                if self.rounds:
+                    self.rounds[-1].completed = False
+                    self.rounds[-1].stopped_reason = Termination.CANCELLED
+                else:
+                    self.rounds.append(RoundResult(text="", stopped_reason=Termination.CANCELLED))
+                break
             reply = self._stream_or_complete(convo)
             if isinstance(reply, ClientError):
+                if self._cancelled():
+                    self.rounds.append(RoundResult(text="", stopped_reason=Termination.CANCELLED))
+                    break
                 self.rounds.append(
                     RoundResult(
                         text=reply.message,
@@ -261,6 +278,11 @@ class Step:
             rr = self._handle_reply(reply)
             self.rounds.append(rr)
             convo.append(Message(role=Role.ASSISTANT, content=_render_history_content(reply)))
+
+            if self._cancelled():
+                rr.completed = False
+                rr.stopped_reason = Termination.CANCELLED
+                break
 
             # A terminal state the reply itself declares (completion / refusal /
             # need_info / failed) ends the loop immediately.
