@@ -4,21 +4,19 @@
 - Review mode: `standard`
 - TDD mode: `tdd`
 - Worktree: `/Users/admin/Code/llm-agent/ForgeAgent/.worktrees/compose-runtime-identity`
-- Current plan task: `Task 3: 信任记录持久化与 resolve_project_trust（tasks.md 2.1）`
-- OpenSpec mapping: `2.1 实现版本化、原子写入的项目身份信任记录和确认门，绑定 canonical 项目标识摘要、原始内容摘要与掩码后有效输入摘要，覆盖拒绝、headless、跨进程复用、畸形记录、写入失败、文件/secret 掩码变化及确认后磁盘替换`
+- Current plan task: `Task 4: Task 类迁移到身份快照消费（tasks.md 1.3）`
+- OpenSpec mapping: `1.3 将 Task 的系统上下文构建改为显式使用身份快照和组合器，避免模块级可变状态及直接 Task 构造时的隐式文件 I/O，并保留显式 system_prompt 可信覆盖契约`
 - Stage: `done`
-- Implementer dispatch: `/root/task_3_project_trust` (DONE)
-- Brief: `.superpowers/sdd/task-3-brief.md`
-- Report: `.superpowers/sdd/task-3-report.md`
-- Implementation commit: `8074f8c` (`feat(identity): persist project trust approvals`)
-- Changed files: `src/forgeagent/identity.py`, `tests/test_identity.py`
-- RED evidence: focused trust API tests failed 5 cases before implementation; invalid encoding/schema cycle had 1 expected failure
-- GREEN evidence: focused `5 passed` plus validation `2 passed`; Ruff clean; full `929 passed, 13 skipped`
-- Risk signals: security-sensitive trust boundary; persistence/atomic write; public API; diff 385 insertions
+- Implementer dispatch: `/root/task_4_task_identity_wiring` (DONE)
+- Brief: `.superpowers/sdd/task-4-brief.md`
+- Report: `.superpowers/sdd/task-4-report.md`
+- Implementation commit: `a514f39` (`feat(task): compose prompts from approved identity`)
+- Changed files: `src/forgeagent/task.py`, `tests/test_task.py`
+- RED evidence: focused Task tests had 4 expected failures before production changes
+- GREEN evidence: focused `14 passed`; import probe OK; regression `935 passed, 13 skipped`; Ruff check/format OK
+- Risk signals: public Task constructor/API migration; cross-module identity composition; diff 116 insertions
 - Task review triggered: `yes` (standard risk review)
-- Task reviewer dispatch: `/root/task_3_project_trust_reviewer` found Important dangling-symlink overwrite risk; fix `c861f27`; re-review `/root/task_3_trust_rereviewer` Approved
-- Review-fix round: `1/1`
-- Fix dispatch: `/root/task_3_trust_fix` interrupted after code/test changes; platform thread limit forced reuse of `/root/task_2_identity_fix_finalize` for Task 3 closeout (DONE), same review-fix round
-- Fix commit: `c861f27` (`fix(identity): reject dangling trust symlinks`)
-- Review result: spec compliant; task quality approved; Critical/Important none; Minor SHA metadata normalized
+- Task reviewer dispatch: `/root/task_4_task_wiring_reviewer` Approved
+- Review-fix round: `0/1`
+- Review result: spec compliant; task quality approved; Critical/Important/Minor all None
 - Unresolved feedback: `none`

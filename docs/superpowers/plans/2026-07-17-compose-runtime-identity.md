@@ -1661,7 +1661,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 - `Task.__init__(..., system_prompt: str | None = None, identity: ApprovedIdentity | None = None, ...)`（原 `system_prompt: str = DEFAULT_SYSTEM_PROMPT` 改为 `None` 默认值）
 - 移除 `task.py` 的 `DEFAULT_SYSTEM_PROMPT` 模块级字符串（唯一权威已迁至 `res/prompts/protocol.md`，Task 1 Step 1 已确认字节一致）
 
-- [ ] **Step 1: 修改 `Task.__init__`/`_build_system_prompt`，删除 `DEFAULT_SYSTEM_PROMPT`**
+- [x] **Step 1: 修改 `Task.__init__`/`_build_system_prompt`，删除 `DEFAULT_SYSTEM_PROMPT`**
 
   在 `src/forgeagent/task.py` 中：删除 `DEFAULT_SYSTEM_PROMPT` 常量定义（第 45-80 行）；顶部模块 docstring 里"The system prompt is a plain string in v1 (Jinja2 composition is deferred...)"这句已不真实，改为说明身份组合已实现；`__init__` 增加 `identity` 参数并把 `system_prompt` 默认值改为 `None`；`_build_system_prompt` 按"显式字符串最高优先级 → 组合 ApprovedIdentity → 两者皆无时用零身份组合"的顺序改写：
 
@@ -1739,7 +1739,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：`DEFAULT_SYSTEM_PROMPT removed: OK`
 
-- [ ] **Step 2: 更新 `tests/test_task.py`，追加身份接线测试**
+- [x] **Step 2: 更新 `tests/test_task.py`，追加身份接线测试**
 
   `tests/test_task.py` 当前基线 9 个测试全部只依赖 `Task(MockClient(...))` 的默认构造行为（无一处显式引用 `DEFAULT_SYSTEM_PROMPT` 字符串本身），所以现有测试在零身份文件的测试环境（`tests/conftest.py` 的 HOME 隔离夹具）下应该无需修改即通过——`_build_system_prompt()` 在没有 identity/system_prompt 时会组合出一个仍包含相同协议内容的提示词。这一步只追加验证新契约的测试，不删除旧测试。将 `ApprovedIdentity` import 合并到文件顶部既有 import 区；`Task` 已经导入，不重复导入：
 
@@ -1830,7 +1830,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：全部（当前基线 9 + 新增 5 = 14）测试 PASSED；若执行前基线测试数变化，以 `pytest --collect-only` 的实际收集结果为准，不把陈旧计数当成门禁。
 
-- [ ] **Step 3: 全量既有测试回归**
+- [x] **Step 3: 全量既有测试回归**
 
   ```bash
   .venv/bin/python -m pytest tests/ -x -q --ignore=tests/golden
@@ -1838,7 +1838,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：全部测试 PASSED，零 FAILED（这一步验证 `system_prompt` 默认值从 `DEFAULT_SYSTEM_PROMPT` 改为 `None` 没有破坏 `cli.py`/`tests/golden/cases.py` 里任何隐式依赖默认提示词具体文本的断言——若有断言失败，须先用 systematic-debugging 定位根因，不得跳过）。
 
-- [ ] **Step 4: Ruff 检查**
+- [x] **Step 4: Ruff 检查**
 
   ```bash
   .venv/bin/ruff check src/forgeagent/task.py tests/test_task.py
