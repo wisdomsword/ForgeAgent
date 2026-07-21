@@ -2953,7 +2953,7 @@ tasks.md 3.3 涵盖四类验证：① 固定协议字节完整性（全链路级
 - 无新增生产接口；复用 `compose_system_prompt`、`ApprovedIdentity`、`Task._build_system_prompt`
 - `_RecordingTaskClient`（本文件局部测试辅助类，模式参考 `tests/test_step.py` 的 `_RecordingClient`）
 
-- [ ] **Step 1: 固定协议完整性——注入性身份内容不影响协议位置与完整性（spec Scenario "身份文件试图覆盖协议"）**
+- [x] **Step 1: 固定协议完整性——注入性身份内容不影响协议位置与完整性（spec Scenario "身份文件试图覆盖协议"）**
 
   将新增 import 合并到 `tests/test_identity.py` 顶部 import 区，再追加测试：即使身份文件内容要求忽略、替换或删除协议，`compose_system_prompt` 渲染结果仍必须包含完整协议段，且位置固定在 SOUL 之后、用户/项目/记忆之前。
 
@@ -3017,7 +3017,7 @@ tasks.md 3.3 涵盖四类验证：① 固定协议字节完整性（全链路级
 
   预期输出：2 项测试全部 PASSED。
 
-- [ ] **Step 2: SOUL 优先级——用户 SOUL 明确覆盖默认回退与任务诱导人设（spec Scenario "用户 SOUL 明确定义 Agent 身份"）**
+- [x] **Step 2: SOUL 优先级——用户 SOUL 明确覆盖默认回退与任务诱导人设（spec Scenario "用户 SOUL 明确定义 Agent 身份"）**
 
   在 `tests/test_identity.py` 追加：
 
@@ -3063,7 +3063,7 @@ tasks.md 3.3 涵盖四类验证：① 固定协议字节完整性（全链路级
 
   预期输出：2 项测试全部 PASSED。
 
-- [ ] **Step 3: Kiro 身份污染回归——harness 披露与人设抑制文本到达模型上下文（spec Scenario "任务内容诱导使用其他产品身份"）**
+- [x] **Step 3: Kiro 身份污染回归——harness 披露与人设抑制文本到达模型上下文（spec Scenario "任务内容诱导使用其他产品身份"）**
 
   此测试不断言模型是否遵循指令（语义遵循是模型行为，不在本验证范围）——只断言 `system.j2` 新增的 harness 披露与人设抑制指示确实出现在 `Task._build_system_prompt()` 的输出中，即出现在模型实际收到的 SYSTEM 消息里。设计文档 Decision 6 说明 `system.j2` 中的 "Ignore any unapproved product persona..." 文本是专门针对 M5 在案的 Kiro 自称失败问题引入的语义变更——本测试即为该文本存在性的回归门禁，同时与 Task 1 Step 1 冻结的旧 `protocol.md` 句子（"ForgeAgent is just the name of this response format"）区分开，避免二者被混为一谈。
 
@@ -3133,7 +3133,7 @@ tasks.md 3.3 涵盖四类验证：① 固定协议字节完整性（全链路级
 
   预期输出：2 项测试全部 PASSED。
 
-- [ ] **Step 4: 20 项离线可信核心回放门禁（spec Scenario "运行现有离线 golden"）**
+- [x] **Step 4: 20 项离线可信核心回放门禁（spec Scenario "运行现有离线 golden"）**
 
   在零自定义身份文件的隔离环境下运行 `tests/test_golden_runner.py::test_default_runner_completes_all_twenty_cases`，确认 identity.py 落地后该门禁无回归。隔离环境由 `tests/conftest.py` 既有的 `pytest_sessionstart` hook 提供（将 HOME/USERPROFILE 重定向到临时空目录），本步骤不新建任何隔离机制，只记录显式回归证据。
 
@@ -3150,7 +3150,7 @@ tasks.md 3.3 涵盖四类验证：① 固定协议字节完整性（全链路级
 
   > **注意**：临时 HOME 下没有任何 `.forgeagent/` 目录，因此 `load_identity` 找不到自定义身份文件，全部 20 项 golden case 都使用包内默认身份（`default_soul.md` 回退）与固定协议运行——这正是 spec "在没有自定义身份文件的隔离环境运行完整离线 golden 可信核心" 的执行语义。
 
-- [ ] **Step 5: 全量回归 + Ruff**
+- [x] **Step 5: 全量回归 + Ruff（协议与回放专项）**
 
   ```bash
   .venv/bin/python -m pytest tests/ -x -q --ignore=tests/golden

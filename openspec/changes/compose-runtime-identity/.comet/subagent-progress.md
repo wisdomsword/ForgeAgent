@@ -4,19 +4,19 @@
 - Review mode: `standard`
 - TDD mode: `tdd`
 - Worktree: `/Users/admin/Code/llm-agent/ForgeAgent/.worktrees/compose-runtime-identity`
-- Current plan task: `Task 8: 组合矩阵×确认结果与项目根/磁盘时序补测（tasks.md 3.1/3.2）`
-- OpenSpec mapping: `3.1/3.2 补齐身份存在性、确认结果、禁用模式矩阵及项目根/磁盘时序场景`
+- Current plan task: `Task 9: 固定协议与身份优先级回归（tasks.md 3.3）`
+- OpenSpec mapping: `3.3 固定协议完整性、SOUL 优先级、Kiro 污染回归和 20 项离线可信核心回放`
 - Stage: `done`
-- Implementer dispatch: `/root/task_8_matrix_boundary` (closeout reused `/root/task_6_reload_reviewer` after cache rerun hang)
-- Brief: `.superpowers/sdd/task-8-brief.md`
-- Report: `.superpowers/sdd/task-8-report.md`
-- Implementation commit: `191984c` (`test(identity): cover trust boundary matrix`)
-- Changed files: `tests/test_identity.py`
-- RED evidence: new matrix and boundary tests directly passed, confirming no production gap
-- GREEN evidence: full_pipeline `13 passed`; path/TOCTOU/process/persistence `8 passed`; cross-check `75 passed`; Ruff/format passed
-- Risk signals: security/path boundary; cross-process persistence; TOCTOU; large test diff
+- Implementer dispatch: `/root/task_9_protocol_replay` (closeout reused `/root/task_6_reload_reviewer` after full-suite polling hang)
+- Brief: `.superpowers/sdd/task-9-brief.md`
+- Report: `.superpowers/sdd/task-9-report.md`
+- Implementation commit: `e545d2e` (`test(identity): guard protocol and persona integrity`)
+- Changed files: `tests/test_identity.py`, `tests/test_task.py`
+- RED evidence: temporary protocol mutation caused 4 expected failures; restored implementation passed
+- GREEN evidence: protocol/SOUL `4 passed`; Task context `2 passed`; offline 20-case golden `1 passed`; Ruff/format passed; non-packaging regression `967 passed, 13 skipped`
+- Risk signals: protocol integrity; prompt injection/Kiro contamination; golden/replay regression
 - Task review triggered: `yes` (standard risk review)
-- Task reviewer dispatch: `/root/task_8_matrix_reviewer` Approved
+- Task reviewer dispatch: `/root/task_9_protocol_reviewer` Approved
 - Review-fix round: `0/1`
 - Review result: spec compliant; task quality approved; Critical/Important/Minor none
 - Unresolved feedback: none
