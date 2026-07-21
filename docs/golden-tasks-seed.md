@@ -871,8 +871,6 @@ golden set 是**产品级功能验收**（任务能不能被正确完成），�
 | **合计** | 100% | 15 | 15 | 50 | 120 | 100 | 20 | 20 | 40 | **380** | 100% |
 
 380 个整体与 §六.5 配比精确一致（152/95/76/38/19 = 40/25/20/10/5%，无需取整近似）。M9 新增覆盖三个正交增量（§一裁决 8 的覆盖要求）：**流式降级路径**（`--stream` 附终端走真流式 vs 非 TTY 自动降级为 `complete()`，中途断连收敛为 `ClientError`，G357-359/G375-377）、**多模态拒绝路径**（图片大小/数量上限、`supports_images=False` 的显式拒绝、提示注入兜底验证，G345-351/G362）、**指令路由**（`/model`/`/search`/`/image`/`/mcp`/`/help`/裸 `/` 菜单的行为与错误处理，G352-356/G364-366/G378-380）。流式/多模态相关断言优先用插桩的 `complete()`/`stream()` 互斥测试 double 驱动（证明分支选择而非仅凭输出吻合推断，延续 `tests/test_step.py` `_ScriptedStreamClient` 的验证模式），不依赖真实模型的流式行为差异；系统性安全断言（T11a-T11c）归 `tests/test_step.py`/`tests/test_web_search.py`/`tests/test_cli.py`，golden set 只保留上述功能侧冒烟，延续 G06/G14/G24/G333 一路的分工原则。
-380 个整体与 §六.5 配比精确一致（152/95/76/38/19 = 40/25/20/10/5%，无需取整近似）。M9 新增覆盖三个正交增量（§一裁决 8 的覆盖要求）：**流式降级路径**（`--stream` 附终端走真流式 vs 非 TTY 自动降级为 `complete()`，中途断连收敛为 `ClientError`，G357-359/G375-377）、**多模态拒绝路径**（图片大小/数量上限、`supports_images=False` 的显式拒绝、提示注入兜底验证，G345-351/G362）、**指令路由**（`/model`/`/search`/`/image`/`/mcp`/`/help`/裸 `/` 菜单的行为与错误处理，G352-356/G364-366/G378-380）。流式/多模态相关断言优先用插桩的 `complete()`/`stream()` 互斥测试 double 驱动（证明分支选择而非仅凭输出吻合推断，延续 `tests/test_step.py` `_ScriptedStreamClient` 的验证模式），不依赖真实模型的流式行为差异；系统性安全断言（T11a-T11c）归 `tests/test_step.py`/`tests/test_web_search.py`/`tests/test_cli.py`，golden set 只保留上述功能侧冒烟，延续 G06/G14/G24/G333 一路的分工原则。
-
 ## M15 扩充（G381–G400，20 个 → 总 400）
 
 > M15 主题：分层运行时身份组合（详见 `docs/superpowers/plans/2026-07-17-compose-runtime-identity.md`）——用户级 SOUL/USER、项目级 AGENTS/MEMORY（信任确认门）、固定协议不可覆盖、`--no-identity`、身份文件大小/secret 掩码边界。配比按 8/5/4/2/1 精确维持 40/25/20/10/5%。网络类的 2 项不直接测试身份加载本身（身份加载是纯本地文件 I/O，没有天然的网络场景），而是验证身份子系统与既有网络工具子系统（MCP/WebFetch）正交、互不污染——延续 G338/G339 一路“优先 mock”的方针。
