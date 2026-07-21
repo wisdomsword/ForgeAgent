@@ -50,7 +50,7 @@
 - Ruff check: passed.
 - Ruff format check: `2 files already formatted`.
 
-Review-fix commit SHA: `a2d9b5deb2b5877c120021861d019bbe275996b8`.
+Review-fix commit SHA: `c861f27510f5c13257bd7d757449f64fc724c1d8`.
 
 ## Commit
 

@@ -4,21 +4,21 @@
 - Review mode: `standard`
 - TDD mode: `tdd`
 - Worktree: `/Users/admin/Code/llm-agent/ForgeAgent/.worktrees/compose-runtime-identity`
-- Current plan task: `Task 2: 身份加载 load_identity（tasks.md 1.2）`
-- OpenSpec mapping: `1.2 实现用户级 SOUL/USER 与 allowed_root 项目级 AGENTS/MEMORY 加载，库内路径可注入且 home 默认值在调用时解析，覆盖 canonical 边界、symlink 逃逸、secret 掩码、缺失回落、来源标记、大小上限和读取错误`
+- Current plan task: `Task 3: 信任记录持久化与 resolve_project_trust（tasks.md 2.1）`
+- OpenSpec mapping: `2.1 实现版本化、原子写入的项目身份信任记录和确认门，绑定 canonical 项目标识摘要、原始内容摘要与掩码后有效输入摘要，覆盖拒绝、headless、跨进程复用、畸形记录、写入失败、文件/secret 掩码变化及确认后磁盘替换`
 - Stage: `done`
-- Implementer dispatch: `/root/task_2_identity_loader` stopped before commit; reopened as `/root/task_2_identity_loader_reopen` (DONE)
-- Brief: `.superpowers/sdd/task-2-brief.md`
-- Report: `.superpowers/sdd/task-2-report.md`
-- Implementation commit: `c1076ca` (`fix(identity): redact unreadable file diagnostics`)
+- Implementer dispatch: `/root/task_3_project_trust` (DONE)
+- Brief: `.superpowers/sdd/task-3-brief.md`
+- Report: `.superpowers/sdd/task-3-report.md`
+- Implementation commit: `8074f8c` (`feat(identity): persist project trust approvals`)
 - Changed files: `src/forgeagent/identity.py`, `tests/test_identity.py`
-- RED evidence: prior loader cycle 11/11 focused and 918/13 full; reopen security cycles had 2 expected red tests for path/control leakage and 1 expected red cause-chain test
-- GREEN evidence: focused `34 passed`; brief probes OK; Ruff check/format OK; full `920 passed, 13 skipped`
-- Risk signals: security-sensitive input/diagnostics; public load_identity/digest symbols; aggregate diff 481 insertions
+- RED evidence: focused trust API tests failed 5 cases before implementation; invalid encoding/schema cycle had 1 expected failure
+- GREEN evidence: focused `5 passed` plus validation `2 passed`; Ruff clean; full `929 passed, 13 skipped`
+- Risk signals: security-sensitive trust boundary; persistence/atomic write; public API; diff 385 insertions
 - Task review triggered: `yes` (standard risk review)
-- Task reviewer dispatch: `/root/task_2_identity_reviewer` returned Needs fixes; fix `7daf409`; re-review `/root/task_2_identity_rereviewer` Approved
+- Task reviewer dispatch: `/root/task_3_project_trust_reviewer` found Important dangling-symlink overwrite risk; fix `c861f27`; re-review `/root/task_3_trust_rereviewer` Approved
 - Review-fix round: `1/1`
-- Fix dispatch: initial prompt rejected; retry/finalizer interrupted after report; commit-only closeout `/root/task_2_identity_fix_commit` (DONE), same review-fix round
-- Fix commit: `7daf409` (`fix(identity): close review findings`)
-- Review result: spec compliant; task quality approved; Critical/Important/Minor all None after fix
+- Fix dispatch: `/root/task_3_trust_fix` interrupted after code/test changes; platform thread limit forced reuse of `/root/task_2_identity_fix_finalize` for Task 3 closeout (DONE), same review-fix round
+- Fix commit: `c861f27` (`fix(identity): reject dangling trust symlinks`)
+- Review result: spec compliant; task quality approved; Critical/Important none; Minor SHA metadata normalized
 - Unresolved feedback: `none`

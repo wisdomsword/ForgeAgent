@@ -1109,7 +1109,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 - 内部：`_UnusableTrustRecordError(Exception)`（文件存在但不能安全复用或更新的内部信号类）
 - 内部：`_atomic_write_trust_record(path: str, record: dict) -> None`（原子写，last-writer-wins）
 
-- [ ] **Step 1: 信任记录读写原语**
+- [x] **Step 1: 信任记录读写原语**
 
   将新增 import 合并到模块顶部，定义追加到 `src/forgeagent/identity.py`：
 
@@ -1284,7 +1284,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：`trust record primitives: OK`
 
-- [ ] **Step 2: `IdentityTrustRequest`/`IdentityConfirmer` 类型与摘要渲染**
+- [x] **Step 2: `IdentityTrustRequest`/`IdentityConfirmer` 类型与摘要渲染**
 
   将新增 import 合并到模块顶部，定义追加到 `src/forgeagent/identity.py`：
 
@@ -1392,7 +1392,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：`trust request summary: OK`
 
-- [ ] **Step 3: `resolve_project_trust` 主体（5 行决策表）**
+- [x] **Step 3: `resolve_project_trust` 主体（5 行决策表）**
 
   在 `src/forgeagent/identity.py` 追加：
 
@@ -1553,7 +1553,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：`resolve_project_trust decision table: OK`
 
-- [ ] **Step 4: 畸形记录与持久化失败两行专项验证**
+- [x] **Step 4: 畸形记录与持久化失败两行专项验证**
 
   验证设计文档的关键规则："信任记录畸形、版本未知或不可读时，系统 MUST NOT 覆盖原文件"——批准只能注入本次运行的内存快照，损坏文件必须原样保留字节不变，下次进程仍会重新确认：
 
@@ -1640,7 +1640,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：`malformed record handling: OK` 与 `trust persistence failure handling: OK`。
 
-- [ ] **Step 5: Ruff 检查（信任记录与项目确认）**
+- [x] **Step 5: Ruff 检查（信任记录与项目确认）**
 
   ```bash
   .venv/bin/ruff check src/forgeagent/identity.py tests/test_identity.py
