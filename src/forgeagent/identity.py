@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import stat
+import tempfile
+import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from importlib import resources
 from pathlib import Path
 
 from jinja2 import Environment, StrictUndefined
+from pydantic import BaseModel
 
 from .secret_policy import mask_secrets, sensitive_env_values
 
@@ -20,6 +25,8 @@ _MAX_EFFECTIVE_TOTAL_BYTES = 96 * 1024
 _RAW_DIGEST_DOMAIN = b"forgeagent-identity-raw-content-digest-v1\x00"
 _EFFECTIVE_DIGEST_DOMAIN = b"forgeagent-identity-effective-input-digest-v1\x00"
 _PROJECT_ID_DOMAIN = b"forgeagent-identity-project-id-v1\x00"
+_TRUST_RECORD_VERSION = 1
+_TRUST_SECTION_PREVIEW_CHARS = 2048
 
 IdentityDiagnostic = Callable[[str], None]
 
@@ -117,6 +124,205 @@ class ApprovedIdentity:
     user: str | None
     project_agents: str | None
     memory: str | None
+
+
+class _UnusableTrustRecordError(Exception):
+    """A trust record exists but cannot be safely reused or updated."""
+
+
+def default_trust_record_path(home: str | None = None) -> str:
+    effective_home = str(Path.home()) if home is None else home
+    return os.path.join(effective_home, ".forgeagent", "identity-trust.json")
+
+
+def _load_trust_record(path: str) -> dict | None:
+    """Read a fully validated v1 trust record, distinguishing absent from unusable."""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            raw_text = handle.read()
+    except FileNotFoundError:
+        return None
+    except (OSError, UnicodeError) as exc:
+        raise _UnusableTrustRecordError(type(exc).__name__) from exc
+    try:
+        raw = json.loads(raw_text)
+    except json.JSONDecodeError as exc:
+        raise _UnusableTrustRecordError("invalid JSON") from exc
+    if not isinstance(raw, dict):
+        raise _UnusableTrustRecordError("top-level value is not an object")
+    if set(raw) != {"version", "projects"}:
+        raise _UnusableTrustRecordError("unknown top-level field")
+    if (
+        not isinstance(raw.get("version"), int)
+        or isinstance(raw.get("version"), bool)
+        or raw["version"] != _TRUST_RECORD_VERSION
+    ):
+        raise _UnusableTrustRecordError("unknown version")
+    if not isinstance(raw.get("projects"), dict):
+        raise _UnusableTrustRecordError("'projects' field is not an object")
+    for project_id, entry in raw["projects"].items():
+        if not isinstance(project_id, str) or not isinstance(entry, dict):
+            raise _UnusableTrustRecordError("invalid project entry")
+        if set(entry) != {
+            "raw_content_digest",
+            "effective_input_digest",
+            "approved_at",
+        }:
+            raise _UnusableTrustRecordError("unknown project entry field")
+        if not isinstance(entry.get("raw_content_digest"), str):
+            raise _UnusableTrustRecordError("invalid raw_content_digest")
+        if not isinstance(entry.get("effective_input_digest"), str):
+            raise _UnusableTrustRecordError("invalid effective_input_digest")
+        if not isinstance(entry.get("approved_at"), str):
+            raise _UnusableTrustRecordError("invalid approved_at")
+    return raw
+
+
+def _atomic_write_trust_record(path: str, record: dict) -> None:
+    """Write a trust record through a sibling temporary file and atomic replace."""
+    directory = os.path.dirname(path) or "."
+    os.makedirs(directory, exist_ok=True)
+    temporary_name: str | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w", encoding="utf-8", dir=directory, prefix=".identity-trust.", delete=False
+        ) as temporary:
+            temporary_name = temporary.name
+            json.dump(record, temporary, indent=2, sort_keys=True)
+        os.replace(temporary_name, path)
+    finally:
+        if temporary_name is not None and os.path.exists(temporary_name):
+            os.unlink(temporary_name)
+
+
+def _record_approval(
+    path: str, project_id: str, raw_content_digest: str, effective_input_digest: str
+) -> bool:
+    """Merge one approval; return false when read/write persistence is unavailable."""
+    try:
+        existing = _load_trust_record(path)
+        record = existing if existing is not None else {"version": 1, "projects": {}}
+        record["projects"][project_id] = {
+            "raw_content_digest": raw_content_digest,
+            "effective_input_digest": effective_input_digest,
+            "approved_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
+        _atomic_write_trust_record(path, record)
+    except (_UnusableTrustRecordError, OSError):
+        return False
+    return True
+
+
+class IdentityTrustRequest(BaseModel):
+    project_label: str
+    summary: str
+
+
+IdentityConfirmer = Callable[[IdentityTrustRequest], bool]
+
+
+def _escape_identity_confirmation(value: str, *, preserve_newlines: bool) -> str:
+    escaped: list[str] = []
+    for character in value:
+        codepoint = ord(character)
+        if preserve_newlines and character == "\n":
+            escaped.append(character)
+        elif (
+            codepoint < 32
+            or 127 <= codepoint <= 159
+            or character in {"\u2028", "\u2029"}
+            or unicodedata.category(character) in {"Cf", "Cs"}
+        ):
+            escaped.append(
+                f"\\x{codepoint:02x}"
+                if codepoint <= 0xFF
+                else (f"\\u{codepoint:04x}" if codepoint <= 0xFFFF else f"\\U{codepoint:08x}")
+            )
+        else:
+            escaped.append(character)
+    return "".join(escaped)
+
+
+def _project_label(allowed_root: str) -> str:
+    resolved = Path(os.path.realpath(allowed_root))
+    parts = resolved.parts[-2:] if len(resolved.parts) >= 2 else resolved.parts
+    label = os.path.join("...", *parts) if len(resolved.parts) >= 2 else str(resolved)
+    return _escape_identity_confirmation(
+        mask_secrets(label, sensitive_env_values()), preserve_newlines=False
+    )
+
+
+def _identity_section_preview(filename: str, value: str) -> str:
+    escaped = _escape_identity_confirmation(value, preserve_newlines=True)
+    if len(escaped) > _TRUST_SECTION_PREVIEW_CHARS:
+        escaped = (
+            escaped[:_TRUST_SECTION_PREVIEW_CHARS]
+            + "\n...[preview truncated; approval remains bound to the full digest]"
+        )
+    return f"{filename} ({len(value)} chars):\n{escaped}"
+
+
+def _trust_request_summary(agents: str | None, memory: str | None) -> str:
+    sections: list[str] = []
+    if agents is not None:
+        sections.append(_identity_section_preview("AGENTS.md", agents))
+    if memory is not None:
+        sections.append(_identity_section_preview("MEMORY.md", memory))
+    return "\n\n".join(sections)
+
+
+def resolve_project_trust(
+    snapshot: IdentitySnapshot,
+    allowed_root: str,
+    home: str | None,
+    confirmer: IdentityConfirmer | None,
+    *,
+    trust_record_path: str | None = None,
+    diagnostic: IdentityDiagnostic | None = None,
+) -> ApprovedIdentity:
+    """Apply project identity confirmation and return the model-facing snapshot."""
+    if snapshot.agents is None and snapshot.memory is None:
+        return ApprovedIdentity(snapshot.soul, snapshot.user, None, None)
+
+    record_path = trust_record_path or default_trust_record_path(home)
+    project_id = canonical_project_id_digest(allowed_root)
+    record_was_unusable = False
+    try:
+        record = _load_trust_record(record_path)
+    except _UnusableTrustRecordError as exc:
+        record = None
+        record_was_unusable = True
+        _emit_identity_diagnostic(
+            diagnostic, f"identity trust record ignored: {type(exc).__name__}"
+        )
+
+    existing_entry = record["projects"].get(project_id) if record is not None else None
+    digests_match = (
+        existing_entry is not None
+        and existing_entry.get("raw_content_digest") == snapshot.raw_content_digest
+        and existing_entry.get("effective_input_digest") == snapshot.effective_input_digest
+    )
+    if digests_match:
+        return ApprovedIdentity(snapshot.soul, snapshot.user, snapshot.agents, snapshot.memory)
+
+    stripped = ApprovedIdentity(snapshot.soul, snapshot.user, None, None)
+    if confirmer is None or not confirmer(
+        IdentityTrustRequest(
+            project_label=_project_label(allowed_root),
+            summary=_trust_request_summary(snapshot.agents, snapshot.memory),
+        )
+    ):
+        return stripped
+
+    if not record_was_unusable:
+        persisted = _record_approval(
+            record_path, project_id, snapshot.raw_content_digest, snapshot.effective_input_digest
+        )
+        if not persisted:
+            _emit_identity_diagnostic(
+                diagnostic, "identity trust approval is memory-only: persistence failed"
+            )
+    return ApprovedIdentity(snapshot.soul, snapshot.user, snapshot.agents, snapshot.memory)
 
 
 def _read_resolved_bytes(resolved: Path, filename: str) -> bytes:

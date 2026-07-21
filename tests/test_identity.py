@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import itertools
+import json
 import os
 from pathlib import Path
 
@@ -413,3 +414,137 @@ def test_load_identity_strips_largest_project_file_for_masked_total_without_trun
     assert snapshot.memory is None
     assert any(message.startswith("MEMORY.md stripped:") for message in diagnostics)
     assert all("truncat" not in message.lower() for message in diagnostics)
+
+
+def _project_snapshot(**overrides):
+    values = {
+        "soul": "S",
+        "user": "U",
+        "agents": "AGENTS BODY",
+        "memory": "MEMORY BODY",
+        "raw_content_digest": "raw-1",
+        "effective_input_digest": "eff-1",
+    }
+    values.update(overrides)
+    return identity_module.IdentitySnapshot(**values)
+
+
+def test_trust_record_primitives_validate_and_atomically_merge(tmp_path):
+    path = str(tmp_path / "identity-trust.json")
+    assert identity_module._load_trust_record(path) is None
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write("{bad")
+    with pytest.raises(identity_module._UnusableTrustRecordError):
+        identity_module._load_trust_record(path)
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump({"version": 2, "projects": {}}, handle)
+    with pytest.raises(identity_module._UnusableTrustRecordError):
+        identity_module._load_trust_record(path)
+    os.unlink(path)
+    assert identity_module._record_approval(path, "project-a", "raw-a", "eff-a")
+    assert identity_module._record_approval(path, "project-b", "raw-b", "eff-b")
+    record = identity_module._load_trust_record(path)
+    assert set(record["projects"]) == {"project-a", "project-b"}
+
+
+def test_trust_record_rejects_invalid_encoding_and_unknown_schema_fields(tmp_path):
+    path = str(tmp_path / "identity-trust.json")
+    with open(path, "wb") as handle:
+        handle.write(b"\xff")
+    with pytest.raises(identity_module._UnusableTrustRecordError):
+        identity_module._load_trust_record(path)
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump({"version": 1, "projects": {}, "extra": True}, handle)
+    with pytest.raises(identity_module._UnusableTrustRecordError):
+        identity_module._load_trust_record(path)
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump({"version": True, "projects": {}}, handle)
+    with pytest.raises(identity_module._UnusableTrustRecordError):
+        identity_module._load_trust_record(path)
+
+
+def test_trust_confirmation_summary_masks_controls_and_is_bounded():
+    label = identity_module._project_label("/Users/someone/Code/ForgeAgent")
+    assert "someone" not in label
+    assert "ForgeAgent" in label
+    summary = identity_module._trust_request_summary("agents\x1b[31m", "memory\rvalue")
+    assert summary.index("AGENTS.md") < summary.index("MEMORY.md")
+    assert "\x1b" not in summary and "\r" not in summary
+    assert r"\x1b" in summary and r"\x0d" in summary
+    bounded = identity_module._trust_request_summary("a" * 10000, "m" * 10000)
+    assert len(bounded) < 5000
+    assert "preview truncated" in bounded
+
+
+def test_resolve_project_trust_decision_table(tmp_path):
+    home = str(tmp_path / "home")
+    root = str(tmp_path / "root")
+    os.makedirs(home)
+    os.makedirs(root)
+    snapshot = _project_snapshot()
+    assert identity_module.resolve_project_trust(snapshot, root, home, None).project_agents is None
+    assert (
+        identity_module.resolve_project_trust(snapshot, root, home, lambda request: False).memory
+        is None
+    )
+    requests = []
+    approved = identity_module.resolve_project_trust(
+        snapshot, root, home, lambda request: requests.append(request) or True
+    )
+    assert approved.project_agents == snapshot.agents and len(requests) == 1
+    calls = []
+    reused = identity_module.resolve_project_trust(
+        snapshot, root, home, lambda request: calls.append(request) or True
+    )
+    assert reused.memory == snapshot.memory and calls == []
+    changed = _project_snapshot(
+        agents="NEW", raw_content_digest="raw-2", effective_input_digest="eff-2"
+    )
+    identity_module.resolve_project_trust(
+        changed, root, home, lambda request: calls.append(request) or True
+    )
+    assert len(calls) == 1
+
+
+def test_malformed_trust_record_is_never_overwritten(tmp_path):
+    home = str(tmp_path / "home")
+    root = str(tmp_path / "root")
+    os.makedirs(home)
+    os.makedirs(root)
+    path = os.path.join(home, ".forgeagent", "identity-trust.json")
+    os.makedirs(os.path.dirname(path))
+    original = "{corrupted"
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write(original)
+    snapshot = _project_snapshot(soul=None, user=None, memory=None)
+    assert (
+        identity_module.resolve_project_trust(
+            snapshot, root, home, lambda request: True, trust_record_path=path
+        ).project_agents
+        == "AGENTS BODY"
+    )
+    assert open(path, encoding="utf-8").read() == original
+    calls = []
+    identity_module.resolve_project_trust(
+        snapshot, root, home, lambda request: calls.append(request) or True, trust_record_path=path
+    )
+    assert len(calls) == 1
+
+
+def test_trust_persistence_failure_is_memory_only(tmp_path, monkeypatch):
+    home = str(tmp_path / "home")
+    root = str(tmp_path / "root")
+    os.makedirs(home)
+    os.makedirs(root)
+    snapshot = _project_snapshot(soul=None, user=None, memory=None)
+    diagnostics = []
+    monkeypatch.setattr(
+        identity_module,
+        "_atomic_write_trust_record",
+        lambda path, record: (_ for _ in ()).throw(PermissionError("no")),
+    )
+    approved = identity_module.resolve_project_trust(
+        snapshot, root, home, lambda request: True, diagnostic=diagnostics.append
+    )
+    assert approved.project_agents == "AGENTS BODY"
+    assert diagnostics == ["identity trust approval is memory-only: persistence failed"]
