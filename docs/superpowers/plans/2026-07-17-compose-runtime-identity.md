@@ -1862,7 +1862,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 - `build_parser()` 新增全局 `--no-identity` 标志
 - `run_once(..., identity: ApprovedIdentity | None = None)`（新参数）
 
-- [ ] **Step 1: 身份确认器与解析辅助函数**
+- [x] **Step 1: 身份确认器与解析辅助函数**
 
   在 `src/forgeagent/cli.py` 顶部导入区追加：
 
@@ -1979,7 +1979,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：`resolve_cli_identity: OK`
 
-- [ ] **Step 2: 接入 `run_once`/`run_smoke`/`repl`/`main`，新增 `--no-identity` 标志**
+- [x] **Step 2: 接入 `run_once`/`run_smoke`/`repl`/`main`，新增 `--no-identity` 标志**
 
   `run_once` 签名追加 `identity: ApprovedIdentity | None = None`，并在构造 `Task(...)` 时传入：
 
@@ -2149,7 +2149,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：`cli.py parses: OK` 与 `--no-identity flag: OK`
 
-- [ ] **Step 3: `tests/test_cli.py` 追加身份接线测试**
+- [x] **Step 3: `tests/test_cli.py` 追加身份接线测试**
 
   ```python
   def test_main_run_no_identity_never_calls_load_identity(monkeypatch):
@@ -2253,7 +2253,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：4 项新增测试 PASSED（`--no-identity` 零 I/O、headless 剥离、交互批准接线、注入 reader/plain-text 摘要渲染）。
 
-- [ ] **Step 4: 全量回归 + Ruff**
+- [x] **Step 4: 全量回归 + Ruff**
 
   ```bash
   .venv/bin/python -m pytest tests/ -x -q --ignore=tests/golden

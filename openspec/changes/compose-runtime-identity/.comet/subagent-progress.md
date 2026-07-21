@@ -4,19 +4,19 @@
 - Review mode: `standard`
 - TDD mode: `tdd`
 - Worktree: `/Users/admin/Code/llm-agent/ForgeAgent/.worktrees/compose-runtime-identity`
-- Current plan task: `Task 4: Task 类迁移到身份快照消费（tasks.md 1.3）`
-- OpenSpec mapping: `1.3 将 Task 的系统上下文构建改为显式使用身份快照和组合器，避免模块级可变状态及直接 Task 构造时的隐式文件 I/O，并保留显式 system_prompt 可信覆盖契约`
+- Current plan task: `Task 5: CLI 身份接入与 --no-identity 开关（tasks.md 2.2）`
+- OpenSpec mapping: `2.2 为 REPL 和单次运行接入全局 --no-identity，验证它只禁用自定义身份而保留固定协议与 MCP 描述`
 - Stage: `done`
-- Implementer dispatch: `/root/task_4_task_identity_wiring` (DONE)
-- Brief: `.superpowers/sdd/task-4-brief.md`
-- Report: `.superpowers/sdd/task-4-report.md`
-- Implementation commit: `a514f39` (`feat(task): compose prompts from approved identity`)
-- Changed files: `src/forgeagent/task.py`, `tests/test_task.py`
-- RED evidence: focused Task tests had 4 expected failures before production changes
-- GREEN evidence: focused `14 passed`; import probe OK; regression `935 passed, 13 skipped`; Ruff check/format OK
-- Risk signals: public Task constructor/API migration; cross-module identity composition; diff 116 insertions
+- Implementer dispatch: `/root/task_5_cli_identity` completed implementation/report but stalled before commit; first closeout stalled; final commit-only closeout reused `/root/task_3_trust_fix` (DONE) due platform thread limit
+- Brief: `.superpowers/sdd/task-5-brief.md`
+- Report: `.superpowers/sdd/task-5-report.md`
+- Implementation commit: `367adcf` (`feat(cli): wire runtime identity`)
+- Changed files: `src/forgeagent/cli.py`, `tests/test_cli.py`
+- RED evidence: 4 expected failures in new CLI identity tests before production changes
+- GREEN evidence: focused `6 passed`; CLI `150 passed`; regression `939 passed, 13 skipped`; probes and Ruff passed
+- Risk signals: public CLI/API; cross-module identity/trust wiring; source/test diff 186 insertions
 - Task review triggered: `yes` (standard risk review)
-- Task reviewer dispatch: `/root/task_4_task_wiring_reviewer` Approved
+- Task reviewer dispatch: `/root/task_5_cli_reviewer` failed by concurrency limit; retry `/root/task_5_cli_reviewer_retry` Approved
 - Review-fix round: `0/1`
-- Review result: spec compliant; task quality approved; Critical/Important/Minor all None
-- Unresolved feedback: `none`
+- Review result: spec compliant; task quality approved; Critical/Important none; Minor Rich project-label interpolation deferred to final review
+- Unresolved feedback: `none blocking`
