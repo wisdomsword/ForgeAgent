@@ -10,7 +10,12 @@ from pathlib import Path
 import pytest
 
 import forgeagent.identity as identity_module
-from forgeagent.identity import ApprovedIdentity, compose_system_prompt
+from forgeagent.identity import (
+    ApprovedIdentity,
+    compose_system_prompt,
+    load_identity,
+    resolve_project_trust,
+)
 
 
 def _write(path: str, content: str) -> None:
@@ -576,3 +581,260 @@ def test_trust_persistence_failure_is_memory_only(tmp_path, monkeypatch):
     )
     assert approved.project_agents == "AGENTS BODY"
     assert diagnostics == ["identity trust approval is memory-only: persistence failed"]
+
+
+_CONFIRMER_OUTCOMES = {"approve": True, "reject": False, "headless": None}
+
+
+def _make_confirmer(outcome_name: str):
+    """None means headless (no confirmer at all); True/False are how it decides."""
+    outcome = _CONFIRMER_OUTCOMES[outcome_name]
+    if outcome is None:
+        return None
+    return lambda _request, _outcome=outcome: _outcome
+
+
+@pytest.mark.parametrize(
+    "agents_present,memory_present,confirmer_name",
+    [
+        (agents, memory, confirmer_name)
+        for agents, memory in itertools.product([False, True], repeat=2)
+        for confirmer_name in _CONFIRMER_OUTCOMES
+    ],
+)
+def test_full_pipeline_combination_matrix(tmp_path, agents_present, memory_present, confirmer_name):
+    """Cross project identity presence with approval through the full pipeline."""
+    home = tmp_path / "home"
+    root = tmp_path / "root"
+    home.mkdir()
+    root.mkdir()
+    if agents_present:
+        _write(str(root / ".forgeagent" / "AGENTS.md"), "AGENTS-MARKER")
+    if memory_present:
+        _write(str(root / ".forgeagent" / "MEMORY.md"), "MEMORY-MARKER")
+
+    snapshot = load_identity(str(home), str(root))
+    approved = resolve_project_trust(
+        snapshot, str(root), str(home), _make_confirmer(confirmer_name)
+    )
+    rendered = compose_system_prompt(approved)
+
+    approved_ok = confirmer_name == "approve"
+    assert ("AGENTS-MARKER" in rendered) == (agents_present and approved_ok)
+    assert ("MEMORY-MARKER" in rendered) == (memory_present and approved_ok)
+    assert "This conversation is driven by ForgeAgent" in rendered
+    assert "No custom Agent Identity (SOUL)" in rendered
+
+
+def test_full_pipeline_no_identity_bypasses_everything(tmp_path, monkeypatch):
+    """Disabling identity avoids loading custom files but keeps the fixed protocol."""
+    import forgeagent.cli as cli_module
+
+    def _fail_if_called(*args, **kwargs):
+        raise AssertionError("load_identity must not be called when no_identity=True")
+
+    monkeypatch.setattr(cli_module, "load_identity", _fail_if_called)
+    identity = cli_module.resolve_cli_identity(
+        no_identity=True, allowed_root=str(tmp_path), confirmer=None
+    )
+    assert identity is None
+    rendered = compose_system_prompt(
+        ApprovedIdentity(soul=None, user=None, project_agents=None, memory=None)
+    )
+    assert "This conversation is driven by ForgeAgent" in rendered
+
+
+def test_load_identity_project_root_itself_is_a_symlink(tmp_path):
+    """A symlinked allowed root resolves identically to its real target."""
+    real_root = tmp_path / "real_root"
+    real_root.mkdir()
+    link_root = tmp_path / "link_root"
+    os.symlink(str(real_root), str(link_root))
+    home = tmp_path / "home"
+    home.mkdir()
+    _write(str(real_root / ".forgeagent" / "AGENTS.md"), "ROOT RULE")
+
+    via_link = load_identity(str(home), str(link_root))
+    via_real = load_identity(str(home), str(real_root))
+    assert via_link.agents == "ROOT RULE" == via_real.agents
+    assert identity_module.canonical_project_id_digest(
+        str(link_root)
+    ) == identity_module.canonical_project_id_digest(str(real_root))
+
+
+def test_load_identity_rejects_project_identity_directory_symlink_escape(tmp_path):
+    root = tmp_path / "root"
+    outside = tmp_path / "outside"
+    home = tmp_path / "home"
+    root.mkdir()
+    outside.mkdir()
+    home.mkdir()
+    _write(str(outside / "AGENTS.md"), "must never be read")
+    os.symlink(str(outside), str(root / ".forgeagent"))
+
+    diagnostics = []
+    snapshot = load_identity(str(home), str(root), diagnostic=diagnostics.append)
+    assert snapshot.agents is None and snapshot.memory is None
+    assert diagnostics == ["project identity snapshot rejected: _IdentityPathError"]
+
+
+def test_disk_change_after_approval_does_not_affect_current_task_but_forces_next_reconfirm(
+    tmp_path,
+):
+    """A returned approval is stable, while the next load requires a new approval."""
+    home = tmp_path / "home"
+    root = tmp_path / "root"
+    home.mkdir()
+    root.mkdir()
+    _write(str(root / ".forgeagent" / "AGENTS.md"), "ORIGINAL RULE")
+
+    snapshot = load_identity(str(home), str(root))
+    approved = resolve_project_trust(snapshot, str(root), str(home), lambda req: True)
+    assert approved.project_agents == "ORIGINAL RULE"
+
+    _write(str(root / ".forgeagent" / "AGENTS.md"), "CHANGED RULE")
+    assert approved.project_agents == "ORIGINAL RULE"
+
+    new_snapshot = load_identity(str(home), str(root))
+    reconfirm_calls = []
+
+    def reconfirm(req):
+        reconfirm_calls.append(req)
+        return True
+
+    new_approved = resolve_project_trust(new_snapshot, str(root), str(home), reconfirm)
+    assert len(reconfirm_calls) == 1
+    assert new_approved.project_agents == "CHANGED RULE"
+
+
+def test_persisted_approval_is_reused_by_a_headless_child_process(tmp_path):
+    import subprocess
+    import sys
+
+    home = tmp_path / "home"
+    root = tmp_path / "root"
+    home.mkdir()
+    root.mkdir()
+    _write(str(root / ".forgeagent" / "AGENTS.md"), "CROSS PROCESS RULE")
+
+    snapshot = load_identity(str(home), str(root))
+    resolve_project_trust(snapshot, str(root), str(home), lambda req: True)
+
+    repo_root = Path(__file__).resolve().parents[1]
+    script = (
+        "import json, sys\n"
+        "from forgeagent.identity import load_identity, resolve_project_trust\n"
+        "snapshot = load_identity(sys.argv[1], sys.argv[2])\n"
+        "approved = resolve_project_trust(snapshot, sys.argv[2], sys.argv[1], None)\n"
+        "print(json.dumps({'agents': approved.project_agents}))\n"
+    )
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(repo_root / "src")
+    child = subprocess.run(
+        [sys.executable, "-c", script, str(home), str(root)],
+        cwd=repo_root,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert json.loads(child.stdout) == {"agents": "CROSS PROCESS RULE"}
+
+
+def test_effective_secret_mask_change_forces_reconfirmation(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    root = tmp_path / "root"
+    home.mkdir()
+    root.mkdir()
+    secret = "identity-secret-value-12345"
+    _write(str(root / ".forgeagent" / "AGENTS.md"), f"token={secret}")
+
+    monkeypatch.setenv("FORGEAGENT_TEST_TOKEN", secret)
+    first = load_identity(str(home), str(root))
+    resolve_project_trust(first, str(root), str(home), lambda req: True)
+
+    monkeypatch.delenv("FORGEAGENT_TEST_TOKEN")
+    second = load_identity(str(home), str(root))
+    assert second.raw_content_digest == first.raw_content_digest
+    assert second.effective_input_digest != first.effective_input_digest
+    calls = []
+    resolve_project_trust(
+        second,
+        str(root),
+        str(home),
+        lambda req: calls.append(req) or True,
+    )
+    assert len(calls) == 1
+
+
+def test_trust_write_failure_is_memory_only_and_next_call_reconfirms(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    root = tmp_path / "root"
+    home.mkdir()
+    root.mkdir()
+    _write(str(root / ".forgeagent" / "AGENTS.md"), "WRITE FAIL RULE")
+    snapshot = load_identity(str(home), str(root))
+
+    def fail_write(path, record):
+        raise PermissionError("simulated persistence failure")
+
+    monkeypatch.setattr(identity_module, "_atomic_write_trust_record", fail_write)
+    diagnostics = []
+    approved = resolve_project_trust(
+        snapshot,
+        str(root),
+        str(home),
+        lambda req: True,
+        diagnostic=diagnostics.append,
+    )
+    assert approved.project_agents == "WRITE FAIL RULE"
+    assert diagnostics == ["identity trust approval is memory-only: persistence failed"]
+
+    calls = []
+    resolve_project_trust(
+        snapshot,
+        str(root),
+        str(home),
+        lambda req: calls.append(req) or True,
+    )
+    assert len(calls) == 1
+
+
+def test_unreadable_trust_record_is_unconfirmed_and_never_overwritten(tmp_path, monkeypatch):
+    import builtins
+
+    home = tmp_path / "home"
+    root = tmp_path / "root"
+    home.mkdir()
+    root.mkdir()
+    _write(str(root / ".forgeagent" / "AGENTS.md"), "UNREADABLE RECORD RULE")
+    trust_path = home / ".forgeagent" / "identity-trust.json"
+    _write(str(trust_path), '{"version": 1, "projects": {}}')
+    snapshot = load_identity(str(home), str(root))
+
+    real_open = builtins.open
+    writes = []
+
+    def fail_trust_read(path, *args, **kwargs):
+        mode = kwargs.get("mode", args[0] if args else "r")
+        if os.fspath(path) == os.fspath(trust_path) and "r" in mode:
+            raise PermissionError("simulated unreadable trust record")
+        return real_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "open", fail_trust_read)
+    monkeypatch.setattr(
+        identity_module,
+        "_atomic_write_trust_record",
+        lambda path, record: writes.append((path, record)),
+    )
+    diagnostics = []
+    approved = resolve_project_trust(
+        snapshot,
+        str(root),
+        str(home),
+        lambda request: True,
+        diagnostic=diagnostics.append,
+    )
+    assert approved.project_agents == "UNREADABLE RECORD RULE"
+    assert writes == []
+    assert diagnostics == ["identity trust record ignored: _UnusableTrustRecordError"]
