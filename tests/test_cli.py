@@ -20,7 +20,12 @@ import pytest
 from pydantic import BaseModel
 from rich.console import Console
 
-from forgeagent.cli import build_parser, main, render_outcome, run_once
+from forgeagent.cli import (
+    build_parser,
+    main,
+    render_outcome,
+    run_once,
+)
 from forgeagent.client import MockClient
 from forgeagent.executor import TrustedBackend
 from forgeagent.mcp_manager import MCPManager, MCPServerConfig
@@ -2331,3 +2336,93 @@ def test_repl_goal_starting_with_mcp_substring_runs_as_normal_task():
     text = console.export_text()
     assert "deprecated" not in text
     assert "completed" in text
+
+
+def test_main_run_no_identity_never_calls_load_identity(monkeypatch):
+    import forgeagent.cli as cli_module
+
+    def _fail_if_called(*args, **kwargs):
+        raise AssertionError("load_identity must not be called under --no-identity")
+
+    monkeypatch.setattr(cli_module, "load_identity", _fail_if_called)
+    assert main(["--no-identity", "run", "goal"], client_factory=_factory([_reply(_done())])) == 0
+
+
+def test_main_run_headless_strips_project_identity_but_keeps_soul(monkeypatch, tmp_path):
+    import forgeagent.cli as cli_module
+
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / ".forgeagent").mkdir()
+    (home / ".forgeagent" / "SOUL.md").write_text("CUSTOM SOUL MARKER")
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / ".forgeagent").mkdir()
+    (project / ".forgeagent" / "AGENTS.md").write_text("PROJECT RULE MARKER")
+
+    monkeypatch.setattr(cli_module.Path, "home", staticmethod(lambda: home))
+    monkeypatch.chdir(project)
+
+    seen: list[object] = []
+    real_run_once = cli_module.run_once
+
+    def spy_run_once(*args, **kwargs):
+        seen.append(kwargs["identity"])
+        return real_run_once(*args, **kwargs)
+
+    monkeypatch.setattr(cli_module, "run_once", spy_run_once)
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+
+    assert main(["run", "goal"], client_factory=_factory([_reply(_done())])) == 0
+    identity = seen[0]
+    assert identity.soul == "CUSTOM SOUL MARKER"
+    assert identity.project_agents is None
+
+
+def test_main_run_interactive_approves_project_identity(monkeypatch, tmp_path):
+    import forgeagent.cli as cli_module
+
+    home = tmp_path / "home"
+    home.mkdir()
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / ".forgeagent").mkdir()
+    (project / ".forgeagent" / "AGENTS.md").write_text("PROJECT RULE MARKER")
+
+    monkeypatch.setattr(cli_module.Path, "home", staticmethod(lambda: home))
+    monkeypatch.chdir(project)
+    monkeypatch.setattr(cli_module, "Console", lambda: Console(record=True, force_terminal=True))
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(
+        cli_module,
+        "make_console_identity_confirmer",
+        lambda console: lambda request: True,
+    )
+
+    seen: list[object] = []
+    real_run_once = cli_module.run_once
+
+    def spy_run_once(*args, **kwargs):
+        seen.append(kwargs["identity"])
+        return real_run_once(*args, **kwargs)
+
+    monkeypatch.setattr(cli_module, "run_once", spy_run_once)
+
+    assert main(["run", "goal"], client_factory=_factory([_reply(_done())])) == 0
+    assert seen[0].project_agents == "PROJECT RULE MARKER"
+
+
+def test_make_console_identity_confirmer_uses_injected_reader_and_plain_text():
+    from forgeagent.cli import make_console_identity_confirmer
+    from forgeagent.identity import IdentityTrustRequest
+
+    console = _console()
+    confirmer = make_console_identity_confirmer(console, read_line=lambda prompt: "yes")
+    request = IdentityTrustRequest(
+        project_label=".../repo",
+        summary="AGENTS.md:\n[bold]literal markup[/bold]\\x1b",
+    )
+    assert confirmer(request) is True
+    rendered = console.export_text()
+    assert "[bold]literal markup[/bold]" in rendered
+    assert "\\x1b" in rendered

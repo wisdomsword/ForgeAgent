@@ -33,6 +33,15 @@ from rich.text import Text
 from .anthropic_client import AnthropicClient
 from .client import ModelClient
 from .executor import ContainerRuntimeError
+from .identity import (
+    ApprovedIdentity,
+    IdentityConfigError,
+    IdentityConfirmer,
+    IdentityDiagnostic,
+    IdentityTrustRequest,
+    load_identity,
+    resolve_project_trust,
+)
 from .image_input import load_images
 from .mcp_manager import MCPManager, load_mcp_config
 from .model_registry import (
@@ -324,6 +333,51 @@ def make_console_confirmer(console: Console, read_line: Callable[[str], str] = i
     return _confirm
 
 
+def make_console_identity_confirmer(
+    console: Console, read_line: Callable[[str], str] = input
+) -> IdentityConfirmer:
+    """Build a console trust gate for project-level identity files."""
+
+    def _confirm(request: IdentityTrustRequest) -> bool:
+        console.print(f"[bold yellow]trust project identity[/bold yellow] {request.project_label}")
+        console.print(request.summary, markup=False)
+        try:
+            answer = read_line("inject this project's AGENTS.md/MEMORY.md? [y/N] ").strip().lower()
+        except EOFError:
+            return False
+        return answer in {"y", "yes"}
+
+    return _confirm
+
+
+def make_console_identity_diagnostic(console: Console) -> IdentityDiagnostic:
+    def _diagnose(message: str) -> None:
+        console.print(Text(message))
+
+    return _diagnose
+
+
+def resolve_cli_identity(
+    *,
+    no_identity: bool,
+    allowed_root: str,
+    confirmer: IdentityConfirmer | None,
+    diagnostic: IdentityDiagnostic | None = None,
+) -> ApprovedIdentity | None:
+    """Resolve runtime identity without file I/O when explicitly disabled."""
+    if no_identity:
+        return None
+    home = str(Path.home())
+    snapshot = load_identity(home, allowed_root, diagnostic=diagnostic)
+    return resolve_project_trust(
+        snapshot,
+        allowed_root,
+        home,
+        confirmer,
+        diagnostic=diagnostic,
+    )
+
+
 def run_once(
     goal: str,
     *,
@@ -334,6 +388,7 @@ def run_once(
     asker: Asker | None = None,
     mcp: MCPManager | None = None,
     confirmer: Confirmer | None = None,
+    identity: ApprovedIdentity | None = None,
     container_image: str | None = None,
     usage_total: TokenUsage | None = None,
     images: list[ImageItem] | None = None,
@@ -366,6 +421,7 @@ def run_once(
         asker=asker,
         mcp=mcp,
         confirmer=confirmer,
+        identity=identity,
         container_image=container_image,
         on_stream_text=on_stream_text,
     )
@@ -550,6 +606,7 @@ def repl(
     confirmation_available: bool | None = None,
     container_image: str | None = None,
     stream: bool = False,
+    no_identity: bool = False,
 ) -> None:
     """Interactive loop: read a goal, run it, repeat. Blank line or EOF/quit exits.
 
@@ -565,6 +622,15 @@ def repl(
     if confirmation_available is None:
         confirmation_available = console.is_terminal and sys.stdin.isatty()
     confirmer = make_console_confirmer(console, read_line) if confirmation_available else None
+    identity_confirmer = (
+        make_console_identity_confirmer(console, read_line) if confirmation_available else None
+    )
+    identity = resolve_cli_identity(
+        no_identity=no_identity,
+        allowed_root=str(Path.cwd().resolve()),
+        confirmer=identity_confirmer,
+        diagnostic=make_console_identity_diagnostic(console),
+    )
     mcp = build_mcp_manager(console)
     # One accumulator for the whole REPL session — usage keeps growing across tasks,
     # not reset per goal (docs/m10 §3.2).
@@ -607,6 +673,7 @@ def repl(
                     asker=asker,
                     mcp=mcp,
                     confirmer=confirmer,
+                    identity=identity,
                     container_image=container_image,
                     usage_total=usage_total,
                     images=images,
@@ -642,6 +709,7 @@ def repl(
                 asker=asker,
                 mcp=mcp,
                 confirmer=confirmer,
+                identity=identity,
                 container_image=container_image,
                 usage_total=usage_total,
                 images=staged_images,
@@ -774,6 +842,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="render responses live as they arrive (auto-disabled when not attached to a terminal)",
     )
+    parser.add_argument(
+        "--no-identity",
+        action="store_true",
+        help="skip SOUL/USER/AGENTS/MEMORY identity files; use the built-in default prompt only",
+    )
     sub = parser.add_subparsers(dest="command")
     run_p = sub.add_parser("run", help="run a single goal and exit")
     run_p.add_argument("goal", help="the task goal")
@@ -819,6 +892,12 @@ def main(
         if args.command == "models":
             print_models(console)
             return 0
+        allowed_root = str(Path.cwd().resolve())
+        interactive_identity = console.is_terminal and sys.stdin.isatty()
+        identity_confirmer = (
+            make_console_identity_confirmer(console) if interactive_identity else None
+        )
+        identity_diagnostic = make_console_identity_diagnostic(console)
         if args.command == "run":
             images = None
             if args.image:
@@ -829,10 +908,12 @@ def main(
                     return 2
             mcp = build_mcp_manager(console)
             try:
-                confirmer = (
-                    make_console_confirmer(console)
-                    if console.is_terminal and sys.stdin.isatty()
-                    else None
+                confirmer = make_console_confirmer(console) if interactive_identity else None
+                identity = resolve_cli_identity(
+                    no_identity=args.no_identity,
+                    allowed_root=allowed_root,
+                    confirmer=identity_confirmer,
+                    diagnostic=identity_diagnostic,
                 )
                 outcome = run_once(
                     args.goal,
@@ -843,6 +924,7 @@ def main(
                     asker=make_console_asker(console) if args.interactive else None,
                     mcp=mcp,
                     confirmer=confirmer,
+                    identity=identity,
                     container_image=args.container_image,
                     images=images,
                     stream=args.stream,
@@ -868,6 +950,7 @@ def main(
             console=console,
             container_image=args.container_image,
             stream=args.stream,
+            no_identity=args.no_identity,
         )
         return 0
     except RegistryError as exc:
@@ -878,6 +961,9 @@ def main(
         return 2
     except MCPStartupError as exc:
         console.print(f"[red]MCP startup error[/red]: {exc}")
+        return 2
+    except IdentityConfigError as exc:
+        console.print(f"[red]identity config error[/red]: {exc}")
         return 2
 
 
