@@ -278,6 +278,18 @@ def _assert_readme_proxy_migration_contract(readme: str) -> None:
     assert "明确受信任的 MCP fetch 工具" in readme
 
 
+def _assert_readme_identity_contract(readme: str) -> None:
+    assert "400 项文档任务" in readme
+    assert "其余 380 项保留为候选目录" in readme
+    assert "--no-identity" in readme
+    assert "SOUL.md" in readme
+    assert "AGENTS.md" in readme
+    assert "MEMORY.md" in readme
+    assert "identity-trust.json" in readme
+    assert "首次使用需终端确认" in readme
+    assert "docs/threat-model.md" in readme
+
+
 def _pass(_: Path) -> GoldenEvidence:
     return GoldenEvidence(detail="checked", evidence={"value": [None, True, 1, 1.5, "ok"]})
 
@@ -338,6 +350,12 @@ def test_readme_documents_the_proxy_breaking_change_and_migration_paths():
     readme_path = Path(__file__).parent.parent / "README.md"
 
     _assert_readme_proxy_migration_contract(readme_path.read_text(encoding="utf-8"))
+
+
+def test_readme_documents_identity_file_conventions_and_no_identity_flag():
+    readme_path = Path(__file__).parent.parent / "README.md"
+
+    _assert_readme_identity_contract(readme_path.read_text(encoding="utf-8"))
 
 
 def test_common_cases_return_the_exact_evidence_contract(tmp_path):
