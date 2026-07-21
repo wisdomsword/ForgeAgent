@@ -141,6 +141,8 @@ def _load_trust_record(path: str) -> dict | None:
         with open(path, encoding="utf-8") as handle:
             raw_text = handle.read()
     except FileNotFoundError:
+        if os.path.lexists(path):
+            raise _UnusableTrustRecordError("trust record path is unusable") from None
         return None
     except (OSError, UnicodeError) as exc:
         raise _UnusableTrustRecordError(type(exc).__name__) from exc

@@ -39,6 +39,19 @@
 - Diff size: implementation is 202 added lines plus focused tests; no unrelated
   source files were changed.
 
+## Review-Fix Closeout (2026-07-21)
+
+- RED: with the dangling-symlink guard removed, the new regression failed because
+  `_load_trust_record` returned `None` and allowed replacement (`1 failed, 43
+  deselected`).
+- GREEN: restoring the `os.path.lexists` guard passed the regression and trust
+  suite (`7 passed, 37 deselected`).
+- Full identity module: `44 passed`.
+- Ruff check: passed.
+- Ruff format check: `2 files already formatted`.
+
+Review-fix commit SHA: `a2d9b5deb2b5877c120021861d019bbe275996b8`.
+
 ## Commit
 
-Commit SHA: pending
+Commit SHA: `8074f8cb9ddf4c993434ebdff481df83db393f83`

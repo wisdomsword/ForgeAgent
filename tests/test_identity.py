@@ -531,6 +531,34 @@ def test_malformed_trust_record_is_never_overwritten(tmp_path):
     assert len(calls) == 1
 
 
+def test_dangling_trust_record_symlink_is_unusable_and_never_replaced(tmp_path):
+    home = str(tmp_path / "home")
+    root = str(tmp_path / "root")
+    os.makedirs(home)
+    os.makedirs(root)
+    path = Path(home) / ".forgeagent" / "identity-trust.json"
+    path.parent.mkdir()
+    target = path.parent / "missing-record.json"
+    path.symlink_to(target)
+    snapshot = _project_snapshot(soul=None, user=None, memory=None)
+
+    with pytest.raises(identity_module._UnusableTrustRecordError):
+        identity_module._load_trust_record(str(path))
+
+    calls = []
+    approved = identity_module.resolve_project_trust(
+        snapshot,
+        root,
+        home,
+        lambda request: calls.append(request) or True,
+        trust_record_path=str(path),
+    )
+    assert approved.project_agents == "AGENTS BODY"
+    assert len(calls) == 1
+    assert path.is_symlink()
+    assert not target.exists()
+
+
 def test_trust_persistence_failure_is_memory_only(tmp_path, monkeypatch):
     home = str(tmp_path / "home")
     root = str(tmp_path / "root")
