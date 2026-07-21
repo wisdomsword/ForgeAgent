@@ -4,19 +4,19 @@
 - Review mode: `standard`
 - TDD mode: `tdd`
 - Worktree: `/Users/admin/Code/llm-agent/ForgeAgent/.worktrees/compose-runtime-identity`
-- Current plan task: `Task 10: 候选目录 G381-G400 与一致性/专项 replay（tasks.md 3.4）`
-- OpenSpec mapping: `3.4 新增 G381-G400 候选并更新 G01-G400 一致性门与独立专项 mock replay`
+- Current plan task: `Task 11: 文档与威胁模型更新（tasks.md 4.1）`
+- OpenSpec mapping: `4.1 更新 threat model、README 和身份层使用/安全说明`
 - Stage: `done`
-- Implementer dispatch: `/root/task_10_candidates_replay` (closeout reused `/root/task_6_reload_reviewer`)
-- Brief: `.superpowers/sdd/task-10-brief.md`
-- Report: `.superpowers/sdd/task-10-report.md`
-- Implementation commit: `6a302f1` (`test(golden): expand runtime identity candidates`)
-- Changed files: `docs/golden-tasks-seed.md`, `tests/golden/runner.py`, `tests/test_golden_runner.py`, `tests/test_golden_candidates_identity.py`
-- RED evidence: parser rejected G381; catalog gate found G381-G400 missing; corrected G385 section assertion
-- GREEN evidence: identity replay `4 passed`; catalog/coverage `3 passed`; full runner `75 passed`; Ruff/format/diff passed
-- Risk signals: dataset/schema consistency; replay harness; evidence semantics
+- Implementer dispatch: `/root/task_11_identity_docs` (closeout reused `/root/task_6_reload_reviewer`)
+- Brief: `.superpowers/sdd/task-11-brief.md`
+- Report: `.superpowers/sdd/task-11-report.md`
+- Implementation commit: `1f45ee6` (`docs(identity): document runtime trust boundaries`)
+- Changed files: `README.md`, `docs/threat-model.md`, `tests/test_golden_runner.py`
+- RED evidence: new README contract failed on missing `400 项文档任务`; proxy test passed
+- GREEN evidence: README `2 passed`; golden runner `76 passed`; document probe, Ruff/format/diff passed
+- Risk signals: security documentation; user-facing CLI behavior; cross-document consistency
 - Task review triggered: `yes` (standard risk review)
-- Task reviewer dispatch: `/root/task_10_candidates_reviewer` Approved with Minor docs duplicate
+- Task reviewer dispatch: `/root/task_11_docs_reviewer` Not Approved
 - Review-fix round: `1/1`
-- Review result: Approved; Critical/Important none; Minor duplicate M9 summary fixed in `5295836`
-- Unresolved feedback: none
+- Review result: fix `a75e91c` re-reviewed Approved; Critical/Important none; pre-existing `/help reload` wording and broader doc-assertion coverage remain Minor
+- Unresolved feedback: none blocking

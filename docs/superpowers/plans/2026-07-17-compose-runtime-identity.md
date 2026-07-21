@@ -3502,7 +3502,7 @@ Files:
 
 Interfaces: 无新增生产接口。文档引用 Task 2 的 `_resolve_identity_file`（symlink 逃逸拒绝、32 KiB/96 KiB 大小上限）与 Task 3 的 `default_trust_record_path`/`~/.forgeagent/identity-trust.json`（版本化原子写入的信任记录），均沿用已定稿的实现，本任务不改它们的行为。
 
-- [ ] **Step 1: `docs/threat-model.md` 新增 T12**
+- [x] **Step 1: `docs/threat-model.md` 新增 T12**
 
   在 T11 行之后追加一行（`## Threats, mitigations, and residual risk` 表格的最后一行）：
 
@@ -3519,7 +3519,7 @@ Interfaces: 无新增生产接口。文档引用 Task 2 的 `_resolve_identity_f
 
   预期输出：行数计数为 12；`T12` 行存在且以 `|` 开头。
 
-- [ ] **Step 2: `README.md` 新增身份与提示词章节，修正 Golden 计数**
+- [x] **Step 2: `README.md` 新增身份与提示词章节，修正 Golden 计数**
 
   在 `## MCP 服务` 之前插入新的一级章节（放在 `## 工具集` 与 `## MCP 服务` 之间，因为它同属"运行时行为"而非"配置"）：
 
@@ -3560,7 +3560,7 @@ Interfaces: 无新增生产接口。文档引用 Task 2 的 `_resolve_identity_f
 
   预期输出：第一条 grep 各命中一行；第二条 grep 无输出（旧计数已全部替换）；第三条 grep 命中新增章节里的对应行。
 
-- [ ] **Step 3: 新增 README 结构断言测试**
+- [x] **Step 3: 新增 README 结构断言测试**
 
   在 `tests/test_golden_runner.py` 里，紧接 `_assert_readme_proxy_migration_contract` 之后追加一个同风格的断言函数和测试：
 
@@ -3591,7 +3591,7 @@ Interfaces: 无新增生产接口。文档引用 Task 2 的 `_resolve_identity_f
 
   预期输出：`test_readme_documents_the_proxy_breaking_change_and_migration_paths` 与新增的 `test_readme_documents_identity_file_conventions_and_no_identity_flag` 均 PASSED。
 
-- [ ] **Step 4: 全量回归 + Ruff**
+- [x] **Step 4: 全量回归 + Ruff（文档与威胁模型专项）**
 
   ```bash
   .venv/bin/python -m pytest tests/ -x -q --ignore=tests/golden
