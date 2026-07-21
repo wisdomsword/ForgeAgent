@@ -455,7 +455,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 - 内部：`_raw_content_digest(agents_bytes: bytes | None, memory_bytes: bytes | None) -> str`
 - 内部：`_effective_input_digest(masked_agents: str | None, masked_memory: str | None) -> str`
 
-- [ ] **Step 1: 项目路径校验与文件读取原语**
+- [x] **Step 1: 项目路径校验与文件读取原语**
 
   将代码块中的 import 合并进 `src/forgeagent/identity.py` 顶部既有 import 区（不得在函数定义后产生 E402），其余定义追加到模块中。`_validate_path` 的 identity 专用版本除文件本身外，还必须先确认 `.forgeagent` 目录的 canonical 路径仍位于 `home`/`allowed_root` 内；否则整个目录 symlink 到项目外会被误判为安全：
 
@@ -563,7 +563,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：`_resolve_identity_file: OK`
 
-- [ ] **Step 2: 大小上限与摘要计算原语**
+- [x] **Step 2: 大小上限与摘要计算原语**
 
   将新增 import 合并到模块顶部，定义追加到 `src/forgeagent/identity.py`：
 
@@ -670,7 +670,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：`digest primitives: OK`
 
-- [ ] **Step 3: `load_identity` 主体**
+- [x] **Step 3: `load_identity` 主体**
 
   在 `src/forgeagent/identity.py` 追加：
 
@@ -890,7 +890,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：`load_identity: OK`
 
-- [ ] **Step 4: `tests/test_identity.py` 追加 `load_identity` 表驱动测试（覆盖 tasks.md 1.2 全部验收点）**
+- [x] **Step 4: `tests/test_identity.py` 追加 `load_identity` 表驱动测试（覆盖 tasks.md 1.2 全部验收点）**
 
   代码块中的 import 必须合并到 `tests/test_identity.py` 顶部 import 区，测试函数追加到文件末尾：
 
@@ -1084,7 +1084,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：11 项 `load_identity` 测试全部 PASSED；读取失败使用确定性 monkeypatch，不依赖 chmod/root 权限语义，因此不得出现平台权限导致的假通过或 SKIP。
 
-- [ ] **Step 5: Ruff 检查**
+- [x] **Step 5: Ruff 检查**
 
   ```bash
   .venv/bin/ruff check src/forgeagent/identity.py tests/test_identity.py

@@ -4,20 +4,21 @@
 - Review mode: `standard`
 - TDD mode: `tdd`
 - Worktree: `/Users/admin/Code/llm-agent/ForgeAgent/.worktrees/compose-runtime-identity`
-- Current plan task: `Task 1: 包内提示词资源与纯组合器（tasks.md 1.1）`
-- OpenSpec mapping: `1.1 建立包内 Jinja2 提示词资源和纯组合器，保留固定 harness 披露、SOUL 优先级、不可覆盖协议、完成声明与 MCP 工具段语义`
+- Current plan task: `Task 2: 身份加载 load_identity（tasks.md 1.2）`
+- OpenSpec mapping: `1.2 实现用户级 SOUL/USER 与 allowed_root 项目级 AGENTS/MEMORY 加载，库内路径可注入且 home 默认值在调用时解析，覆盖 canonical 边界、symlink 逃逸、secret 掩码、缺失回落、来源标记、大小上限和读取错误`
 - Stage: `done`
-- Implementer dispatch: `/root/task_1_identity_composer` (DONE)
-- Brief: `.superpowers/sdd/task-1-brief.md`
-- Report: `.superpowers/sdd/task-1-report.md`
-- Implementation commit: `7f01fdd` (`feat(identity): compose runtime system prompt`)
-- Changed files: `pyproject.toml`, `src/forgeagent/identity.py`, `src/forgeagent/res/prompts/default_soul.md`, `src/forgeagent/res/prompts/protocol.md`, `src/forgeagent/res/prompts/system.j2`, `tests/test_identity.py`
-- RED evidence: `rtk .venv/bin/python -m pytest tests/test_identity.py -v` failed during collection with expected `ModuleNotFoundError: No module named 'forgeagent.identity'`
-- GREEN evidence: focused `18 passed`; full suite `904 passed, 13 skipped`; resource contracts and Ruff passed
-- Risk signals: public API added; prompt resources are security-sensitive model inputs; diff is 202 insertions
+- Implementer dispatch: `/root/task_2_identity_loader` stopped before commit; reopened as `/root/task_2_identity_loader_reopen` (DONE)
+- Brief: `.superpowers/sdd/task-2-brief.md`
+- Report: `.superpowers/sdd/task-2-report.md`
+- Implementation commit: `c1076ca` (`fix(identity): redact unreadable file diagnostics`)
+- Changed files: `src/forgeagent/identity.py`, `tests/test_identity.py`
+- RED evidence: prior loader cycle 11/11 focused and 918/13 full; reopen security cycles had 2 expected red tests for path/control leakage and 1 expected red cause-chain test
+- GREEN evidence: focused `34 passed`; brief probes OK; Ruff check/format OK; full `920 passed, 13 skipped`
+- Risk signals: security-sensitive input/diagnostics; public load_identity/digest symbols; aggregate diff 481 insertions
 - Task review triggered: `yes` (standard risk review)
-- Task reviewer dispatch: `/root/task_1_identity_reviewer` failed with platform 429; retry `/root/task_1_identity_reviewer_retry` approved
-- Review-fix round: `0/1`
-- Review result: spec compliant; task quality approved; no Critical/Important findings
-- Accepted Minor: `tests/test_identity.py` compares only `Exec` counts for protocol stability. Task 1 also has a byte-identical resource contract check; exact rendered protocol integrity is explicitly covered by Task 9 and must be revisited in final review.
-- Unresolved feedback: `none blocking`
+- Task reviewer dispatch: `/root/task_2_identity_reviewer` returned Needs fixes; fix `7daf409`; re-review `/root/task_2_identity_rereviewer` Approved
+- Review-fix round: `1/1`
+- Fix dispatch: initial prompt rejected; retry/finalizer interrupted after report; commit-only closeout `/root/task_2_identity_fix_commit` (DONE), same review-fix round
+- Fix commit: `7daf409` (`fix(identity): close review findings`)
+- Review result: spec compliant; task quality approved; Critical/Important/Minor all None after fix
+- Unresolved feedback: `none`

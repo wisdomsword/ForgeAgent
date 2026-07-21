@@ -1,7 +1,7 @@
 ## 1. 身份加载与提示词组合
 
 - [x] 1.1 建立包内 Jinja2 提示词资源和纯组合器，保留固定 harness 披露、SOUL 优先级、不可覆盖协议、完成声明与 MCP 工具段语义
-- [ ] 1.2 实现用户级 SOUL/USER 与 `allowed_root` 项目级 AGENTS/MEMORY 加载，库内路径可注入且 home 默认值在调用时解析，覆盖 canonical 边界、symlink 逃逸、secret 掩码、缺失回落、来源标记、大小上限和读取错误
+- [x] 1.2 实现用户级 SOUL/USER 与 `allowed_root` 项目级 AGENTS/MEMORY 加载，库内路径可注入且 home 默认值在调用时解析，覆盖 canonical 边界、symlink 逃逸、secret 掩码、缺失回落、来源标记、大小上限和读取错误
 - [ ] 1.3 将 Task 的系统上下文构建改为显式使用身份快照和组合器，避免模块级可变状态及直接 Task 构造时的隐式文件 I/O，并保留显式 `system_prompt` 可信覆盖契约
 - [ ] 1.4 更新构建资源配置并验证从 wheel/sdist 安装后仍能加载全部 `.j2` 模板
 
