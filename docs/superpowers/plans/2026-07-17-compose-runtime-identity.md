@@ -3618,7 +3618,7 @@ Interfaces: 无新增生产接口。文档引用 Task 2 的 `_resolve_identity_f
 - Produces: 13/13 tasks 勾选、实证里程碑、完整离线报告、与已验证实现 HEAD 精确关联且可进入 Comet verify 的提交状态。
 - Consumes: 所有实现提交、两份 OpenSpec specs、Design Doc、`base_ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf`。
 
-- [ ] **Step 1: 运行静态检查**
+- [x] **Step 1: 运行静态检查**
 
 列出本 change 新增或修改的 Python 文件（以 plan `base_ref` 为边界），并对该列表运行 `ruff check` + `ruff format --check`；列表为空则跳过。验证步骤不得修改文件。若 changed-file format check 失败，派发单一 formatting fix worker，仅修复这些文件并提交，然后从本步骤重新开始，不能沿用修复前的任何静态、测试、黄金或评审证据。不得为通过门禁而格式化未被本 change 修改的文件。
 
@@ -3647,7 +3647,7 @@ rm -f "$changed_python_list"
 
 预期：changed-file `ruff check` 与 `ruff format --check` 均无错误输出；`All checks passed!`。
 
-- [ ] **Step 2: 运行专项测试**
+- [x] **Step 2: 运行专项测试**
 
 ```bash
 .venv/bin/python -m pytest \
@@ -3665,7 +3665,7 @@ rm -f "$changed_python_list"
 
 预期：全部可运行测试 PASS；环境能力 skip 带明确原因。
 
-- [ ] **Step 3: 运行隔离全量测试**
+- [x] **Step 3: 运行隔离全量测试**
 
 ```bash
 .venv/bin/python -m pytest -q -ra \
@@ -3675,7 +3675,7 @@ rm -f "$changed_python_list"
 
 预期：无人工 deselect；所有失败必须先按 systematic-debugging skill 定位根因并修复，不能进入下一步。任何修复使本 Task 已有证据（Step 1-2）失效，须从 Step 1 重新执行。
 
-- [ ] **Step 4: 运行 20 项离线黄金核心**
+- [x] **Step 4: 运行 20 项离线黄金核心**
 
 ```bash
 .venv/bin/python -m tests.golden.runner
@@ -3683,11 +3683,11 @@ rm -f "$changed_python_list"
 
 预期：20/20、100.0%、退出 0；核对 JSON 与 Markdown summary 一致。没有显式模型凭证时不运行 real 模式；任何失败须先修复（使 Step 1-4 证据失效，从 Step 1 重跑）。
 
-- [ ] **Step 5: 使用 CodeGraph 做最终调用面复审**
+- [x] **Step 5: 使用 CodeGraph 做最终调用面复审**
 
 查询 `load_identity`、`resolve_project_trust`、`compose_system_prompt`、`ApprovedIdentity`、`IdentitySnapshot`、`default_trust_record_path` 的调用方，确认以下入口均覆盖：CLI REPL/单次运行路径、Task/Step 系统上下文构建、`--no-identity` 禁用路径、`/reload` 重载路径、测试注入路径（参数可注入、不读真实 home 文件）。若 CodeGraph 报 different-worktree/stale，记录警告及原因，以当前 worktree 的直接源码、diff 和测试复核所有受影响文件；不把主 checkout 索引误当作当前实现，也不自行运行 `codegraph init`。
 
-- [ ] **Step 6: 执行技术与代码两道独立评审门禁**
+- [x] **Step 6: 执行技术与代码两道独立评审门禁**
 
 1. **技术方案一致性评审**：逐项对照 `specs/runtime-identity/spec.md`（25 个 Scenario）、`specs/golden-validation-core/spec.md`（2 个 Scenario）、Design Doc `docs/superpowers/specs/2026-07-17-compose-runtime-identity-design.md`、本计划和实现，修复错误、遗漏或漂移，并重新运行 `openspec validate compose-runtime-identity --strict`。
 2. **对抗性代码评审**：用 plan `base_ref` 到当前候选 HEAD 的完整 review package 派发独立 whole-branch reviewer，覆盖正确性、安全（symlink 逃逸检测完整性、secret masking 覆盖率、trust record 并发竞态）、资源生命周期和测试可信度（确认 mock replay 不被误报为真实模型遵循证据）；Critical/Important 发现必须由单一 fix worker 收敛并提交。
@@ -3696,7 +3696,7 @@ rm -f "$changed_python_list"
 
 `review_mode: standard` 的本 change 最终阶段含技术方案一致性与代码两道评审；ACTION_PLAN M15 门禁"三轮评审"三道依次为本 Step（技术方案 + 代码）与 Step 7（验收证据），与 M13 技术方案/代码/验收三道形式对齐。
 
-- [ ] **Step 7: 固定已验证实现 HEAD，创建证据草稿并执行第三道验收评审**
+- [x] **Step 7: 固定已验证实现 HEAD，创建证据草稿并执行第三道验收评审**
 
 Step 1-6（包含前两道评审）通过后，立即把 `git rev-parse HEAD` 作为 `verified_head` 同时写入 `.comet/subagent-progress.md` 的独立行 `verified_head: <40-hex>`，以及 milestone 草稿的独立行 `- 已验证实现 HEAD: <40-hex>`（实际 SHA 按 MILESTONE_GUIDE 用反引号包裹）；两个持久文件必须一致，后续命令每次重新读取而不依赖旧 shell 变量。里程碑必须标明这个精确实现 HEAD，不是之后的 evidence-only commit。
 
