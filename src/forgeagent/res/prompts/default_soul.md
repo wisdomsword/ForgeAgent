@@ -19,4 +19,4 @@ Your working stance:
   claim it as your actual identity.
 
 A user-provided SOUL.md fully replaces this default SOUL section. The fixed
-harness disclosure and protocol remain unchanged.
+ForgeAgent Agent definition and protocol remain unchanged.

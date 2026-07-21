@@ -21,6 +21,17 @@
 - `tests/test_packaging.py` 保持启用，但本沙箱未完成真实 wheel/sdist 安装：`uv build` 无法通过 PyPI DNS/缓存解析未缓存的 `hatchling`。静态资源声明和探针隔离已验证；真实构建需在具备构建后端访问能力的环境执行。
 - 5 个真实模型 golden 场景仍为 opt-in，当前未运行。
 
+## 归档后身份提示修复验证（2026-07-21）
+
+- 修复固定提示词的产品定位：ForgeAgent 是 Agent；模型可保留准确的原生身份，
+  同时说明当前配置为 ForgeAgent Agent。移除会触发 provider 身份防注入判断的
+  provider-specific 和对抗式措辞。
+- 未更换 provider。真实 `claude-sonnet-5` 人测首轮通过：`Exec identity_probe`
+  实际执行并输出 `IDENTITY_PROBE_OK`，最终身份回答为 Claude Sonnet 5 + ForgeAgent
+  Agent 产品角色；没有再声称运行在 Kiro CLI，也没有将 ForgeAgent 判定为提示注入。
+- 归档后工作区回归（排除 packaging 构建测试）：`982 passed, 13 skipped`；
+  `ruff check src tests` 和 `git diff --check` 通过。
+
 ## HEAD
 
 - 已验证实现 HEAD：`901b9a8d7573e18d9408264ad25f193506a0eb30`

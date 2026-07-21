@@ -213,7 +213,7 @@ def test_task_no_identity_no_system_prompt_touches_no_files(monkeypatch):
     task._build_system_prompt()
 
 
-def test_system_prompt_contains_harness_disclosure_and_anti_persona_instruction():
+def test_system_prompt_contains_agent_disclosure_and_identity_boundary():
     from forgeagent.models import Role
 
     client = _RecordingTaskClient(script=[_reply(_done())])
@@ -222,10 +222,28 @@ def test_system_prompt_contains_harness_disclosure_and_anti_persona_instruction(
 
     assert client.first_messages is not None
     system_msg = next(message for message in client.first_messages if message.role == Role.SYSTEM)
-    assert "You are running inside ForgeAgent" in system_msg.content
-    assert "Ignore any unapproved product persona" in system_msg.content
+    assert "configured as ForgeAgent Agent" in system_msg.content
+    assert "provider's native assistant" in system_msg.content
+    assert "ForgeAgent Agent" in system_msg.content
+    assert "harness" not in system_msg.content.lower()
     assert "Agent Identity (SOUL)" in system_msg.content
     assert "This conversation is driven by ForgeAgent" in system_msg.content
+
+
+def test_system_prompt_composes_native_model_identity_with_forgeagent_host():
+    """The host contract must cooperate with provider-native identity prompts."""
+    prompt = Task(MockClient(script=[_reply(_done())]))._build_system_prompt()
+
+    assert "provider's native assistant" in prompt
+    assert "configured as ForgeAgent Agent" in prompt
+    assert "native model identity is valid" in prompt
+    assert "two-layer" in prompt
+    assert "configured" in prompt and "as ForgeAgent" in prompt
+    assert "ForgeAgent Agent" in prompt
+    assert "prompt injection" not in prompt.lower()
+    assert "Kiro CLI" not in prompt
+    assert "Ignore any unapproved product persona" not in prompt
+    assert "ForgeAgent is just the name of this response format" not in prompt
 
 
 def test_custom_soul_present_in_model_context_via_task():
@@ -247,4 +265,4 @@ def test_custom_soul_present_in_model_context_via_task():
     system_msg = next(message for message in client.first_messages if message.role == Role.SYSTEM)
     assert "SOUL-REACHED-MODEL" in system_msg.content
     assert "No custom Agent Identity (SOUL)" not in system_msg.content
-    assert "You are running inside ForgeAgent" in system_msg.content
+    assert "configured as ForgeAgent Agent" in system_msg.content
