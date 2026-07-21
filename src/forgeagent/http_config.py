@@ -7,7 +7,10 @@ import math
 import os
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from pathlib import Path
+
+MAX_BEARER_TOKEN_LENGTH = 4096
 
 
 @dataclass(frozen=True)
@@ -16,7 +19,7 @@ class HttpServiceConfig:
 
     bind_host: str = "127.0.0.1"
     port: int = 8765
-    token: str = ""
+    token: str = dataclass_field(default="", repr=False)
     max_workers: int = 4
     max_queue: int = 32
     max_records: int = 256
@@ -49,11 +52,15 @@ class HttpServiceConfig:
         if (
             not isinstance(token, str)
             or not token
+            or len(token) > MAX_BEARER_TOKEN_LENGTH
             or not token.isascii()
             or not token.isprintable()
             or any(character.isspace() for character in token)
         ):
-            raise ValueError("HTTP bearer token must be a non-whitespace printable ASCII string")
+            raise ValueError(
+                "HTTP bearer token must be a non-whitespace printable ASCII string "
+                f"of at most {MAX_BEARER_TOKEN_LENGTH} characters"
+            )
         if isinstance(allowlist, (str, bytes)) or not isinstance(allowlist, Sequence):
             raise ValueError("allowlist must be a sequence of non-empty strings")
         if any(not isinstance(item, str) or not item.strip() for item in allowlist):
@@ -75,7 +82,7 @@ class HttpServiceConfig:
         )
         if not 1 <= result.port <= 65535:
             raise ValueError("port must be between 1 and 65535")
-        for field in (
+        for limit_field in (
             "max_workers",
             "max_records",
             "terminal_ttl_seconds",
@@ -83,8 +90,8 @@ class HttpServiceConfig:
             "audit_max_bytes",
             "audit_retention_files",
         ):
-            if getattr(result, field) <= 0:
-                raise ValueError(f"{field} must be greater than zero")
+            if getattr(result, limit_field) <= 0:
+                raise ValueError(f"{limit_field} must be greater than zero")
         if result.max_queue < 0:
             raise ValueError("max_queue must not be negative")
         if not math.isfinite(result.terminal_ttl_seconds):

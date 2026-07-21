@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from forgeagent.http_config import HttpServiceConfig
+from forgeagent.http_config import MAX_BEARER_TOKEN_LENGTH, HttpServiceConfig
 
 
 @pytest.mark.parametrize(
@@ -25,6 +25,29 @@ from forgeagent.http_config import HttpServiceConfig
 def test_http_config_rejects_unusable_token(token):
     with pytest.raises(ValueError, match="token"):
         HttpServiceConfig.from_sources(config={"port": 8765, "token": token}, env={})
+
+
+def test_http_config_accepts_token_at_maximum_length():
+    token = "a" * MAX_BEARER_TOKEN_LENGTH
+
+    config = HttpServiceConfig.from_sources(config={"token": token}, env={})
+
+    assert config.token == token
+
+
+def test_http_config_rejects_token_over_maximum_length():
+    token = "a" * (MAX_BEARER_TOKEN_LENGTH + 1)
+
+    with pytest.raises(ValueError, match="token.*4096"):
+        HttpServiceConfig.from_sources(config={"token": token}, env={})
+
+
+def test_http_config_repr_does_not_include_token():
+    token = "sensitive-http-token"
+
+    config = HttpServiceConfig.from_sources(config={"token": token}, env={})
+
+    assert token not in repr(config)
 
 
 def test_http_config_rejects_non_loopback():
