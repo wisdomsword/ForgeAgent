@@ -8,6 +8,7 @@ import re
 import subprocess
 import sys
 import time
+from collections import Counter
 from enum import IntEnum
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -215,6 +216,31 @@ EXPECTED_BOUNDARY_EVIDENCE = {
 _GOLDEN_HEADING_ID = re.compile(r"^#{1,6}[ \t]+(G\d+)\b", re.MULTILINE)
 _GOLDEN_TABLE_HEADER = ("ID", "描述", "Pass 判定")
 _GOLDEN_ID = re.compile(r"^G\d+$")
+_GOLDEN_CATEGORY_HEADING = re.compile(
+    r"^#{2,3}[ \t]+(文件/数据处理|Python 执行与 sandbox 边界|"
+    r"代码修改/小型重构|网络抓取或外部 API|系统查询/环境检查)"
+)
+_GOLDEN_CATEGORY_NAMES = {
+    "文件/数据处理": "file_data",
+    "Python 执行与 sandbox 边界": "execution_boundary",
+    "代码修改/小型重构": "code_change",
+    "网络抓取或外部 API": "network_api",
+    "系统查询/环境检查": "system_query",
+}
+_EXPECTED_CATEGORY_TOTALS = {
+    "file_data": 160,
+    "execution_boundary": 100,
+    "code_change": 80,
+    "network_api": 40,
+    "system_query": 20,
+}
+_EXPECTED_M15_CATEGORY_TOTALS = {
+    "file_data": 8,
+    "execution_boundary": 5,
+    "code_change": 4,
+    "network_api": 2,
+    "system_query": 1,
+}
 
 
 def _golden_heading_ids(markdown: str) -> tuple[str, ...]:
@@ -249,6 +275,43 @@ def _parse_golden_catalog_definitions(
     return heading_ids, tuple(candidate_ids)
 
 
+def _parse_golden_catalog_categories(markdown: str) -> dict[str, str]:
+    categories: dict[str, str] = {}
+    current_category: str | None = None
+    in_candidate_table = False
+
+    for line in markdown.splitlines():
+        category_match = _GOLDEN_CATEGORY_HEADING.match(line)
+        if category_match is not None:
+            current_category = _GOLDEN_CATEGORY_NAMES[category_match.group(1)]
+            in_candidate_table = False
+            continue
+
+        heading_match = _GOLDEN_HEADING_ID.match(line)
+        if heading_match is not None and current_category is not None:
+            scenario_id = heading_match.group(1)
+            assert scenario_id not in categories
+            categories[scenario_id] = current_category
+
+        cells = _golden_table_cells(line)
+        if cells is None:
+            in_candidate_table = False
+            continue
+        if cells == _GOLDEN_TABLE_HEADER:
+            in_candidate_table = True
+            continue
+        if (
+            in_candidate_table
+            and current_category is not None
+            and cells
+            and _GOLDEN_ID.fullmatch(cells[0])
+        ):
+            assert cells[0] not in categories
+            categories[cells[0]] = current_category
+
+    return categories
+
+
 def _assert_golden_candidate_catalog(markdown: str) -> None:
     heading_ids, candidate_rows = _parse_golden_catalog_definitions(markdown)
     expected_heading_ids = frozenset(f"G{number:02d}" for number in range(1, 31))
@@ -265,6 +328,14 @@ def _assert_golden_candidate_catalog(markdown: str) -> None:
     assert all_ids == expected_ids
     assert EXPECTED_IDS <= all_ids
     assert len(all_ids - EXPECTED_IDS) == 380
+
+    categories = _parse_golden_catalog_categories(markdown)
+    assert frozenset(categories) == expected_ids
+    assert Counter(categories.values()) == _EXPECTED_CATEGORY_TOTALS
+    m15_ids = {f"G{number}" for number in range(381, 401)}
+    assert Counter(categories[scenario_id] for scenario_id in m15_ids) == (
+        _EXPECTED_M15_CATEGORY_TOTALS
+    )
 
 
 def _assert_readme_proxy_migration_contract(readme: str) -> None:
@@ -360,6 +431,23 @@ def test_golden_candidate_catalog_has_structured_definitions_and_candidates():
     catalog_path = Path(__file__).parent.parent / "docs" / "golden-tasks-seed.md"
 
     _assert_golden_candidate_catalog(catalog_path.read_text(encoding="utf-8"))
+
+
+def test_golden_candidate_catalog_rejects_category_distribution_mutations():
+    catalog_path = Path(__file__).parent.parent / "docs" / "golden-tasks-seed.md"
+    catalog = catalog_path.read_text(encoding="utf-8")
+    wrong_global_distribution = catalog.replace(
+        "### 文件/数据处理（新增 8：G381–G388）",
+        "### 系统查询/环境检查（新增 8：G381–G388）",
+        1,
+    )
+    wrong_m15_distribution = catalog.replace("| G380 |", "| G-SWAP |", 1)
+    wrong_m15_distribution = wrong_m15_distribution.replace("| G381 |", "| G380 |", 1)
+    wrong_m15_distribution = wrong_m15_distribution.replace("| G-SWAP |", "| G381 |", 1)
+
+    for invalid_catalog in (wrong_global_distribution, wrong_m15_distribution):
+        with pytest.raises(AssertionError):
+            _assert_golden_candidate_catalog(invalid_catalog)
 
 
 def test_readme_documents_the_proxy_breaking_change_and_migration_paths():

@@ -339,7 +339,10 @@ def make_console_identity_confirmer(
     """Build a console trust gate for project-level identity files."""
 
     def _confirm(request: IdentityTrustRequest) -> bool:
-        console.print(f"[bold yellow]trust project identity[/bold yellow] {request.project_label}")
+        heading = Text("trust project identity", style="bold yellow")
+        heading.append(" ")
+        heading.append(request.project_label)
+        console.print(heading)
         console.print(request.summary, markup=False)
         try:
             answer = read_line("inject this project's AGENTS.md/MEMORY.md? [y/N] ").strip().lower()

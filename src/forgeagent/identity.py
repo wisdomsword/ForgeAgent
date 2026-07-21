@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import stat
 import tempfile
 import unicodedata
@@ -27,6 +28,8 @@ _EFFECTIVE_DIGEST_DOMAIN = b"forgeagent-identity-effective-input-digest-v1\x00"
 _PROJECT_ID_DOMAIN = b"forgeagent-identity-project-id-v1\x00"
 _TRUST_RECORD_VERSION = 1
 _TRUST_SECTION_PREVIEW_CHARS = 2048
+_SHA256_HEX_RE = re.compile(r"\A[0-9a-f]{64}\Z")
+_RFC3339_Z_RE = re.compile(r"\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z\Z")
 
 IdentityDiagnostic = Callable[[str], None]
 
@@ -76,6 +79,8 @@ def _mask(text: str) -> str:
 
 def _resolve_identity_file(directory: str, filename: str, *, containment_root: str) -> Path | None:
     """Resolve one fixed identity filename without crossing `containment_root`."""
+    if os.path.lexists(directory) and not os.path.exists(directory):
+        raise _IdentityPathError("identity directory is unusable")
     root = os.path.realpath(containment_root)
     base = os.path.realpath(directory)
     try:
@@ -85,6 +90,9 @@ def _resolve_identity_file(directory: str, filename: str, *, containment_root: s
     if os.path.normcase(base_common) != os.path.normcase(root):
         raise _IdentityPathError("identity directory is outside its allowed root")
 
+    original_candidate = os.path.join(directory, filename)
+    if os.path.lexists(original_candidate) and not os.path.exists(original_candidate):
+        raise _IdentityPathError(f"{filename} path is unusable")
     candidate = os.path.join(base, filename)
     resolved = os.path.realpath(candidate)
     try:
@@ -165,18 +173,31 @@ def _load_trust_record(path: str) -> dict | None:
     for project_id, entry in raw["projects"].items():
         if not isinstance(project_id, str) or not isinstance(entry, dict):
             raise _UnusableTrustRecordError("invalid project entry")
+        if _SHA256_HEX_RE.fullmatch(project_id) is None:
+            raise _UnusableTrustRecordError("invalid project id")
         if set(entry) != {
             "raw_content_digest",
             "effective_input_digest",
             "approved_at",
         }:
             raise _UnusableTrustRecordError("unknown project entry field")
-        if not isinstance(entry.get("raw_content_digest"), str):
+        if (
+            not isinstance(entry.get("raw_content_digest"), str)
+            or _SHA256_HEX_RE.fullmatch(entry["raw_content_digest"]) is None
+        ):
             raise _UnusableTrustRecordError("invalid raw_content_digest")
-        if not isinstance(entry.get("effective_input_digest"), str):
+        if (
+            not isinstance(entry.get("effective_input_digest"), str)
+            or _SHA256_HEX_RE.fullmatch(entry["effective_input_digest"]) is None
+        ):
             raise _UnusableTrustRecordError("invalid effective_input_digest")
-        if not isinstance(entry.get("approved_at"), str):
+        approved_at = entry.get("approved_at")
+        if not isinstance(approved_at, str) or _RFC3339_Z_RE.fullmatch(approved_at) is None:
             raise _UnusableTrustRecordError("invalid approved_at")
+        try:
+            datetime.fromisoformat(approved_at.replace("Z", "+00:00"))
+        except ValueError:
+            raise _UnusableTrustRecordError("invalid approved_at") from None
     return raw
 
 
@@ -201,6 +222,11 @@ def _record_approval(
     path: str, project_id: str, raw_content_digest: str, effective_input_digest: str
 ) -> bool:
     """Merge one approval; return false when read/write persistence is unavailable."""
+    if any(
+        _SHA256_HEX_RE.fullmatch(value) is None
+        for value in (project_id, raw_content_digest, effective_input_digest)
+    ):
+        return False
     try:
         existing = _load_trust_record(path)
         record = existing if existing is not None else {"version": 1, "projects": {}}

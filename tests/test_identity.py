@@ -511,8 +511,8 @@ def _project_snapshot(**overrides):
         "user": "U",
         "agents": "AGENTS BODY",
         "memory": "MEMORY BODY",
-        "raw_content_digest": "raw-1",
-        "effective_input_digest": "eff-1",
+        "raw_content_digest": "a" * 64,
+        "effective_input_digest": "b" * 64,
     }
     values.update(overrides)
     return identity_module.IdentitySnapshot(**values)
@@ -530,10 +530,10 @@ def test_trust_record_primitives_validate_and_atomically_merge(tmp_path):
     with pytest.raises(identity_module._UnusableTrustRecordError):
         identity_module._load_trust_record(path)
     os.unlink(path)
-    assert identity_module._record_approval(path, "project-a", "raw-a", "eff-a")
-    assert identity_module._record_approval(path, "project-b", "raw-b", "eff-b")
+    assert identity_module._record_approval(path, "1" * 64, "2" * 64, "3" * 64)
+    assert identity_module._record_approval(path, "4" * 64, "5" * 64, "6" * 64)
     record = identity_module._load_trust_record(path)
-    assert set(record["projects"]) == {"project-a", "project-b"}
+    assert set(record["projects"]) == {"1" * 64, "4" * 64}
 
 
 def test_trust_record_rejects_invalid_encoding_and_unknown_schema_fields(tmp_path):
@@ -550,6 +550,101 @@ def test_trust_record_rejects_invalid_encoding_and_unknown_schema_fields(tmp_pat
         json.dump({"version": True, "projects": {}}, handle)
     with pytest.raises(identity_module._UnusableTrustRecordError):
         identity_module._load_trust_record(path)
+
+
+@pytest.mark.parametrize(
+    ("project_id", "raw_digest", "effective_digest", "approved_at"),
+    [
+        ("not-a-sha256", "a" * 64, "b" * 64, "2026-07-21T00:00:00Z"),
+        ("a" * 64, "A" * 64, "b" * 64, "2026-07-21T00:00:00Z"),
+        ("a" * 64, "a" * 64, "b" * 63, "2026-07-21T00:00:00Z"),
+        ("a" * 64, "a" * 64, "b" * 64, "2026-07-21T00:00:00+00:00"),
+    ],
+)
+def test_trust_record_rejects_invalid_semantic_values(
+    tmp_path, project_id, raw_digest, effective_digest, approved_at
+):
+    path = str(tmp_path / "identity-trust.json")
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(
+            {
+                "version": 1,
+                "projects": {
+                    project_id: {
+                        "raw_content_digest": raw_digest,
+                        "effective_input_digest": effective_digest,
+                        "approved_at": approved_at,
+                    }
+                },
+            },
+            handle,
+        )
+    with pytest.raises(identity_module._UnusableTrustRecordError):
+        identity_module._load_trust_record(path)
+
+
+def test_semantically_invalid_trust_record_cannot_authorize_or_be_overwritten(tmp_path):
+    home = str(tmp_path / "home")
+    root = str(tmp_path / "root")
+    os.makedirs(home)
+    os.makedirs(root)
+    path = os.path.join(home, ".forgeagent", "identity-trust.json")
+    os.makedirs(os.path.dirname(path))
+    original = json.dumps(
+        {
+            "version": 1,
+            "projects": {
+                "invalid": {
+                    "raw_content_digest": "a" * 64,
+                    "effective_input_digest": "b" * 64,
+                    "approved_at": "2026-07-21T00:00:00Z",
+                }
+            },
+        }
+    )
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write(original)
+    snapshot = _project_snapshot(soul=None, user=None)
+    calls = []
+    approved = identity_module.resolve_project_trust(
+        snapshot,
+        root,
+        home,
+        lambda request: calls.append(request) or True,
+        trust_record_path=path,
+    )
+    assert approved.project_agents == snapshot.agents
+    assert len(calls) == 1
+    assert open(path, encoding="utf-8").read() == original
+
+
+def test_dangling_user_identity_symlink_is_not_treated_as_absent(tmp_path):
+    home = tmp_path / "home"
+    root = tmp_path / "root"
+    home.mkdir()
+    root.mkdir()
+    identity_dir = home / ".forgeagent"
+    identity_dir.mkdir()
+    (identity_dir / "SOUL.md").symlink_to(identity_dir / "missing-soul.md")
+
+    with pytest.raises(identity_module.IdentityConfigError, match="SOUL.md"):
+        identity_module.load_identity(str(home), str(root))
+
+
+def test_dangling_project_identity_symlink_is_rejected_not_absent(tmp_path):
+    home = tmp_path / "home"
+    root = tmp_path / "root"
+    home.mkdir()
+    root.mkdir()
+    identity_dir = root / ".forgeagent"
+    identity_dir.mkdir()
+    (identity_dir / "AGENTS.md").symlink_to(identity_dir / "missing-agents.md")
+    diagnostics = []
+
+    snapshot = identity_module.load_identity(str(home), str(root), diagnostic=diagnostics.append)
+
+    assert snapshot.agents is None and snapshot.memory is None
+    assert diagnostics == ["project identity snapshot rejected: _IdentityPathError"]
 
 
 def test_trust_confirmation_summary_masks_controls_and_is_bounded():
@@ -587,7 +682,7 @@ def test_resolve_project_trust_decision_table(tmp_path):
     )
     assert reused.memory == snapshot.memory and calls == []
     changed = _project_snapshot(
-        agents="NEW", raw_content_digest="raw-2", effective_input_digest="eff-2"
+        agents="NEW", raw_content_digest="c" * 64, effective_input_digest="d" * 64
     )
     identity_module.resolve_project_trust(
         changed, root, home, lambda request: calls.append(request) or True

@@ -2494,10 +2494,11 @@ def test_make_console_identity_confirmer_uses_injected_reader_and_plain_text():
     console = _console()
     confirmer = make_console_identity_confirmer(console, read_line=lambda prompt: "yes")
     request = IdentityTrustRequest(
-        project_label=".../repo",
+        project_label=".../repo/[bold]literal label[/bold]",
         summary="AGENTS.md:\n[bold]literal markup[/bold]\\x1b",
     )
     assert confirmer(request) is True
     rendered = console.export_text()
+    assert ".../repo/[bold]literal label[/bold]" in rendered
     assert "[bold]literal markup[/bold]" in rendered
     assert "\\x1b" in rendered
