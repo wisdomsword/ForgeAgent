@@ -1640,7 +1640,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：`malformed record handling: OK` 与 `trust persistence failure handling: OK`。
 
-- [ ] **Step 5: Ruff 检查**
+- [ ] **Step 5: Ruff 检查（信任记录与项目确认）**
 
   ```bash
   .venv/bin/ruff check src/forgeagent/identity.py tests/test_identity.py
