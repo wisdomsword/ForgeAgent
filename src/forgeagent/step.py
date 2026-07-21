@@ -340,6 +340,8 @@ class Step:
             self.blocks.put(block.name, block.code, block.language)
         for call in parsed.tool_calls:
             rr.outcomes.append(self._dispatch(call))
+            if self._cancelled():
+                break
         self._apply_declared_status(
             rr,
             parsed.task_status,

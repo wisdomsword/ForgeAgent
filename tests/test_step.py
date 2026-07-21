@@ -115,6 +115,38 @@ def test_step_cancel_event_is_checked_after_tool_execution():
     assert rounds[-1].stopped_reason == Termination.CANCELLED
 
 
+def test_step_cancel_event_stops_remaining_tools_in_same_reply():
+    event = threading.Event()
+
+    class _CancellingBackend(TrustedBackend):
+        def __init__(self):
+            super().__init__(secret_values=set())
+            self.executed: list[str] = []
+
+        def execute(self, code, runtime):
+            self.executed.append(code)
+            result = super().execute(code, runtime)
+            event.set()
+            return result
+
+    backend = _CancellingBackend()
+    reply = _exec_call("print('first')", name="first") + _exec_call(
+        "print('second')", name="second"
+    )
+    step = Step(
+        MockClient(script=[_reply(reply)]),
+        backend,
+        Runtime(),
+        cancel_event=event,
+    )
+
+    rounds = step.run(_user())
+
+    assert backend.executed == ["print('first')"]
+    assert len(rounds[-1].outcomes) == 1
+    assert rounds[-1].stopped_reason == Termination.CANCELLED
+
+
 def test_step_cancel_event_wins_before_client_error_is_published():
     event = threading.Event()
 

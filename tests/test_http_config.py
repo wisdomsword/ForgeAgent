@@ -7,8 +7,22 @@ import pytest
 from forgeagent.http_config import HttpServiceConfig
 
 
-@pytest.mark.parametrize("token", [None, "", "   "])
-def test_http_config_rejects_missing_or_blank_token(token):
+@pytest.mark.parametrize(
+    "token",
+    [
+        None,
+        "",
+        "   ",
+        " leading",
+        "trailing ",
+        "middle space",
+        "line\nbreak",
+        "\x7f",
+        "t\u00f6ken",
+        123,
+    ],
+)
+def test_http_config_rejects_unusable_token(token):
     with pytest.raises(ValueError, match="token"):
         HttpServiceConfig.from_sources(config={"port": 8765, "token": token}, env={})
 
@@ -55,6 +69,24 @@ def test_http_config_environment_token_wins_and_other_values_are_configurable():
     )
 
 
+def test_http_config_uses_documented_defaults():
+    assert HttpServiceConfig.from_sources(config={"token": "secret"}, env={}) == (
+        HttpServiceConfig(token="secret")
+    )
+
+
+@pytest.mark.parametrize("allowlist", ["server/tool", b"server/tool"])
+def test_http_config_rejects_string_like_allowlist(allowlist):
+    with pytest.raises(ValueError, match="allowlist"):
+        HttpServiceConfig.from_sources(config={"token": "secret", "allowlist": allowlist}, env={})
+
+
+@pytest.mark.parametrize("allowlist", [[123], [b"server/tool"], [""], ["   "]])
+def test_http_config_rejects_invalid_allowlist_items(allowlist):
+    with pytest.raises(ValueError, match="allowlist"):
+        HttpServiceConfig.from_sources(config={"token": "secret", "allowlist": allowlist}, env={})
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [
@@ -72,3 +104,31 @@ def test_http_config_environment_token_wins_and_other_values_are_configurable():
 def test_http_config_rejects_out_of_range_limits(field, value):
     with pytest.raises(ValueError, match=field):
         HttpServiceConfig.from_sources(config={"token": "secret", field: value}, env={})
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_http_config_rejects_non_finite_terminal_ttl(value):
+    with pytest.raises(ValueError, match="terminal_ttl_seconds"):
+        HttpServiceConfig.from_sources(
+            config={"token": "secret", "terminal_ttl_seconds": value}, env={}
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("port", 1),
+        ("port", 65535),
+        ("max_workers", 1),
+        ("max_queue", 0),
+        ("max_records", 1),
+        ("terminal_ttl_seconds", 0.1),
+        ("max_body_bytes", 1),
+        ("audit_max_bytes", 1),
+        ("audit_retention_files", 1),
+    ],
+)
+def test_http_config_accepts_limit_boundaries(field, value):
+    config = HttpServiceConfig.from_sources(config={"token": "secret", field: value}, env={})
+
+    assert getattr(config, field) == value

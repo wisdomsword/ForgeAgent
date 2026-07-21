@@ -158,6 +158,9 @@ class Task:
         alongside them, so a model without `supports_images` still sees the text
         (the client-level pre-flight check rejects the request instead, see
         docs/m9-streaming-multimodal-commands.md §3.4).
+
+        `cancel_event` is cooperative: it stops work between model and tool calls but
+        does not interrupt a model, network, or tool call already in flight.
         """
         goal_content: str | list = goal
         if images:

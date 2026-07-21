@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import ipaddress
+import math
 import os
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -37,6 +38,7 @@ class HttpServiceConfig:
         source_env = os.environ if env is None else env
         token = source_env.get("FORGEAGENT_HTTP_TOKEN", values.get("token", ""))
         host = str(values.get("bind_host", "127.0.0.1"))
+        allowlist = values.get("allowlist", ())
 
         try:
             is_loopback = ipaddress.ip_address(host).is_loopback
@@ -44,13 +46,23 @@ class HttpServiceConfig:
             raise ValueError("HTTP service must bind to a loopback IP address") from exc
         if not is_loopback:
             raise ValueError("HTTP service must bind to loopback")
-        if token is None or not str(token).strip():
-            raise ValueError("HTTP bearer token is required")
+        if (
+            not isinstance(token, str)
+            or not token
+            or not token.isascii()
+            or not token.isprintable()
+            or any(character.isspace() for character in token)
+        ):
+            raise ValueError("HTTP bearer token must be a non-whitespace printable ASCII string")
+        if isinstance(allowlist, (str, bytes)) or not isinstance(allowlist, Sequence):
+            raise ValueError("allowlist must be a sequence of non-empty strings")
+        if any(not isinstance(item, str) or not item.strip() for item in allowlist):
+            raise ValueError("allowlist must contain only non-empty strings")
 
         result = cls(
             bind_host=host,
             port=int(values.get("port", 8765)),
-            token=str(token),
+            token=token,
             max_workers=int(values.get("max_workers", 4)),
             max_queue=int(values.get("max_queue", 32)),
             max_records=int(values.get("max_records", 256)),
@@ -59,7 +71,7 @@ class HttpServiceConfig:
             audit_path=Path(str(values.get("audit_path", "~/.forgeagent/http-audit.jsonl"))),
             audit_max_bytes=int(values.get("audit_max_bytes", 10 * 1024 * 1024)),
             audit_retention_files=int(values.get("audit_retention_files", 5)),
-            allowlist=tuple(str(item) for item in values.get("allowlist", ())),
+            allowlist=tuple(allowlist),
         )
         if not 1 <= result.port <= 65535:
             raise ValueError("port must be between 1 and 65535")
@@ -75,4 +87,6 @@ class HttpServiceConfig:
                 raise ValueError(f"{field} must be greater than zero")
         if result.max_queue < 0:
             raise ValueError("max_queue must not be negative")
+        if not math.isfinite(result.terminal_ttl_seconds):
+            raise ValueError("terminal_ttl_seconds must be finite")
         return result
