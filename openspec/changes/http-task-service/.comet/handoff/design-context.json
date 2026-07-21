@@ -1,0 +1,16 @@
+{
+  "change": "http-task-service",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "228f200e58895ec12f9bb5cfe335209c94c68c0c0767afc8c236cf088140bc04",
+  "files": [
+    { "path": "openspec/changes/http-task-service/proposal.md", "sha256": "e9a1d9306f1b7ca62069e5255b9afd830cfa25480d49833e4a01b418ba81f306" },
+    { "path": "openspec/changes/http-task-service/design.md", "sha256": "6c26368793be5865cdca8b7ac016e5280e22aeb16357988d691dc9579dde92e6" },
+    { "path": "openspec/changes/http-task-service/tasks.md", "sha256": "f6f32c0b56aaf04495f889de9273f6740aadbff01500aac4937399d425670004" },
+    { "path": "openspec/changes/http-task-service/specs/audit-logging/spec.md", "sha256": "e0c823c80dd5b8bdc14ed80798fb3c417d82cb8028b47bcd866e2129b50ad067" },
+    { "path": "openspec/changes/http-task-service/specs/http-task-service/spec.md", "sha256": "b6ee8e808da6f616168bdfafd46f462063a8b83d1b30de05dd0d34640acc3086" },
+    { "path": "openspec/changes/http-task-service/specs/tool-approval/spec.md", "sha256": "ec2d27d102e9851db430983814781dac508babdae6cb77a9577aa2716a0447a1" }
+  ]
+}

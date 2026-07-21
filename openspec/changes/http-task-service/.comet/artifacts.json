@@ -1,0 +1,8 @@
+{
+  "openspec_proposal": "openspec/changes/http-task-service/proposal.md",
+  "openspec_design": "openspec/changes/http-task-service/design.md",
+  "openspec_tasks": "openspec/changes/http-task-service/tasks.md",
+  "openspec_delta_spec": "openspec/changes/http-task-service/specs/audit-logging/spec.md",
+  "handoff_context": "openspec/changes/http-task-service/.comet/handoff/design-context.json",
+  "handoff_markdown": "openspec/changes/http-task-service/.comet/handoff/design-context.md"
+}
