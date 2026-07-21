@@ -2575,7 +2575,7 @@ Task 1 Step 6 的 16 组合矩阵只覆盖 `compose_system_prompt` 单层（输�
 **Interfaces:**
 - 无新增，全部复用 `load_identity`/`resolve_project_trust`/`compose_system_prompt`/`canonical_project_id_digest`
 
-- [ ] **Step 1: 组合矩阵 × 确认结果 × 禁用模式的全链路表驱动测试（tasks.md 3.1）**
+- [x] **Step 1: 组合矩阵 × 确认结果 × 禁用模式的全链路表驱动测试（tasks.md 3.1）**
 
   将新增 import 合并到 `tests/test_identity.py` 顶部 import 区，测试辅助与测试函数追加到文件末尾：
 
@@ -2659,7 +2659,7 @@ Task 1 Step 6 的 16 组合矩阵只覆盖 `compose_system_prompt` 单层（输�
 
   预期输出：13 项测试全部 PASSED（12 组合 + 1 项 no-identity）。
 
-- [ ] **Step 2: 路径、TOCTOU、跨进程、secret 掩码变化与写失败专项补测（tasks.md 3.2 剩余缺口）**
+- [x] **Step 2: 路径、TOCTOU、跨进程、secret 掩码变化与写失败专项补测（tasks.md 3.2 剩余缺口）**
 
   在 `tests/test_identity.py` 追加：
 
@@ -2901,7 +2901,7 @@ Task 1 Step 6 的 16 组合矩阵只覆盖 `compose_system_prompt` 单层（输�
 
   预期输出：7 项专项测试全部 PASSED。
 
-- [ ] **Step 3: tasks.md 3.2 覆盖点核对清单（文字核对，不新增代码）**
+- [x] **Step 3: tasks.md 3.2 覆盖点核对清单（文字核对，不新增代码）**
 
   逐一核对 spec.md 全部 Scenario 是否已有可执行证据，交叉引用而非重复实现：
 
@@ -2929,7 +2929,7 @@ Task 1 Step 6 的 16 组合矩阵只覆盖 `compose_system_prompt` 单层（输�
 
   预期输出：上表全部对应测试 PASSED，零 FAILED。
 
-- [ ] **Step 4: 全量回归 + Ruff**
+- [x] **Step 4: 全量回归 + Ruff（矩阵与边界专项）**
 
   ```bash
   .venv/bin/python -m pytest tests/ -x -q --ignore=tests/golden

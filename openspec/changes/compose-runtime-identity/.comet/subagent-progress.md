@@ -4,19 +4,19 @@
 - Review mode: `standard`
 - TDD mode: `tdd`
 - Worktree: `/Users/admin/Code/llm-agent/ForgeAgent/.worktrees/compose-runtime-identity`
-- Current plan task: `Task 7: wheel/sdist 安装后资源加载验证（tasks.md 1.4 收尾）`
-- OpenSpec mapping: `1.4 通过真实 wheel/sdist 安装验证身份提示资源可加载`
+- Current plan task: `Task 8: 组合矩阵×确认结果与项目根/磁盘时序补测（tasks.md 3.1/3.2）`
+- OpenSpec mapping: `3.1/3.2 补齐身份存在性、确认结果、禁用模式矩阵及项目根/磁盘时序场景`
 - Stage: `done`
-- Implementer dispatch: `/root/task_7_packaging` (closeout reused `/root/task_6_reload_reviewer` after network hang)
-- Brief: `.superpowers/sdd/task-7-brief.md`
-- Report: `.superpowers/sdd/task-7-report.md`
-- Implementation commit: `4b765bc` (`test(packaging): verify identity prompt resources`)
-- Changed files: `tests/test_packaging.py`
-- RED evidence: uv build blocked by uncached hatchling and sandbox DNS; static contract test was then made runnable
-- GREEN evidence: TOML/resource static contract, development resource probe, Ruff and diff check passed; real wheel/sdist remains unverified in this environment
-- Risk signals: packaging/artifact verification; isolated install; test invokes uv build/install
+- Implementer dispatch: `/root/task_8_matrix_boundary` (closeout reused `/root/task_6_reload_reviewer` after cache rerun hang)
+- Brief: `.superpowers/sdd/task-8-brief.md`
+- Report: `.superpowers/sdd/task-8-report.md`
+- Implementation commit: `191984c` (`test(identity): cover trust boundary matrix`)
+- Changed files: `tests/test_identity.py`
+- RED evidence: new matrix and boundary tests directly passed, confirming no production gap
+- GREEN evidence: full_pipeline `13 passed`; path/TOCTOU/process/persistence `8 passed`; cross-check `75 passed`; Ruff/format passed
+- Risk signals: security/path boundary; cross-process persistence; TOCTOU; large test diff
 - Task review triggered: `yes` (standard risk review)
-- Task reviewer dispatch: `/root/task_7_packaging_reviewer` Not Approved
-- Review-fix round: `1/1`
-- Review result: fix `0bee38c` re-reviewed and Approved; Critical/Important/Minor none
-- Unresolved feedback: real wheel/sdist build remains environment-blocked by hatchling/DNS and is recorded as unverified
+- Task reviewer dispatch: `/root/task_8_matrix_reviewer` Approved
+- Review-fix round: `0/1`
+- Review result: spec compliant; task quality approved; Critical/Important/Minor none
+- Unresolved feedback: none
