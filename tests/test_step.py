@@ -9,6 +9,7 @@ import threading
 
 import pytest
 
+from forgeagent.audit import AuditEvent
 from forgeagent.client import MockClient
 from forgeagent.executor import TrustedBackend
 from forgeagent.models import (
@@ -25,6 +26,15 @@ from forgeagent.protocol import EditArgs, FileReadArgs, ToolCall
 from forgeagent.runtime import Runtime
 from forgeagent.step import RoundResult, Step, Termination, _apply_edit
 from forgeagent.tools import ToolOutcome
+
+
+class _RecordingAuditSink:
+    def __init__(self):
+        self.events: list[AuditEvent] = []
+
+    def emit(self, event: AuditEvent) -> bool:
+        self.events.append(event)
+        return True
 
 
 def _reply(text: str, stop_reason: str = "end_turn", tool_calls=None) -> AssistantMessage:
@@ -75,6 +85,64 @@ def test_step_cancel_event_stops_before_next_model_call():
 
     assert client.calls_made == 0
     assert rounds[-1].stopped_reason == Termination.CANCELLED
+
+
+def test_step_audits_each_llm_attempt_and_outcome_without_prompt_content():
+    sink = _RecordingAuditSink()
+    step = Step(
+        MockClient(script=[_reply(_done())]),
+        TrustedBackend(),
+        Runtime(),
+        audit_sink=sink,
+        task_id="task-audit-1",
+    )
+
+    step.run(_user("private prompt text"))
+
+    assert [event.event_type for event in sink.events] == ["llm.attempt", "llm.outcome"]
+    assert [event.attempt for event in sink.events] == [1, 1]
+    assert len({event.operation_id for event in sink.events}) == 1
+    assert all(event.task_id == "task-audit-1" for event in sink.events)
+    assert "private prompt text" not in repr([event.parameters for event in sink.events])
+
+
+def test_step_audits_one_logical_tool_operation():
+    sink = _RecordingAuditSink()
+    step = Step(
+        MockClient(script=[_reply(_exec_call("print('private code')")), _reply(_done())]),
+        TrustedBackend(),
+        Runtime(),
+        audit_sink=sink,
+        task_id="task-audit-2",
+    )
+
+    step.run(_user())
+
+    tool_events = [event for event in sink.events if event.event_type == "tool.operation"]
+    assert len(tool_events) == 1
+    assert tool_events[0].parameters == {"tool": "Exec"}
+    assert tool_events[0].result_status == "success"
+    assert "private code" not in repr(tool_events[0].parameters)
+
+
+def test_step_audits_missing_tool_handler_as_failed_operation():
+    sink = _RecordingAuditSink()
+    step = Step(
+        MockClient(script=[]),
+        TrustedBackend(),
+        Runtime(),
+        audit_sink=sink,
+        task_id="task-audit-missing",
+    )
+
+    outcome = step._dispatch(
+        ToolCall(id="missing-call", name="Missing", arguments=FileReadArgs(path="."))
+    )
+
+    assert outcome.success is False
+    assert len(sink.events) == 1
+    assert sink.events[0].event_type == "tool.operation"
+    assert sink.events[0].result_status == "failed"
 
 
 def test_step_cancel_event_wins_before_completed_result_is_published():

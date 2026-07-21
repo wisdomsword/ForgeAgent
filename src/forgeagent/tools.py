@@ -17,6 +17,7 @@ import hashlib
 import http.client
 import logging
 import os
+import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -25,6 +26,7 @@ from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel
 
+from .audit import AuditEvent, AuditSink, emit_audit
 from .executor import ExecResult, ExecutorBackend
 from .policy import CodeAnalyzer
 from .protocol import (
@@ -138,6 +140,8 @@ class ToolContext:
     # project-root lock for File tools (and WebFetch's save-to-disk path). Must be the
     # same resolved value passed to the executor backend's allowed_root — see §3.7.
     allowed_root: str = "."
+    audit_sink: AuditSink | None = None
+    task_id: str | None = None
 
 
 class Tool(ABC):
@@ -153,6 +157,49 @@ class Tool(ABC):
         Never raises for tool-level failures — those become ToolOutcome(success=False)
         so the Step loop can feed them back to the model.
         """
+
+
+def _audit_confirmation(
+    ctx: ToolContext,
+    *,
+    tool: str,
+    decision: str,
+    parameters: dict[str, object] | None = None,
+    duration_ms: int = 0,
+) -> None:
+    emit_audit(
+        ctx.audit_sink,
+        AuditEvent(
+            event_type="confirmation.decision",
+            task_id=ctx.task_id,
+            risk_level="high",
+            parameters={"tool": tool, **(parameters or {})},
+            result_status=decision,
+            duration_ms=duration_ms,
+        ),
+    )
+
+
+def _confirm(
+    ctx: ToolContext,
+    args: BaseModel,
+    *,
+    tool: str,
+    parameters: dict[str, object],
+) -> bool:
+    if ctx.confirmer is None:
+        _audit_confirmation(ctx, tool=tool, decision="denied", parameters=parameters)
+        return False
+    started = time.monotonic()
+    approved = bool(ctx.confirmer(args))
+    _audit_confirmation(
+        ctx,
+        tool=tool,
+        decision="approved" if approved else "denied",
+        parameters=parameters,
+        duration_ms=max(0, int((time.monotonic() - started) * 1000)),
+    )
+    return approved
 
 
 def _apply_edit(current_code: str, args: EditArgs) -> tuple[str | None, str | None]:
@@ -301,7 +348,10 @@ class MCPTool(Tool):
                 success=False,
                 detail="no MCP servers are configured",
             )
-        if not ctx.mcp.is_auto_approved(args.server, args.tool):
+        parameters = {"server": args.server, "operation": args.tool}
+        if ctx.mcp.is_auto_approved(args.server, args.tool):
+            _audit_confirmation(ctx, tool="MCP", decision="preapproved", parameters=parameters)
+        elif not _confirm(ctx, args, tool="MCP", parameters=parameters):
             if ctx.confirmer is None:
                 return ToolOutcome(
                     tool="MCP",
@@ -309,13 +359,12 @@ class MCPTool(Tool):
                     success=False,
                     detail="rejected: no interactive confirmation channel available",
                 )
-            if not ctx.confirmer(args):
-                return ToolOutcome(
-                    tool="MCP",
-                    block_name=label,
-                    success=False,
-                    detail=f"MCP call {label} was not approved by the user",
-                )
+            return ToolOutcome(
+                tool="MCP",
+                block_name=label,
+                success=False,
+                detail=f"MCP call {label} was not approved by the user",
+            )
         result = ctx.mcp.call_tool(args.server, args.tool, args.arguments)
         return ToolOutcome(
             tool="MCP",
@@ -343,13 +392,13 @@ class WebFetchTool(Tool):
     def run(self, args: BaseModel, ctx: ToolContext) -> ToolOutcome:
         assert isinstance(args, WebFetchArgs)
         if ctx.tier in ("restricted", "container"):
-            if ctx.confirmer is None:
-                return ToolOutcome(
-                    tool="WebFetch",
-                    success=False,
-                    detail="rejected: no interactive confirmation channel available",
-                )
-            if not ctx.confirmer(args):
+            if not _confirm(ctx, args, tool="WebFetch", parameters={"url": args.url}):
+                if ctx.confirmer is None:
+                    return ToolOutcome(
+                        tool="WebFetch",
+                        success=False,
+                        detail="rejected: no interactive confirmation channel available",
+                    )
                 return ToolOutcome(
                     tool="WebFetch",
                     success=False,
@@ -455,13 +504,18 @@ class FileWriteTool(Tool):
     def run(self, args: BaseModel, ctx: ToolContext) -> ToolOutcome:
         assert isinstance(args, FileWriteArgs)
         if ctx.tier in ("restricted", "container"):
-            if ctx.confirmer is None:
-                return ToolOutcome(
-                    tool="FileWrite",
-                    success=False,
-                    detail="rejected: no interactive confirmation channel available",
-                )
-            if not ctx.confirmer(args):
+            if not _confirm(
+                ctx,
+                args,
+                tool="FileWrite",
+                parameters={"path": args.path, "content_length": len(args.content)},
+            ):
+                if ctx.confirmer is None:
+                    return ToolOutcome(
+                        tool="FileWrite",
+                        success=False,
+                        detail="rejected: no interactive confirmation channel available",
+                    )
                 return ToolOutcome(
                     tool="FileWrite",
                     success=False,

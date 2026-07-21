@@ -17,12 +17,15 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 from collections.abc import Callable
 from enum import StrEnum
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
+from .audit import AuditEvent, AuditSink, emit_audit
 from .client import ModelClient
 from .executor import ExecutorBackend
 from .models import (
@@ -192,6 +195,8 @@ class Step:
         allowed_root: str = ".",
         on_stream_text: Callable[[str, StreamEventKind], None] | None = None,
         cancel_event: threading.Event | None = None,
+        audit_sink: AuditSink | None = None,
+        task_id: str | None = None,
     ):
         self._client = client
         self._backend = backend
@@ -204,6 +209,8 @@ class Step:
         # is this method's return value, not something the callback needs.
         self._on_stream_text = on_stream_text
         self._cancel_event = cancel_event
+        self._audit_sink = audit_sink
+        self._task_id = task_id
         # Static AST layer: advisory feedback before execution (not a security boundary).
         self._analyzer = analyzer or CodeAnalyzer()
         self.blocks = CodeBlockStore()
@@ -221,6 +228,8 @@ class Step:
             confirmer=confirmer,
             tier=tier,
             allowed_root=allowed_root,
+            audit_sink=audit_sink,
+            task_id=task_id,
         )
         self.rounds: list[RoundResult] = []
 
@@ -254,7 +263,7 @@ class Step:
         """
         convo = list(messages)
         prose_nudged = False
-        for _ in range(self._max_rounds):
+        for attempt in range(1, self._max_rounds + 1):
             if self._cancelled():
                 if self.rounds:
                     self.rounds[-1].completed = False
@@ -262,7 +271,45 @@ class Step:
                 else:
                     self.rounds.append(RoundResult(text="", stopped_reason=Termination.CANCELLED))
                 break
+            operation_id = uuid4().hex
+            started = time.monotonic()
+            model_id = getattr(self._client.capability, "model_id", "unknown")
+            self._emit(
+                AuditEvent(
+                    event_type="llm.attempt",
+                    task_id=self._task_id,
+                    operation_id=operation_id,
+                    attempt=attempt,
+                    parameters={"model": model_id},
+                    result_status="started",
+                )
+            )
             reply = self._stream_or_complete(convo)
+            if isinstance(reply, ClientError):
+                outcome_status = "cancelled" if self._cancelled() else "error"
+                outcome_parameters = {
+                    "model": model_id,
+                    "error_kind": reply.kind,
+                    "provider_attempts": reply.attempts,
+                }
+            else:
+                outcome_status = "success"
+                outcome_parameters = {
+                    "model": model_id,
+                    "stop_reason": reply.stop_reason,
+                    "usage": reply.usage.model_dump(mode="python"),
+                }
+            self._emit(
+                AuditEvent(
+                    event_type="llm.outcome",
+                    task_id=self._task_id,
+                    operation_id=operation_id,
+                    attempt=attempt,
+                    parameters=outcome_parameters,
+                    result_status=outcome_status,
+                    duration_ms=max(0, int((time.monotonic() - started) * 1000)),
+                )
+            )
             if isinstance(reply, ClientError):
                 if self._cancelled():
                     self.rounds.append(RoundResult(text="", stopped_reason=Termination.CANCELLED))
@@ -385,12 +432,53 @@ class Step:
         # for text/native calls (both go through the same registered schema table).
         tool = self._registry.get(call.name)
         if tool is None:  # defensive: only reachable if a tool schema outlives its Tool.
+            self._emit(
+                AuditEvent(
+                    event_type="tool.operation",
+                    task_id=self._task_id,
+                    operation_id=call.id,
+                    risk_level="high",
+                    parameters={"tool": call.name},
+                    result_status="failed",
+                    duration_ms=0,
+                )
+            )
             return ToolOutcome(
                 tool=call.name,
                 success=False,
                 detail=f"no handler registered for tool {call.name!r}",
             )
-        return tool.run(call.arguments, self._ctx)
+        started = time.monotonic()
+        try:
+            outcome = tool.run(call.arguments, self._ctx)
+        except Exception:
+            self._emit(
+                AuditEvent(
+                    event_type="tool.operation",
+                    task_id=self._task_id,
+                    operation_id=call.id,
+                    risk_level="high",
+                    parameters={"tool": call.name},
+                    result_status="error",
+                    duration_ms=max(0, int((time.monotonic() - started) * 1000)),
+                )
+            )
+            raise
+        self._emit(
+            AuditEvent(
+                event_type="tool.operation",
+                task_id=self._task_id,
+                operation_id=call.id,
+                risk_level="high",
+                parameters={"tool": call.name},
+                result_status="success" if outcome.success else "failed",
+                duration_ms=max(0, int((time.monotonic() - started) * 1000)),
+            )
+        )
+        return outcome
+
+    def _emit(self, event: AuditEvent) -> None:
+        emit_audit(self._audit_sink, event)
 
     def _render_feedback(self, rr: RoundResult) -> str:
         """Render parse errors and tool outcomes into a system feedback string.

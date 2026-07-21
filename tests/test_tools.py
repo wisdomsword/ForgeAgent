@@ -10,6 +10,7 @@ Covers the acceptance points in docs/m7-tools-mcp-survey.md §六 Phase 1:
 
 from pydantic import BaseModel
 
+from forgeagent.audit import AuditEvent
 from forgeagent.executor import TrustedBackend
 from forgeagent.policy import CodeAnalyzer
 from forgeagent.protocol import (
@@ -50,6 +51,15 @@ class _DummyTool(Tool):
     def run(self, args: BaseModel, ctx: ToolContext) -> ToolOutcome:
         assert isinstance(args, _DummyArgs)
         return ToolOutcome(tool="Dummy", success=True, detail=args.payload)
+
+
+class _RecordingAuditSink:
+    def __init__(self):
+        self.events: list[AuditEvent] = []
+
+    def emit(self, event: AuditEvent) -> bool:
+        self.events.append(event)
+        return True
 
 
 def test_registry_registers_and_exposes_schema():
@@ -253,6 +263,42 @@ def test_mcp_confirmer_denial_blocks_call():
     assert outcome.success is False
     assert "not approved" in outcome.detail
     assert fake.calls == []  # denied -> server never called
+
+
+def test_mcp_confirmation_decision_is_audited_once():
+    fake = _FakeMCP()
+    sink = _RecordingAuditSink()
+    ctx = _mcp_ctx(mcp=fake, confirmer=lambda args: False)
+    ctx.audit_sink = sink
+    ctx.task_id = "task-confirmation"
+
+    outcome = MCPTool().run(MCPArgs(server="gh", tool="delete_repo"), ctx)
+
+    assert outcome.success is False
+    assert len(sink.events) == 1
+    event = sink.events[0]
+    assert event.event_type == "confirmation.decision"
+    assert event.task_id == "task-confirmation"
+    assert event.result_status == "denied"
+    assert event.parameters == {
+        "tool": "MCP",
+        "server": "gh",
+        "operation": "delete_repo",
+    }
+
+
+def test_mcp_auto_approve_emits_preapproved_decision():
+    fake = _FakeMCP(auto_approved={("fs", "read_file")})
+    sink = _RecordingAuditSink()
+    ctx = _mcp_ctx(mcp=fake, confirmer=None)
+    ctx.audit_sink = sink
+
+    outcome = MCPTool().run(MCPArgs(server="fs", tool="read_file"), ctx)
+
+    assert outcome.success is True
+    assert len(sink.events) == 1
+    assert sink.events[0].result_status == "preapproved"
+    assert sink.events[0].duration_ms == 0
 
 
 def test_mcp_outcome_uses_public_identity_but_routes_raw_identity(monkeypatch):

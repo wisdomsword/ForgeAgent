@@ -3,6 +3,7 @@
 import json
 import threading
 
+from forgeagent.audit import AuditEvent
 from forgeagent.client import MockClient
 from forgeagent.identity import ApprovedIdentity
 from forgeagent.models import AssistantMessage, StreamEvent, StreamEventKind, TokenUsage
@@ -35,11 +36,34 @@ class _RecordingTaskClient(MockClient):
         return super().complete(messages, params)
 
 
+class _RecordingAuditSink:
+    def __init__(self):
+        self.events: list[AuditEvent] = []
+
+    def emit(self, event: AuditEvent) -> bool:
+        self.events.append(event)
+        return True
+
+
 def test_task_completes_normally():
     task = Task(MockClient(script=[_reply(_done())]))
     outcome = task.run("do a thing")
     assert outcome.status.completed is True
     assert outcome.status.reason == "completed"
+
+
+def test_task_forwards_audit_sink_and_task_id_to_core_events():
+    sink = _RecordingAuditSink()
+
+    outcome = Task(
+        MockClient(script=[_reply(_done())]),
+        audit_sink=sink,
+        task_id="task-correlation",
+    ).run("do a thing")
+
+    assert outcome.status.completed is True
+    assert sink.events
+    assert all(event.task_id == "task-correlation" for event in sink.events)
 
 
 def test_task_status_exposes_cancelled_without_marking_solved():

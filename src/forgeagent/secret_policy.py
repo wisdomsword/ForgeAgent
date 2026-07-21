@@ -21,11 +21,15 @@ directly in trusted, so there is nothing to use it yet.
 
 from __future__ import annotations
 
+import math
 import os
 import re
 from collections.abc import Iterable, Mapping
+from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 REDACTED = "***REDACTED***"
+REDACTED_PATH = "<redacted-path>"
 
 # Env var names whose values are treated as secrets. SECRET/TOKEN/PASSWORD/CREDENTIAL are
 # matched anywhere (they do not occur in benign names like PATH/HOME); KEY/PAT/APIKEY are
@@ -81,3 +85,72 @@ def mask_secrets(text: str, secret_values: Iterable[str]) -> str:
     for value in sorted((v for v in secret_values if v), key=len, reverse=True):
         text = text.replace(value, REDACTED)
     return text
+
+
+def mask_audit_data(
+    value: object,
+    secret_values: Iterable[str],
+    *,
+    field_name: str | None = None,
+) -> object:
+    """Return a JSON-safe, secret-masked audit projection of ``value``.
+
+    Audit inputs cross a logging trust boundary. Secret-named fields are removed even
+    when their value is not in the known-secret set, absolute host paths are never
+    retained, and unsupported objects use a type-only fallback rather than ``str()``.
+    """
+    secrets = set(secret_values)
+    if field_name and is_secret_name(field_name):
+        return REDACTED
+    if value is None or isinstance(value, bool | int):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else "<non-finite>"
+    if isinstance(value, Path):
+        return REDACTED_PATH if value.is_absolute() else mask_secrets(value.as_posix(), secrets)
+    if isinstance(value, str):
+        if field_name and "url" in field_name.casefold():
+            return _mask_audit_url(value, secrets)
+        if _is_path_field(field_name) and os.path.isabs(value):
+            return REDACTED_PATH
+        return mask_secrets(value, secrets)
+    if isinstance(value, Mapping):
+        return {
+            mask_secrets(str(key), secrets): mask_audit_data(
+                item,
+                secrets,
+                field_name=str(key),
+            )
+            for key, item in value.items()
+        }
+    if isinstance(value, list | tuple):
+        return [mask_audit_data(item, secrets, field_name=field_name) for item in value]
+    if isinstance(value, set | frozenset):
+        projected = [mask_audit_data(item, secrets, field_name=field_name) for item in value]
+        return sorted(projected, key=repr)
+    return f"<unsupported:{type(value).__name__}>"
+
+
+def _is_path_field(field_name: str | None) -> bool:
+    if field_name is None:
+        return False
+    normalized = field_name.casefold().replace("-", "_")
+    return normalized == "path" or normalized.endswith("_path") or normalized.endswith("_root")
+
+
+def _mask_audit_url(value: str, secret_values: set[str]) -> str:
+    """Drop URL credentials, query, and fragment while retaining a useful route label."""
+    try:
+        parsed = urlsplit(value)
+        host = parsed.hostname
+        port = parsed.port
+    except ValueError:
+        return "<redacted-url>"
+    if parsed.scheme not in {"http", "https"} or not host:
+        return "<redacted-url>"
+    safe_host = mask_secrets(host, secret_values)
+    if ":" in safe_host and not safe_host.startswith("["):
+        safe_host = f"[{safe_host}]"
+    netloc = f"{safe_host}:{port}" if port is not None else safe_host
+    safe_path = mask_secrets(parsed.path or "/", secret_values)
+    return urlunsplit((parsed.scheme, netloc, safe_path, "", ""))

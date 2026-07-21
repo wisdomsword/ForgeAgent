@@ -16,6 +16,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
+from .audit import AuditSink
 from .client import ModelClient
 from .executor import ContainerBackend, ExecutorBackend, RestrictedBackend, TrustedBackend
 from .identity import ApprovedIdentity, compose_system_prompt
@@ -91,6 +92,8 @@ class Task:
         confirmer: Confirmer | None = None,
         container_image: str | None = None,
         on_stream_text: Callable[[str, StreamEventKind], None] | None = None,
+        audit_sink: AuditSink | None = None,
+        task_id: str | None = None,
     ):
         self._client = client
         self._tier = tier
@@ -118,6 +121,8 @@ class Task:
         # client.stream() instead of complete() and forwards each delta here for
         # display (docs/m9-streaming-multimodal-commands.md §3.3).
         self._on_stream_text = on_stream_text
+        self._audit_sink = audit_sink
+        self._task_id = task_id
         self.runtime = Runtime()
 
     def close(self) -> None:
@@ -182,6 +187,8 @@ class Task:
             allowed_root=self._allowed_root,
             on_stream_text=self._on_stream_text,
             cancel_event=cancel_event,
+            audit_sink=self._audit_sink,
+            task_id=self._task_id,
         )
         rounds = step.run(messages)
         return TaskOutcome(status=self._derive_status(rounds), rounds=rounds)
