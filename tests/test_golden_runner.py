@@ -252,7 +252,7 @@ def _parse_golden_catalog_definitions(
 def _assert_golden_candidate_catalog(markdown: str) -> None:
     heading_ids, candidate_rows = _parse_golden_catalog_definitions(markdown)
     expected_heading_ids = frozenset(f"G{number:02d}" for number in range(1, 31))
-    expected_candidate_ids = frozenset(f"G{number:02d}" for number in range(31, 381))
+    expected_candidate_ids = frozenset(f"G{number:02d}" for number in range(31, 401))
     expected_ids = expected_heading_ids | expected_candidate_ids
     heading_id_set = frozenset(heading_ids)
     candidate_id_set = frozenset(candidate_rows)
@@ -264,7 +264,7 @@ def _assert_golden_candidate_catalog(markdown: str) -> None:
     assert candidate_id_set == expected_candidate_ids
     assert all_ids == expected_ids
     assert EXPECTED_IDS <= all_ids
-    assert len(all_ids - EXPECTED_IDS) == 360
+    assert len(all_ids - EXPECTED_IDS) == 380
 
 
 def _assert_readme_proxy_migration_contract(readme: str) -> None:
@@ -312,15 +312,15 @@ def test_golden_candidate_catalog_rejects_duplicate_missing_extra_and_misnumbere
         f"| G{number:02d} | repeated reference |\n" for number in range(1, 16)
     )
     candidate_table = "| ID | 描述 | Pass 判定 |\n| --- | --- | --- |\n" + "".join(
-        f"| G{number:02d} | candidate | checked |\n" for number in range(31, 381)
+        f"| G{number:02d} | candidate | checked |\n" for number in range(31, 401)
     )
     catalog = headings + coverage_matrix + candidate_table
     invalid_catalogs = (
         catalog.replace("### G30\n", ""),
-        catalog.replace("| G380 | candidate | checked |\n", ""),
-        catalog.replace("| G380 | candidate | checked |\n", "| G381 | candidate | checked |\n"),
-        catalog.replace("| G380 | candidate | checked |\n", "| G0380 | candidate | checked |\n"),
-        catalog + "| G380 | duplicate definition | checked |\n",
+        catalog.replace("| G400 | candidate | checked |\n", ""),
+        catalog.replace("| G400 | candidate | checked |\n", "| G401 | candidate | checked |\n"),
+        catalog.replace("| G400 | candidate | checked |\n", "| G0400 | candidate | checked |\n"),
+        catalog + "| G400 | duplicate definition | checked |\n",
     )
 
     for invalid_catalog in invalid_catalogs:
@@ -859,7 +859,7 @@ def test_manifest_preflight_rejects_coverage_reference_without_g01_definition(tm
     coverage_matrix = "| ID | Category |\n| --- | --- |\n| G01 | core |\n"
     core_headings = "\n".join(f"### G{number:02d} definition" for number in range(2, 31))
     candidate_table = "| ID | 描述 | Pass 判定 |\n| --- | --- | --- |\n" + "\n".join(
-        f"| G{number:02d} | candidate | checked |" for number in range(31, 381)
+        f"| G{number:02d} | candidate | checked |" for number in range(31, 401)
     )
     catalog = tmp_path / "catalog.md"
     catalog.write_text(
