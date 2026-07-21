@@ -288,6 +288,22 @@ def _assert_readme_identity_contract(readme: str) -> None:
     assert "identity-trust.json" in readme
     assert "首次使用需终端确认" in readme
     assert "docs/threat-model.md" in readme
+    assert "SOUL 段始终存在" in readme
+    assert "内置中性默认人格" in readme
+    assert "只有 USER/AGENTS/MEMORY" in readme
+
+
+def _assert_identity_threat_model_contract(threat_model: str) -> None:
+    t12 = next((line for line in threat_model.splitlines() if line.startswith("| T12 |")), "")
+    assert "| T12 | Identity file path/size/TOCTOU and persistent trust bypass |" in t12
+    assert (
+        "Unsafe or oversized AGENTS.md/MEMORY.md content is stripped with a masked diagnostic"
+        in t12
+    )
+    assert (
+        "an unreadable AGENTS.md or MEMORY.md raises IdentityConfigError and stops identity "
+        "resolution" in t12
+    )
 
 
 def _pass(_: Path) -> GoldenEvidence:
@@ -356,6 +372,12 @@ def test_readme_documents_identity_file_conventions_and_no_identity_flag():
     readme_path = Path(__file__).parent.parent / "README.md"
 
     _assert_readme_identity_contract(readme_path.read_text(encoding="utf-8"))
+
+
+def test_threat_model_distinguishes_rejected_from_unreadable_project_identity():
+    threat_model_path = Path(__file__).parent.parent / "docs" / "threat-model.md"
+
+    _assert_identity_threat_model_contract(threat_model_path.read_text(encoding="utf-8"))
 
 
 def test_common_cases_return_the_exact_evidence_contract(tmp_path):

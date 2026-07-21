@@ -122,9 +122,9 @@ uv run forgeagent --tier container --container-image my-image:latest run "..."
 
 ## 身份与提示词（SOUL/USER/AGENTS/MEMORY）
 
-ForgeAgent 的系统提示词由固定协议段（不可覆盖，见 [`docs/text-protocol-spec.md`](docs/text-protocol-spec.md)）和可选的自定义身份段组合而成。自定义身份段完全可选，缺失时对应 section 直接不出现，不影响固定协议：
+ForgeAgent 的系统提示词由固定协议段（不可覆盖，见 [`docs/text-protocol-spec.md`](docs/text-protocol-spec.md)）和身份段组合而成。SOUL 段始终存在：自定义文件缺失时使用内置中性默认人格。只有 USER/AGENTS/MEMORY 属于可省略 section；对应内容缺失时 section 不出现，不影响固定协议：
 
-- `~/.forgeagent/SOUL.md`：用户级 Agent 人格/身份描述，存在时**完全替换**内置默认人格段，不与默认内容合并。
+- `~/.forgeagent/SOUL.md`：用户级 Agent 人格/身份描述，存在时**完全替换**内置中性默认人格，不与默认内容合并；缺失时保留该默认人格作为 SOUL 段。
 - `~/.forgeagent/USER.md`：用户级偏好说明（如“回答从简”“默认用中文”），随每次任务注入。
 - `<allowed_root>/.forgeagent/AGENTS.md`：项目级协作规则。**首次使用需终端确认**（有界、控制字符转义、secret 掩码后的内容预览 + 截断项目标签），确认结果原子写入 `~/.forgeagent/identity-trust.json`；内容变化会使旧确认失效并重新提示确认；无交互终端（headless）时默认拒绝，不会静默生效。
 - `<allowed_root>/.forgeagent/MEMORY.md`：项目级记忆，同 `AGENTS.md` 走确认门。当前版本只读——ForgeAgent 不会自动写入或提炼记忆内容，由用户手工维护。
