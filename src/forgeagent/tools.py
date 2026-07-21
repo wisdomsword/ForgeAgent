@@ -23,6 +23,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
+from uuid import uuid4
 
 from pydantic import BaseModel
 
@@ -142,6 +143,7 @@ class ToolContext:
     allowed_root: str = "."
     audit_sink: AuditSink | None = None
     task_id: str | None = None
+    operation_id: str | None = None
 
 
 class Tool(ABC):
@@ -149,6 +151,7 @@ class Tool(ABC):
 
     name: str
     args_model: type[BaseModel]
+    risk_level: Literal["low", "medium", "high"] = "high"
 
     @abstractmethod
     def run(self, args: BaseModel, ctx: ToolContext) -> ToolOutcome:
@@ -172,6 +175,7 @@ def _audit_confirmation(
         AuditEvent(
             event_type="confirmation.decision",
             task_id=ctx.task_id,
+            operation_id=ctx.operation_id or uuid4().hex,
             risk_level="high",
             parameters={"tool": tool, **(parameters or {})},
             result_status=decision,
@@ -191,7 +195,17 @@ def _confirm(
         _audit_confirmation(ctx, tool=tool, decision="denied", parameters=parameters)
         return False
     started = time.monotonic()
-    approved = bool(ctx.confirmer(args))
+    try:
+        approved = bool(ctx.confirmer(args))
+    except Exception:
+        _audit_confirmation(
+            ctx,
+            tool=tool,
+            decision="error",
+            parameters=parameters,
+            duration_ms=max(0, int((time.monotonic() - started) * 1000)),
+        )
+        raise
     _audit_confirmation(
         ctx,
         tool=tool,
@@ -261,6 +275,7 @@ class EditTool(Tool):
 
     name = "Edit"
     args_model = EditArgs
+    risk_level = "medium"
 
     def run(self, args: BaseModel, ctx: ToolContext) -> ToolOutcome:
         assert isinstance(args, EditArgs)
@@ -295,6 +310,7 @@ class SurveyTool(Tool):
 
     name = "Survey"
     args_model = SurveyArgs
+    risk_level = "low"
 
     def run(self, args: BaseModel, ctx: ToolContext) -> ToolOutcome:
         assert isinstance(args, SurveyArgs)
@@ -469,6 +485,7 @@ class FileReadTool(Tool):
 
     name = "FileRead"
     args_model = FileReadArgs
+    risk_level = "low"
 
     def run(self, args: BaseModel, ctx: ToolContext) -> ToolOutcome:
         assert isinstance(args, FileReadArgs)
@@ -549,6 +566,7 @@ class FileListTool(Tool):
 
     name = "FileList"
     args_model = FileListArgs
+    risk_level = "low"
 
     def run(self, args: BaseModel, ctx: ToolContext) -> ToolOutcome:
         assert isinstance(args, FileListArgs)

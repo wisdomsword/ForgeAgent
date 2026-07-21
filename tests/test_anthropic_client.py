@@ -28,9 +28,7 @@ def _client(model_id: str, transport=None, **kw) -> AnthropicClient:
     )
 
 
-def _fake_reply(
-    text="ok", stop_reason="end_turn", inp=3, out=5, cache_creation=0, cache_read=0
-):
+def _fake_reply(text="ok", stop_reason="end_turn", inp=3, out=5, cache_creation=0, cache_read=0):
     return SimpleNamespace(
         content=[SimpleNamespace(type="text", text=text)],
         stop_reason=stop_reason,
@@ -84,12 +82,14 @@ def test_thinking_off_omits_param_best_effort():
 
 
 def test_max_output_falls_back_to_capability_ceiling():
-    assert _client("claude-haiku-4-5").build_request(_user(), GenerationParams())[
-        "max_tokens"
-    ] == 64_000
-    assert _client("claude-sonnet-5").build_request(_user(), GenerationParams())[
-        "max_tokens"
-    ] == 128_000
+    assert (
+        _client("claude-haiku-4-5").build_request(_user(), GenerationParams())["max_tokens"]
+        == 64_000
+    )
+    assert (
+        _client("claude-sonnet-5").build_request(_user(), GenerationParams())["max_tokens"]
+        == 128_000
+    )
 
 
 def test_effort_passed_through_when_supported():
@@ -131,9 +131,9 @@ def test_parse_response_defaults_cached_tokens_to_zero():
 
 
 def test_refusal_is_assistant_message_not_error():
-    result = _client("claude-fable-5", transport=lambda req, t: _fake_reply(
-        text="", stop_reason="refusal"
-    )).complete(_user())
+    result = _client(
+        "claude-fable-5", transport=lambda req, t: _fake_reply(text="", stop_reason="refusal")
+    ).complete(_user())
     # refusal surfaces as a successful AssistantMessage, not a ClientError.
     assert not isinstance(result, ClientError)
     assert result.stop_reason == "refusal"
@@ -208,6 +208,32 @@ def test_retry_then_success():
     assert not isinstance(result, ClientError)
     assert result.content == "recovered"
     assert state["n"] == 2
+
+
+def test_complete_reports_each_provider_attempt_before_retry_success():
+    observed = []
+    state = {"n": 0}
+
+    def transport(req, t):
+        state["n"] += 1
+        if state["n"] == 1:
+            raise TransportError("network", True, "blip")
+        return _fake_reply(text="recovered")
+
+    result = _client(
+        "claude-sonnet-5",
+        transport=transport,
+        max_attempts=3,
+        attempt_observer=observed.append,
+    ).complete(_user())
+
+    assert not isinstance(result, ClientError)
+    assert [(event.attempt, event.status, event.error_kind) for event in observed] == [
+        (1, "started", None),
+        (1, "error", "network"),
+        (2, "started", None),
+        (2, "success", None),
+    ]
 
 
 def test_malformed_response_becomes_client_error_not_traceback():

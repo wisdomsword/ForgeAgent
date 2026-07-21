@@ -42,6 +42,8 @@ _SECRET_NAME_RE = re.compile(
 # Values shorter than this are never masked: too likely to be a common substring (a port,
 # "true", a single word) whose blanket replacement would corrupt unrelated output.
 _MIN_SECRET_LENGTH = 8
+_POSIX_PATH_RE = re.compile(r"(?<![\w:/])/(?:[^/\s\x00-\x1f]+/)*[^/\s\x00-\x1f]*")
+_WINDOWS_PATH_RE = re.compile(r"(?i)(?<![a-z0-9])[a-z]:\\(?:[^\\\s\x00-\x1f]+\\)*[^\\\s\x00-\x1f]*")
 
 
 def is_secret_name(name: str) -> bool:
@@ -113,13 +115,13 @@ def mask_audit_data(
             return _mask_audit_url(value, secrets)
         if _is_path_field(field_name) and os.path.isabs(value):
             return REDACTED_PATH
-        return mask_secrets(value, secrets)
+        return mask_secrets(_redact_absolute_paths(value), secrets)
     if isinstance(value, Mapping):
         return {
-            mask_secrets(str(key), secrets): mask_audit_data(
+            _safe_mapping_key(key, secrets): mask_audit_data(
                 item,
                 secrets,
-                field_name=str(key),
+                field_name=key if isinstance(key, str) else None,
             )
             for key, item in value.items()
         }
@@ -129,6 +131,19 @@ def mask_audit_data(
         projected = [mask_audit_data(item, secrets, field_name=field_name) for item in value]
         return sorted(projected, key=repr)
     return f"<unsupported:{type(value).__name__}>"
+
+
+def _safe_mapping_key(key: object, secret_values: set[str]) -> str:
+    """Project mapping keys without invoking hostile user-defined ``__str__``."""
+    if isinstance(key, str):
+        return mask_secrets(_redact_absolute_paths(key), secret_values)
+    return f"<unsupported-key:{type(key).__name__}>"
+
+
+def _redact_absolute_paths(value: str) -> str:
+    """Remove host-absolute path tokens even when they occur in free-form text."""
+    value = _POSIX_PATH_RE.sub(REDACTED_PATH, value)
+    return _WINDOWS_PATH_RE.sub(REDACTED_PATH, value)
 
 
 def _is_path_field(field_name: str | None) -> bool:

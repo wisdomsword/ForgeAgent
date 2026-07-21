@@ -10,7 +10,7 @@ import threading
 import pytest
 
 from forgeagent.audit import AuditEvent
-from forgeagent.client import MockClient
+from forgeagent.client import MockClient, ProviderAttempt
 from forgeagent.executor import TrustedBackend
 from forgeagent.models import (
     AssistantMessage,
@@ -22,7 +22,7 @@ from forgeagent.models import (
     StreamEventKind,
     TokenUsage,
 )
-from forgeagent.protocol import EditArgs, FileReadArgs, ToolCall
+from forgeagent.protocol import EditArgs, FileReadArgs, MCPArgs, ToolCall
 from forgeagent.runtime import Runtime
 from forgeagent.step import RoundResult, Step, Termination, _apply_edit
 from forgeagent.tools import ToolOutcome
@@ -104,6 +104,122 @@ def test_step_audits_each_llm_attempt_and_outcome_without_prompt_content():
     assert len({event.operation_id for event in sink.events}) == 1
     assert all(event.task_id == "task-audit-1" for event in sink.events)
     assert "private prompt text" not in repr([event.parameters for event in sink.events])
+
+
+def test_step_correlates_provider_attempts_with_logical_llm_operation():
+    sink = _RecordingAuditSink()
+
+    class _AttemptClient(MockClient):
+        def complete(self, messages, params=None):
+            self._notify_attempt(ProviderAttempt(attempt=1, status="started"))
+            self._notify_attempt(ProviderAttempt(attempt=1, status="error", error_kind="network"))
+            self._notify_attempt(ProviderAttempt(attempt=2, status="started"))
+            result = super().complete(messages, params)
+            self._notify_attempt(ProviderAttempt(attempt=2, status="success"))
+            return result
+
+    step = Step(
+        _AttemptClient(script=[_reply(_done())]),
+        TrustedBackend(),
+        Runtime(),
+        audit_sink=sink,
+    )
+
+    step.run(_user())
+
+    provider = [event for event in sink.events if event.event_type == "llm.provider_attempt"]
+    logical = [event for event in sink.events if event.event_type != "llm.provider_attempt"]
+    assert [event.result_status for event in provider] == [
+        "started",
+        "error",
+        "started",
+        "success",
+    ]
+    assert {event.operation_id for event in provider + logical} == {logical[0].operation_id}
+
+
+def test_step_correlates_confirmation_and_tool_operation_with_tool_call_id():
+    sink = _RecordingAuditSink()
+
+    class _MCP:
+        def public_tool_label(self, server, tool):
+            return f"{server}:{tool}"
+
+        def is_auto_approved(self, server, tool):
+            return False
+
+        def call_tool(self, server, tool, arguments):
+            return {"ok": True, "text": "done"}
+
+    step = Step(
+        MockClient(script=[]),
+        TrustedBackend(),
+        Runtime(),
+        mcp=_MCP(),
+        confirmer=lambda args: True,
+        audit_sink=sink,
+    )
+
+    outcome = step._dispatch(
+        ToolCall(
+            id="tool-call-approved",
+            name="MCP",
+            arguments=MCPArgs(server="gh", tool="create_issue"),
+        )
+    )
+
+    assert outcome.success is True
+    assert [event.event_type for event in sink.events] == [
+        "confirmation.decision",
+        "tool.operation",
+    ]
+    assert {event.operation_id for event in sink.events} == {"tool-call-approved"}
+    assert sink.events[0].result_status == "approved"
+
+
+def test_step_audits_fixed_error_outcome_when_complete_raises():
+    sink = _RecordingAuditSink()
+    control = RuntimeError("private /Users/admin/error detail")
+
+    class _RaisingClient(MockClient):
+        def complete(self, messages, params=None):
+            raise control
+
+    step = Step(_RaisingClient(script=[]), TrustedBackend(), Runtime(), audit_sink=sink)
+
+    with pytest.raises(RuntimeError) as raised:
+        step.run(_user())
+
+    assert raised.value is control
+    assert [event.result_status for event in sink.events] == ["started", "error"]
+    assert sink.events[-1].parameters == {"model": "mock"}
+
+
+def test_step_audits_fixed_interrupted_outcome_when_stream_callback_raises():
+    sink = _RecordingAuditSink()
+    control = RuntimeError("private callback detail")
+
+    class _StreamingClient(MockClient):
+        def stream(self, messages, params=None):
+            yield StreamEvent(kind=StreamEventKind.TEXT_DELTA, text="partial")
+
+    def callback(text, kind):
+        raise control
+
+    step = Step(
+        _StreamingClient(script=[]),
+        TrustedBackend(),
+        Runtime(),
+        on_stream_text=callback,
+        audit_sink=sink,
+    )
+
+    with pytest.raises(RuntimeError) as raised:
+        step.run(_user())
+
+    assert raised.value is control
+    assert [event.result_status for event in sink.events] == ["started", "interrupted"]
+    assert sink.events[-1].parameters == {"model": "mock"}
 
 
 def test_step_audits_one_logical_tool_operation():

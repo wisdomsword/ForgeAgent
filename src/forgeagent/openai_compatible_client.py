@@ -16,7 +16,7 @@ import time
 from collections.abc import Callable, Iterable, Iterator
 from typing import Any
 
-from .client import ModelClient
+from .client import AttemptObserver, ModelClient, ProviderAttempt
 from .models import (
     AssistantMessage,
     ClientError,
@@ -88,6 +88,7 @@ class OpenAICompatibleClient(ModelClient):
         base_url: str | None = None,
         transport: Transport | None = None,
         stream_transport: StreamTransport | None = None,
+        attempt_observer: AttemptObserver | None = None,
         sleep: Callable[[float], None] = time.sleep,
     ):
         self._capability = capability
@@ -100,6 +101,7 @@ class OpenAICompatibleClient(ModelClient):
         self._transport = transport or self._make_sdk_transport()
         self._stream_transport = stream_transport or self._make_sdk_stream_transport()
         self._sleep = sleep
+        self._attempt_observer = attempt_observer
 
     @property
     def capability(self) -> ModelCapability:
@@ -157,6 +159,7 @@ class OpenAICompatibleClient(ModelClient):
             backoff_factor=self._backoff_factor,
             sleep=self._sleep,
             parse_response=_parse_response,
+            attempt_observer=self._attempt_observer,
         )
 
     def stream(
@@ -183,6 +186,7 @@ class OpenAICompatibleClient(ModelClient):
         attempt = 0
         while True:
             attempt += 1
+            self._notify_attempt(ProviderAttempt(attempt=attempt, status="started"))
             started = False
             aggregating_tool_calls = False
             text_parts: list[str] = []
@@ -239,6 +243,13 @@ class OpenAICompatibleClient(ModelClient):
                             reasoning_tokens=_extract_reasoning_tokens(chunk_usage),
                         )
             except TransportError as exc:
+                self._notify_attempt(
+                    ProviderAttempt(
+                        attempt=attempt,
+                        status="error" if not started else "interrupted",
+                        error_kind=exc.kind,
+                    )
+                )
                 if not started and exc.retryable and attempt < self._max_attempts:
                     self._sleep(self._backoff_base * self._backoff_factor ** (attempt - 1))
                     continue
@@ -246,6 +257,9 @@ class OpenAICompatibleClient(ModelClient):
                 return
             except Exception as exc:  # noqa: BLE001 - mid-stream failure, never retried
                 kind, _retryable = classify_transport_exception(exc)
+                self._notify_attempt(
+                    ProviderAttempt(attempt=attempt, status="interrupted", error_kind=kind)
+                )
                 yield ClientError(message=str(exc), kind=kind, attempts=attempt)
                 return
             if not stop_reason:
@@ -253,6 +267,9 @@ class OpenAICompatibleClient(ModelClient):
                 # a finish_reason — a silent mid-stream truncation. Discard the partial
                 # text just like the exception path above, rather than yielding a DONE
                 # with an empty stop_reason (T11c).
+                self._notify_attempt(
+                    ProviderAttempt(attempt=attempt, status="interrupted", error_kind="unknown")
+                )
                 yield ClientError(
                     message="stream ended before finish_reason", kind="unknown", attempts=attempt
                 )
@@ -263,6 +280,7 @@ class OpenAICompatibleClient(ModelClient):
                 )
                 for _, fragment in sorted(tool_call_fragments.items())
             ]
+            self._notify_attempt(ProviderAttempt(attempt=attempt, status="success"))
             yield StreamEvent(
                 kind=StreamEventKind.DONE,
                 message=AssistantMessage(

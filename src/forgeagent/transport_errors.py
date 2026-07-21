@@ -17,6 +17,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+from .client import AttemptObserver, ProviderAttempt
 from .models import AssistantMessage, ClientError
 
 # Map SDK exception class names -> (ClientError.kind, retryable). Matched against the
@@ -43,6 +44,15 @@ class TransportError(Exception):
         self.retryable = retryable
 
 
+def _notify_attempt(observer: AttemptObserver | None, event: ProviderAttempt) -> None:
+    if observer is None:
+        return
+    try:
+        observer(event)
+    except Exception:  # diagnostic hooks must not alter provider behavior
+        pass
+
+
 def classify_transport_exception(exc: BaseException) -> tuple[str, bool]:
     """Classify an exception into (kind, retryable) by its class MRO names.
 
@@ -65,6 +75,7 @@ def run_with_retries(
     backoff_factor: float,
     sleep: Callable[[float], None],
     parse_response: Callable[[Any], AssistantMessage],
+    attempt_observer: AttemptObserver | None = None,
 ) -> AssistantMessage | ClientError:
     """Call `transport(request, timeout_seconds)`, retrying retryable TransportErrors
     with exponential backoff, then hand the raw response to `parse_response`.
@@ -76,16 +87,27 @@ def run_with_retries(
     attempt = 0
     while True:
         attempt += 1
+        _notify_attempt(attempt_observer, ProviderAttempt(attempt=attempt, status="started"))
         try:
             raw = transport(request, timeout_seconds)
         except TransportError as exc:
+            _notify_attempt(
+                attempt_observer,
+                ProviderAttempt(attempt=attempt, status="error", error_kind=exc.kind),
+            )
             if exc.retryable and attempt < max_attempts:
                 sleep(backoff_base_seconds * backoff_factor ** (attempt - 1))
                 continue
             return ClientError(message=str(exc), kind=exc.kind, attempts=attempt)
         try:
-            return parse_response(raw)
+            result = parse_response(raw)
+            _notify_attempt(attempt_observer, ProviderAttempt(attempt=attempt, status="success"))
+            return result
         except Exception as exc:  # noqa: BLE001 - any shape mismatch becomes a ClientError
+            _notify_attempt(
+                attempt_observer,
+                ProviderAttempt(attempt=attempt, status="error", error_kind="invalid_request"),
+            )
             return ClientError(
                 message=f"Unparseable response from the endpoint: {exc}",
                 kind="invalid_request",

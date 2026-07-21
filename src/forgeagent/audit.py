@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from .secret_policy import mask_audit_data, sensitive_env_values
 
 _logger = logging.getLogger(__name__)
+_MIN_LINE_BYTES = 3
 
 
 def _utc_now() -> str:
@@ -61,6 +62,8 @@ class JsonlAuditSink:
             raise ValueError("audit max_bytes must be positive")
         if retention_files < 1:
             raise ValueError("audit retention_files must be positive")
+        if max_bytes < _MIN_LINE_BYTES:
+            raise ValueError("audit max_bytes must fit one JSONL line")
         self._path = Path(path).expanduser()
         self._max_bytes = max_bytes
         self._retention_files = retention_files
@@ -73,6 +76,8 @@ class JsonlAuditSink:
         # recreate a missing destination, so an unexpected path failure is observable.
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._path.open("a", encoding="utf-8").close()
+        for candidate in (self._path, *(self._rotated_path(i) for i in range(1, retention_files))):
+            self._compact_existing_file(candidate)
 
     @property
     def degraded(self) -> bool:
@@ -94,6 +99,8 @@ class JsonlAuditSink:
                     )
                     + "\n"
                 )
+                if len(line.encode("utf-8")) > self._max_bytes:
+                    line = self._oversize_line()
                 self._rotate_if_needed(len(line.encode("utf-8")))
                 with self._path.open("a", encoding="utf-8") as handle:
                     handle.write(line)
@@ -102,6 +109,48 @@ class JsonlAuditSink:
                 self._degraded = True
                 _logger.error("audit append failed; audit is degraded")
                 return False
+            except Exception:
+                self._degraded = True
+                _logger.error("audit serialization failed; writing fixed fallback")
+                try:
+                    line = self._oversize_line(result_status="serialization_error")
+                    self._rotate_if_needed(len(line.encode("utf-8")))
+                    with self._path.open("a", encoding="utf-8") as handle:
+                        handle.write(line)
+                    return True
+                except OSError:
+                    return False
+
+    def _oversize_line(self, *, result_status: str = "oversize") -> str:
+        candidates = (
+            f'{{"event_type":"audit.logging_error","result_status":"{result_status}"}}\n',
+            '{"event_type":"audit.logging_error"}\n',
+            "{}\n",
+        )
+        for candidate in candidates:
+            if len(candidate.encode("utf-8")) <= self._max_bytes:
+                return candidate
+        return "\n"[: self._max_bytes]
+
+    def _compact_existing_file(self, path: Path) -> None:
+        """Drop malformed/oversized startup lines so retained files stay bounded."""
+        if not path.exists():
+            return
+        raw_lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        kept: list[str] = []
+        total = 0
+        for raw in reversed(raw_lines):
+            candidate = raw + "\n"
+            try:
+                json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            size = len(candidate.encode("utf-8"))
+            if size > self._max_bytes or total + size > self._max_bytes:
+                continue
+            kept.append(candidate)
+            total += size
+        path.write_text("".join(reversed(kept)), encoding="utf-8")
 
     def _rotate_if_needed(self, incoming_bytes: int) -> None:
         if not self._path.exists() or self._path.stat().st_size == 0:

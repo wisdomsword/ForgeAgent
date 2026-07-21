@@ -10,10 +10,17 @@ from forgeagent.runtime import Runtime
 from forgeagent.secret_policy import (
     REDACTED,
     is_secret_name,
+    mask_audit_data,
     mask_secrets,
     scrub_environment,
     sensitive_env_values,
 )
+
+
+class _HostileMappingKey:
+    def __str__(self):
+        raise AssertionError("audit masking must not stringify arbitrary mapping keys")
+
 
 # --- name detection ----------------------------------------------------------
 
@@ -71,6 +78,27 @@ def test_mask_redacts_values_longer_first():
 
 def test_mask_noop_without_secrets():
     assert mask_secrets("nothing to hide", set()) == "nothing to hide"
+
+
+def test_audit_masking_never_stringifies_non_string_mapping_keys():
+    masked = mask_audit_data({_HostileMappingKey(): "safe"}, set())
+
+    assert masked == {"<unsupported-key:_HostileMappingKey>": "safe"}
+
+
+def test_audit_masking_removes_absolute_paths_from_arbitrary_text_fields():
+    masked = mask_audit_data(
+        {
+            "detail": "failed while reading /Users/admin/private/config.toml at line 2",
+            "error": r"worker opened C:\Users\admin\private\token.txt",
+        },
+        set(),
+    )
+
+    rendered = repr(masked)
+    assert "/Users/admin/private/config.toml" not in rendered
+    assert r"C:\Users\admin\private\token.txt" not in rendered
+    assert "<redacted-path>" in rendered
 
 
 # --- trusted backend: masks printed secrets ----------------------------------

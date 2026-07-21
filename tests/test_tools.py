@@ -8,6 +8,7 @@ Covers the acceptance points in docs/m7-tools-mcp-survey.md §六 Phase 1:
   - `parse(text)` with no `tool_schemas` behaves like before M7 (Exec/Edit only)
 """
 
+import pytest
 from pydantic import BaseModel
 
 from forgeagent.audit import AuditEvent
@@ -271,6 +272,7 @@ def test_mcp_confirmation_decision_is_audited_once():
     ctx = _mcp_ctx(mcp=fake, confirmer=lambda args: False)
     ctx.audit_sink = sink
     ctx.task_id = "task-confirmation"
+    ctx.operation_id = "tool-call-denied"
 
     outcome = MCPTool().run(MCPArgs(server="gh", tool="delete_repo"), ctx)
 
@@ -279,6 +281,7 @@ def test_mcp_confirmation_decision_is_audited_once():
     event = sink.events[0]
     assert event.event_type == "confirmation.decision"
     assert event.task_id == "task-confirmation"
+    assert event.operation_id == "tool-call-denied"
     assert event.result_status == "denied"
     assert event.parameters == {
         "tool": "MCP",
@@ -292,13 +295,41 @@ def test_mcp_auto_approve_emits_preapproved_decision():
     sink = _RecordingAuditSink()
     ctx = _mcp_ctx(mcp=fake, confirmer=None)
     ctx.audit_sink = sink
+    ctx.operation_id = "tool-call-preapproved"
 
     outcome = MCPTool().run(MCPArgs(server="fs", tool="read_file"), ctx)
 
     assert outcome.success is True
     assert len(sink.events) == 1
     assert sink.events[0].result_status == "preapproved"
+    assert sink.events[0].operation_id == "tool-call-preapproved"
     assert sink.events[0].duration_ms == 0
+
+
+def test_confirmer_exception_emits_correlated_error_decision_and_reraises():
+    fake = _FakeMCP()
+    sink = _RecordingAuditSink()
+    control = RuntimeError("private confirmer failure")
+
+    def confirmer(args):
+        raise control
+
+    ctx = _mcp_ctx(mcp=fake, confirmer=confirmer)
+    ctx.audit_sink = sink
+    ctx.operation_id = "tool-call-error"
+
+    with pytest.raises(RuntimeError) as raised:
+        MCPTool().run(MCPArgs(server="gh", tool="delete_repo"), ctx)
+
+    assert raised.value is control
+    assert len(sink.events) == 1
+    assert sink.events[0].operation_id == "tool-call-error"
+    assert sink.events[0].result_status == "error"
+    assert sink.events[0].parameters == {
+        "tool": "MCP",
+        "server": "gh",
+        "operation": "delete_repo",
+    }
 
 
 def test_mcp_outcome_uses_public_identity_but_routes_raw_identity(monkeypatch):

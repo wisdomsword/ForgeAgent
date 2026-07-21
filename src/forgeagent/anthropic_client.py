@@ -14,7 +14,7 @@ import time
 from collections.abc import Callable, Iterable, Iterator
 from typing import Any
 
-from .client import ModelClient
+from .client import AttemptObserver, ModelClient, ProviderAttempt
 from .model_discovery import resolve_effective_model_id
 from .models import (
     AssistantMessage,
@@ -108,6 +108,7 @@ class AnthropicClient(ModelClient):
         base_url: str | None = None,
         transport: Transport | None = None,
         stream_transport: StreamTransport | None = None,
+        attempt_observer: AttemptObserver | None = None,
         sleep: Callable[[float], None] = time.sleep,
     ):
         self._capability = capability
@@ -120,6 +121,7 @@ class AnthropicClient(ModelClient):
         self._transport = transport or self._make_sdk_transport()
         self._stream_transport = stream_transport or self._make_sdk_stream_transport()
         self._sleep = sleep
+        self._attempt_observer = attempt_observer
 
     @property
     def capability(self) -> ModelCapability:
@@ -178,6 +180,7 @@ class AnthropicClient(ModelClient):
             backoff_factor=self._backoff_factor,
             sleep=self._sleep,
             parse_response=_parse_response,
+            attempt_observer=self._attempt_observer,
         )
 
     def stream(
@@ -203,6 +206,7 @@ class AnthropicClient(ModelClient):
         attempt = 0
         while True:
             attempt += 1
+            self._notify_attempt(ProviderAttempt(attempt=attempt, status="started"))
             started = False
             saw_message_stop = False
             text_parts: list[str] = []
@@ -244,6 +248,13 @@ class AnthropicClient(ModelClient):
                     elif event_type == "message_stop":
                         saw_message_stop = True
             except TransportError as exc:
+                self._notify_attempt(
+                    ProviderAttempt(
+                        attempt=attempt,
+                        status="error" if not started else "interrupted",
+                        error_kind=exc.kind,
+                    )
+                )
                 if not started and exc.retryable and attempt < self._max_attempts:
                     self._sleep(self._backoff_base * self._backoff_factor ** (attempt - 1))
                     continue
@@ -251,6 +262,9 @@ class AnthropicClient(ModelClient):
                 return
             except Exception as exc:  # noqa: BLE001 - mid-stream failure, never retried
                 kind, _retryable = classify_transport_exception(exc)
+                self._notify_attempt(
+                    ProviderAttempt(attempt=attempt, status="interrupted", error_kind=kind)
+                )
                 yield ClientError(message=str(exc), kind=kind, attempts=attempt)
                 return
             if not saw_message_stop:
@@ -258,10 +272,14 @@ class AnthropicClient(ModelClient):
                 # message_stop event — a silent mid-stream truncation. Discard the
                 # partial text just like the exception path above, rather than
                 # yielding a DONE with a fabricated stop_reason (T11c).
+                self._notify_attempt(
+                    ProviderAttempt(attempt=attempt, status="interrupted", error_kind="unknown")
+                )
                 yield ClientError(
                     message="stream ended before message_stop", kind="unknown", attempts=attempt
                 )
                 return
+            self._notify_attempt(ProviderAttempt(attempt=attempt, status="success"))
             yield StreamEvent(
                 kind=StreamEventKind.DONE,
                 message=AssistantMessage(

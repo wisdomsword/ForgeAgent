@@ -68,6 +68,22 @@ def test_audit_serialization_uses_safe_fallback_for_unknown_values(tmp_path):
     assert record["parameters"]["opaque"] == "<unsupported:object>"
 
 
+def test_recursive_event_data_writes_fixed_serialization_fallback(tmp_path):
+    path = tmp_path / "audit.jsonl"
+    sink = JsonlAuditSink(path, max_bytes=1_000, secret_values=set())
+    event = AuditEvent(event_type="tool.operation", parameters={"detail": []})
+    recursive = event.parameters["detail"]
+    assert isinstance(recursive, list)
+    recursive.append(recursive)
+
+    assert sink.emit(event)
+
+    assert json.loads(path.read_text(encoding="utf-8")) == {
+        "event_type": "audit.logging_error",
+        "result_status": "serialization_error",
+    }
+
+
 def test_audit_serialization_replaces_non_finite_numbers_and_strips_url_secrets(tmp_path):
     path = tmp_path / "audit.jsonl"
     sink = JsonlAuditSink(path, secret_values={"hidden-path"})
@@ -100,6 +116,48 @@ def test_audit_rotation_retains_bounded_files_and_marks_runtime_failure_degraded
     sink._path = tmp_path / "missing" / "audit.jsonl"
     assert sink.emit(AuditEvent(event_type="http.query")) is False
     assert sink.degraded is True
+
+
+def test_oversize_event_writes_bounded_parseable_fallback(tmp_path):
+    path = tmp_path / "audit.jsonl"
+    sink = JsonlAuditSink(path, max_bytes=180, retention_files=2, secret_values=set())
+
+    assert sink.emit(AuditEvent(event_type="tool.operation", parameters={"detail": "x" * 10_000}))
+
+    files = list(tmp_path.glob("audit.jsonl*"))
+    assert files
+    assert all(candidate.stat().st_size <= 180 for candidate in files)
+    records = _read_records(path)
+    assert records == [{"event_type": "audit.logging_error", "result_status": "oversize"}]
+
+
+def test_startup_rotation_and_oversize_keep_every_retained_line_parseable(tmp_path):
+    path = tmp_path / "audit.jsonl"
+    path.write_text('{"event_type":"existing"}\n' * 5, encoding="utf-8")
+    sink = JsonlAuditSink(path, max_bytes=180, retention_files=2, secret_values=set())
+
+    assert sink.emit(AuditEvent(event_type="llm.attempt", parameters={"detail": "x" * 2_000}))
+    assert sink.emit(AuditEvent(event_type="http.query"))
+
+    files = list(tmp_path.glob("audit.jsonl*"))
+    assert len(files) <= 2
+    assert all(candidate.stat().st_size <= 180 for candidate in files)
+    assert all(
+        isinstance(json.loads(line), dict)
+        for candidate in files
+        for line in candidate.read_text(encoding="utf-8").splitlines()
+    )
+
+
+def test_startup_discards_partial_json_line_before_append(tmp_path):
+    path = tmp_path / "audit.jsonl"
+    path.write_text('{"event_type":"existing"}\n{"partial":', encoding="utf-8")
+
+    sink = JsonlAuditSink(path, max_bytes=1_000, secret_values=set())
+    assert sink.emit(AuditEvent(event_type="http.query"))
+
+    records = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    assert [record["event_type"] for record in records] == ["existing", "http.query"]
 
 
 def test_audit_concurrent_appends_are_complete_json_lines(tmp_path):

@@ -8,7 +8,9 @@ raises for backend/transport failures — it returns AssistantMessage or ClientE
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from dataclasses import dataclass
+from typing import Literal
 
 from .models import (
     AssistantMessage,
@@ -19,6 +21,16 @@ from .models import (
     StreamEvent,
     StreamEventKind,
 )
+
+
+@dataclass(frozen=True)
+class ProviderAttempt:
+    attempt: int
+    status: Literal["started", "success", "error", "interrupted"]
+    error_kind: str | None = None
+
+
+AttemptObserver = Callable[[ProviderAttempt], None]
 
 
 class ModelClient(ABC):
@@ -54,6 +66,17 @@ class ModelClient(ABC):
             return
         yield StreamEvent(kind=StreamEventKind.TEXT_DELTA, text=result.content)
         yield StreamEvent(kind=StreamEventKind.DONE, message=result)
+
+    def set_attempt_observer(self, observer: AttemptObserver | None) -> None:
+        self._attempt_observer = observer
+
+    def _notify_attempt(self, event: ProviderAttempt) -> None:
+        observer = getattr(self, "_attempt_observer", None)
+        if observer is not None:
+            try:
+                observer(event)
+            except Exception:  # observer is diagnostic only
+                pass
 
 
 class MockScriptExhausted(RuntimeError):

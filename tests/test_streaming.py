@@ -178,6 +178,37 @@ class TestAnthropicStream:
         assert done.usage.cached_tokens == 10
         assert done.usage.reasoning_tokens == 0
 
+    def test_pre_first_byte_retry_reports_failed_then_successful_provider_attempt(self):
+        observed = []
+        calls = {"n": 0}
+
+        def retrying(request: dict, timeout: float):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                from forgeagent.transport_errors import TransportError
+
+                raise TransportError("network", True, "retry me")
+            yield from _anthropic_events()
+
+        client = AnthropicClient(
+            capability=_capability(),
+            api_key="k",
+            transport=lambda r, t: None,
+            stream_transport=retrying,
+            sleep=lambda s: None,
+            attempt_observer=observed.append,
+        )
+
+        events = list(client.stream(USER))
+
+        assert events[-1].kind is StreamEventKind.DONE
+        assert [(event.attempt, event.status, event.error_kind) for event in observed] == [
+            (1, "started", None),
+            (1, "error", "network"),
+            (2, "started", None),
+            (2, "success", None),
+        ]
+
     def test_mid_stream_failure_yields_single_client_error_no_done(self):
         good = _anthropic_events()
 
@@ -289,6 +320,37 @@ class TestOpenAIStream:
         assert done.usage.cached_tokens == 4
         # dual-location trap: nested fake zero, top-level real value (glm-5.2 shape)
         assert done.usage.reasoning_tokens == 121
+
+    def test_pre_first_byte_retry_reports_failed_then_successful_provider_attempt(self):
+        observed = []
+        calls = {"n": 0}
+
+        def retrying(request: dict, timeout: float):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                from forgeagent.transport_errors import TransportError
+
+                raise TransportError("network", True, "retry me")
+            yield _chunk(content="ok", finish_reason="stop")
+
+        client = OpenAICompatibleClient(
+            capability=_capability("openai_compatible"),
+            api_key="k",
+            transport=lambda r, t: None,
+            stream_transport=retrying,
+            sleep=lambda s: None,
+            attempt_observer=observed.append,
+        )
+
+        events = list(client.stream(USER))
+
+        assert events[-1].kind is StreamEventKind.DONE
+        assert [(event.attempt, event.status, event.error_kind) for event in observed] == [
+            (1, "started", None),
+            (1, "error", "network"),
+            (2, "started", None),
+            (2, "success", None),
+        ]
 
     def test_reasoning_tokens_nested_real_value_no_top_level(self):
         # gpt-5.4-mini shape: real value in the standard nested location only

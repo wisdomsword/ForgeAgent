@@ -26,7 +26,7 @@ from uuid import uuid4
 from pydantic import BaseModel, Field
 
 from .audit import AuditEvent, AuditSink, emit_audit
-from .client import ModelClient
+from .client import ModelClient, ProviderAttempt
 from .executor import ExecutorBackend
 from .models import (
     AssistantMessage,
@@ -211,6 +211,19 @@ class Step:
         self._cancel_event = cancel_event
         self._audit_sink = audit_sink
         self._task_id = task_id
+        self._active_llm_operation_id: str | None = None
+        if self._audit_sink is not None:
+            previous_observer = getattr(self._client, "_attempt_observer", None)
+
+            def observe(event: ProviderAttempt) -> None:
+                if previous_observer is not None:
+                    try:
+                        previous_observer(event)
+                    except Exception:
+                        pass
+                self._observe_provider_attempt(event)
+
+            self._client.set_attempt_observer(observe)
         # Static AST layer: advisory feedback before execution (not a security boundary).
         self._analyzer = analyzer or CodeAnalyzer()
         self.blocks = CodeBlockStore()
@@ -253,6 +266,21 @@ class Step:
             self._on_stream_text(event.text, event.kind)
         raise RuntimeError("stream() ended without a DONE event or a ClientError")
 
+    def _observe_provider_attempt(self, event: ProviderAttempt) -> None:
+        self._emit(
+            AuditEvent(
+                event_type="llm.provider_attempt",
+                task_id=self._task_id,
+                operation_id=self._active_llm_operation_id or uuid4().hex,
+                attempt=event.attempt,
+                parameters={
+                    "model": getattr(self._client.capability, "model_id", "unknown"),
+                    **({"error_kind": event.error_kind} if event.error_kind else {}),
+                },
+                result_status=event.status,
+            )
+        )
+
     def run(self, messages: list[Message]) -> list[RoundResult]:
         """Run rounds until the task reaches a terminal state or max_rounds.
 
@@ -272,6 +300,7 @@ class Step:
                     self.rounds.append(RoundResult(text="", stopped_reason=Termination.CANCELLED))
                 break
             operation_id = uuid4().hex
+            self._active_llm_operation_id = operation_id
             started = time.monotonic()
             model_id = getattr(self._client.capability, "model_id", "unknown")
             self._emit(
@@ -284,7 +313,24 @@ class Step:
                     result_status="started",
                 )
             )
-            reply = self._stream_or_complete(convo)
+            try:
+                reply = self._stream_or_complete(convo)
+            except Exception:
+                self._emit(
+                    AuditEvent(
+                        event_type="llm.outcome",
+                        task_id=self._task_id,
+                        operation_id=operation_id,
+                        attempt=attempt,
+                        parameters={"model": model_id},
+                        result_status=(
+                            "interrupted" if self._on_stream_text is not None else "error"
+                        ),
+                        duration_ms=max(0, int((time.monotonic() - started) * 1000)),
+                    )
+                )
+                self._active_llm_operation_id = None
+                raise
             if isinstance(reply, ClientError):
                 outcome_status = "cancelled" if self._cancelled() else "error"
                 outcome_parameters = {
@@ -310,6 +356,7 @@ class Step:
                     duration_ms=max(0, int((time.monotonic() - started) * 1000)),
                 )
             )
+            self._active_llm_operation_id = None
             if isinstance(reply, ClientError):
                 if self._cancelled():
                     self.rounds.append(RoundResult(text="", stopped_reason=Termination.CANCELLED))
@@ -450,6 +497,7 @@ class Step:
             )
         started = time.monotonic()
         try:
+            self._ctx.operation_id = call.id
             outcome = tool.run(call.arguments, self._ctx)
         except Exception:
             self._emit(
@@ -457,19 +505,21 @@ class Step:
                     event_type="tool.operation",
                     task_id=self._task_id,
                     operation_id=call.id,
-                    risk_level="high",
+                    risk_level=tool.risk_level,
                     parameters={"tool": call.name},
                     result_status="error",
                     duration_ms=max(0, int((time.monotonic() - started) * 1000)),
                 )
             )
             raise
+        finally:
+            self._ctx.operation_id = None
         self._emit(
             AuditEvent(
                 event_type="tool.operation",
                 task_id=self._task_id,
                 operation_id=call.id,
-                risk_level="high",
+                risk_level=tool.risk_level,
                 parameters={"tool": call.name},
                 result_status="success" if outcome.success else "failed",
                 duration_ms=max(0, int((time.monotonic() - started) * 1000)),
