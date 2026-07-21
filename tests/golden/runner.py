@@ -53,7 +53,7 @@ INVALID_EVIDENCE_DETAIL = "invalid evidence"
 _HOME_VARIABLES = ("HOME", "USERPROFILE", "XDG_CONFIG_HOME")
 _CORE_HEADING_ID = re.compile(r"^#{1,6}[ \t]+(G(?:0[1-9]|[12][0-9]|30))(?:[ \t]|$)", re.MULTILINE)
 _CANDIDATE_TABLE_HEADER = ("ID", "描述", "Pass 判定")
-_CANDIDATE_ID = re.compile(r"G(?:3[1-9]|[4-9][0-9]|[12][0-9]{2}|3[0-7][0-9]|380)")
+_CANDIDATE_ID = re.compile(r"G(?:3[1-9]|[4-9][0-9]|[12][0-9]{2}|3[0-7][0-9]|38[0-9]|39[0-9]|400)")
 
 
 class GoldenPreflightError(Exception):

@@ -120,6 +120,26 @@ uv run forgeagent --tier container --container-image my-image:latest run "..."
 
 仅有三种迁移方式：允许该进程直连；在 ForgeAgent 外部预取到 `allowed_root` 后用 FileRead；或使用一个明确受信任的 MCP fetch 工具。不要恢复环境代理作为绕过方式。当前没有 `network.proxy` 配置；未来只能明确选择 trusted-forward-proxy 或 guarded-tunnel 信任模型。
 
+## 身份与提示词（SOUL/USER/AGENTS/MEMORY）
+
+ForgeAgent 的系统提示词由固定协议段（不可覆盖，见 [`docs/text-protocol-spec.md`](docs/text-protocol-spec.md)）和身份段组合而成。SOUL 段始终存在：自定义文件缺失时使用内置中性默认人格。只有 USER/AGENTS/MEMORY 属于可省略 section；对应内容缺失时 section 不出现，不影响固定协议：
+
+- `~/.forgeagent/SOUL.md`：用户级 Agent 人格/身份描述，存在时**完全替换**内置中性默认人格，不与默认内容合并；缺失时保留该默认人格作为 SOUL 段。
+- `~/.forgeagent/USER.md`：用户级偏好说明（如“回答从简”“默认用中文”），随每次任务注入。
+- `<allowed_root>/.forgeagent/AGENTS.md`：项目级协作规则。**首次使用需终端确认**（有界、控制字符转义、secret 掩码后的内容预览 + 截断项目标签），确认结果原子写入 `~/.forgeagent/identity-trust.json`；内容变化会使旧确认失效并重新提示确认；无交互终端（headless）时默认拒绝，不会静默生效。
+- `<allowed_root>/.forgeagent/MEMORY.md`：项目级记忆，同 `AGENTS.md` 走确认门。当前版本只读——ForgeAgent 不会自动写入或提炼记忆内容，由用户手工维护。
+
+所有身份文件都有 32 KiB 单文件上限，多个文件掩码后合计 96 KiB 上限，任何正文都不会被截断：SOUL/USER 超限时任务以身份配置错误停止；AGENTS/MEMORY 超限或使合计超限时，仅剥离相应项目段、输出脱敏诊断并继续。路径解析拒绝 `.forgeagent` 目录或身份文件通过 symlink 逃出 `home`/`allowed_root`。详见 [`docs/threat-model.md`](docs/threat-model.md) T12。
+
+```bash
+# 禁用全部自定义身份文件（固定协议与 MCP 工具说明仍然存在）
+uv run forgeagent --no-identity run "..."
+
+# 让下一个任务重新读取身份文件（项目级内容变化会重新触发确认）
+# REPL 内：
+/reload
+```
+
 ## MCP 服务（连接外部工具）
 
 配置了 MCP server 时，`MCP` 工具自动出现在工具集里；未配置则完全不出现。配置放在 `~/.forgeagent/mcp.yaml`，用与 Claude Desktop / Cursor **相同的 `mcpServers` 格式**（现有配置可直接粘贴）：
@@ -176,7 +196,7 @@ uv run forgeagent smoke --include-openai-compatible     # 额外加 gpt-5.4-mini
 
 ## Golden 验证核心
 
-380 项文档任务中，只有 20 项是可执行的可信核心：`G01,G03,G05,G06,G08,G11,G13,G14,G15,G17,G27,G43,G58,G59,G324,G329,G330,G332,G333,G355`。其余 360 项保留为候选目录，不会被 runner 当作可执行验收。
+400 项文档任务中，只有 20 项是可执行的可信核心：`G01,G03,G05,G06,G08,G11,G13,G14,G15,G17,G27,G43,G58,G59,G324,G329,G330,G332,G333,G355`。其余 380 项保留为候选目录，不会被 runner 当作可执行验收。
 
 ```bash
 # 离线、无凭证的 20 项核心；写 results.json 和 report.md
@@ -195,4 +215,3 @@ uv run python -m tests.golden.runner --real-model claude-sonnet-5 \
 uv run pytest      # 运行全部测试（无需 key、无需网络）
 uv run ruff check  # 静态检查
 ```
-

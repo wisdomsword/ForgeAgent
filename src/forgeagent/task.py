@@ -5,8 +5,7 @@ conversation (system prompt + user goal), owns the runtime and executor backend 
 cross-block state persists for the task's lifetime, drives one Step, and derives a
 TaskOutcome from the rounds (completed / refused / needs-info / failed / exhausted).
 
-The system prompt is a plain string in v1 (Jinja2 composition is deferred — YAGNI
-until there are variants to compose).
+The system prompt combines the approved runtime identity with the fixed protocol.
 """
 
 from __future__ import annotations
@@ -18,6 +17,7 @@ from pydantic import BaseModel
 
 from .client import ModelClient
 from .executor import ContainerBackend, ExecutorBackend, RestrictedBackend, TrustedBackend
+from .identity import ApprovedIdentity, compose_system_prompt
 from .mcp_manager import MCPManager
 from .models import GenerationParams, ImageItem, Message, Role, StreamEventKind, TextItem
 from .runtime import Runtime
@@ -41,43 +41,6 @@ def _backend_for_tier(
             allowed_root=allowed_root, image=container_image or "python:3.11-slim"
         )
     return RestrictedBackend(allowed_root=allowed_root)
-
-DEFAULT_SYSTEM_PROMPT = """\
-This conversation is driven by ForgeAgent, a harness that completes tasks by running Python \
-programs on your behalf and feeding you their output. You keep your own identity; ForgeAgent \
-is just the name of this response format, not a persona to adopt. Complete tasks by writing \
-Python code and running it through the markup below — do not answer in plain prose, even for \
-simple tasks like arithmetic, since prose has no way to actually execute anything here.
-
-To run code, wrap it in a fenced code block marked with CodeBlockStart/CodeBlockEnd HTML \
-comments, then trigger it with a ToolCall comment naming the Exec tool. Example, for the task \
-"compute 10 + 20 + 30 and print the result":
-
-<!-- CodeBlockStart: {"name": "sum_block"} -->
-```python
-print(10 + 20 + 30)
-```
-<!-- CodeBlockEnd: {"name": "sum_block"} -->
-<!-- ToolCall: {"name": "Exec", "arguments": {"name": "sum_block"}} -->
-
-The Exec tool's `arguments.name` must match the CodeBlockStart/End `name`. You will receive the \
-program's stdout/stderr as feedback in the next turn; use it to decide the next step.
-
-To modify an existing block, use an Edit tool call instead of rewriting the whole block:
-<!-- ToolCall: {"name": "Edit", "arguments": {"name": "sum_block", "old": "10 + 20 + 30", \
-"new": "10 + 20 + 30 + 40"}} -->
-
-Use utils.set_state(key=value) / utils.get_state(key) inside your Python code to carry values \
-across blocks (state does not persist any other way).
-
-Once you can see (from feedback) that the task is fully done, send one final response that \
-starts with this YAML front matter as the very first thing, before anything else:
----
-task_status:
-  completed: true
-  confidence: 0.9
----
-"""
 
 
 class TaskStatus(BaseModel):
@@ -118,7 +81,8 @@ class Task:
         tier: Tier = "restricted",
         backend: ExecutorBackend | None = None,
         allowed_root: str | None = None,
-        system_prompt: str = DEFAULT_SYSTEM_PROMPT,
+        system_prompt: str | None = None,
+        identity: ApprovedIdentity | None = None,
         max_rounds: int = 10,
         params: GenerationParams | None = None,
         asker: Asker | None = None,
@@ -137,7 +101,10 @@ class Task:
         self._backend = backend or _backend_for_tier(
             tier, allowed_root=self._allowed_root, container_image=container_image
         )
+        # Explicit system_prompt wins outright. Identity is only consulted when it is None;
+        # neither given means compose from a zero-content identity without loading files.
         self._system_prompt = system_prompt
+        self._identity = identity
         self._max_rounds = max_rounds
         self._params = params
         # How the Survey tool asks the user a question; None = headless (Survey → need_info).
@@ -162,12 +129,19 @@ class Task:
     def _build_system_prompt(self) -> str:
         """Base prompt plus, when MCP servers are connected, the MCP tools section — so
         the model knows which servers/tools exist (eager discovery, docs/m7 §3.4)."""
+        if self._system_prompt is not None:
+            base = self._system_prompt
+        else:
+            identity = self._identity or ApprovedIdentity(
+                soul=None, user=None, project_agents=None, memory=None
+            )
+            base = compose_system_prompt(identity)
         if self._mcp is None:
-            return self._system_prompt
+            return base
         tools_section = self._mcp.tools_prompt()
         if not tools_section:
-            return self._system_prompt
-        return f"{self._system_prompt}\n\n{tools_section}"
+            return base
+        return f"{base}\n\n{tools_section}"
 
     def run(self, goal: str, *, images: list[ImageItem] | None = None) -> TaskOutcome:
         """Run the task for `goal` and return its terminal outcome.

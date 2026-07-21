@@ -29,7 +29,7 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/forgeagent"]
-artifacts = ["src/forgeagent/res/*.yaml"]
+artifacts = ["src/forgeagent/res/*.yaml", "src/forgeagent/res/prompts/**"]
 
 [tool.ruff]
 line-length = 100

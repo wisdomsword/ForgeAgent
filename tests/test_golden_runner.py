@@ -8,6 +8,7 @@ import re
 import subprocess
 import sys
 import time
+from collections import Counter
 from enum import IntEnum
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -215,6 +216,31 @@ EXPECTED_BOUNDARY_EVIDENCE = {
 _GOLDEN_HEADING_ID = re.compile(r"^#{1,6}[ \t]+(G\d+)\b", re.MULTILINE)
 _GOLDEN_TABLE_HEADER = ("ID", "描述", "Pass 判定")
 _GOLDEN_ID = re.compile(r"^G\d+$")
+_GOLDEN_CATEGORY_HEADING = re.compile(
+    r"^#{2,3}[ \t]+(文件/数据处理|Python 执行与 sandbox 边界|"
+    r"代码修改/小型重构|网络抓取或外部 API|系统查询/环境检查)"
+)
+_GOLDEN_CATEGORY_NAMES = {
+    "文件/数据处理": "file_data",
+    "Python 执行与 sandbox 边界": "execution_boundary",
+    "代码修改/小型重构": "code_change",
+    "网络抓取或外部 API": "network_api",
+    "系统查询/环境检查": "system_query",
+}
+_EXPECTED_CATEGORY_TOTALS = {
+    "file_data": 160,
+    "execution_boundary": 100,
+    "code_change": 80,
+    "network_api": 40,
+    "system_query": 20,
+}
+_EXPECTED_M15_CATEGORY_TOTALS = {
+    "file_data": 8,
+    "execution_boundary": 5,
+    "code_change": 4,
+    "network_api": 2,
+    "system_query": 1,
+}
 
 
 def _golden_heading_ids(markdown: str) -> tuple[str, ...]:
@@ -249,10 +275,47 @@ def _parse_golden_catalog_definitions(
     return heading_ids, tuple(candidate_ids)
 
 
+def _parse_golden_catalog_categories(markdown: str) -> dict[str, str]:
+    categories: dict[str, str] = {}
+    current_category: str | None = None
+    in_candidate_table = False
+
+    for line in markdown.splitlines():
+        category_match = _GOLDEN_CATEGORY_HEADING.match(line)
+        if category_match is not None:
+            current_category = _GOLDEN_CATEGORY_NAMES[category_match.group(1)]
+            in_candidate_table = False
+            continue
+
+        heading_match = _GOLDEN_HEADING_ID.match(line)
+        if heading_match is not None and current_category is not None:
+            scenario_id = heading_match.group(1)
+            assert scenario_id not in categories
+            categories[scenario_id] = current_category
+
+        cells = _golden_table_cells(line)
+        if cells is None:
+            in_candidate_table = False
+            continue
+        if cells == _GOLDEN_TABLE_HEADER:
+            in_candidate_table = True
+            continue
+        if (
+            in_candidate_table
+            and current_category is not None
+            and cells
+            and _GOLDEN_ID.fullmatch(cells[0])
+        ):
+            assert cells[0] not in categories
+            categories[cells[0]] = current_category
+
+    return categories
+
+
 def _assert_golden_candidate_catalog(markdown: str) -> None:
     heading_ids, candidate_rows = _parse_golden_catalog_definitions(markdown)
     expected_heading_ids = frozenset(f"G{number:02d}" for number in range(1, 31))
-    expected_candidate_ids = frozenset(f"G{number:02d}" for number in range(31, 381))
+    expected_candidate_ids = frozenset(f"G{number:02d}" for number in range(31, 401))
     expected_ids = expected_heading_ids | expected_candidate_ids
     heading_id_set = frozenset(heading_ids)
     candidate_id_set = frozenset(candidate_rows)
@@ -264,7 +327,15 @@ def _assert_golden_candidate_catalog(markdown: str) -> None:
     assert candidate_id_set == expected_candidate_ids
     assert all_ids == expected_ids
     assert EXPECTED_IDS <= all_ids
-    assert len(all_ids - EXPECTED_IDS) == 360
+    assert len(all_ids - EXPECTED_IDS) == 380
+
+    categories = _parse_golden_catalog_categories(markdown)
+    assert frozenset(categories) == expected_ids
+    assert Counter(categories.values()) == _EXPECTED_CATEGORY_TOTALS
+    m15_ids = {f"G{number}" for number in range(381, 401)}
+    assert Counter(categories[scenario_id] for scenario_id in m15_ids) == (
+        _EXPECTED_M15_CATEGORY_TOTALS
+    )
 
 
 def _assert_readme_proxy_migration_contract(readme: str) -> None:
@@ -276,6 +347,34 @@ def _assert_readme_proxy_migration_contract(readme: str) -> None:
     assert "允许该进程直连" in readme
     assert "在 ForgeAgent 外部预取到 `allowed_root` 后用 FileRead" in readme
     assert "明确受信任的 MCP fetch 工具" in readme
+
+
+def _assert_readme_identity_contract(readme: str) -> None:
+    assert "400 项文档任务" in readme
+    assert "其余 380 项保留为候选目录" in readme
+    assert "--no-identity" in readme
+    assert "SOUL.md" in readme
+    assert "AGENTS.md" in readme
+    assert "MEMORY.md" in readme
+    assert "identity-trust.json" in readme
+    assert "首次使用需终端确认" in readme
+    assert "docs/threat-model.md" in readme
+    assert "SOUL 段始终存在" in readme
+    assert "内置中性默认人格" in readme
+    assert "只有 USER/AGENTS/MEMORY" in readme
+
+
+def _assert_identity_threat_model_contract(threat_model: str) -> None:
+    t12 = next((line for line in threat_model.splitlines() if line.startswith("| T12 |")), "")
+    assert "| T12 | Identity file path/size/TOCTOU and persistent trust bypass |" in t12
+    assert (
+        "Unsafe or oversized AGENTS.md/MEMORY.md content is stripped with a masked diagnostic"
+        in t12
+    )
+    assert (
+        "an unreadable AGENTS.md or MEMORY.md raises IdentityConfigError and stops identity "
+        "resolution" in t12
+    )
 
 
 def _pass(_: Path) -> GoldenEvidence:
@@ -312,15 +411,15 @@ def test_golden_candidate_catalog_rejects_duplicate_missing_extra_and_misnumbere
         f"| G{number:02d} | repeated reference |\n" for number in range(1, 16)
     )
     candidate_table = "| ID | 描述 | Pass 判定 |\n| --- | --- | --- |\n" + "".join(
-        f"| G{number:02d} | candidate | checked |\n" for number in range(31, 381)
+        f"| G{number:02d} | candidate | checked |\n" for number in range(31, 401)
     )
     catalog = headings + coverage_matrix + candidate_table
     invalid_catalogs = (
         catalog.replace("### G30\n", ""),
-        catalog.replace("| G380 | candidate | checked |\n", ""),
-        catalog.replace("| G380 | candidate | checked |\n", "| G381 | candidate | checked |\n"),
-        catalog.replace("| G380 | candidate | checked |\n", "| G0380 | candidate | checked |\n"),
-        catalog + "| G380 | duplicate definition | checked |\n",
+        catalog.replace("| G400 | candidate | checked |\n", ""),
+        catalog.replace("| G400 | candidate | checked |\n", "| G401 | candidate | checked |\n"),
+        catalog.replace("| G400 | candidate | checked |\n", "| G0400 | candidate | checked |\n"),
+        catalog + "| G400 | duplicate definition | checked |\n",
     )
 
     for invalid_catalog in invalid_catalogs:
@@ -334,10 +433,39 @@ def test_golden_candidate_catalog_has_structured_definitions_and_candidates():
     _assert_golden_candidate_catalog(catalog_path.read_text(encoding="utf-8"))
 
 
+def test_golden_candidate_catalog_rejects_category_distribution_mutations():
+    catalog_path = Path(__file__).parent.parent / "docs" / "golden-tasks-seed.md"
+    catalog = catalog_path.read_text(encoding="utf-8")
+    wrong_global_distribution = catalog.replace(
+        "### 文件/数据处理（新增 8：G381–G388）",
+        "### 系统查询/环境检查（新增 8：G381–G388）",
+        1,
+    )
+    wrong_m15_distribution = catalog.replace("| G380 |", "| G-SWAP |", 1)
+    wrong_m15_distribution = wrong_m15_distribution.replace("| G381 |", "| G380 |", 1)
+    wrong_m15_distribution = wrong_m15_distribution.replace("| G-SWAP |", "| G381 |", 1)
+
+    for invalid_catalog in (wrong_global_distribution, wrong_m15_distribution):
+        with pytest.raises(AssertionError):
+            _assert_golden_candidate_catalog(invalid_catalog)
+
+
 def test_readme_documents_the_proxy_breaking_change_and_migration_paths():
     readme_path = Path(__file__).parent.parent / "README.md"
 
     _assert_readme_proxy_migration_contract(readme_path.read_text(encoding="utf-8"))
+
+
+def test_readme_documents_identity_file_conventions_and_no_identity_flag():
+    readme_path = Path(__file__).parent.parent / "README.md"
+
+    _assert_readme_identity_contract(readme_path.read_text(encoding="utf-8"))
+
+
+def test_threat_model_distinguishes_rejected_from_unreadable_project_identity():
+    threat_model_path = Path(__file__).parent.parent / "docs" / "threat-model.md"
+
+    _assert_identity_threat_model_contract(threat_model_path.read_text(encoding="utf-8"))
 
 
 def test_common_cases_return_the_exact_evidence_contract(tmp_path):
@@ -859,7 +987,7 @@ def test_manifest_preflight_rejects_coverage_reference_without_g01_definition(tm
     coverage_matrix = "| ID | Category |\n| --- | --- |\n| G01 | core |\n"
     core_headings = "\n".join(f"### G{number:02d} definition" for number in range(2, 31))
     candidate_table = "| ID | 描述 | Pass 判定 |\n| --- | --- | --- |\n" + "\n".join(
-        f"| G{number:02d} | candidate | checked |" for number in range(31, 381)
+        f"| G{number:02d} | candidate | checked |" for number in range(31, 401)
     )
     catalog = tmp_path / "catalog.md"
     catalog.write_text(

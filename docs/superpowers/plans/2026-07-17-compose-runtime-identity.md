@@ -20,6 +20,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 - 不增加依赖：`jinja2>=3.1` 已在 `pyproject.toml`，不引入新包。不修改 `resource/agent/`。不硬编码任何厂商端点/API key。
 - Ponytail 最小范围：不新增 manager/factory/策略抽象层；`load_identity`/`resolve_project_trust`/`compose_system_prompt` 三个函数即完整接口，不拆出额外协调对象。
 - 所有身份行为变更先建立可观察的 RED（失败测试证明当前行为缺失或错误），再写最小 GREEN；每个任务的测试与实现放在同一 Step 或紧邻 Step，任务验收后立即提交（不得积攒到任务末尾统一提交）。
+- **TDD 顺序覆盖：** 本计划的 Step 编号用于定义需求范围、文件边界和最终验收，不授权按“生产代码在前、测试在后”的文字顺序执行。`tdd_mode: tdd` 时，implementer 必须先从相关测试 Step 提取当前最小行为，写测试并观察预期 RED，再实现对应生产代码得到 GREEN；资源/配置等无法单独形成行为测试的机械步骤可作为该 RED/GREEN 循环的最小前置，但不得先实现可执行生产逻辑。每个任务报告必须记录 RED 与 GREEN 的命令和摘要。
 - `home`/`allowed_root` 派生路径必须在调用时解析，禁止 `model_registry.DEFAULT_USER_MODELS_PATH` 式模块级 `Path.home()` 绑定（spec「import 后切换 HOME」场景）。
 - 项目级路径校验复用 `tools.py:_validate_path()` 的 `realpath()` + `commonpath()` + `normcase()` 模式，不重新发明。
 - 身份加载/信任诊断通过一个可注入的 `Callable[[str], None] | None` 输出；所有诊断只能包含固定标签、大小、异常类型和已掩码文本，禁止泄漏原始 secret、完整项目路径或未转义控制字符。
@@ -44,7 +45,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 - `ApprovedIdentity`（frozen dataclass）：`soul: str | None`, `user: str | None`, `project_agents: str | None`, `memory: str | None`
 - `compose_system_prompt(identity: ApprovedIdentity) -> str`
 
-- [ ] **Step 1: 提取协议段为包资源 `protocol.md`**
+- [x] **Step 1: 提取协议段为包资源 `protocol.md`**
 
   把 `src/forgeagent/task.py` 里 `DEFAULT_SYSTEM_PROMPT` 运行时字符串的**求值结果**（反斜杠续行已合并、无转义）原样写入新文件。这是唯一权威来源迁移的第一步；`task.py` 暂不改动（Task 3 才切换消费方，避免这一步的变更范围外溢）。
 
@@ -91,7 +92,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：`protocol.md byte-identical to DEFAULT_SYSTEM_PROMPT: OK`
 
-- [ ] **Step 2: 创建中性默认 SOUL `default_soul.md`**
+- [x] **Step 2: 创建中性默认 SOUL `default_soul.md`**
 
   创建 `src/forgeagent/res/prompts/default_soul.md`（Design Doc §default_soul.md 最终文本，逐字复制，末尾保留单个换行）：
 
@@ -136,7 +137,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：`default_soul.md contract checks: OK`
 
-- [ ] **Step 3: 创建 `system.j2` 模板**
+- [x] **Step 3: 创建 `system.j2` 模板**
 
   创建 `src/forgeagent/res/prompts/system.j2`（Design Doc §段落顺序与 system.j2 的固定顺序，逐字复制）：
 
@@ -189,7 +190,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：`system.j2 loads and renders: OK`
 
-- [ ] **Step 4: 实现 `IdentitySnapshot`/`ApprovedIdentity` 类型与 `compose_system_prompt`**
+- [x] **Step 4: 实现 `IdentitySnapshot`/`ApprovedIdentity` 类型与 `compose_system_prompt`**
 
   创建 `src/forgeagent/identity.py`：
 
@@ -303,7 +304,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：`compose_system_prompt: OK`
 
-- [ ] **Step 5: 打包资源纳入 `res/prompts/**`（提前小步做 tasks.md 1.4 的一部分）**
+- [x] **Step 5: 打包资源纳入 `res/prompts/**`（提前小步做 tasks.md 1.4 的一部分）**
 
   修改 `pyproject.toml`：
 
@@ -328,7 +329,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：`pyproject.toml artifacts updated: OK`
 
-- [ ] **Step 6: 组合矩阵测试骨架（对齐 tasks.md 3.1 的一部分，先建最小 RED/GREEN）**
+- [x] **Step 6: 组合矩阵测试骨架（对齐 tasks.md 3.1 的一部分，先建最小 RED/GREEN）**
 
   创建 `tests/test_identity.py`（Task 2/3 会继续追加 `load_identity`/`resolve_project_trust` 测试到同一文件）：
 
@@ -430,7 +431,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：18 项测试全部 PASSED（16 组合矩阵 + 顺序 + 协议固定，此 Step 结束时零 FAILED）。
 
-- [ ] **Step 7: Ruff 检查本任务新增文件**
+- [x] **Step 7: Ruff 检查本任务新增文件**
 
   ```bash
   .venv/bin/ruff check src/forgeagent/identity.py tests/test_identity.py
@@ -454,7 +455,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 - 内部：`_raw_content_digest(agents_bytes: bytes | None, memory_bytes: bytes | None) -> str`
 - 内部：`_effective_input_digest(masked_agents: str | None, masked_memory: str | None) -> str`
 
-- [ ] **Step 1: 项目路径校验与文件读取原语**
+- [x] **Step 1: 项目路径校验与文件读取原语**
 
   将代码块中的 import 合并进 `src/forgeagent/identity.py` 顶部既有 import 区（不得在函数定义后产生 E402），其余定义追加到模块中。`_validate_path` 的 identity 专用版本除文件本身外，还必须先确认 `.forgeagent` 目录的 canonical 路径仍位于 `home`/`allowed_root` 内；否则整个目录 symlink 到项目外会被误判为安全：
 
@@ -562,7 +563,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：`_resolve_identity_file: OK`
 
-- [ ] **Step 2: 大小上限与摘要计算原语**
+- [x] **Step 2: 大小上限与摘要计算原语**
 
   将新增 import 合并到模块顶部，定义追加到 `src/forgeagent/identity.py`：
 
@@ -669,7 +670,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：`digest primitives: OK`
 
-- [ ] **Step 3: `load_identity` 主体**
+- [x] **Step 3: `load_identity` 主体**
 
   在 `src/forgeagent/identity.py` 追加：
 
@@ -889,7 +890,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：`load_identity: OK`
 
-- [ ] **Step 4: `tests/test_identity.py` 追加 `load_identity` 表驱动测试（覆盖 tasks.md 1.2 全部验收点）**
+- [x] **Step 4: `tests/test_identity.py` 追加 `load_identity` 表驱动测试（覆盖 tasks.md 1.2 全部验收点）**
 
   代码块中的 import 必须合并到 `tests/test_identity.py` 顶部 import 区，测试函数追加到文件末尾：
 
@@ -1083,7 +1084,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：11 项 `load_identity` 测试全部 PASSED；读取失败使用确定性 monkeypatch，不依赖 chmod/root 权限语义，因此不得出现平台权限导致的假通过或 SKIP。
 
-- [ ] **Step 5: Ruff 检查**
+- [x] **Step 5: Ruff 检查**
 
   ```bash
   .venv/bin/ruff check src/forgeagent/identity.py tests/test_identity.py
@@ -1108,7 +1109,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 - 内部：`_UnusableTrustRecordError(Exception)`（文件存在但不能安全复用或更新的内部信号类）
 - 内部：`_atomic_write_trust_record(path: str, record: dict) -> None`（原子写，last-writer-wins）
 
-- [ ] **Step 1: 信任记录读写原语**
+- [x] **Step 1: 信任记录读写原语**
 
   将新增 import 合并到模块顶部，定义追加到 `src/forgeagent/identity.py`：
 
@@ -1283,7 +1284,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：`trust record primitives: OK`
 
-- [ ] **Step 2: `IdentityTrustRequest`/`IdentityConfirmer` 类型与摘要渲染**
+- [x] **Step 2: `IdentityTrustRequest`/`IdentityConfirmer` 类型与摘要渲染**
 
   将新增 import 合并到模块顶部，定义追加到 `src/forgeagent/identity.py`：
 
@@ -1391,7 +1392,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：`trust request summary: OK`
 
-- [ ] **Step 3: `resolve_project_trust` 主体（5 行决策表）**
+- [x] **Step 3: `resolve_project_trust` 主体（5 行决策表）**
 
   在 `src/forgeagent/identity.py` 追加：
 
@@ -1552,7 +1553,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：`resolve_project_trust decision table: OK`
 
-- [ ] **Step 4: 畸形记录与持久化失败两行专项验证**
+- [x] **Step 4: 畸形记录与持久化失败两行专项验证**
 
   验证设计文档的关键规则："信任记录畸形、版本未知或不可读时，系统 MUST NOT 覆盖原文件"——批准只能注入本次运行的内存快照，损坏文件必须原样保留字节不变，下次进程仍会重新确认：
 
@@ -1639,7 +1640,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：`malformed record handling: OK` 与 `trust persistence failure handling: OK`。
 
-- [ ] **Step 5: Ruff 检查**
+- [x] **Step 5: Ruff 检查（信任记录与项目确认）**
 
   ```bash
   .venv/bin/ruff check src/forgeagent/identity.py tests/test_identity.py
@@ -1660,7 +1661,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 - `Task.__init__(..., system_prompt: str | None = None, identity: ApprovedIdentity | None = None, ...)`（原 `system_prompt: str = DEFAULT_SYSTEM_PROMPT` 改为 `None` 默认值）
 - 移除 `task.py` 的 `DEFAULT_SYSTEM_PROMPT` 模块级字符串（唯一权威已迁至 `res/prompts/protocol.md`，Task 1 Step 1 已确认字节一致）
 
-- [ ] **Step 1: 修改 `Task.__init__`/`_build_system_prompt`，删除 `DEFAULT_SYSTEM_PROMPT`**
+- [x] **Step 1: 修改 `Task.__init__`/`_build_system_prompt`，删除 `DEFAULT_SYSTEM_PROMPT`**
 
   在 `src/forgeagent/task.py` 中：删除 `DEFAULT_SYSTEM_PROMPT` 常量定义（第 45-80 行）；顶部模块 docstring 里"The system prompt is a plain string in v1 (Jinja2 composition is deferred...)"这句已不真实，改为说明身份组合已实现；`__init__` 增加 `identity` 参数并把 `system_prompt` 默认值改为 `None`；`_build_system_prompt` 按"显式字符串最高优先级 → 组合 ApprovedIdentity → 两者皆无时用零身份组合"的顺序改写：
 
@@ -1738,7 +1739,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：`DEFAULT_SYSTEM_PROMPT removed: OK`
 
-- [ ] **Step 2: 更新 `tests/test_task.py`，追加身份接线测试**
+- [x] **Step 2: 更新 `tests/test_task.py`，追加身份接线测试**
 
   `tests/test_task.py` 当前基线 9 个测试全部只依赖 `Task(MockClient(...))` 的默认构造行为（无一处显式引用 `DEFAULT_SYSTEM_PROMPT` 字符串本身），所以现有测试在零身份文件的测试环境（`tests/conftest.py` 的 HOME 隔离夹具）下应该无需修改即通过——`_build_system_prompt()` 在没有 identity/system_prompt 时会组合出一个仍包含相同协议内容的提示词。这一步只追加验证新契约的测试，不删除旧测试。将 `ApprovedIdentity` import 合并到文件顶部既有 import 区；`Task` 已经导入，不重复导入：
 
@@ -1829,7 +1830,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：全部（当前基线 9 + 新增 5 = 14）测试 PASSED；若执行前基线测试数变化，以 `pytest --collect-only` 的实际收集结果为准，不把陈旧计数当成门禁。
 
-- [ ] **Step 3: 全量既有测试回归**
+- [x] **Step 3: 全量既有测试回归**
 
   ```bash
   .venv/bin/python -m pytest tests/ -x -q --ignore=tests/golden
@@ -1837,7 +1838,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：全部测试 PASSED，零 FAILED（这一步验证 `system_prompt` 默认值从 `DEFAULT_SYSTEM_PROMPT` 改为 `None` 没有破坏 `cli.py`/`tests/golden/cases.py` 里任何隐式依赖默认提示词具体文本的断言——若有断言失败，须先用 systematic-debugging 定位根因，不得跳过）。
 
-- [ ] **Step 4: Ruff 检查**
+- [x] **Step 4: Ruff 检查**
 
   ```bash
   .venv/bin/ruff check src/forgeagent/task.py tests/test_task.py
@@ -1861,7 +1862,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 - `build_parser()` 新增全局 `--no-identity` 标志
 - `run_once(..., identity: ApprovedIdentity | None = None)`（新参数）
 
-- [ ] **Step 1: 身份确认器与解析辅助函数**
+- [x] **Step 1: 身份确认器与解析辅助函数**
 
   在 `src/forgeagent/cli.py` 顶部导入区追加：
 
@@ -1978,7 +1979,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：`resolve_cli_identity: OK`
 
-- [ ] **Step 2: 接入 `run_once`/`run_smoke`/`repl`/`main`，新增 `--no-identity` 标志**
+- [x] **Step 2: 接入 `run_once`/`run_smoke`/`repl`/`main`，新增 `--no-identity` 标志**
 
   `run_once` 签名追加 `identity: ApprovedIdentity | None = None`，并在构造 `Task(...)` 时传入：
 
@@ -2148,7 +2149,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：`cli.py parses: OK` 与 `--no-identity flag: OK`
 
-- [ ] **Step 3: `tests/test_cli.py` 追加身份接线测试**
+- [x] **Step 3: `tests/test_cli.py` 追加身份接线测试**
 
   ```python
   def test_main_run_no_identity_never_calls_load_identity(monkeypatch):
@@ -2252,7 +2253,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：4 项新增测试 PASSED（`--no-identity` 零 I/O、headless 剥离、交互批准接线、注入 reader/plain-text 摘要渲染）。
 
-- [ ] **Step 4: 全量回归 + Ruff**
+- [x] **Step 4: 全量回归 + Ruff**
 
   ```bash
   .venv/bin/python -m pytest tests/ -x -q --ignore=tests/golden
@@ -2273,7 +2274,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 **Interfaces:**
 - `repl()` 的 `/reload` 分支扩展（无新增公开接口，复用 Task 5 的 `resolve_cli_identity`）
 
-- [ ] **Step 1: 扩展 `/reload` 分支**
+- [x] **Step 1: 扩展 `/reload` 分支**
 
   `repl()` 内的 `/reload` 分支（Task 5 Step 2 已让 `repl()` 在循环外先解析出 `identity`/`identity_confirmer`/`allowed_root`/`no_identity` 局部变量）替换为：
 
@@ -2321,7 +2322,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：`reload branch: OK`
 
-- [ ] **Step 2: `tests/test_cli.py` 追加 `/reload` 身份重载测试**
+- [x] **Step 2: `tests/test_cli.py` 追加 `/reload` 身份重载测试**
 
   ```python
   def test_repl_reload_unchanged_identity_does_not_reconfirm(monkeypatch, tmp_path):
@@ -2411,7 +2412,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：两项新增测试 PASSED。
 
-- [ ] **Step 3: 全量回归 + Ruff**
+- [x] **Step 3: 全量回归 + Ruff**
 
   ```bash
   .venv/bin/python -m pytest tests/ -x -q --ignore=tests/golden
@@ -2431,7 +2432,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 **Interfaces:**
 - 无新增运行时接口；本任务只验证 Task 1 Step 5 已写入 `pyproject.toml` 的 `artifacts` 声明在真实构建产物里生效。
 
-- [ ] **Step 1: 构建 wheel/sdist 并在隔离虚拟环境安装后验证三个 `.j2`/`.md` 资源可加载**
+- [x] **Step 1: 构建 wheel/sdist 并在隔离虚拟环境安装后验证三个 `.j2`/`.md` 资源可加载**
 
   这一步用 `uv build` 产出真实构建产物，再用一个全新虚拟环境安装（不复用当前开发环境的 `src/` 路径导入），证明 `importlib.resources` 读到的是打包进 wheel 的文件，不是开发目录下的源文件：
 
@@ -2453,7 +2454,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：`ls` 列出恰好一个 `.whl` 与一个 `.tar.gz`；安装无错误；最终打印 `wheel install resource loading: OK`（这证明 `compose_system_prompt` 在一个从未 `pip install -e` 过当前源码目录的全新环境里，仍能通过 `importlib.resources` 找到 `system.j2`/`protocol.md`/`default_soul.md` 三个包内资源——如果 `pyproject.toml` 的 `artifacts` glob 写错，这一步会直接报 `FileNotFoundError`）。
 
-- [ ] **Step 2: sdist 内容体检（确认三个资源文件确实被打包，不是侥幸通过 Step 1 的 wheel-only 路径）**
+- [x] **Step 2: sdist 内容体检（确认三个资源文件确实被打包，不是侥幸通过 Step 1 的 wheel-only 路径）**
 
   ```bash
   .venv/bin/python -c "
@@ -2476,7 +2477,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：`sdist contains all prompt resources: OK`
 
-- [ ] **Step 3: 记录为真实打包回归测试（Task 12 专项与全量都会执行）**
+- [x] **Step 3: 记录为真实打包回归测试（Task 12 专项与全量都会执行）**
 
   创建 `tests/test_packaging.py`。不要只加 `@pytest.mark.slow` 后声称默认 pytest 会跳过——当前 `pyproject.toml` 没有 `-m 'not slow'`，marker 不会自动 deselect。该测试应在 Task 12 专项和全量中真实执行：
 
@@ -2553,7 +2554,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：1 项测试 PASSED（首次运行耗时较长，因为需要真实构建 wheel/sdist 并创建独立虚拟环境）。
 
-- [ ] **Step 4: Ruff 检查**
+- [x] **Step 4: Ruff 检查（wheel/sdist 资源验证）**
 
   ```bash
   .venv/bin/ruff check tests/test_packaging.py
@@ -2574,7 +2575,7 @@ Task 1 Step 6 的 16 组合矩阵只覆盖 `compose_system_prompt` 单层（输�
 **Interfaces:**
 - 无新增，全部复用 `load_identity`/`resolve_project_trust`/`compose_system_prompt`/`canonical_project_id_digest`
 
-- [ ] **Step 1: 组合矩阵 × 确认结果 × 禁用模式的全链路表驱动测试（tasks.md 3.1）**
+- [x] **Step 1: 组合矩阵 × 确认结果 × 禁用模式的全链路表驱动测试（tasks.md 3.1）**
 
   将新增 import 合并到 `tests/test_identity.py` 顶部 import 区，测试辅助与测试函数追加到文件末尾：
 
@@ -2658,7 +2659,7 @@ Task 1 Step 6 的 16 组合矩阵只覆盖 `compose_system_prompt` 单层（输�
 
   预期输出：13 项测试全部 PASSED（12 组合 + 1 项 no-identity）。
 
-- [ ] **Step 2: 路径、TOCTOU、跨进程、secret 掩码变化与写失败专项补测（tasks.md 3.2 剩余缺口）**
+- [x] **Step 2: 路径、TOCTOU、跨进程、secret 掩码变化与写失败专项补测（tasks.md 3.2 剩余缺口）**
 
   在 `tests/test_identity.py` 追加：
 
@@ -2900,7 +2901,7 @@ Task 1 Step 6 的 16 组合矩阵只覆盖 `compose_system_prompt` 单层（输�
 
   预期输出：7 项专项测试全部 PASSED。
 
-- [ ] **Step 3: tasks.md 3.2 覆盖点核对清单（文字核对，不新增代码）**
+- [x] **Step 3: tasks.md 3.2 覆盖点核对清单（文字核对，不新增代码）**
 
   逐一核对 spec.md 全部 Scenario 是否已有可执行证据，交叉引用而非重复实现：
 
@@ -2928,7 +2929,7 @@ Task 1 Step 6 的 16 组合矩阵只覆盖 `compose_system_prompt` 单层（输�
 
   预期输出：上表全部对应测试 PASSED，零 FAILED。
 
-- [ ] **Step 4: 全量回归 + Ruff**
+- [x] **Step 4: 全量回归 + Ruff（矩阵与边界专项）**
 
   ```bash
   .venv/bin/python -m pytest tests/ -x -q --ignore=tests/golden
@@ -2952,7 +2953,7 @@ tasks.md 3.3 涵盖四类验证：① 固定协议字节完整性（全链路级
 - 无新增生产接口；复用 `compose_system_prompt`、`ApprovedIdentity`、`Task._build_system_prompt`
 - `_RecordingTaskClient`（本文件局部测试辅助类，模式参考 `tests/test_step.py` 的 `_RecordingClient`）
 
-- [ ] **Step 1: 固定协议完整性——注入性身份内容不影响协议位置与完整性（spec Scenario "身份文件试图覆盖协议"）**
+- [x] **Step 1: 固定协议完整性——注入性身份内容不影响协议位置与完整性（spec Scenario "身份文件试图覆盖协议"）**
 
   将新增 import 合并到 `tests/test_identity.py` 顶部 import 区，再追加测试：即使身份文件内容要求忽略、替换或删除协议，`compose_system_prompt` 渲染结果仍必须包含完整协议段，且位置固定在 SOUL 之后、用户/项目/记忆之前。
 
@@ -3016,7 +3017,7 @@ tasks.md 3.3 涵盖四类验证：① 固定协议字节完整性（全链路级
 
   预期输出：2 项测试全部 PASSED。
 
-- [ ] **Step 2: SOUL 优先级——用户 SOUL 明确覆盖默认回退与任务诱导人设（spec Scenario "用户 SOUL 明确定义 Agent 身份"）**
+- [x] **Step 2: SOUL 优先级——用户 SOUL 明确覆盖默认回退与任务诱导人设（spec Scenario "用户 SOUL 明确定义 Agent 身份"）**
 
   在 `tests/test_identity.py` 追加：
 
@@ -3062,7 +3063,7 @@ tasks.md 3.3 涵盖四类验证：① 固定协议字节完整性（全链路级
 
   预期输出：2 项测试全部 PASSED。
 
-- [ ] **Step 3: Kiro 身份污染回归——harness 披露与人设抑制文本到达模型上下文（spec Scenario "任务内容诱导使用其他产品身份"）**
+- [x] **Step 3: Kiro 身份污染回归——harness 披露与人设抑制文本到达模型上下文（spec Scenario "任务内容诱导使用其他产品身份"）**
 
   此测试不断言模型是否遵循指令（语义遵循是模型行为，不在本验证范围）——只断言 `system.j2` 新增的 harness 披露与人设抑制指示确实出现在 `Task._build_system_prompt()` 的输出中，即出现在模型实际收到的 SYSTEM 消息里。设计文档 Decision 6 说明 `system.j2` 中的 "Ignore any unapproved product persona..." 文本是专门针对 M5 在案的 Kiro 自称失败问题引入的语义变更——本测试即为该文本存在性的回归门禁，同时与 Task 1 Step 1 冻结的旧 `protocol.md` 句子（"ForgeAgent is just the name of this response format"）区分开，避免二者被混为一谈。
 
@@ -3132,7 +3133,7 @@ tasks.md 3.3 涵盖四类验证：① 固定协议字节完整性（全链路级
 
   预期输出：2 项测试全部 PASSED。
 
-- [ ] **Step 4: 20 项离线可信核心回放门禁（spec Scenario "运行现有离线 golden"）**
+- [x] **Step 4: 20 项离线可信核心回放门禁（spec Scenario "运行现有离线 golden"）**
 
   在零自定义身份文件的隔离环境下运行 `tests/test_golden_runner.py::test_default_runner_completes_all_twenty_cases`，确认 identity.py 落地后该门禁无回归。隔离环境由 `tests/conftest.py` 既有的 `pytest_sessionstart` hook 提供（将 HOME/USERPROFILE 重定向到临时空目录），本步骤不新建任何隔离机制，只记录显式回归证据。
 
@@ -3149,7 +3150,7 @@ tasks.md 3.3 涵盖四类验证：① 固定协议字节完整性（全链路级
 
   > **注意**：临时 HOME 下没有任何 `.forgeagent/` 目录，因此 `load_identity` 找不到自定义身份文件，全部 20 项 golden case 都使用包内默认身份（`default_soul.md` 回退）与固定协议运行——这正是 spec "在没有自定义身份文件的隔离环境运行完整离线 golden 可信核心" 的执行语义。
 
-- [ ] **Step 5: 全量回归 + Ruff**
+- [x] **Step 5: 全量回归 + Ruff（协议与回放专项）**
 
   ```bash
   .venv/bin/python -m pytest tests/ -x -q --ignore=tests/golden
@@ -3174,7 +3175,7 @@ tasks.md 3.4 三件事：① 在 `docs/golden-tasks-seed.md` 候选目录按 8/5
 **Interfaces:**
 - 无新增生产接口；复用 `compose_system_prompt`、`ApprovedIdentity`、`MockClient`、`Task`
 
-- [ ] **Step 1: 候选目录追加 G381-G400（8/5/4/2/1 配比，主题：M15 身份子系统）**
+- [x] **Step 1: 候选目录追加 G381-G400（8/5/4/2/1 配比，主题：M15 身份子系统）**
 
   在 `docs/golden-tasks-seed.md` 顶部三处计数更新：
 
@@ -3267,7 +3268,7 @@ tasks.md 3.4 三件事：① 在 `docs/golden-tasks-seed.md` 候选目录按 8/5
 
   预期输出：`G381-G400 present exactly once and in order`。
 
-- [ ] **Step 2: 扩展 `_CANDIDATE_ID` 正则覆盖 G381-G400**
+- [x] **Step 2: 扩展 `_CANDIDATE_ID` 正则覆盖 G381-G400**
 
   `tests/golden/runner.py` 现有：
 
@@ -3299,7 +3300,7 @@ tasks.md 3.4 三件事：① 在 `docs/golden-tasks-seed.md` 候选目录按 8/5
 
   预期输出：`31-400 all match, 401/30 correctly rejected`。
 
-- [ ] **Step 3: 更新 `tests/test_golden_runner.py` 的范围断言与 G380→G400 边界测试锚点**
+- [x] **Step 3: 更新 `tests/test_golden_runner.py` 的范围断言与 G380→G400 边界测试锚点**
 
   三处调整：
 
@@ -3371,7 +3372,7 @@ tasks.md 3.4 三件事：① 在 `docs/golden-tasks-seed.md` 候选目录按 8/5
 
   预期输出：相关测试全部 PASSED（含 `test_golden_candidate_catalog_has_structured_definitions_and_candidates` 对真实 `docs/golden-tasks-seed.md` 的结构校验）。
 
-- [ ] **Step 4: 独立专项 mock replay 机器——验证 SOUL/AGENTS 输入可见性（不宣称真实模型遵循证据）**
+- [x] **Step 4: 独立专项 mock replay 机器——验证 SOUL/AGENTS 输入可见性（不宣称真实模型遵循证据）**
 
   新建 `tests/test_golden_candidates_identity.py`：这是一个与候选目录定义**分离**的可执行验证机器——候选表格里的文字描述（如 G381"完整出现在...段"）本身不是断言，必须有独立代码跑通对应场景才算数。本文件复用 `_RecordingTaskClient`（与 Task 9 Step 3 相同模式）驱动一次真实的 `Task.run()`，而不是只调用 `compose_system_prompt()`——因为 G381/G383 的 pass 判定描述的是"完整出现在组合系统提示词"这一端到端语义，跳过 `Task` 直接测组合器会漏掉 `_build_system_prompt` 这一层集成逻辑。
 
@@ -3477,7 +3478,7 @@ tasks.md 3.4 三件事：① 在 `docs/golden-tasks-seed.md` 候选目录按 8/5
 
   预期输出：3 项测试全部 PASSED。
 
-- [ ] **Step 5: 全量回归 + Ruff**
+- [x] **Step 5: 全量回归 + Ruff（候选目录专项）**
 
   ```bash
   .venv/bin/python -m pytest tests/ -x -q --ignore=tests/golden
@@ -3501,7 +3502,7 @@ Files:
 
 Interfaces: 无新增生产接口。文档引用 Task 2 的 `_resolve_identity_file`（symlink 逃逸拒绝、32 KiB/96 KiB 大小上限）与 Task 3 的 `default_trust_record_path`/`~/.forgeagent/identity-trust.json`（版本化原子写入的信任记录），均沿用已定稿的实现，本任务不改它们的行为。
 
-- [ ] **Step 1: `docs/threat-model.md` 新增 T12**
+- [x] **Step 1: `docs/threat-model.md` 新增 T12**
 
   在 T11 行之后追加一行（`## Threats, mitigations, and residual risk` 表格的最后一行）：
 
@@ -3518,7 +3519,7 @@ Interfaces: 无新增生产接口。文档引用 Task 2 的 `_resolve_identity_f
 
   预期输出：行数计数为 12；`T12` 行存在且以 `|` 开头。
 
-- [ ] **Step 2: `README.md` 新增身份与提示词章节，修正 Golden 计数**
+- [x] **Step 2: `README.md` 新增身份与提示词章节，修正 Golden 计数**
 
   在 `## MCP 服务` 之前插入新的一级章节（放在 `## 工具集` 与 `## MCP 服务` 之间，因为它同属"运行时行为"而非"配置"）：
 
@@ -3559,7 +3560,7 @@ Interfaces: 无新增生产接口。文档引用 Task 2 的 `_resolve_identity_f
 
   预期输出：第一条 grep 各命中一行；第二条 grep 无输出（旧计数已全部替换）；第三条 grep 命中新增章节里的对应行。
 
-- [ ] **Step 3: 新增 README 结构断言测试**
+- [x] **Step 3: 新增 README 结构断言测试**
 
   在 `tests/test_golden_runner.py` 里，紧接 `_assert_readme_proxy_migration_contract` 之后追加一个同风格的断言函数和测试：
 
@@ -3590,7 +3591,7 @@ Interfaces: 无新增生产接口。文档引用 Task 2 的 `_resolve_identity_f
 
   预期输出：`test_readme_documents_the_proxy_breaking_change_and_migration_paths` 与新增的 `test_readme_documents_identity_file_conventions_and_no_identity_flag` 均 PASSED。
 
-- [ ] **Step 4: 全量回归 + Ruff**
+- [x] **Step 4: 全量回归 + Ruff（文档与威胁模型专项）**
 
   ```bash
   .venv/bin/python -m pytest tests/ -x -q --ignore=tests/golden
@@ -3617,7 +3618,7 @@ Interfaces: 无新增生产接口。文档引用 Task 2 的 `_resolve_identity_f
 - Produces: 13/13 tasks 勾选、实证里程碑、完整离线报告、与已验证实现 HEAD 精确关联且可进入 Comet verify 的提交状态。
 - Consumes: 所有实现提交、两份 OpenSpec specs、Design Doc、`base_ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf`。
 
-- [ ] **Step 1: 运行静态检查**
+- [x] **Step 1: 运行静态检查**
 
 列出本 change 新增或修改的 Python 文件（以 plan `base_ref` 为边界），并对该列表运行 `ruff check` + `ruff format --check`；列表为空则跳过。验证步骤不得修改文件。若 changed-file format check 失败，派发单一 formatting fix worker，仅修复这些文件并提交，然后从本步骤重新开始，不能沿用修复前的任何静态、测试、黄金或评审证据。不得为通过门禁而格式化未被本 change 修改的文件。
 
@@ -3646,7 +3647,7 @@ rm -f "$changed_python_list"
 
 预期：changed-file `ruff check` 与 `ruff format --check` 均无错误输出；`All checks passed!`。
 
-- [ ] **Step 2: 运行专项测试**
+- [x] **Step 2: 运行专项测试**
 
 ```bash
 .venv/bin/python -m pytest \
@@ -3664,7 +3665,7 @@ rm -f "$changed_python_list"
 
 预期：全部可运行测试 PASS；环境能力 skip 带明确原因。
 
-- [ ] **Step 3: 运行隔离全量测试**
+- [x] **Step 3: 运行隔离全量测试**
 
 ```bash
 .venv/bin/python -m pytest -q -ra \
@@ -3674,7 +3675,7 @@ rm -f "$changed_python_list"
 
 预期：无人工 deselect；所有失败必须先按 systematic-debugging skill 定位根因并修复，不能进入下一步。任何修复使本 Task 已有证据（Step 1-2）失效，须从 Step 1 重新执行。
 
-- [ ] **Step 4: 运行 20 项离线黄金核心**
+- [x] **Step 4: 运行 20 项离线黄金核心**
 
 ```bash
 .venv/bin/python -m tests.golden.runner
@@ -3682,11 +3683,11 @@ rm -f "$changed_python_list"
 
 预期：20/20、100.0%、退出 0；核对 JSON 与 Markdown summary 一致。没有显式模型凭证时不运行 real 模式；任何失败须先修复（使 Step 1-4 证据失效，从 Step 1 重跑）。
 
-- [ ] **Step 5: 使用 CodeGraph 做最终调用面复审**
+- [x] **Step 5: 使用 CodeGraph 做最终调用面复审**
 
 查询 `load_identity`、`resolve_project_trust`、`compose_system_prompt`、`ApprovedIdentity`、`IdentitySnapshot`、`default_trust_record_path` 的调用方，确认以下入口均覆盖：CLI REPL/单次运行路径、Task/Step 系统上下文构建、`--no-identity` 禁用路径、`/reload` 重载路径、测试注入路径（参数可注入、不读真实 home 文件）。若 CodeGraph 报 different-worktree/stale，记录警告及原因，以当前 worktree 的直接源码、diff 和测试复核所有受影响文件；不把主 checkout 索引误当作当前实现，也不自行运行 `codegraph init`。
 
-- [ ] **Step 6: 执行技术与代码两道独立评审门禁**
+- [x] **Step 6: 执行技术与代码两道独立评审门禁**
 
 1. **技术方案一致性评审**：逐项对照 `specs/runtime-identity/spec.md`（25 个 Scenario）、`specs/golden-validation-core/spec.md`（2 个 Scenario）、Design Doc `docs/superpowers/specs/2026-07-17-compose-runtime-identity-design.md`、本计划和实现，修复错误、遗漏或漂移，并重新运行 `openspec validate compose-runtime-identity --strict`。
 2. **对抗性代码评审**：用 plan `base_ref` 到当前候选 HEAD 的完整 review package 派发独立 whole-branch reviewer，覆盖正确性、安全（symlink 逃逸检测完整性、secret masking 覆盖率、trust record 并发竞态）、资源生命周期和测试可信度（确认 mock replay 不被误报为真实模型遵循证据）；Critical/Important 发现必须由单一 fix worker 收敛并提交。
@@ -3695,7 +3696,7 @@ rm -f "$changed_python_list"
 
 `review_mode: standard` 的本 change 最终阶段含技术方案一致性与代码两道评审；ACTION_PLAN M15 门禁"三轮评审"三道依次为本 Step（技术方案 + 代码）与 Step 7（验收证据），与 M13 技术方案/代码/验收三道形式对齐。
 
-- [ ] **Step 7: 固定已验证实现 HEAD，创建证据草稿并执行第三道验收评审**
+- [x] **Step 7: 固定已验证实现 HEAD，创建证据草稿并执行第三道验收评审**
 
 Step 1-6（包含前两道评审）通过后，立即把 `git rev-parse HEAD` 作为 `verified_head` 同时写入 `.comet/subagent-progress.md` 的独立行 `verified_head: <40-hex>`，以及 milestone 草稿的独立行 `- 已验证实现 HEAD: <40-hex>`（实际 SHA 按 MILESTONE_GUIDE 用反引号包裹）；两个持久文件必须一致，后续命令每次重新读取而不依赖旧 shell 变量。里程碑必须标明这个精确实现 HEAD，不是之后的 evidence-only commit。
 
@@ -3709,7 +3710,7 @@ M15 前置里程碑链接为 `milestone_013.md`（M11/M12/M14 跳过，M13 是�
 
   此 change 不假设工作树绝对 clean。执行隔离完成后，先把 `git status --porcelain=v1` 的**既有 dirty 基线**逐项记录进 `.comet/subagent-progress.md`；当前审查时已知存在未跟踪的 agent/skill 配置等非 M15 文件，必须原样保留。提交收尾前允许的未提交项仅为该基线中仍未改变的条目；任何新增、消失或内容变化都必须归因，不能硬编码成“只允许 ACTION_PLAN.md”。
 
-- [ ] **Step 8: 提交验证收尾**
+- [x] **Step 8: 提交验证收尾**
 
 ```bash
 git add openspec/changes/compose-runtime-identity/tasks.md \
