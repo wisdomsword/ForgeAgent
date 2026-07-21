@@ -76,7 +76,8 @@ class JsonlAuditSink:
         # recreate a missing destination, so an unexpected path failure is observable.
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._path.open("a", encoding="utf-8").close()
-        for candidate in (self._path, *(self._rotated_path(i) for i in range(1, retention_files))):
+        self._remove_stale_rotated_files()
+        for candidate in (self._path, *(path for _, path in self._rotated_files())):
             self._compact_existing_file(candidate)
 
     @property
@@ -157,6 +158,7 @@ class JsonlAuditSink:
             return
         if self._path.stat().st_size + incoming_bytes <= self._max_bytes:
             return
+        self._remove_stale_rotated_files()
         if self._retention_files == 1:
             self._path.unlink()
             return
@@ -171,6 +173,26 @@ class JsonlAuditSink:
 
     def _rotated_path(self, index: int) -> Path:
         return self._path.with_name(f"{self._path.name}.{index}")
+
+    def _rotated_files(self) -> list[tuple[int, Path]]:
+        prefix = f"{self._path.name}."
+        rotated: list[tuple[int, Path]] = []
+        for candidate in self._path.parent.iterdir():
+            if not candidate.name.startswith(prefix):
+                continue
+            suffix = candidate.name[len(prefix) :]
+            if suffix.isascii() and suffix.isdigit():
+                rotated.append((int(suffix), candidate))
+        return sorted(rotated)
+
+    def _remove_stale_rotated_files(self) -> None:
+        for index, candidate in self._rotated_files():
+            if (
+                index < 1
+                or index >= self._retention_files
+                or candidate != self._rotated_path(index)
+            ):
+                candidate.unlink()
 
 
 def emit_audit(sink: AuditSink | None, event: AuditEvent) -> bool:

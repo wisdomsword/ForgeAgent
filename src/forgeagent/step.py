@@ -26,7 +26,7 @@ from uuid import uuid4
 from pydantic import BaseModel, Field
 
 from .audit import AuditEvent, AuditSink, emit_audit
-from .client import ModelClient, ProviderAttempt
+from .client import AttemptObserver, ModelClient, ProviderAttempt
 from .executor import ExecutorBackend
 from .models import (
     AssistantMessage,
@@ -212,18 +212,6 @@ class Step:
         self._audit_sink = audit_sink
         self._task_id = task_id
         self._active_llm_operation_id: str | None = None
-        if self._audit_sink is not None:
-            previous_observer = getattr(self._client, "_attempt_observer", None)
-
-            def observe(event: ProviderAttempt) -> None:
-                if previous_observer is not None:
-                    try:
-                        previous_observer(event)
-                    except Exception:
-                        pass
-                self._observe_provider_attempt(event)
-
-            self._client.set_attempt_observer(observe)
         # Static AST layer: advisory feedback before execution (not a security boundary).
         self._analyzer = analyzer or CodeAnalyzer()
         self.blocks = CodeBlockStore()
@@ -289,6 +277,26 @@ class Step:
         user message carrying it. The terminal state of the last round is a
         `Termination` value on `stopped_reason` — see that enum for the taxonomy.
         """
+        if self._audit_sink is None:
+            return self._run_rounds(messages)
+
+        previous_observer: AttemptObserver | None = None
+
+        def observe(event: ProviderAttempt) -> None:
+            if previous_observer is not None:
+                try:
+                    previous_observer(event)
+                except Exception:
+                    pass
+            self._observe_provider_attempt(event)
+
+        previous_observer = self._client.set_attempt_observer(observe)
+        try:
+            return self._run_rounds(messages)
+        finally:
+            self._client.set_attempt_observer(previous_observer)
+
+    def _run_rounds(self, messages: list[Message]) -> list[RoundResult]:
         convo = list(messages)
         prose_nudged = False
         for attempt in range(1, self._max_rounds + 1):

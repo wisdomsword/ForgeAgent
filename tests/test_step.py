@@ -138,6 +138,72 @@ def test_step_correlates_provider_attempts_with_logical_llm_operation():
     assert {event.operation_id for event in provider + logical} == {logical[0].operation_id}
 
 
+def test_step_scopes_provider_attempt_observer_to_each_audited_run():
+    class _AttemptClient(MockClient):
+        def complete(self, messages, params=None):
+            self._notify_attempt(ProviderAttempt(attempt=1, status="started"))
+            result = super().complete(messages, params)
+            self._notify_attempt(ProviderAttempt(attempt=1, status="success"))
+            return result
+
+    client = _AttemptClient(script=[_reply(_done()), _reply(_done()), _reply(_done())])
+    first_sink = _RecordingAuditSink()
+    second_sink = _RecordingAuditSink()
+
+    Step(
+        client,
+        TrustedBackend(),
+        Runtime(),
+        audit_sink=first_sink,
+        task_id="first-task",
+    ).run(_user())
+    Step(client, TrustedBackend(), Runtime()).run(_user())
+    Step(
+        client,
+        TrustedBackend(),
+        Runtime(),
+        audit_sink=second_sink,
+        task_id="second-task",
+    ).run(_user())
+
+    first_provider = [
+        event for event in first_sink.events if event.event_type == "llm.provider_attempt"
+    ]
+    second_provider = [
+        event for event in second_sink.events if event.event_type == "llm.provider_attempt"
+    ]
+    assert [event.result_status for event in first_provider] == ["started", "success"]
+    assert [event.result_status for event in second_provider] == ["started", "success"]
+    assert {event.task_id for event in first_provider} == {"first-task"}
+    assert {event.task_id for event in second_provider} == {"second-task"}
+
+
+def test_step_restores_previous_attempt_observer_when_run_raises():
+    sink = _RecordingAuditSink()
+    observed: list[ProviderAttempt] = []
+    control = RuntimeError("model failure")
+
+    class _RaisingAttemptClient(MockClient):
+        def complete(self, messages, params=None):
+            self._notify_attempt(ProviderAttempt(attempt=1, status="started"))
+            raise control
+
+    client = _RaisingAttemptClient(script=[])
+    client.set_attempt_observer(observed.append)
+    step = Step(client, TrustedBackend(), Runtime(), audit_sink=sink)
+
+    with pytest.raises(RuntimeError, match="model failure"):
+        step.run(_user())
+    audited_count = len(sink.events)
+    client._notify_attempt(ProviderAttempt(attempt=2, status="success"))
+
+    assert [(event.attempt, event.status) for event in observed] == [
+        (1, "started"),
+        (2, "success"),
+    ]
+    assert len(sink.events) == audited_count
+
+
 def test_step_correlates_confirmation_and_tool_operation_with_tool_call_id():
     sink = _RecordingAuditSink()
 

@@ -118,6 +118,38 @@ def test_audit_rotation_retains_bounded_files_and_marks_runtime_failure_degraded
     assert sink.degraded is True
 
 
+def test_audit_startup_removes_stale_high_index_rotated_files(tmp_path):
+    path = tmp_path / "audit.jsonl"
+    path.write_text('{"event_type":"current"}\n', encoding="utf-8")
+    retained = tmp_path / "audit.jsonl.1"
+    retained.write_text('{"event_type":"newest-rotation"}\n', encoding="utf-8")
+    stale = tmp_path / "audit.jsonl.99"
+    stale.write_text('{"event_type":"stale-rotation"}\n', encoding="utf-8")
+
+    JsonlAuditSink(path, max_bytes=180, retention_files=2, secret_values=set())
+
+    assert retained.exists()
+    assert json.loads(retained.read_text(encoding="utf-8"))["event_type"] == "newest-rotation"
+    assert not stale.exists()
+    assert len(list(tmp_path.glob("audit.jsonl*"))) == 2
+
+
+def test_audit_rotation_removes_stale_high_index_rotated_files(tmp_path):
+    path = tmp_path / "audit.jsonl"
+    path.write_text(
+        json.dumps({"event_type": "current", "padding": "x" * 110}) + "\n",
+        encoding="utf-8",
+    )
+    sink = JsonlAuditSink(path, max_bytes=180, retention_files=2, secret_values=set())
+    stale = tmp_path / "audit.jsonl.99"
+    stale.write_text('{"event_type":"stale-rotation"}\n', encoding="utf-8")
+
+    assert sink.emit(AuditEvent(event_type="http.query"))
+
+    assert not stale.exists()
+    assert len(list(tmp_path.glob("audit.jsonl*"))) <= 2
+
+
 def test_oversize_event_writes_bounded_parseable_fallback(tmp_path):
     path = tmp_path / "audit.jsonl"
     sink = JsonlAuditSink(path, max_bytes=180, retention_files=2, secret_values=set())

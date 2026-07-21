@@ -67,8 +67,10 @@ class ModelClient(ABC):
         yield StreamEvent(kind=StreamEventKind.TEXT_DELTA, text=result.content)
         yield StreamEvent(kind=StreamEventKind.DONE, message=result)
 
-    def set_attempt_observer(self, observer: AttemptObserver | None) -> None:
+    def set_attempt_observer(self, observer: AttemptObserver | None) -> AttemptObserver | None:
+        previous = getattr(self, "_attempt_observer", None)
         self._attempt_observer = observer
+        return previous
 
     def _notify_attempt(self, event: ProviderAttempt) -> None:
         observer = getattr(self, "_attempt_observer", None)
