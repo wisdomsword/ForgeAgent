@@ -8,6 +8,25 @@ import tarfile
 from pathlib import Path
 
 
+def _clean_python_environment(environment: dict[str, str]) -> dict[str, str]:
+    cleaned = environment.copy()
+    cleaned.pop("PYTHONHOME", None)
+    cleaned.pop("PYTHONPATH", None)
+    return cleaned
+
+
+def test_clean_python_environment_removes_import_overrides():
+    cleaned = _clean_python_environment(
+        {
+            "PATH": "/usr/bin",
+            "PYTHONPATH": "/untrusted/source",
+            "PYTHONHOME": "/untrusted/runtime",
+        }
+    )
+
+    assert cleaned == {"PATH": "/usr/bin"}
+
+
 def test_wheel_and_sdist_contain_prompt_resources(tmp_path):
     repo_root = Path(__file__).resolve().parents[1]
     dist_dir = tmp_path / "dist"
@@ -49,19 +68,30 @@ def test_wheel_and_sdist_contain_prompt_resources(tmp_path):
         capture_output=True,
         env=uv_env,
     )
+    probe_dir = tmp_path / "wheel-probe"
+    probe_dir.mkdir()
     result = subprocess.run(
         [
             str(venv_python),
+            "-I",
             "-c",
+            "from pathlib import Path\n"
+            "import sys\n"
+            "import forgeagent\n"
             "from forgeagent.identity import ApprovedIdentity, compose_system_prompt\n"
+            "module_path = Path(forgeagent.__file__).resolve()\n"
+            "venv_path = Path(sys.prefix).resolve()\n"
+            "assert module_path.is_relative_to(venv_path), (module_path, venv_path)\n"
             "rendered = compose_system_prompt(ApprovedIdentity(soul=None, user=None, "
             "project_agents=None, memory=None))\n"
             "assert 'No custom Agent Identity (SOUL)' in rendered\n"
             "assert 'This conversation is driven by ForgeAgent' in rendered\n"
             "print('OK')\n",
         ],
+        cwd=probe_dir,
         check=True,
         capture_output=True,
         text=True,
+        env=_clean_python_environment(os.environ),
     )
     assert result.stdout.strip() == "OK"
