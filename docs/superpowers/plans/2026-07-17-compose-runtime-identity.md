@@ -2554,7 +2554,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：1 项测试 PASSED（首次运行耗时较长，因为需要真实构建 wheel/sdist 并创建独立虚拟环境）。
 
-- [ ] **Step 4: Ruff 检查**
+- [ ] **Step 4: Ruff 检查（wheel/sdist 资源验证）**
 
   ```bash
   .venv/bin/ruff check tests/test_packaging.py
