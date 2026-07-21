@@ -1409,6 +1409,81 @@ def test_repl_accumulates_usage_across_tasks_in_one_session():
     assert "usage: in=30 out=12 cached=4 reasoning=0 (session total)" in text
 
 
+def test_repl_reload_unchanged_identity_does_not_reconfirm(monkeypatch, tmp_path):
+    import forgeagent.cli as cli_module
+
+    home = tmp_path / "home"
+    home.mkdir()
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / ".forgeagent").mkdir()
+    (project / ".forgeagent" / "AGENTS.md").write_text("VERSION ONE")
+
+    monkeypatch.setattr(cli_module.Path, "home", staticmethod(lambda: home))
+    monkeypatch.chdir(project)
+
+    confirm_count = {"n": 0}
+    goal_inputs = iter(["/reload", "quit"])
+
+    def read_line(prompt: str) -> str:
+        if prompt.startswith("inject"):
+            confirm_count["n"] += 1
+            return "y"
+        return next(goal_inputs)
+
+    cli_module.repl(
+        tier="restricted",
+        model="claude-sonnet-5",
+        client_factory=_factory([]),
+        console=_console(),
+        read_line=read_line,
+        confirmation_available=True,
+    )
+    assert confirm_count["n"] == 1
+
+
+def test_repl_reload_recognizes_changed_project_identity(monkeypatch, tmp_path):
+    import forgeagent.cli as cli_module
+
+    home = tmp_path / "home"
+    home.mkdir()
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / ".forgeagent").mkdir()
+    agents_path = project / ".forgeagent" / "AGENTS.md"
+    agents_path.write_text("VERSION ONE")
+
+    monkeypatch.setattr(cli_module.Path, "home", staticmethod(lambda: home))
+    monkeypatch.chdir(project)
+
+    confirm_count = {"n": 0}
+    step = {"n": 0}
+
+    def read_line(prompt: str) -> str:
+        if prompt.startswith("inject"):
+            confirm_count["n"] += 1
+            return "y"
+        step["n"] += 1
+        if step["n"] == 1:
+            return "/reload"
+        if step["n"] == 2:
+            agents_path.write_text("VERSION TWO")
+            return "/reload"
+        return "quit"
+
+    console = _console()
+    cli_module.repl(
+        tier="restricted",
+        model="claude-sonnet-5",
+        client_factory=_factory([]),
+        console=console,
+        read_line=read_line,
+        confirmation_available=True,
+    )
+    assert confirm_count["n"] == 2
+    assert "identity reloaded" in console.export_text()
+
+
 # --- config error handling ---------------------------------------------------
 
 

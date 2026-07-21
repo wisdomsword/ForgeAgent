@@ -625,11 +625,13 @@ def repl(
     identity_confirmer = (
         make_console_identity_confirmer(console, read_line) if confirmation_available else None
     )
+    allowed_root = str(Path.cwd().resolve())
+    identity_diagnostic = make_console_identity_diagnostic(console)
     identity = resolve_cli_identity(
         no_identity=no_identity,
-        allowed_root=str(Path.cwd().resolve()),
+        allowed_root=allowed_root,
         confirmer=identity_confirmer,
-        diagnostic=make_console_identity_diagnostic(console),
+        diagnostic=identity_diagnostic,
     )
     mcp = build_mcp_manager(console)
     # One accumulator for the whole REPL session — usage keeps growing across tasks,
@@ -684,14 +686,24 @@ def repl(
                 _handle_mcp_slash(goal, mcp, console)
                 continue
             if goal == "/reload":
-                # Re-read ~/.forgeagent/{models,config}.yaml now, so a broken edit is
-                # caught here rather than on the next `run`. Each run already reloads
-                # from disk, so this is a validate-and-report, not a cache refresh.
+                # Re-validate model config, then re-resolve identity. Changed project
+                # content re-enters the trust gate; unchanged content reuses its digest.
                 try:
                     reloaded = reload_registry()
                     console.print(f"[green]reloaded[/green]: {len(reloaded.models)} models")
                 except RegistryError as exc:
                     console.print(f"[red]reload failed[/red]: {exc}")
+                if not no_identity:
+                    try:
+                        identity = resolve_cli_identity(
+                            no_identity=False,
+                            allowed_root=allowed_root,
+                            confirmer=identity_confirmer,
+                            diagnostic=identity_diagnostic,
+                        )
+                        console.print("[green]identity reloaded[/green]")
+                    except IdentityConfigError as exc:
+                        console.print(f"[red]identity reload failed[/red]: {exc}")
                 continue
             if goal == "/help" or goal.startswith("/help "):
                 _handle_help_command(goal, console)
