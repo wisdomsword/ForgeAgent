@@ -2274,7 +2274,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 **Interfaces:**
 - `repl()` 的 `/reload` 分支扩展（无新增公开接口，复用 Task 5 的 `resolve_cli_identity`）
 
-- [ ] **Step 1: 扩展 `/reload` 分支**
+- [x] **Step 1: 扩展 `/reload` 分支**
 
   `repl()` 内的 `/reload` 分支（Task 5 Step 2 已让 `repl()` 在循环外先解析出 `identity`/`identity_confirmer`/`allowed_root`/`no_identity` 局部变量）替换为：
 
@@ -2322,7 +2322,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：`reload branch: OK`
 
-- [ ] **Step 2: `tests/test_cli.py` 追加 `/reload` 身份重载测试**
+- [x] **Step 2: `tests/test_cli.py` 追加 `/reload` 身份重载测试**
 
   ```python
   def test_repl_reload_unchanged_identity_does_not_reconfirm(monkeypatch, tmp_path):
@@ -2412,7 +2412,7 @@ base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
 
   预期输出：两项新增测试 PASSED。
 
-- [ ] **Step 3: 全量回归 + Ruff**
+- [x] **Step 3: 全量回归 + Ruff**
 
   ```bash
   .venv/bin/python -m pytest tests/ -x -q --ignore=tests/golden
