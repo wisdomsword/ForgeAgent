@@ -351,7 +351,7 @@ git commit -m "feat: bound all tool feedback with water filling"
 
 ### Task 6: Provider-normalized prompt denominator
 
-- [ ] **Task 6 complete: Provider-normalized prompt denominator 已交付**
+- [x] **Task 6 complete: Provider-normalized prompt denominator 已交付**
 
 **Files:**
 - Modify: `src/forgeagent/models.py`
@@ -365,7 +365,7 @@ git commit -m "feat: bound all tool feedback with water filling"
 - `TokenUsage.total_prompt_tokens: int | None = Field(default=None, exclude=True, repr=False)`.
 - Anthropic writes `input_tokens + cached_tokens`; OpenAI-compatible writes total `input_tokens`.
 
-- [ ] **Step 1: 写 streaming/non-streaming denominator 和序列化失败测试**
+- [x] **Step 1: 写 streaming/non-streaming denominator 和序列化失败测试**
 
 ```python
 def test_anthropic_usage_normalizes_prompt_total_without_serializing_helper():
@@ -378,23 +378,23 @@ def test_openai_usage_uses_prompt_total_that_already_contains_cache():
     assert usage.total_prompt_tokens == 20
 ```
 
-- [ ] **Step 2: 运行 RED**
+- [x] **Step 2: 运行 RED**
 
 Run: `.venv/bin/pytest -q tests/test_anthropic_client.py tests/test_openai_compatible_client.py tests/test_streaming.py -k 'prompt_total or total_prompt'`
 
 Expected: FAIL because internal field is missing.
 
-- [ ] **Step 3: 在 adapter 构造 TokenUsage 的全部成功路径赋值**
+- [x] **Step 3: 在 adapter 构造 TokenUsage 的全部成功路径赋值**
 
 正常 usage 响应必须非 None；provider 确实未返回 usage 时保留 None。不得在 Step 根据 `client_kind` 补算。
 
-- [ ] **Step 4: 运行 provider 全回归**
+- [x] **Step 4: 运行 provider 全回归**
 
 Run: `.venv/bin/pytest -q tests/test_anthropic_client.py tests/test_openai_compatible_client.py tests/test_streaming.py tests/test_client.py`
 
 Expected: PASS.
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add src/forgeagent/models.py src/forgeagent/anthropic_client.py src/forgeagent/openai_compatible_client.py tests/test_anthropic_client.py tests/test_openai_compatible_client.py tests/test_streaming.py

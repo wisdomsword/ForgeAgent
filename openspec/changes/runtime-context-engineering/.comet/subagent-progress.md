@@ -1,17 +1,17 @@
 # M17 Subagent Progress
 
-- Plan task: Task 5 complete: 水位 feedback limiter 与 Step 统一渲染已交付
-- OpenSpec mapping: 3.1 统一 limiter；3.2 marker/continuation；3.3 原始 outcome/终态/投影不变（完成后全部勾选）
+- Plan task: Task 6 complete: Provider-normalized prompt denominator 已交付
+- OpenSpec mapping: 4.1 provider-normalized total prompt denominator
 - Phase: done
-- Base commit: 083209750dafab69c2269a13c7199ec1ee05e387
-- Implementation commits: cc91066e2d2eafb765fb4c61de7f5467e12d8392; 45c501e
-- Changed files: src/forgeagent/context.py; src/forgeagent/step.py; tests/test_context.py; tests/test_step.py
-- TDD RED: limiter import -> expected missing `render_bounded_feedback`
-- TDD GREEN: initial focused -> 20 passed; fix new tests -> 7 passed; Task 5 focused -> 23 passed; context/Step/tools/Web -> 189 passed; Ruff/diff check passed
-- Diff size: 416 insertions, 43 deletions
+- Base commit: 609f05bdb4d01060c03ce38dfa540cacdf4089e1
+- Implementation commits: 483964d761645405365b0a5bceb5b34225b5f54d; 437a8d4
+- Changed files: src/forgeagent/models.py; src/forgeagent/anthropic_client.py; src/forgeagent/openai_compatible_client.py; tests/test_anthropic_client.py; tests/test_openai_compatible_client.py; tests/test_streaming.py
+- TDD RED: 4 failed as expected because total_prompt_tokens was absent
+- TDD GREEN: focused 4 passed; edge matrix 8 passed; provider regression 79 passed; Ruff/diff check passed
+- Diff size: 117 insertions
 - Review mode: standard
 - Risk review triggered: yes
-- Risk signals: cross-module context/Step; tool feedback trust boundary; likely diff >200
+- Risk signals: cross-provider adapter contract; internal model schema; streaming and non-streaming paths
 - Review/fix round: 1/1
-- Review result: spec PASS; quality APPROVED
+- Review result: re-review spec PASS; quality APPROVED
 - Open findings: none

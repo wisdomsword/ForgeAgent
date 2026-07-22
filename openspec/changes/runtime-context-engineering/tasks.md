@@ -18,7 +18,7 @@
 
 ## 4. Cache 指标与审计
 
-- [ ] 4.1 在 Anthropic 与 OpenAI-compatible adapter 边界提供 normalized total prompt denominator，同时保持既有原始 TokenUsage 值
+- [x] 4.1 在 Anthropic 与 OpenAI-compatible adapter 边界提供 normalized total prompt denominator，同时保持既有原始 TokenUsage 值
 - [ ] 4.2 在 CLI 最终 task/session usage 行增加累计 cache hit rate，并覆盖零分母 `n/a` 与 REPL 不跨 goal 继承历史
 - [ ] 4.3 在成功 `llm.outcome` 中增加同语义 `cache_hit_rate`，覆盖数值、JSON null、掩码、序列化失败和 audit_degraded 回归
 - [ ] 4.4 验证 HTTP usage 响应 schema 不暴露 cache hit rate 或内部 denominator
