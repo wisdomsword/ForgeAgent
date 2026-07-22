@@ -2,6 +2,7 @@
 change: http-task-service
 design-doc: docs/superpowers/specs/2026-07-21-http-task-service-design.md
 base-ref: e02c5104ef30e19433fc88562e9d7cc78a330130
+archived-with: 2026-07-22-http-task-service
 ---
 
 # M16 HTTP Task Service Implementation Plan
@@ -40,6 +41,7 @@ base-ref: e02c5104ef30e19433fc88562e9d7cc78a330130
 - `tests/test_http_config.py`、`tests/test_audit.py`、`tests/test_headless.py`、`tests/test_http_task_service.py`、`tests/test_http_server.py`：按边界覆盖单元/集成测试。
 - `README.md`、`docs/threat-model.md`、`docs/http-task-service.md`：运行、配置、审计和安全边界文档。
 
+archived-with: 2026-07-22-http-task-service
 ---
 
 ### Task 1: 配置与取消核心契约

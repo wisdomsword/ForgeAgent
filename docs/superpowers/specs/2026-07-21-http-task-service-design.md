@@ -2,6 +2,8 @@
 comet_change: http-task-service
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-07-22-http-task-service
+status: final
 ---
 
 # M16 HTTP Task Service 与审计日志技术设计
