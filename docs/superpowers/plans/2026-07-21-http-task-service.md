@@ -382,7 +382,7 @@ git commit -m "feat: isolate HTTP allowlist from MCP auto approval"
 - `ForgeRequestHandler` 实现 `POST /tasks`、`GET /tasks/<id>`、`POST /tasks/<id>/cancel`；无 health/shutdown/upload/stream 路由。
 - 成功和错误均为 JSON；错误固定为 `{"error":{"kind":...,"detail":...}}`。
 
-- [ ] **Step 1: 写 loopback 集成测试 fixture 和请求矩阵**
+- [x] **Step 1: 写 loopback 集成测试 fixture 和请求矩阵**
 
 ```python
 def test_submit_query_cancel_and_auth(server_url):
@@ -394,7 +394,7 @@ def test_submit_query_cancel_and_auth(server_url):
     assert request("GET", f"/tasks/{task_id}", token="wrong").json["error"]["kind"] == "unauthorized"
 ```
 
-- [ ] **Step 2: 实现严格 Authorization、body 和 path 解析**
+- [x] **Step 2: 实现严格 Authorization、body 和 path 解析**
 
 ```python
 def _authorized(headers, expected: str) -> bool:
@@ -411,15 +411,15 @@ def _read_json(handler, limit: int) -> dict[str, object]:
     return value
 ```
 
-- [ ] **Step 3: 实现请求 schema、路由和安全投影**
+- [x] **Step 3: 实现请求 schema、路由和安全投影**
 
 只接受 `goal` 非空字符串及设计中列出的低风险选项；未知字段和高权限字段返回 `400 invalid_request`。`POST /tasks` 返回 `202`；查询返回 `200`；容量满返回 `429 capacity_exceeded`；未知/过期 id 返回统一 `404 not_found`；cancel 使用有限 acknowledgement 等待并返回当前状态。
 
-- [ ] **Step 4: 接入 HTTP lifecycle 审计和 server shutdown**
+- [x] **Step 4: 接入 HTTP lifecycle 审计和 server shutdown**
 
 在 auth failure、submit、query、cancel、capacity rejection、headless denial 处各写一条 lifecycle event；shutdown 由拥有 `TaskService` 的进程调用 `service.shutdown()` 和 `server.shutdown()`，handler 不提供 shutdown endpoint。
 
-- [ ] **Step 5: 运行 HTTP 测试并提交**
+- [x] **Step 5: 运行 HTTP 测试并提交**
 
 Run: `pytest tests/test_http_server.py -q`
 Expected: PASS。
