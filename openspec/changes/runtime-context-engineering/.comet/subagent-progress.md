@@ -1,16 +1,16 @@
 # M17 Subagent Progress
 
-- Plan task: Task 1 complete: ContextConfig 与确定性 token 估算器已交付
-- OpenSpec mapping: 1.3 实现无外部依赖的本地近似 token 估算（直接）；1.2 context 配置（部分，暂不勾选）
+- Plan task: Task 2 complete: SlidingWindowContextPolicy 与预算边界已交付
+- OpenSpec mapping: 2.1 最小 ContextPolicy/SlidingWindowContextPolicy（直接）；2.3 窗口与预算边界（部分，待 Task 3 完整接入后勾选）
 - Phase: done
-- Base commit: bcb432f5be5db4be61dd692564854fa9d75e6866
-- Implementation commits: 63a1b302df9535dc40f8331d1a56abc0867aa0a2
+- Base commit: 07299fc38d9a3072fa866fae7a933ba842536730
+- Implementation commits: 42f53bc504446e1105a19d310a8a075d8bb6cfd4
 - Changed files: src/forgeagent/context.py; tests/test_context.py
-- TDD RED: `.venv/bin/pytest -q tests/test_context.py` -> expected `ModuleNotFoundError: forgeagent.context`
-- TDD GREEN: `.venv/bin/pytest -q tests/test_context.py` -> 22 passed; Ruff -> all checks passed
+- TDD RED: focused context policy collection -> expected missing `ContextBudgetExceeded`
+- TDD GREEN: full tests/test_context.py -> 34 passed; Ruff -> all checks passed
 - Review mode: standard
 - Risk review triggered: yes
-- Risk signals: new ContextConfig schema/API; task diff 210 lines; implementer status DONE_WITH_CONCERNS
+- Risk signals: new policy API; task diff 293 lines
 - Review/fix round: 0/1
 - Review result: spec PASS; quality APPROVED; no findings
 - Open findings: none

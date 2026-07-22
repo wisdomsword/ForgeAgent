@@ -6,7 +6,7 @@
 
 ## 2. Sliding-window Context Policy
 
-- [ ] 2.1 实现最小 ContextPolicy 契约和唯一 SlidingWindowContextPolicy，不增加未使用的策略占位、registry 或 factory
+- [x] 2.1 实现最小 ContextPolicy 契约和唯一 SlidingWindowContextPolicy，不增加未使用的策略占位、registry 或 factory
 - [ ] 2.2 将 policy 从 Task 注入 Step，并在每次 complete/stream 调用前构造非破坏性的有界 request view
 - [ ] 2.3 覆盖阈值以下完全兼容、system/goal 保留、首次调用前不可淘汰请求超预算的 fail-fast、完整交互单元淘汰、ToolCall/feedback 配对和 provider context error 语义
 

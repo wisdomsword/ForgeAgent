@@ -112,7 +112,7 @@ git commit -m "feat: add context configuration and token estimator"
 
 ### Task 2: SlidingWindowContextPolicy 与预算边界
 
-- [ ] **Task 2 complete: SlidingWindowContextPolicy 与预算边界已交付**
+- [x] **Task 2 complete: SlidingWindowContextPolicy 与预算边界已交付**
 
 **Files:**
 - Modify: `src/forgeagent/context.py`
@@ -123,7 +123,7 @@ git commit -m "feat: add context configuration and token estimator"
 - Produces `ContextPolicy(Protocol).request_view(messages: Sequence[Message]) -> list[Message]`.
 - Produces `SlidingWindowContextPolicy(capability: ModelCapability, params: GenerationParams | None, config: ContextConfig)` and read-only resolved `input_budget`, `tool_result_limit`, `round_feedback_limit`.
 
-- [ ] **Step 1: 写预算、完整 round 和不变性的失败测试**
+- [x] **Step 1: 写预算、完整 round 和不变性的失败测试**
 
 ```python
 def test_policy_reserves_effective_output_and_resolves_adaptive_limits():
@@ -142,13 +142,13 @@ def test_policy_drops_oldest_complete_round_without_mutating_input():
 
 另加 prefix 超预算、prefix+latest round 超预算、混合 override、adaptive floor 为 0、阈值以下逐字一致和 ToolCall/feedback 不拆分测试。
 
-- [ ] **Step 2: 运行 RED**
+- [x] **Step 2: 运行 RED**
 
 Run: `.venv/bin/pytest -q tests/test_context.py -k 'policy or budget or round'`
 
 Expected: FAIL because policy symbols do not exist.
 
-- [ ] **Step 3: 实现最小无状态 policy**
+- [x] **Step 3: 实现最小无状态 policy**
 
 ```python
 effective_output = (
@@ -163,13 +163,13 @@ result_limit = config.tool_result_max_tokens or floor(round_limit * 0.25)
 
 初始化统一拒绝非正 budget/limit 和 `round_limit < result_limit`。`request_view` 固定前两条消息，从最新完整两消息 round 向前装入并恢复原顺序；只创建新 list，不改 Message。
 
-- [ ] **Step 4: 运行 policy 测试与 Ruff**
+- [x] **Step 4: 运行 policy 测试与 Ruff**
 
 Run: `.venv/bin/pytest -q tests/test_context.py && .venv/bin/ruff check src/forgeagent/context.py tests/test_context.py`
 
 Expected: PASS.
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add src/forgeagent/context.py tests/test_context.py
