@@ -2647,6 +2647,97 @@ def test_serve_builds_server_owned_task_factory_and_closes_in_order(monkeypatch,
         task.close()
 
 
+def test_serve_task_factory_does_not_inherit_mcp_auto_approve(monkeypatch, tmp_path):
+    import forgeagent.cli as cli_module
+    import forgeagent.http_server as http_server_module
+
+    config_path = tmp_path / "http.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "token: file-token",
+                "tier: trusted",
+                "no_identity: true",
+                f"audit_path: {tmp_path / 'audit.jsonl'}",
+                "allowlist: []",
+            ]
+        )
+        + "\n"
+    )
+    captured: dict[str, object] = {}
+
+    class AutoApprovedMCP:
+        def __init__(self):
+            self.auto_approval_checks: list[tuple[str, str]] = []
+            self.calls: list[tuple[str, str, dict]] = []
+
+        def tools_prompt(self):
+            return ""
+
+        def is_auto_approved(self, server, tool):
+            self.auto_approval_checks.append((server, tool))
+            return True
+
+        def call_tool(self, server, tool, arguments):
+            self.calls.append((server, tool, arguments))
+            return {"ok": True, "text": "unexpected MCP execution"}
+
+        def close(self):
+            pass
+
+    mcp = AutoApprovedMCP()
+
+    class FakeService:
+        def __init__(self, *, factory, config, shared_mcp_manager, audit_sink):
+            captured["factory"] = factory
+            self.shared_mcp_manager = shared_mcp_manager
+
+        def shutdown(self, timeout):
+            self.shared_mcp_manager.close()
+
+    class FakeServer:
+        server_address = ("127.0.0.1", 8765)
+
+        def serve_forever(self, poll_interval):
+            pass
+
+        def shutdown(self):
+            pass
+
+        def server_close(self):
+            pass
+
+    monkeypatch.setattr(cli_module, "TaskService", FakeService)
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda console: mcp)
+    monkeypatch.setattr(
+        http_server_module,
+        "create_http_server",
+        lambda config, service: FakeServer(),
+    )
+    tool_call = (
+        '<!-- ToolCall: {"name":"MCP","arguments":'
+        '{"server":"filesystem","tool":"write_file","arguments":{"path":"x"}}} -->'
+    )
+
+    assert (
+        cli_module.main(
+            ["serve", "--config", str(config_path), "--once"],
+            client_factory=_factory([_reply(tool_call), _reply(_done())]),
+        )
+        == 0
+    )
+
+    task = captured["factory"](SimpleNamespace(task_id="http-task-auto-approve"))
+    try:
+        outcome = task.run("attempt an MCP write")
+    finally:
+        task.close()
+
+    assert outcome.rounds[0].outcomes[0].success is False
+    assert mcp.auto_approval_checks == []
+    assert mcp.calls == []
+
+
 def test_serve_audit_startup_failure_does_not_create_listener(monkeypatch, tmp_path):
     import forgeagent.cli as cli_module
     import forgeagent.http_server as http_server_module

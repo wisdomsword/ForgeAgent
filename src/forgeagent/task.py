@@ -90,6 +90,7 @@ class Task:
         asker: Asker | None = None,
         mcp: MCPManager | None = None,
         confirmer: Confirmer | None = None,
+        allow_auto_approve: bool = True,
         container_image: str | None = None,
         on_stream_text: Callable[[str, StreamEventKind], None] | None = None,
         audit_sink: AuditSink | None = None,
@@ -117,6 +118,7 @@ class Task:
         # side-effecting MCP/WebFetch/FileWrite calls. None = no gated tool on the menu.
         self._mcp = mcp
         self._confirmer = confirmer
+        self._allow_auto_approve = allow_auto_approve
         # None = non-streaming (unchanged). Set = forwarded to Step, which consumes
         # client.stream() instead of complete() and forwards each delta here for
         # display (docs/m9-streaming-multimodal-commands.md §3.3).
@@ -183,6 +185,7 @@ class Task:
             asker=self._asker,
             mcp=self._mcp,
             confirmer=self._confirmer,
+            allow_auto_approve=self._allow_auto_approve,
             tier=self._tier,
             allowed_root=self._allowed_root,
             on_stream_text=self._on_stream_text,

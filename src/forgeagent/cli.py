@@ -1107,6 +1107,7 @@ def serve_http(
                 identity=identity,
                 mcp=mcp,
                 confirmer=headless_confirmer,
+                allow_auto_approve=False,
                 container_image=settings.container_image,
                 audit_sink=audit_sink,
                 task_id=record.task_id,
