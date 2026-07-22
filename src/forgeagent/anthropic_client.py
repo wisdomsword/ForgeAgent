@@ -242,6 +242,8 @@ class AnthropicClient(ModelClient):
                         delta_usage = getattr(event, "usage", None)
                         usage.input_tokens = getattr(delta_usage, "input_tokens", 0) or 0
                         usage.output_tokens = getattr(delta_usage, "output_tokens", 0) or 0
+                        if delta_usage is not None:
+                            usage.total_prompt_tokens = usage.input_tokens + usage.cached_tokens
                         stop_reason = (
                             getattr(getattr(event, "delta", None), "stop_reason", "") or ""
                         )
@@ -377,6 +379,8 @@ def _parse_response(raw: Any) -> AssistantMessage:
         cached_tokens=(getattr(usage, "cache_creation_input_tokens", 0) or 0)
         + (getattr(usage, "cache_read_input_tokens", 0) or 0),
     )
+    if usage is not None:
+        token_usage.total_prompt_tokens = token_usage.input_tokens + token_usage.cached_tokens
     return AssistantMessage(
         content="".join(text_parts),
         usage=token_usage,

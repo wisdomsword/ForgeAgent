@@ -160,6 +160,14 @@ def test_parse_response_reads_cached_tokens_from_prompt_tokens_details():
     assert msg.usage.cached_tokens == 6
 
 
+def test_parse_response_uses_prompt_total_that_already_contains_cache():
+    usage = _parse_response(
+        _fake_reply(inp=20, prompt_tokens_details=SimpleNamespace(cached_tokens=5))
+    ).usage
+
+    assert usage.total_prompt_tokens == 20
+
+
 def test_parse_response_defaults_cached_tokens_to_zero_when_details_absent():
     msg = _parse_response(_fake_reply(prompt_tokens_details=None))
     assert msg.usage.cached_tokens == 0

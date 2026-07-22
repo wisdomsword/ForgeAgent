@@ -86,6 +86,7 @@ class TokenUsage(BaseModel):
     # location and the real value at top level, or vice versa (docs/m9 §8 S2).
     # Anthropic: always 0 (thinking is billed inside output_tokens, never split out).
     reasoning_tokens: int = 0
+    total_prompt_tokens: int | None = Field(default=None, exclude=True, repr=False)
 
 
 class NativeToolCall(BaseModel):

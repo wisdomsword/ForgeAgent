@@ -178,6 +178,11 @@ class TestAnthropicStream:
         assert done.usage.cached_tokens == 10
         assert done.usage.reasoning_tokens == 0
 
+    def test_final_usage_normalizes_prompt_total(self):
+        done = list(_anthropic_client(_anthropic_events()).stream(USER))[-1].message
+
+        assert done.usage.total_prompt_tokens == 52
+
     def test_pre_first_byte_retry_reports_failed_then_successful_provider_attempt(self):
         observed = []
         calls = {"n": 0}
@@ -320,6 +325,15 @@ class TestOpenAIStream:
         assert done.usage.cached_tokens == 4
         # dual-location trap: nested fake zero, top-level real value (glm-5.2 shape)
         assert done.usage.reasoning_tokens == 121
+
+    def test_final_usage_uses_prompt_total_that_already_contains_cache(self):
+        chunks = [
+            _chunk(content="ok", finish_reason="stop"),
+            _chunk(choices=False, usage=_usage()),
+        ]
+        done = list(_openai_client(chunks).stream(USER))[-1].message
+
+        assert done.usage.total_prompt_tokens == 10
 
     def test_pre_first_byte_retry_reports_failed_then_successful_provider_attempt(self):
         observed = []

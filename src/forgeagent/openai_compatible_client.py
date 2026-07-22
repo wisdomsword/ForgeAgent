@@ -241,6 +241,7 @@ class OpenAICompatibleClient(ModelClient):
                             )
                             or 0,
                             reasoning_tokens=_extract_reasoning_tokens(chunk_usage),
+                            total_prompt_tokens=getattr(chunk_usage, "prompt_tokens", 0) or 0,
                         )
             except TransportError as exc:
                 self._notify_attempt(
@@ -370,6 +371,9 @@ def _parse_response(raw: Any) -> AssistantMessage:
         cached_tokens=getattr(getattr(usage, "prompt_tokens_details", None), "cached_tokens", 0)
         or 0,
         reasoning_tokens=_extract_reasoning_tokens(usage),
+        total_prompt_tokens=(getattr(usage, "prompt_tokens", 0) or 0)
+        if usage is not None
+        else None,
     )
     native_calls = [
         NativeToolCall(id=call.id, name=call.function.name, arguments=call.function.arguments)
