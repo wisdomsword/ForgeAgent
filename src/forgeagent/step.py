@@ -27,6 +27,7 @@ from pydantic import BaseModel, Field
 
 from .audit import AuditEvent, AuditSink, emit_audit
 from .client import AttemptObserver, ModelClient, ProviderAttempt
+from .context import ContextBudgetExceeded, ContextConfig, ContextPolicy, SlidingWindowContextPolicy
 from .executor import ExecutorBackend
 from .models import (
     AssistantMessage,
@@ -198,6 +199,8 @@ class Step:
         cancel_event: threading.Event | None = None,
         audit_sink: AuditSink | None = None,
         task_id: str | None = None,
+        context_policy: ContextPolicy | None = None,
+        context_config: ContextConfig | None = None,
     ):
         self._client = client
         self._backend = backend
@@ -213,6 +216,11 @@ class Step:
         self._audit_sink = audit_sink
         self._task_id = task_id
         self._active_llm_operation_id: str | None = None
+        self._context_policy = context_policy or SlidingWindowContextPolicy(
+            client.capability,
+            params,
+            context_config or ContextConfig(),
+        )
         # Static AST layer: advisory feedback before execution (not a security boundary).
         self._analyzer = analyzer or CodeAnalyzer()
         self.blocks = CodeBlockStore()
@@ -239,15 +247,17 @@ class Step:
     def _cancelled(self) -> bool:
         return self._cancel_event is not None and self._cancel_event.is_set()
 
-    def _stream_or_complete(self, convo: list[Message]) -> AssistantMessage | ClientError:
+    def _stream_or_complete(
+        self, request_view: list[Message]
+    ) -> AssistantMessage | ClientError:
         """No callback -> plain complete() (today's path, unchanged). With a callback,
         consume client.stream(), forward TEXT_DELTA/THINKING_DELTA text to it for
         display, and return the DONE event's AssistantMessage (or a mid-stream
         ClientError) — structurally identical to what complete() would return
         (docs/m9-streaming-multimodal-commands.md §3.3)."""
         if self._on_stream_text is None:
-            return self._client.complete(convo, self._params)
-        for event in self._client.stream(convo, self._params):
+            return self._client.complete(request_view, self._params)
+        for event in self._client.stream(request_view, self._params):
             if isinstance(event, ClientError):
                 return event
             if event.kind is StreamEventKind.DONE:
@@ -309,6 +319,17 @@ class Step:
                 else:
                     self.rounds.append(RoundResult(text="", stopped_reason=Termination.CANCELLED))
                 break
+            try:
+                request_view = self._context_policy.request_view(convo)
+            except ContextBudgetExceeded as exc:
+                self.rounds.append(
+                    RoundResult(
+                        text="",
+                        stopped_reason=Termination.FAILED,
+                        stopped_detail=exc.detail,
+                    )
+                )
+                break
             operation_id = uuid4().hex
             self._active_llm_operation_id = operation_id
             started = time.monotonic()
@@ -324,7 +345,7 @@ class Step:
                 )
             )
             try:
-                reply = self._stream_or_complete(convo)
+                reply = self._stream_or_complete(request_view)
             except Exception:
                 self._emit(
                     AuditEvent(

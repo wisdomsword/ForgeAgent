@@ -18,6 +18,7 @@ from pydantic import BaseModel
 
 from .audit import AuditSink
 from .client import ModelClient
+from .context import ContextConfig, ContextPolicy, SlidingWindowContextPolicy
 from .executor import ContainerBackend, ExecutorBackend, RestrictedBackend, TrustedBackend
 from .identity import ApprovedIdentity, compose_system_prompt
 from .mcp_manager import MCPManager
@@ -95,6 +96,8 @@ class Task:
         on_stream_text: Callable[[str, StreamEventKind], None] | None = None,
         audit_sink: AuditSink | None = None,
         task_id: str | None = None,
+        context_config: ContextConfig | None = None,
+        context_policy: ContextPolicy | None = None,
     ):
         self._client = client
         self._tier = tier
@@ -125,6 +128,11 @@ class Task:
         self._on_stream_text = on_stream_text
         self._audit_sink = audit_sink
         self._task_id = task_id
+        self._context_policy = context_policy or SlidingWindowContextPolicy(
+            client.capability,
+            params,
+            context_config or ContextConfig(),
+        )
         self.runtime = Runtime()
 
     def close(self) -> None:
@@ -192,6 +200,7 @@ class Task:
             cancel_event=cancel_event,
             audit_sink=self._audit_sink,
             task_id=self._task_id,
+            context_policy=self._context_policy,
         )
         rounds = step.run(messages)
         return TaskOutcome(status=self._derive_status(rounds), rounds=rounds)

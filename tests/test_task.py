@@ -5,6 +5,7 @@ import threading
 
 from forgeagent.audit import AuditEvent
 from forgeagent.client import MockClient
+from forgeagent.context import ContextConfig
 from forgeagent.identity import ApprovedIdentity
 from forgeagent.models import AssistantMessage, StreamEvent, StreamEventKind, TokenUsage
 from forgeagent.step import Termination
@@ -45,11 +46,44 @@ class _RecordingAuditSink:
         return True
 
 
+class _RecordingPolicy:
+    def __init__(self):
+        self.views = []
+
+    def request_view(self, messages):
+        view = list(messages)
+        self.views.append(view)
+        return view
+
+
 def test_task_completes_normally():
     task = Task(MockClient(script=[_reply(_done())]))
     outcome = task.run("do a thing")
     assert outcome.status.completed is True
     assert outcome.status.reason == "completed"
+
+
+def test_task_constructs_default_context_policy_once_and_forwards_it(monkeypatch):
+    constructed = []
+    policies = []
+
+    class _Policy(_RecordingPolicy):
+        def __init__(self, capability, params, config):
+            super().__init__()
+            policies.append(self)
+            constructed.append((capability, params, config))
+
+    monkeypatch.setattr("forgeagent.task.SlidingWindowContextPolicy", _Policy, raising=False)
+    task = Task(
+        MockClient(script=[_reply(_tool_call("Survey", question="which?"))]),
+        context_config=ContextConfig(),
+    )
+
+    task.run("do a thing")
+
+    assert len(constructed) == 1
+    assert len(constructed[0]) == 3
+    assert len(policies[0].views) == 1
 
 
 def test_task_forwards_audit_sink_and_task_id_to_core_events():

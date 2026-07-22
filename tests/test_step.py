@@ -11,6 +11,7 @@ import pytest
 
 from forgeagent.audit import AuditEvent
 from forgeagent.client import MockClient, ProviderAttempt
+from forgeagent.context import ContextBudgetExceeded
 from forgeagent.executor import TrustedBackend
 from forgeagent.models import (
     AssistantMessage,
@@ -52,7 +53,10 @@ def _step(script) -> Step:
 
 
 def _user(text="go"):
-    return [Message(role=Role.USER, content=text)]
+    return [
+        Message(role=Role.SYSTEM, content="system"),
+        Message(role=Role.USER, content=text),
+    ]
 
 
 def _tool_call(tool_name: str, **arguments) -> str:
@@ -72,7 +76,110 @@ def _done(confidence=0.9) -> str:
     return f"---\ntask_status:\n  completed: true\n  confidence: {confidence}\n---\n"
 
 
+class _RecordingPolicy:
+    def __init__(self):
+        self.views: list[list[Message]] = []
+
+    def request_view(self, messages):
+        view = list(messages)
+        self.views.append(view)
+        return view
+
+
+class _OverBudgetPolicy:
+    def __init__(self, detail="context does not fit"):
+        self.detail = detail
+        self.calls = 0
+
+    def request_view(self, messages):
+        self.calls += 1
+        raise ContextBudgetExceeded(self.detail)
+
+
 # --- loop control ------------------------------------------------------------
+
+
+def test_step_applies_policy_before_every_complete_call():
+    client = _RecordingClient(
+        script=[_reply(_exec_call("print('ok')")), _reply(_done())]
+    )
+    policy = _RecordingPolicy()
+
+    Step(client, TrustedBackend(), Runtime(), context_policy=policy).run(_user())
+
+    assert len(policy.views) == 2
+    assert client.seen_messages == policy.views
+
+
+def test_step_applies_policy_before_stream_call():
+    done = _reply(_done())
+
+    class _StreamRecordingClient(MockClient):
+        def __init__(self):
+            super().__init__(script=[])
+            self.requests: list[list[Message]] = []
+
+        def stream(self, messages, params=None):
+            self.requests.append(list(messages))
+            yield StreamEvent(kind=StreamEventKind.DONE, message=done)
+
+    client = _StreamRecordingClient()
+    policy = _RecordingPolicy()
+    Step(
+        client,
+        TrustedBackend(),
+        Runtime(),
+        context_policy=policy,
+        on_stream_text=lambda text, kind: None,
+    ).run(_user())
+
+    assert client.requests == policy.views
+
+
+def test_step_cancellation_wins_before_context_policy():
+    event = threading.Event()
+    event.set()
+    policy = _OverBudgetPolicy()
+
+    rounds = Step(
+        MockClient(script=[_reply(_done())]),
+        TrustedBackend(),
+        Runtime(),
+        context_policy=policy,
+        cancel_event=event,
+    ).run(_user())
+
+    assert policy.calls == 0
+    assert rounds[-1].stopped_reason == Termination.CANCELLED
+
+
+def test_oversized_context_fails_before_provider_attempt_audit():
+    sink = _RecordingAuditSink()
+    client = MockClient(script=[_reply(_done())])
+
+    rounds = Step(
+        client,
+        TrustedBackend(),
+        Runtime(),
+        context_policy=_OverBudgetPolicy(),
+        audit_sink=sink,
+    ).run(_user())
+
+    assert rounds[-1].stopped_reason == Termination.FAILED
+    assert client.calls_made == 0
+    assert not any(event.event_type == "llm.attempt" for event in sink.events)
+
+
+def test_oversized_context_detail_is_bounded():
+    rounds = Step(
+        MockClient(script=[_reply(_done())]),
+        TrustedBackend(),
+        Runtime(),
+        context_policy=_OverBudgetPolicy("x" * 500),
+    ).run(_user())
+
+    assert rounds[-1].stopped_reason == Termination.FAILED
+    assert rounds[-1].stopped_detail == "x" * 160
 
 
 def test_step_cancel_event_stops_before_next_model_call():
