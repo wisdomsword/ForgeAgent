@@ -11,8 +11,11 @@ from forgeagent.context import (
     estimate_request_tokens,
     estimate_text_tokens,
     load_context_config,
+    render_bounded_feedback,
 )
+from forgeagent.executor import ExecResult
 from forgeagent.models import GenerationParams, ImageItem, Message, ModelCapability, Role, TextItem
+from forgeagent.tools import ToolOutcome
 
 
 def _image() -> ImageItem:
@@ -281,3 +284,141 @@ def test_policy_rejects_invalid_prefix_shape_with_bounded_detail():
 
     assert "prefix" in raised.value.detail
     assert len(raised.value.detail) <= 160
+
+
+def test_feedback_waterfill_reassigns_short_budget_and_preserves_header_order():
+    outcomes = [
+        ToolOutcome(tool="Edit", success=True, detail="ok"),
+        ToolOutcome(tool="Exec", success=True, detail="x" * 5000),
+        ToolOutcome(
+            tool="FileRead",
+            success=True,
+            detail="y" * 5000,
+            truncation_mode="head",
+        ),
+    ]
+
+    rendered = render_bounded_feedback(
+        [], outcomes, result_limit=200, round_limit=500, mask=lambda text: text
+    )
+
+    assert rendered.index("[Edit") < rendered.index("[Exec") < rendered.index("[FileRead")
+    assert "[Edit None] ok" in rendered
+    assert "x" * 100 in rendered
+    assert "y" * 100 in rendered
+    assert "x" * 5000 not in rendered
+    assert "y" * 5000 not in rendered
+    assert estimate_text_tokens(rendered) <= 500
+
+
+def test_feedback_uses_largest_bounded_head_and_tail_fragments():
+    head = "HEAD" + "h" * 2000 + "END"
+    tail = "START" + "t" * 2000 + "TAIL"
+    outcomes = [
+        ToolOutcome(tool="FileRead", success=True, detail=head, truncation_mode="head"),
+        ToolOutcome(tool="Exec", success=True, detail=tail, truncation_mode="tail"),
+    ]
+
+    rendered = render_bounded_feedback(
+        [], outcomes, result_limit=80, round_limit=300, mask=lambda text: text
+    )
+
+    assert "HEAD" in rendered
+    assert "END" not in rendered
+    assert "TAIL" in rendered
+    assert "START" not in rendered
+    assert estimate_text_tokens(rendered) <= 300
+
+
+def test_feedback_marker_and_masked_continuation_appear_only_after_truncation():
+    secret = "very-secret-token"
+    short = ToolOutcome(
+        tool="MCP",
+        success=True,
+        detail="short",
+        continuation=f"retry with {secret}",
+        truncation_mode="head",
+    )
+
+    untruncated = render_bounded_feedback(
+        [],
+        [short],
+        result_limit=100,
+        round_limit=200,
+        mask=lambda text: text.replace(secret, "MASKED"),
+    )
+    truncated = render_bounded_feedback(
+        [],
+        [short.model_copy(update={"detail": "z" * 2000})],
+        result_limit=40,
+        round_limit=150,
+        mask=lambda text: text.replace(secret, "MASKED"),
+    )
+
+    assert "truncated" not in untruncated
+    assert "continuation" not in untruncated
+    assert secret not in untruncated
+    assert "truncated" in truncated
+    assert "continuation" in truncated
+    assert "MASKED" in truncated
+    assert secret not in truncated
+
+
+def test_feedback_counts_static_feedback_and_dropped_state_warning_in_limits():
+    outcome = ToolOutcome(
+        tool="Exec",
+        block_name="analysis",
+        success=True,
+        exec_result=ExecResult(
+            success=True,
+            stdout="done",
+            dropped_state_keys=["large_dataframe"],
+        ),
+        static_feedback="[static check] " + "warning " * 500,
+    )
+
+    rendered = render_bounded_feedback(
+        [], [outcome], result_limit=60, round_limit=120, mask=lambda text: text
+    )
+
+    assert "truncated" in rendered
+    assert estimate_text_tokens(rendered) <= 120
+    assert outcome.static_feedback.endswith("warning " * 500)
+    assert outcome.exec_result is not None
+    assert outcome.exec_result.dropped_state_keys == ["large_dataframe"]
+
+
+def test_feedback_marker_set_converges_deterministically_within_round_limit():
+    outcomes = [
+        ToolOutcome(tool=f"Tool{index}", success=True, detail=character * size)
+        for index, (character, size) in enumerate([("a", 4), ("b", 160), ("c", 400), ("d", 1200)])
+    ]
+
+    first = render_bounded_feedback(
+        [], outcomes, result_limit=70, round_limit=190, mask=lambda text: text
+    )
+    second = render_bounded_feedback(
+        [], outcomes, result_limit=70, round_limit=190, mask=lambda text: text
+    )
+
+    assert first == second
+    assert first.count("[truncated:") >= 2
+    assert estimate_text_tokens(first) <= 190
+
+
+def test_feedback_raises_only_when_fixed_metadata_exceeds_round_budget():
+    outcomes = [
+        ToolOutcome(
+            tool="MCP-with-a-long-status-header",
+            success=True,
+            detail="result" * 100,
+            continuation="此工具不保留游标；请缩小查询后重试",
+            truncation_mode="head",
+        )
+        for _ in range(4)
+    ]
+
+    with pytest.raises(ContextBudgetExceeded, match="^feedback metadata exceeds context budget$"):
+        render_bounded_feedback(
+            [], outcomes, result_limit=5, round_limit=20, mask=lambda text: text
+        )

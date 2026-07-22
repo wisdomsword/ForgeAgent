@@ -11,7 +11,7 @@ import pytest
 
 from forgeagent.audit import AuditEvent
 from forgeagent.client import MockClient, ProviderAttempt
-from forgeagent.context import ContextBudgetExceeded
+from forgeagent.context import ContextBudgetExceeded, ContextConfig, estimate_text_tokens
 from forgeagent.executor import TrustedBackend
 from forgeagent.models import (
     AssistantMessage,
@@ -741,12 +741,68 @@ def test_failed_status_stops_after_recording_parse_error():
 def test_long_stdout_is_truncated_in_feedback():
     # A block that prints a lot must not blow up the next round's context; feedback
     # keeps only the tail plus a marker noting how much was cut.
-    step = _step([_reply(_exec_call("print('x' * 10_000)")), _reply(_done())])
+    step = Step(
+        MockClient(script=[_reply(_exec_call("print('x' * 10_000)")), _reply(_done())]),
+        TrustedBackend(),
+        Runtime(),
+        max_rounds=5,
+        context_config=ContextConfig(
+            round_feedback_max_tokens=500,
+            tool_result_max_tokens=200,
+        ),
+    )
     rounds = step.run(_user())
     feedback = step._render_feedback(rounds[0])
     assert "truncated" in feedback
     assert len(feedback) < 10_000
     assert feedback.endswith("x" * 100)
+
+
+def test_feedback_metadata_overflow_keeps_outcomes_and_skips_next_provider_call():
+    reply = "".join(_exec_call("print('x' * 500)", name=f"block_{index}") for index in range(6))
+    client = MockClient(script=[_reply(reply), _reply(_done())])
+    sink = _RecordingAuditSink()
+    step = Step(
+        client,
+        TrustedBackend(secret_values=set()),
+        Runtime(),
+        max_rounds=5,
+        context_config=ContextConfig(
+            round_feedback_max_tokens=20,
+            tool_result_max_tokens=5,
+        ),
+        audit_sink=sink,
+    )
+
+    rounds = step.run(_user())
+
+    assert client.calls_made == 1
+    assert len(rounds) == 1
+    assert len(rounds[0].outcomes) == 6
+    assert all(outcome.exec_result is not None for outcome in rounds[0].outcomes)
+    assert all(len(outcome.exec_result.stdout) == 501 for outcome in rounds[0].outcomes)
+    assert rounds[0].stopped_reason == Termination.FAILED
+    assert rounds[0].stopped_detail == "feedback metadata exceeds context budget"
+    tool_events = [event for event in sink.events if event.event_type == "tool.operation"]
+    assert len(tool_events) == 6
+
+
+def test_step_appends_only_feedback_within_resolved_round_limit():
+    client = _RecordingClient(script=[_reply(_exec_call("print('x' * 5000)")), _reply(_done())])
+    config = ContextConfig(round_feedback_max_tokens=120, tool_result_max_tokens=40)
+
+    rounds = Step(
+        client,
+        TrustedBackend(secret_values=set()),
+        Runtime(),
+        context_config=config,
+    ).run(_user())
+
+    assert len(rounds[0].outcomes[0].exec_result.stdout) == 5001
+    feedback = client.seen_messages[1][-1].content
+    assert isinstance(feedback, str)
+    assert estimate_text_tokens(feedback) <= 120
+    assert "truncated" in feedback
 
 
 def test_webfetch_fixed_failure_detail_is_safe_in_step_feedback():

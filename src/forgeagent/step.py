@@ -27,7 +27,13 @@ from pydantic import BaseModel, Field
 
 from .audit import AuditEvent, AuditSink, emit_audit
 from .client import AttemptObserver, ModelClient, ProviderAttempt
-from .context import ContextBudgetExceeded, ContextConfig, ContextPolicy, SlidingWindowContextPolicy
+from .context import (
+    ContextBudgetExceeded,
+    ContextConfig,
+    ContextPolicy,
+    SlidingWindowContextPolicy,
+    render_bounded_feedback,
+)
 from .executor import ExecutorBackend
 from .models import (
     AssistantMessage,
@@ -46,6 +52,7 @@ from .protocol import (
     parse,
 )
 from .runtime import Runtime
+from .secret_policy import mask_secrets, sensitive_env_values
 from .tools import (
     Asker,
     CodeBlockStore,
@@ -112,17 +119,6 @@ _PROSE_NUDGE = (
     "and once the output confirms the result, declare completion in the task_status front "
     "matter. If you truly cannot use the protocol, say so in task_status (status: failed)."
 )
-
-# Feedback is fed straight into the next round's user message; a block that prints a
-# lot (or a long traceback) would otherwise blow up the context on its own. Keep the
-# tail — the end of a printout/traceback is almost always the informative part.
-_FEEDBACK_TAIL_LIMIT = 4096
-
-
-def _truncate_tail(text: str, limit: int = _FEEDBACK_TAIL_LIMIT) -> str:
-    if len(text) <= limit:
-        return text
-    return f"[... truncated {len(text) - limit} chars ...]\n{text[-limit:]}"
 
 
 def _render_history_content(reply: AssistantMessage) -> str:
@@ -216,11 +212,19 @@ class Step:
         self._audit_sink = audit_sink
         self._task_id = task_id
         self._active_llm_operation_id: str | None = None
-        self._context_policy = context_policy or SlidingWindowContextPolicy(
+        resolved_policy = SlidingWindowContextPolicy(
             client.capability,
             params,
             context_config or ContextConfig(),
         )
+        self._context_policy = context_policy or resolved_policy
+        self._feedback_result_limit = getattr(
+            self._context_policy, "tool_result_limit", resolved_policy.tool_result_limit
+        )
+        self._feedback_round_limit = getattr(
+            self._context_policy, "round_feedback_limit", resolved_policy.round_feedback_limit
+        )
+        self._feedback_secret_values = sensitive_env_values()
         # Static AST layer: advisory feedback before execution (not a security boundary).
         self._analyzer = analyzer or CodeAnalyzer()
         self.blocks = CodeBlockStore()
@@ -414,7 +418,21 @@ class Step:
             if rr.stopped_reason is not None:
                 break
 
-            feedback = self._render_feedback(rr)
+            try:
+                feedback = self._render_feedback(rr)
+            except ContextBudgetExceeded as exc:
+                if self._cancelled():
+                    rr.completed = False
+                    rr.stopped_reason = Termination.CANCELLED
+                else:
+                    rr.completed = False
+                    rr.stopped_reason = Termination.FAILED
+                    rr.stopped_detail = exc.detail
+                break
+            if self._cancelled():
+                rr.completed = False
+                rr.stopped_reason = Termination.CANCELLED
+                break
             if feedback:
                 convo.append(Message(role=Role.USER, content=feedback))
                 continue
@@ -566,28 +584,10 @@ class Step:
 
         Empty string means nothing to report -> the loop ends.
         """
-        lines: list[str] = []
-        for err in rr.parse_errors:
-            lines.append(f"[parse error] {err}")
-        for o in rr.outcomes:
-            if o.success and o.exec_result is not None:
-                out = _truncate_tail(o.exec_result.stdout.strip())
-                lines.append(f"[{o.tool} {o.block_name}] ok" + (f": {out}" if out else ""))
-            elif o.success:
-                lines.append(f"[{o.tool} {o.block_name}] {o.detail}")
-            else:
-                detail = _truncate_tail(o.detail)
-                lines.append(f"[{o.tool} {o.block_name}] FAILED: {detail}")
-            # Advisory static feedback rides alongside the execution outcome.
-            if o.static_feedback:
-                lines.append(o.static_feedback)
-            # A restricted-tier block may set_state a value that can't cross the process
-            # boundary as JSON (e.g. a DataFrame) — say so, rather than let the model
-            # retry against a silently-empty state key with no explanation.
-            if o.exec_result and o.exec_result.dropped_state_keys:
-                keys = ", ".join(o.exec_result.dropped_state_keys)
-                lines.append(
-                    f"[{o.tool} {o.block_name}] note: state key(s) {keys} could not be "
-                    "carried to the next block (not JSON-serializable) and are unset there"
-                )
-        return "\n".join(lines)
+        return render_bounded_feedback(
+            rr.parse_errors,
+            rr.outcomes,
+            result_limit=self._feedback_result_limit,
+            round_limit=self._feedback_round_limit,
+            mask=lambda text: mask_secrets(text, self._feedback_secret_values),
+        )

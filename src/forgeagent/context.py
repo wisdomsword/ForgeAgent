@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol, Self
+from typing import TYPE_CHECKING, Literal, Protocol, Self
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .models import GenerationParams, Message, ModelCapability, Role, TextItem
+
+if TYPE_CHECKING:
+    from .tools import ToolOutcome
 
 _DEFAULT_CONFIG_PATH = Path.home() / ".forgeagent" / "config.yaml"
 _MAX_CONTEXT_ERROR_DETAIL_LENGTH = 160
@@ -29,6 +33,14 @@ class ContextPolicy(Protocol):
 
     def request_view(self, messages: Sequence[Message]) -> list[Message]:
         """Return the messages that fit this policy's request budget."""
+
+
+@dataclass(frozen=True)
+class _FeedbackItem:
+    header: str
+    detail: str
+    continuation: str | None
+    mode: Literal["head", "tail"]
 
 
 class SlidingWindowContextPolicy:
@@ -215,3 +227,167 @@ def estimate_message_tokens(message: Message, config: ContextConfig) -> int:
 def estimate_request_tokens(messages: Sequence[Message], config: ContextConfig) -> int:
     """Estimate all request messages plus the request framing."""
     return sum(estimate_message_tokens(message, config) for message in messages) + 2
+
+
+def render_bounded_feedback(
+    parse_errors: Sequence[str],
+    outcomes: Sequence[ToolOutcome],
+    *,
+    result_limit: int,
+    round_limit: int,
+    mask: Callable[[str], str],
+) -> str:
+    """Render ordered feedback within per-result and per-round token limits."""
+    if result_limit <= 0:
+        raise ValueError("result limit must be positive")
+    if round_limit <= 0:
+        raise ValueError("round limit must be positive")
+    if round_limit < result_limit:
+        raise ValueError("round limit must be >= result limit")
+
+    items = [
+        _FeedbackItem(
+            header="[parse error] ",
+            detail=error,
+            continuation=None,
+            mode="tail",
+        )
+        for error in parse_errors
+    ]
+    items.extend(_feedback_item(outcome, mask) for outcome in outcomes)
+    if not items:
+        return ""
+
+    demands = [min(estimate_text_tokens(item.detail), result_limit) for item in items]
+    truncated: set[int] = set()
+    allocations: list[int] = []
+    for _ in range(len(items) + 1):
+        minimum_metadata = _render_metadata(items, truncated, reserve_digits=False)
+        if estimate_text_tokens(minimum_metadata) > round_limit:
+            raise ContextBudgetExceeded("feedback metadata exceeds context budget")
+
+        reserved_metadata = _render_metadata(items, truncated, reserve_digits=True)
+        available = max(0, round_limit - estimate_text_tokens(reserved_metadata))
+        allocations = _waterfill(demands, available)
+        expanded = truncated | {
+            index
+            for index, item in enumerate(items)
+            if estimate_text_tokens(item.detail) > allocations[index]
+        }
+        if expanded == truncated:
+            break
+        truncated = expanded
+    else:  # pragma: no cover - the set grows at most once per item
+        raise RuntimeError("feedback limiter did not converge")
+
+    rendered = "\n".join(
+        _render_feedback_item(item, allocations[index], index in truncated)
+        for index, item in enumerate(items)
+    )
+    if estimate_text_tokens(rendered) > round_limit:  # defensive invariant
+        raise ContextBudgetExceeded("feedback metadata exceeds context budget")
+    return rendered
+
+
+def _feedback_item(outcome: ToolOutcome, mask: Callable[[str], str]) -> _FeedbackItem:
+    label = f"[{outcome.tool} {outcome.block_name}]"
+    if outcome.success and outcome.exec_result is not None:
+        primary = outcome.exec_result.stdout.strip()
+        header = f"{label} ok" + (": " if primary else "")
+    elif outcome.success:
+        primary = outcome.detail
+        header = f"{label} "
+    else:
+        primary = outcome.detail
+        header = f"{label} FAILED: "
+
+    detail = primary
+    if outcome.static_feedback:
+        detail += f"\n{outcome.static_feedback}"
+    if outcome.exec_result and outcome.exec_result.dropped_state_keys:
+        keys = ", ".join(outcome.exec_result.dropped_state_keys)
+        detail += (
+            f"\n{label} note: state key(s) {keys} could not be carried to the next "
+            "block (not JSON-serializable) and are unset there"
+        )
+    continuation = mask(outcome.continuation) if outcome.continuation else None
+    return _FeedbackItem(
+        header=header,
+        detail=detail,
+        continuation=continuation,
+        mode=outcome.truncation_mode,
+    )
+
+
+def _waterfill(demands: Sequence[int], budget: int) -> list[int]:
+    allocations = [0] * len(demands)
+    remaining = budget
+    active = [index for index, demand in enumerate(demands) if demand]
+    while remaining and active:
+        share, remainder = divmod(remaining, len(active))
+        spent = 0
+        for position, index in enumerate(active):
+            grant = share + (position < remainder)
+            granted = min(grant, demands[index] - allocations[index])
+            allocations[index] += granted
+            spent += granted
+        if spent == 0:
+            break
+        remaining -= spent
+        active = [index for index in active if allocations[index] < demands[index]]
+    return allocations
+
+
+def _render_metadata(
+    items: Sequence[_FeedbackItem], truncated: set[int], *, reserve_digits: bool
+) -> str:
+    return "\n".join(
+        (
+            _render_feedback_item(
+                item,
+                0,
+                True,
+                marker_shown=len(item.detail) if reserve_digits else 0,
+            )
+            if index in truncated
+            else item.header
+        )
+        for index, item in enumerate(items)
+    )
+
+
+def _render_feedback_item(
+    item: _FeedbackItem,
+    detail_budget: int,
+    truncated: bool,
+    *,
+    marker_shown: int | None = None,
+) -> str:
+    if not truncated:
+        return f"{item.header}{item.detail}"
+
+    fragment = _largest_fragment(item.detail, detail_budget, item.mode)
+    shown = len(fragment) if marker_shown is None else marker_shown
+    range_description = "first" if item.mode == "head" else "last"
+    marker = (
+        f"[truncated: original {len(item.detail)} chars; showing {range_description} {shown} chars]"
+    )
+    continuation = f"\n[continuation] {item.continuation}" if item.continuation else ""
+    if item.mode == "head":
+        return f"{item.header}{fragment}\n{marker}{continuation}"
+    return f"{item.header}{marker}{continuation}\n{fragment}"
+
+
+def _largest_fragment(detail: str, budget: int, mode: Literal["head", "tail"]) -> str:
+    low = 0
+    high = len(detail)
+    while low < high:
+        middle = (low + high + 1) // 2
+        candidate = detail[:middle] if mode == "head" else detail[-middle:]
+        if estimate_text_tokens(candidate) <= budget:
+            low = middle
+        else:
+            high = middle - 1
+    if low == 0:
+        return ""
+    return detail[:low] if mode == "head" else detail[-low:]
