@@ -28,9 +28,9 @@
 
 ## 5. 验证与文档
 
-- [ ] 5.1 增加配置、状态迁移、取消竞态、鉴权失败、错误脱敏、结果投影和任务隔离单测。
-- [ ] 5.2 增加审计事件字段、attempt/idempotence、secret/path masking、异常值、并发写入、轮转、保留和不可用 sink 测试。
-- [ ] 5.3 增加 loopback HTTP 集成测试：并发提交、状态轮询、结果、取消、allowlist、shutdown、容量和过期 task。
-- [ ] 5.4 通过 HTTP 路径回放代表性离线 golden 子集，并断言与 CLI/mock replay 结果一致。
-- [ ] 5.5 更新 `README.md`、`docs/threat-model.md` 和服务配置文档，说明监听、token、审计、取消、结果投影及 headless 确认边界。
-- [ ] 5.6 运行 Ruff、专项测试、全量 pytest、golden runner 和 `git diff --check`，记录 M16 收尾证据。
+- [x] 5.1 增加配置、状态迁移、取消竞态、鉴权失败、错误脱敏、结果投影和任务隔离单测。
+- [x] 5.2 增加审计事件字段、attempt/idempotence、secret/path masking、异常值、并发写入、轮转、保留和不可用 sink 测试。
+- [x] 5.3 增加 loopback HTTP 集成测试：并发提交、状态轮询、结果、取消、allowlist、shutdown、容量和过期 task。
+- [x] 5.4 通过 HTTP 路径回放代表性离线 golden 子集，并断言与 CLI/mock replay 结果一致。
+- [x] 5.5 更新 `README.md`、`docs/threat-model.md` 和服务配置文档，说明监听、token、审计、取消、结果投影及 headless 确认边界。
+- [x] 5.6 运行 Ruff、专项测试、全量 pytest、golden runner 和 `git diff --check`，记录 M16 收尾证据。

@@ -476,11 +476,11 @@ git commit -m "feat: add opt-in HTTP serve command"
 - Test: `tests/test_http_server.py`
 - Test: `tests/test_mock_replay_e2e.py`
 
-- [ ] **Step 1: 增加配置/生命周期/安全文档**
+- [x] **Step 1: 增加配置/生命周期/安全文档**
 
 文档明确 `serve` 启动方式、`FORGEAGENT_HTTP_TOKEN` 优先级、loopback-only/no TLS、三条路由、请求 schema、结果投影、取消竞态、allowlist 精确键、HTTP 不继承 `autoApprove`、审计 fail-open/degraded、容量/TTL 和 shutdown 所有权。
 
-- [ ] **Step 2: 增加并发和资源泄漏验收**
+- [x] **Step 2: 增加并发和资源泄漏验收**
 
 ```python
 def test_http_concurrent_tasks_are_isolated(server_url):
@@ -493,11 +493,11 @@ def test_shutdown_leaves_no_worker_or_mcp_threads(service):
     assert not service.active_worker_threads()
 ```
 
-- [ ] **Step 3: HTTP golden 子集回放并比较 CLI/mock 结果**
+- [x] **Step 3: HTTP golden 子集回放并比较 CLI/mock 结果**
 
 选择 `tests/golden/cases.py` 中不依赖真实网络/交互的代表性案例，通过同一 MockClient 运行 CLI 和 HTTP 路径，逐项比较 `status.reason`、安全 detail 和 tool outcome 数量；审计断言只检查掩码后的字段，不固定时间戳。
 
-- [ ] **Step 4: 运行全量验证并记录证据**
+- [x] **Step 4: 运行全量验证并记录证据**
 
 Run: `ruff check src tests && pytest -q && git diff --check`
 Expected: Ruff 无错误、全量 pytest PASS、diff check 无输出。再运行项目已有 golden runner，并把命令和结果写入 `docs/superpowers/reports/2026-07-21-http-task-service-verify.md`。
