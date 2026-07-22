@@ -13,10 +13,10 @@
 
 ## 3. 任务服务
 
-- [ ] 3.1 实现有界内存任务注册表和 worker executor，支持异步提交、状态/结果保留与任务隔离。
-- [ ] 3.2 定义并实现 queue-full、结果 TTL/eviction、请求并发/body 上限和 unknown/expired task 语义。
-- [ ] 3.3 将协作式取消接入 Task/Step 的轮次和工具边界，保证幂等、有界且不强杀线程。
-- [ ] 3.4 定义并测试每个 task 的资源所有权/close 顺序和 service shutdown 清理；worker 失败必须只影响自身任务。
+- [x] 3.1 实现有界内存任务注册表和 worker executor，支持异步提交、状态/结果保留与任务隔离。
+- [x] 3.2 定义并实现 queue-full、结果 TTL/eviction、请求并发/body 上限和 unknown/expired task 语义。
+- [x] 3.3 将协作式取消接入 Task/Step 的轮次和工具边界，保证幂等、有界且不强杀线程。
+- [x] 3.4 定义并测试每个 task 的资源所有权/close 顺序和 service shutdown 清理；worker 失败必须只影响自身任务。
 
 ## 4. HTTP 适配与 headless 确认门
 

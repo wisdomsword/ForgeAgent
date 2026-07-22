@@ -250,7 +250,7 @@ git commit -m "feat: add masked JSONL audit sink"
 - `TaskService.submit(goal: str, options: Mapping[str, object]) -> TaskRecord`、`query(task_id: str) -> dict`、`cancel(task_id: str) -> dict`、`shutdown(timeout: float) -> None`。
 - `TaskRecord.public_view() -> dict` 仅返回 `task_id`, `status`, `reason`, `detail`, `round_count`, `usage`, `audit_degraded`。
 
-- [ ] **Step 1: 写状态、容量、TTL 和取消竞态测试**
+- [x] **Step 1: 写状态、容量、TTL 和取消竞态测试**
 
 ```python
 def test_service_rejects_capacity_without_creating_record():
@@ -266,7 +266,7 @@ def test_running_cancel_is_cooperative_and_terminal_is_not_overwritten():
     assert service.query(record.task_id)["status"] == "cancelled"
 ```
 
-- [ ] **Step 2: 实现 TaskRecord 和有界注册表**
+- [x] **Step 2: 实现 TaskRecord 和有界注册表**
 
 ```python
 @dataclass
@@ -294,15 +294,15 @@ class TaskRecord:
         }
 ```
 
-- [ ] **Step 3: 实现 worker、CAS 终态和资源关闭顺序**
+- [x] **Step 3: 实现 worker、CAS 终态和资源关闭顺序**
 
 worker 在 `try/finally` 中执行 `Task.run(..., cancel_event=record.cancel_event)`，先调用 `task.close()`，再关闭 client/backend 资源；完成、失败、取消全部经 `_publish_terminal()` 的锁保护，已发布终态不可覆盖。队列任务取消不创建 client/Task。
 
-- [ ] **Step 4: 实现队列满、过期/淘汰和 shutdown**
+- [x] **Step 4: 实现队列满、过期/淘汰和 shutdown**
 
 队列或保留记录上限触发 `ServiceCapacityError`；仅淘汰 TTL 已过期的终态记录，运行中记录永不淘汰；过期 id 统一抛出 `TaskNotFound(expired=True)`。shutdown 停止接收、取消 queued、bounded join running，再关闭共享 MCP manager。
 
-- [ ] **Step 5: 运行服务测试并提交**
+- [x] **Step 5: 运行服务测试并提交**
 
 Run: `pytest tests/test_http_task_service.py -q`
 Expected: PASS。

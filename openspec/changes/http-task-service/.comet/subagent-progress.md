@@ -3,21 +3,19 @@
 - Change: http-task-service
 - Review mode: standard
 - TDD mode: tdd
-- Current task: Task 2 — 注入式审计 sink 与安全序列化
+- Current task: Task 3 — 有界 TaskService、结果投影和资源生命周期
 - Stage: done
-- Implementer: DONE, commit `adaf34c615c7528504d312993cd2eddb724b3df8`
-- Changed files: `audit.py`, `secret_policy.py`, `task.py`, `step.py`, `tools.py` and focused tests
-- RED/GREEN: see `.superpowers/sdd/task-2-report.md`; focused compatibility suite 158 passed; Ruff/format/diff-check passed
-- Reviewer: approved after user-authorized extra fix `ce9b56c`; no Critical/Important
-- Risk review: triggered (security-sensitive logging, concurrency, persistence, public API, cross-module instrumentation)
-- Important findings: hostile Mapping key stringification; host paths in arbitrary text fields; oversized single JSONL event; provider retry/stream attempts not observable; unexpected LLM exceptions leave no outcome; confirmation/tool operation IDs do not correlate
-- Minor follow-ups in same round: stable risk levels, retained-file parsing/startup/rotation tests, confirmer exception decision
-- Fix evidence: targeted RED/GREEN complete; non-packaging full suite 1057 passed, 13 skipped, 1 deselected; packaging-only DNS failure; Ruff/format/diff-check passed
-- Remaining Important: Step attempt observer is never restored, causing client reuse cross-task audit leakage/duplication
-- Remaining Important: lowering retention leaves stale high-index rotated files indefinitely
-- Remaining Minor: startup compaction reads whole oversized files; UNC path scrub missing
-- Blocker decision: user must authorize one exceptional extra fix round or explicitly accept remaining risks
-- Extra fix scope: restore per-Step attempt observer and delete stale high-index rotated audit files
-- Extra fix evidence: 245 passed; Ruff/format/diff-check passed
-- Accepted Minor: startup compaction reads whole pre-existing audit files; bounded write path unaffected, defer streaming compaction
-- Accepted Minor: UNC path scrub not implemented; current M16 runtime target is loopback Unix/macOS, POSIX and drive-letter paths covered
+- Implementer: DONE, commit `83a8b2d`
+- Changed files: `src/forgeagent/http_task_service.py`, `tests/test_http_task_service.py`
+- RED/GREEN: see `.superpowers/sdd/m16-task-3-report.md`; focused 9 passed, Task/Step/Audit 86 passed, non-packaging full 1071 passed/13 skipped; Ruff/diff-check passed
+- Reviewer: final review PASS; no Critical/Important/Minor
+- Risk review: triggered (concurrency/shared state/public API/resource ownership; diff >200 lines)
+- Important findings: public projection leaks model-derived detail; shutdown closes shared MCP manager while timed-out workers still run
+- Minor findings: nested options remain mutable; BaseException can leave running; `records` exposes mutable TaskRecord
+- Fix evidence: focused 12 passed; Task/Step/Audit 86 passed; non-packaging full suite exit 0; Ruff/format/diff-check passed
+- Remaining Important: public `status`/`reason` copy unbounded arbitrary TaskOutcome reason; must use fixed allowlist/fallback
+- Remaining Minor: audit_degraded getattr BaseException path; cleanup thread start failure lacks fallback
+- Nit: completed cleanup thread reference retained
+- Blocker decision: user must authorize one exceptional extra fix round or explicitly accept remaining risk
+- Global repair authorization: granted for all remaining M16 review fixes
+- Extra fix evidence: focused 15 passed; core 101 passed; non-packaging full 1077 passed/13 skipped; Ruff/format/diff-check passed
