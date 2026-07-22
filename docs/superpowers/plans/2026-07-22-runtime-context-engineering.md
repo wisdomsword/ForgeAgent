@@ -178,7 +178,7 @@ git commit -m "feat: add sliding window context policy"
 
 ### Task 3: Task/Step policy 装配与本地失败时序
 
-- [ ] **Task 3 complete: Task/Step policy 装配与本地失败时序已交付**
+- [x] **Task 3 complete: Task/Step policy 装配与本地失败时序已交付**
 
 **Files:**
 - Modify: `src/forgeagent/task.py`
@@ -191,7 +191,7 @@ git commit -m "feat: add sliding window context policy"
 - `Step(..., context_policy: ContextPolicy | None = None, context_config: ContextConfig | None = None)` eagerly constructs fallback in `__init__`.
 - Every `_stream_or_complete` call consumes `context_policy.request_view(convo)`.
 
-- [ ] **Step 1: 写 RecordingClient 与失败优先级测试**
+- [x] **Step 1: 写 RecordingClient 与失败优先级测试**
 
 ```python
 def test_step_applies_policy_before_every_provider_call():
@@ -212,23 +212,23 @@ def test_oversized_prefix_fails_before_llm_attempt_audit():
 
 另测 cancel 已置位时优先返回 CANCELLED、stream/complete 共用 view、latest-round 超预算 detail 有界。
 
-- [ ] **Step 2: 运行 RED**
+- [x] **Step 2: 运行 RED**
 
 Run: `.venv/bin/pytest -q tests/test_task.py tests/test_step.py -k 'context or policy or oversized'`
 
 Expected: FAIL because Task/Step do not accept policy arguments.
 
-- [ ] **Step 3: 在请求边界接入 policy**
+- [x] **Step 3: 在请求边界接入 policy**
 
 `Step.__init__` 立即解析 fallback policy；`_run_rounds` 先检查 cancellation，再调用 `request_view`，成功后才创建 operation id/发 `llm.attempt started`。捕获 `ContextBudgetExceeded` 时追加现有形状的 `RoundResult(text="", stopped_reason=Termination.FAILED, stopped_detail=exc.detail)`，不制造 `ClientError`。
 
-- [ ] **Step 4: 运行 Task/Step 全文件测试**
+- [x] **Step 4: 运行 Task/Step 全文件测试**
 
 Run: `.venv/bin/pytest -q tests/test_task.py tests/test_step.py tests/test_streaming.py`
 
 Expected: PASS.
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add src/forgeagent/task.py src/forgeagent/step.py tests/test_task.py tests/test_step.py
