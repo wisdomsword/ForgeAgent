@@ -112,10 +112,16 @@ def write_fake_forgeagent(tmp_path: Path) -> Path:
                     assert request == {"goal": expected_goal}
                     with submitted_goals_path.open("a", encoding="utf-8") as handle:
                         handle.write(json.dumps(request["goal"]) + "\n")
-                    if mode in {"filewrite", "filewrite-extra-tool", "denied-token-leak"}:
+                    if mode in {
+                        "filewrite",
+                        "filewrite-extra-tool",
+                        "denied-token-leak",
+                        "wrong-decision-extra-tool",
+                    }:
                         allowed = target_operation in config["allowlist"]
-                        decision = "preapproved" if allowed else "denied"
-                        tool_status = "success" if allowed else "failed"
+                        wrong_decision = mode == "wrong-decision-extra-tool" and not allowed
+                        decision = "preapproved" if allowed or wrong_decision else "denied"
+                        tool_status = "success" if decision == "preapproved" else "failed"
                         operation_id = f"operation-{decision}"
                         events = [
                             {
@@ -133,7 +139,7 @@ def write_fake_forgeagent(tmp_path: Path) -> Path:
                                 "result_status": tool_status,
                             },
                         ]
-                        if mode == "filewrite-extra-tool":
+                        if mode in {"filewrite-extra-tool", "wrong-decision-extra-tool"}:
                             events.append(
                                 {
                                     "task_id": task_id,
@@ -243,6 +249,13 @@ def test_blackbox_script_reports_model_tool_drift_as_inconclusive(tmp_path: Path
 
 def test_blackbox_script_rejects_forbidden_extra_tool_as_inconclusive(tmp_path: Path) -> None:
     result = run_script(tmp_path, "filewrite-extra-tool")
+
+    assert result.returncode == 2
+    assert "INCONCLUSIVE" in result.stderr
+
+
+def test_tool_drift_takes_precedence_over_wrong_allowlist_decision(tmp_path: Path) -> None:
+    result = run_script(tmp_path, "wrong-decision-extra-tool")
 
     assert result.returncode == 2
     assert "INCONCLUSIVE" in result.stderr

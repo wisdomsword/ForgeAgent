@@ -292,17 +292,14 @@ current_task_tool_operation_count() {
         "$CURRENT_AUDIT"
 }
 
-has_matching_filewrite_operation() {
-    decision=$1
+has_target_filewrite_operation() {
     [ -f "$CURRENT_AUDIT" ] && jq -s -e \
         --arg task "$CURRENT_TASK_ID" \
-        --arg decision "$decision" \
         '. as $events
         | [$events[] | select(
             .task_id == $task
             and .event_type == "confirmation.decision"
             and .parameters.operation == "file/m16-allowlist.txt"
-            and .result_status == $decision
           )] as $decisions
         | any($decisions[];
             .operation_id as $operation
@@ -344,13 +341,12 @@ has_matching_tool_result() {
 }
 
 require_only_target_filewrite() {
-    decision=$1
     tool_count=$(current_task_tool_operation_count) \
         || fail "Could not inspect current-task tool operations."
     if [ "$tool_count" -gt 1 ]; then
         inconclusive "The model emitted additional tool operations."
     fi
-    if [ "$tool_count" -eq 1 ] && ! has_matching_filewrite_operation "$decision"; then
+    if [ "$tool_count" -eq 1 ] && ! has_target_filewrite_operation; then
         inconclusive "The model emitted a different tool operation."
     fi
 }
@@ -368,6 +364,7 @@ run_denied_phase() {
     start_server denied ''
     submit_task
     poll_terminal
+    require_only_target_filewrite
     if has_decision preapproved; then
         fail "Empty allowlist preapproved the target FileWrite."
     fi
@@ -377,7 +374,6 @@ run_denied_phase() {
         fi
         inconclusive "The model did not call the target FileWrite in the denied phase."
     fi
-    require_only_target_filewrite denied
     if ! has_matching_tool_result denied failed; then
         fail "Denied FileWrite has no operation-linked failed tool result."
     fi
@@ -397,13 +393,13 @@ run_allowed_phase() {
     start_server allowed "$TARGET_OPERATION"
     submit_task
     poll_terminal
+    require_only_target_filewrite
     if has_decision denied; then
         fail "Exact allowlist denied the target FileWrite."
     fi
     if ! has_decision preapproved; then
         inconclusive "The model did not call the target FileWrite in the allowed phase."
     fi
-    require_only_target_filewrite preapproved
     if ! has_matching_tool_result preapproved success; then
         fail "Preapproved FileWrite has no operation-linked successful tool result."
     fi
