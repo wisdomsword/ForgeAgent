@@ -295,7 +295,18 @@ def test_successful_llm_audit_records_cache_rate_without_changing_raw_usage(
         for event in recording_sink.events
         if event.event_type == "llm.outcome" and event.result_status == "success"
     )
-    assert outcome.parameters["usage"] == usage.model_dump(mode="python")
+    assert outcome.parameters["usage"] == {
+        "input_tokens": usage.input_tokens,
+        "output_tokens": usage.output_tokens,
+        "cached_tokens": usage.cached_tokens,
+        "reasoning_tokens": usage.reasoning_tokens,
+    }
+    assert set(outcome.parameters["usage"]) == {
+        "input_tokens",
+        "output_tokens",
+        "cached_tokens",
+        "reasoning_tokens",
+    }
     assert outcome.parameters["cache_hit_rate"] == expected_rate
 
     sink = JsonlAuditSink(path, secret_values=set())

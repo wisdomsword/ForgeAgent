@@ -40,7 +40,7 @@ from . import http_server
 from .anthropic_client import AnthropicClient
 from .audit import JsonlAuditSink
 from .client import ModelClient
-from .context import ContextConfig, load_context_config
+from .context import ContextConfig, SlidingWindowContextPolicy, load_context_config
 from .executor import ContainerRuntimeError
 from .headless import HeadlessConfirmer
 from .http_config import HttpServiceConfig
@@ -162,6 +162,13 @@ def _client_factory_for_registry(
         return build_real_client(model, registry=registry)
 
     return build_from_snapshot
+
+
+def _validate_context_policy(
+    model: str, registry: Registry, context_config: ContextConfig
+) -> None:
+    """Resolve the selected model and its context limits before publishing a snapshot."""
+    SlidingWindowContextPolicy(get_capability(model, registry), None, context_config)
 
 
 def _make_stream_callback(console: Console) -> tuple[Live, Callable[[str, StreamEventKind], None]]:
@@ -567,7 +574,11 @@ def _handle_mcp_slash(goal: str, mcp: MCPManager | None, console: Console) -> No
 
 
 def _handle_model_command(
-    goal: str, model: str, console: Console, registry: Registry | None = None
+    goal: str,
+    model: str,
+    console: Console,
+    registry: Registry | None = None,
+    context_config: ContextConfig | None = None,
 ) -> str:
     """`/model` lists registered models (reuses `print_models`); `/model <id-or-alias>`
     switches the current REPL session's model. Returns the model to use for subsequent
@@ -579,9 +590,16 @@ def _handle_model_command(
         return model
     requested = parts[1].strip()
     try:
-        get_capability(requested, registry)
+        _validate_context_policy(
+            requested,
+            registry if registry is not None else load_registry(),
+            context_config or ContextConfig(),
+        )
     except RegistryError as exc:
         console.print(f"[red]unknown model[/red]: {exc}")
+        return model
+    except ValueError as exc:
+        console.print(f"[red]model switch failed[/red]: invalid context configuration: {exc}")
         return model
     console.print(f"[green]switched[/green] to {requested}")
     return requested
@@ -684,6 +702,7 @@ def repl(
     no_identity: bool = False,
     context_config: ContextConfig | None = None,
     registry: Registry | None = None,
+    use_registry_snapshot: bool | None = None,
 ) -> None:
     """Interactive loop: read a goal, run it, repeat. Blank line or EOF/quit exits.
 
@@ -693,11 +712,16 @@ def repl(
     console = console or Console()
     current_context = context_config or ContextConfig()
     current_registry = registry
-    use_registry_snapshot = registry is not None
+    if current_registry is not None:
+        try:
+            _validate_context_policy(model, current_registry, current_context)
+        except ValueError as exc:
+            raise RegistryError(f"Invalid context configuration: {exc}") from exc
+    if use_registry_snapshot is None:
+        use_registry_snapshot = client_factory is build_real_client
 
     def task_client_factory(selected_model: str) -> ModelClient:
-        if use_registry_snapshot:
-            assert current_registry is not None
+        if use_registry_snapshot and current_registry is not None:
             return build_real_client(selected_model, registry=current_registry)
         return client_factory(selected_model)
 
@@ -739,7 +763,9 @@ def repl(
                 _print_command_menu(console)
                 continue
             if goal == "/model" or goal.startswith("/model "):
-                model = _handle_model_command(goal, model, console, current_registry)
+                model = _handle_model_command(
+                    goal, model, console, current_registry, current_context
+                )
                 continue
             if goal == "/search" or goal.startswith("/search "):
                 _handle_search_command(goal, console)
@@ -777,6 +803,7 @@ def repl(
                 try:
                     candidate_registry = reload_registry()
                     candidate_context = load_context_config()
+                    _validate_context_policy(model, candidate_registry, candidate_context)
                 except (OSError, RegistryError, ValueError, yaml.YAMLError) as exc:
                     console.print(f"[red]reload failed[/red]: {exc}")
                     continue
@@ -1296,8 +1323,15 @@ def main(
         identity_diagnostic = make_console_identity_diagnostic(console)
         if args.command == "run":
             context_config = _load_cli_context_config()
-            runtime_registry = load_registry() if client_factory is build_real_client else None
-            runtime_client_factory = _client_factory_for_registry(runtime_registry, client_factory)
+            runtime_registry = load_registry()
+            try:
+                _validate_context_policy(args.model, runtime_registry, context_config)
+            except ValueError as exc:
+                raise RegistryError(f"Invalid context configuration: {exc}") from exc
+            runtime_client_factory = _client_factory_for_registry(
+                runtime_registry if client_factory is build_real_client else None,
+                client_factory,
+            )
             images = None
             if args.image:
                 try:
@@ -1344,18 +1378,22 @@ def main(
             )
             return 0 if ok else 1
         context_config = _load_cli_context_config()
-        runtime_registry = load_registry() if client_factory is build_real_client else None
-        runtime_client_factory = _client_factory_for_registry(runtime_registry, client_factory)
+        runtime_registry = load_registry()
+        try:
+            _validate_context_policy(args.model, runtime_registry, context_config)
+        except ValueError as exc:
+            raise RegistryError(f"Invalid context configuration: {exc}") from exc
         repl(
             tier=args.tier,
             model=args.model,
-            client_factory=runtime_client_factory,
+            client_factory=client_factory,
             console=console,
             container_image=args.container_image,
             stream=args.stream,
             no_identity=args.no_identity,
             context_config=context_config,
             registry=runtime_registry,
+            use_registry_snapshot=client_factory is build_real_client,
         )
         return 0
     except RegistryError as exc:

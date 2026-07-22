@@ -87,9 +87,6 @@ class TokenUsage(BaseModel):
     # Anthropic: always 0 (thinking is billed inside output_tokens, never split out).
     reasoning_tokens: int = 0
     total_prompt_tokens: int | None = Field(default=None, exclude=True, repr=False)
-    # Session accumulators need to distinguish no calls from an unknown denominator;
-    # neither flag is part of the provider-facing usage contract.
-    cache_rate_seen: bool = Field(default=False, exclude=True, repr=False)
     cache_rate_unavailable: bool = Field(default=False, exclude=True, repr=False)
 
     @property
@@ -108,7 +105,6 @@ class TokenUsage(BaseModel):
 
     def accumulate_cache_rate(self, usage: TokenUsage) -> None:
         """Add one successful call's prompt denominator to this mutable accumulator."""
-        self.cache_rate_seen = True
         denominator = usage.total_prompt_tokens
         if denominator is None:
             self.cache_rate_unavailable = True

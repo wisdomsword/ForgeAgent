@@ -1540,6 +1540,139 @@ def test_repl_context_reload_swaps_context_only_after_both_configs_validate(monk
     assert seen_contexts == [new_context]
 
 
+def test_repl_reload_rejects_unresolvable_policy_and_keeps_old_registry_pair(monkeypatch):
+    import forgeagent.cli as cli_module
+    from forgeagent.context import ContextConfig
+    from forgeagent.model_registry import load_registry
+
+    old_registry = load_registry()
+    candidate_registry = old_registry.model_copy(deep=True)
+    old_context = ContextConfig()
+    invalid_context = ContextConfig(tool_result_max_tokens=100_000)
+    used_registries = []
+    inputs = iter(["/reload", "do a thing", "quit"])
+
+    monkeypatch.setattr(cli_module, "reload_registry", lambda: candidate_registry)
+    monkeypatch.setattr(cli_module, "load_context_config", lambda: invalid_context)
+
+    def real_factory(model, *, registry=None, env=None):
+        used_registries.append(registry)
+        return MockClient(script=[_reply(_done())])
+
+    monkeypatch.setattr(cli_module, "build_real_client", real_factory)
+    console = _console()
+    cli_module.repl(
+        tier="trusted",
+        model="claude-sonnet-5",
+        client_factory=real_factory,
+        console=console,
+        read_line=lambda prompt: next(inputs),
+        context_config=old_context,
+        registry=old_registry,
+    )
+
+    assert "reload failed" in console.export_text()
+    assert "reloaded:" not in console.export_text()
+    assert used_registries == [old_registry]
+
+
+def test_repl_reload_uses_new_registry_and_context_after_candidate_validation(monkeypatch):
+    import forgeagent.cli as cli_module
+    from forgeagent.context import ContextConfig
+    from forgeagent.model_registry import load_registry
+
+    old_registry = load_registry()
+    new_registry = old_registry.model_copy(deep=True)
+    old_context = ContextConfig(image_token_reserve=111)
+    new_context = ContextConfig(image_token_reserve=222)
+    used_registries = []
+    inputs = iter(["/reload", "do a thing", "quit"])
+
+    monkeypatch.setattr(cli_module, "reload_registry", lambda: new_registry)
+    monkeypatch.setattr(cli_module, "load_context_config", lambda: new_context)
+
+    def real_factory(model, *, registry=None, env=None):
+        used_registries.append(registry)
+        return MockClient(script=[_reply(_done())])
+
+    monkeypatch.setattr(cli_module, "build_real_client", real_factory)
+    cli_module.repl(
+        tier="trusted",
+        model="claude-sonnet-5",
+        client_factory=real_factory,
+        console=_console(),
+        read_line=lambda prompt: next(inputs),
+        context_config=old_context,
+        registry=old_registry,
+    )
+
+    assert used_registries == [new_registry]
+
+
+def test_repl_registry_snapshot_never_bypasses_injected_factory():
+    import forgeagent.cli as cli_module
+    from forgeagent.model_registry import load_registry
+
+    calls = []
+    inputs = iter(["do a thing", "quit"])
+
+    def injected_factory(model):
+        calls.append(model)
+        return MockClient(script=[_reply(_done())])
+
+    cli_module.repl(
+        tier="trusted",
+        model="claude-sonnet-5",
+        client_factory=injected_factory,
+        console=_console(),
+        read_line=lambda prompt: next(inputs),
+        registry=load_registry(),
+    )
+
+    assert calls == ["claude-sonnet-5"]
+
+
+def test_repl_rejects_model_switch_when_current_context_cannot_fit_its_capability():
+    import forgeagent.cli as cli_module
+    from forgeagent.context import ContextConfig
+    from forgeagent.model_registry import load_registry
+
+    models = []
+    inputs = iter(["/model claude-haiku-4-5", "do a thing", "quit"])
+
+    def injected_factory(model):
+        models.append(model)
+        return MockClient(script=[_reply(_done())])
+
+    console = _console()
+    cli_module.repl(
+        tier="trusted",
+        model="claude-sonnet-5",
+        client_factory=injected_factory,
+        console=console,
+        read_line=lambda prompt: next(inputs),
+        context_config=ContextConfig(tool_result_max_tokens=10_000),
+        registry=load_registry(),
+    )
+
+    assert "model switch failed" in console.export_text()
+    assert models == ["claude-sonnet-5"]
+
+
+def test_main_returns_config_error_for_initial_unresolvable_context_policy(monkeypatch, capsys):
+    import forgeagent.cli as cli_module
+    from forgeagent.context import ContextConfig
+
+    monkeypatch.setattr(
+        cli_module,
+        "load_context_config",
+        lambda: ContextConfig(tool_result_max_tokens=100_000),
+    )
+
+    assert cli_module.main(["run", "do a thing"], client_factory=_factory([_reply(_done())])) == 2
+    assert "config error" in capsys.readouterr().out
+
+
 def test_repl_reload_unchanged_identity_does_not_reconfirm(monkeypatch, tmp_path):
     import forgeagent.cli as cli_module
 
