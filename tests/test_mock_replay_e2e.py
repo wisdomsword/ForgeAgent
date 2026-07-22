@@ -189,12 +189,30 @@ def test_long_replay_slides_complete_rounds_and_keeps_bounded_feedback_honest():
         len(current) < len(previous) + 2
         for previous, current in zip(client.calls, client.calls[1:], strict=False)
     )
-    for call in client.calls:
-        history = call[2:]
-        assert len(history) % 2 == 0
-        assert [message.role for message in history] == [
-            role for _ in range(len(history) // 2) for role in (Role.ASSISTANT, Role.USER)
-        ]
+    retained_pair_suffixes_checked = 0
+    for previous, current in zip(client.calls, client.calls[1:], strict=False):
+        previous_history = previous[2:]
+        current_history = current[2:]
+        for history in (previous_history, current_history):
+            assert len(history) % 2 == 0
+            assert [message.role for message in history] == [
+                role for _ in range(len(history) // 2) for role in (Role.ASSISTANT, Role.USER)
+            ]
+
+        previous_pairs = list(zip(previous_history[::2], previous_history[1::2], strict=True))
+        current_pairs = list(zip(current_history[::2], current_history[1::2], strict=True))
+        assert current_pairs
+        new_tail_pair = current_pairs[-1]
+        assert [message.role for message in new_tail_pair] == [Role.ASSISTANT, Role.USER]
+
+        # Only the final pair was added since the preceding request; any earlier pair
+        # retained through a slide must be an unchanged, ordered suffix of that request.
+        retained_old_pairs = current_pairs[:-1]
+        if retained_old_pairs:
+            assert retained_old_pairs == previous_pairs[-len(retained_old_pairs) :]
+            retained_pair_suffixes_checked += 1
+
+    assert retained_pair_suffixes_checked > 0
 
     latest_request = client.calls[-1]
     assert "round-3" in str(latest_request[-2].content)
