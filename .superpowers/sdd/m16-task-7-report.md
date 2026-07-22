@@ -41,8 +41,9 @@ socket closure were added, after which the real request loop passed reliably.
   (3 passed per run).
 - Golden runner: exit code 0; its generated offline report records 20/20 (100%).
 - OpenSpec strict validation and `git diff --check`: PASS.
-- Full non-packaging pytest did not produce a completion summary in this sandbox; it
-  ended at 46% without printing a test failure. This is recorded as incomplete, not
-  as passing.
-- Packaging: 2 passed, 1 environment failure; `uv build` cannot resolve `hatchling`
-  because PyPI DNS lookup is unavailable.
+- Full non-packaging pytest (`PYTHONPATH=src .venv/bin/pytest -q
+  --ignore=tests/test_packaging.py`): PASS, exit code 0; 1220 passed, 23 skipped in
+  58.89s.
+- Packaging: 1 failed, 2 passed in 8.14s because the nested `uv build` exited 2;
+  direct build evidence shows three retries followed by a DNS lookup failure while
+  fetching `https://pypi.org/simple/hatchling/`.

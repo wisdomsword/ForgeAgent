@@ -24,16 +24,16 @@ Date: 2026-07-22
 
 | Command | Result |
 | --- | --- |
-| `.venv/bin/ruff check src tests` | PASS (`All checks passed!`) |
-| `.venv/bin/ruff format --check tests/test_http_server.py tests/test_mock_replay_e2e.py` | PASS (`2 files already formatted`) |
+| `.venv/bin/ruff check src tests` | PASS: exit code 0 (`All checks passed!`) |
+| `.venv/bin/ruff format --check tests/test_http_server.py tests/test_mock_replay_e2e.py` | PASS: both changed test files formatted |
 | `.venv/bin/pytest -q tests/test_http_server.py tests/test_mock_replay_e2e.py` | PASS: 62 passed, 10 skipped |
 | Focused concurrency/shutdown/golden command repeated five times | PASS: 3 passed per run, 5/5 runs |
 | `.venv/bin/python -m tests.golden.runner` | PASS: exit code 0; generated `artifacts/golden/offline/report.md` records 20/20 (100%) |
-| `openspec validate http-task-service --strict` | PASS |
-| `git diff --check` | PASS (no output) |
-| `.venv/bin/pytest -q --ignore=tests/test_packaging.py` | INCOMPLETE in this sandbox: process ended at 46% with no pytest failure summary; no individual failure was printed |
-| `.venv/bin/pytest -q tests/test_packaging.py` | 2 passed, 1 failed because `uv build` could not resolve build requirements |
-| `UV_CACHE_DIR=/tmp/forgeagent-task7-uv-cache uv build --out-dir /tmp/forgeagent-task7-build` | Environment failure: DNS lookup for `https://pypi.org/simple/hatchling/` failed after three retries |
+| `openspec validate http-task-service --strict` | PASS: exit code 0 (`Change 'http-task-service' is valid`) |
+| `git diff --check` | PASS: exit code 0, no output |
+| `PYTHONPATH=src .venv/bin/pytest -q --ignore=tests/test_packaging.py` | PASS: exit code 0; 1220 passed, 23 skipped in 58.89s |
+| `PYTHONPATH=src .venv/bin/pytest -q tests/test_packaging.py` | Environment failure: 1 failed, 2 passed in 8.14s; `uv build` exited 2 |
+| `UV_CACHE_DIR=/tmp/forgeagent-m16-final-uv-cache uv build --out-dir /tmp/forgeagent-m16-final-build` | Environment failure: after three retries, `https://pypi.org/simple/hatchling/` could not be fetched because DNS lookup failed |
 
 The repository-wide format check also reports six pre-existing files that would be
 reformatted (`executor.py`, `model_discovery.py`, `protocol.py`, and three existing
