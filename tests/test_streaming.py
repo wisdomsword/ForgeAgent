@@ -183,6 +183,33 @@ class TestAnthropicStream:
 
         assert done.usage.total_prompt_tokens == 52
 
+    def test_missing_authoritative_usage_leaves_prompt_total_none(self):
+        events = _anthropic_events()
+        assert [events[0].type, events[-2].type, events[-1].type] == [
+            "message_start",
+            "message_delta",
+            "message_stop",
+        ]
+        events[-2].usage = None
+
+        done = list(_anthropic_client(events).stream(USER))[-1].message
+
+        assert done.usage.total_prompt_tokens is None
+
+    def test_zero_authoritative_usage_keeps_prompt_total_zero(self):
+        events = _anthropic_events()
+        events[0].message.usage = SimpleNamespace(
+            input_tokens=0,
+            output_tokens=0,
+            cache_creation_input_tokens=0,
+            cache_read_input_tokens=0,
+        )
+        events[-2].usage = SimpleNamespace(input_tokens=0, output_tokens=0)
+
+        done = list(_anthropic_client(events).stream(USER))[-1].message
+
+        assert done.usage.total_prompt_tokens == 0
+
     def test_pre_first_byte_retry_reports_failed_then_successful_provider_attempt(self):
         observed = []
         calls = {"n": 0}
@@ -334,6 +361,28 @@ class TestOpenAIStream:
         done = list(_openai_client(chunks).stream(USER))[-1].message
 
         assert done.usage.total_prompt_tokens == 10
+
+    def test_missing_usage_leaves_prompt_total_none(self):
+        chunks = [_chunk(content="x", finish_reason="stop")]
+
+        done = list(_openai_client(chunks).stream(USER))[-1].message
+
+        assert done.usage.total_prompt_tokens is None
+
+    def test_zero_usage_keeps_prompt_total_zero(self):
+        zero_usage = SimpleNamespace(
+            prompt_tokens=0,
+            completion_tokens=0,
+            prompt_tokens_details=SimpleNamespace(cached_tokens=0),
+        )
+        chunks = [
+            _chunk(content="ok", finish_reason="stop"),
+            _chunk(choices=False, usage=zero_usage),
+        ]
+
+        done = list(_openai_client(chunks).stream(USER))[-1].message
+
+        assert done.usage.total_prompt_tokens == 0
 
     def test_pre_first_byte_retry_reports_failed_then_successful_provider_attempt(self):
         observed = []

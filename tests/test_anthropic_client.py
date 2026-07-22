@@ -134,6 +134,19 @@ def test_parse_response_normalizes_prompt_total_without_serializing_helper():
     assert "total_prompt_tokens" not in usage.model_dump()
 
 
+def test_parse_response_missing_usage_leaves_prompt_total_none():
+    reply = _fake_reply()
+    reply.usage = None
+
+    assert _parse_response(reply).usage.total_prompt_tokens is None
+
+
+def test_parse_response_zero_usage_keeps_prompt_total_zero():
+    usage = _parse_response(_fake_reply(inp=0, out=0)).usage
+
+    assert usage.total_prompt_tokens == 0
+
+
 def test_parse_response_defaults_cached_tokens_to_zero():
     msg = _parse_response(_fake_reply())
     assert msg.usage.cached_tokens == 0

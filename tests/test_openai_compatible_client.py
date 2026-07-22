@@ -168,6 +168,21 @@ def test_parse_response_uses_prompt_total_that_already_contains_cache():
     assert usage.total_prompt_tokens == 20
 
 
+def test_parse_response_missing_usage_leaves_prompt_total_none():
+    reply = _fake_reply()
+    reply.usage = None
+
+    assert _parse_response(reply).usage.total_prompt_tokens is None
+
+
+def test_parse_response_zero_usage_keeps_prompt_total_zero():
+    usage = _parse_response(
+        _fake_reply(inp=0, out=0, prompt_tokens_details=SimpleNamespace(cached_tokens=0))
+    ).usage
+
+    assert usage.total_prompt_tokens == 0
+
+
 def test_parse_response_defaults_cached_tokens_to_zero_when_details_absent():
     msg = _parse_response(_fake_reply(prompt_tokens_details=None))
     assert msg.usage.cached_tokens == 0
