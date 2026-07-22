@@ -15,7 +15,7 @@ corresponding audit and documentation contracts.
 
 | Check | Command | Result |
 | --- | --- | --- |
-| Full test suite | `uv run pytest -q` | `1346 passed, 11 skipped` |
+| Full test suite | `uv run pytest -q` | `1351 passed, 11 skipped` |
 | Lint | `uv run ruff check .` | passed |
 | Offline golden | `.venv/bin/python -m tests.golden.runner --output-dir /tmp/forgeagent-m17-golden-final` | `20/20 passed` |
 | OpenSpec | `openspec validate runtime-context-engineering --strict` | valid |
@@ -26,6 +26,12 @@ one packaging-build failure, and five stale `Step.run([])` policy-wiring fixture
 The fixture tests were corrected to supply the required system + initial-goal prefix.
 The same full suite was then rerun outside the managed sandbox so loopback allocation and
 `uv build` could execute; that fresh run produced the result above.
+
+The whole-branch review then found two configuration-contract defects: falsey YAML roots
+could be mistaken for a missing configuration, and mixed feedback-limit overrides did not
+follow the approved independent-adaptive formula. Both were fixed with regression tests.
+The final re-review passed with `0 Critical / 0 Important / 0 Minor`, followed by the
+fresh full-suite result recorded above.
 
 ## Focused Evidence
 
