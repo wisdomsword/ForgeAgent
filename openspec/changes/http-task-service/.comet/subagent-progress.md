@@ -3,19 +3,16 @@
 - Change: http-task-service
 - Review mode: standard
 - TDD mode: tdd
-- Current task: Task 3 — 有界 TaskService、结果投影和资源生命周期
+- Current task: Task 4 — Headless allowlist 与工具确认边界
 - Stage: done
-- Implementer: DONE, commit `83a8b2d`
-- Changed files: `src/forgeagent/http_task_service.py`, `tests/test_http_task_service.py`
-- RED/GREEN: see `.superpowers/sdd/m16-task-3-report.md`; focused 9 passed, Task/Step/Audit 86 passed, non-packaging full 1071 passed/13 skipped; Ruff/diff-check passed
-- Reviewer: final review PASS; no Critical/Important/Minor
-- Risk review: triggered (concurrency/shared state/public API/resource ownership; diff >200 lines)
-- Important findings: public projection leaks model-derived detail; shutdown closes shared MCP manager while timed-out workers still run
-- Minor findings: nested options remain mutable; BaseException can leave running; `records` exposes mutable TaskRecord
-- Fix evidence: focused 12 passed; Task/Step/Audit 86 passed; non-packaging full suite exit 0; Ruff/format/diff-check passed
-- Remaining Important: public `status`/`reason` copy unbounded arbitrary TaskOutcome reason; must use fixed allowlist/fallback
-- Remaining Minor: audit_degraded getattr BaseException path; cleanup thread start failure lacks fallback
-- Nit: completed cleanup thread reference retained
-- Blocker decision: user must authorize one exceptional extra fix round or explicitly accept remaining risk
+- Implementer: DONE, commit `ea39161`
+- Changed files: `headless.py`, `tools.py`, `test_headless.py`, `test_tools.py`
+- RED/GREEN: see `.superpowers/sdd/m16-task-4-report.md`; required 238 passed/1 skipped, compatibility 106 passed, non-packaging full 1107 passed/11 skipped; Ruff/format/diff-check passed
+- Reviewer: final security review PASS; 194 focused tests; no findings
+- Risk review: triggered (authorization/path/URL normalization/MCP policy isolation; diff >200 lines)
+- Critical: cross-tool key collisions; WebFetch redirects bypass exact allowlist
+- Important: HeadlessConfirmer root not bound to ToolContext.allowed_root
+- Known residual to document in Task7: FileWrite path validation/open symlink TOCTOU
+- Minor: IDNA config canonicalization; headless denial wording
+- Fix evidence: focused/compatibility 433 passed/3 skipped; non-packaging full 1120 passed/13 skipped; Ruff/format/diff-check passed
 - Global repair authorization: granted for all remaining M16 review fixes
-- Extra fix evidence: focused 15 passed; core 101 passed; non-packaging full 1077 passed/13 skipped; Ruff/format/diff-check passed

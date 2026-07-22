@@ -326,7 +326,7 @@ git commit -m "feat: add bounded task service registry"
 - `HeadlessConfirmer(allowlist, audit) : Confirmer`；命中返回 `True` 并写 `preapproved`，未命中返回 `False` 并写 denial。
 - `ToolContext.allow_auto_approve: bool = True`；HTTP context 设为 `False`，CLI 默认保持 `True`。
 
-- [ ] **Step 1: 写精确匹配和 autoApprove 隔离测试**
+- [x] **Step 1: 写精确匹配和 autoApprove 隔离测试**
 
 ```python
 def test_http_allowlist_does_not_accept_glob_or_mcp_autoapprove():
@@ -337,7 +337,7 @@ def test_http_allowlist_does_not_accept_glob_or_mcp_autoapprove():
     assert MCPTool().run(MCPArgs(server="s", tool="t"), ctx).success is False
 ```
 
-- [ ] **Step 2: 实现规范化键和 headless confirmer**
+- [x] **Step 2: 实现规范化键和 headless confirmer**
 
 ```python
 def operation_key(args: BaseModel, root: Path) -> str:
@@ -357,11 +357,11 @@ class HeadlessConfirmer:
         return allowed
 ```
 
-- [ ] **Step 3: 修改 MCP/WebFetch/FileWrite 调用路径**
+- [x] **Step 3: 修改 MCP/WebFetch/FileWrite 调用路径**
 
 仅当 `ctx.allow_auto_approve` 为 `True` 时调用 `mcp.is_auto_approved()`；HTTP 使用 headless confirmer 且永不读取 MCP server 的 `autoApprove`。CLI/REPL 默认值不变。所有确认决定经 audit sink 埋点。
 
-- [ ] **Step 4: 运行工具测试并提交**
+- [x] **Step 4: 运行工具测试并提交**
 
 Run: `pytest tests/test_headless.py tests/test_tools.py tests/test_mcp_manager.py -q`
 Expected: PASS。
