@@ -32,4 +32,4 @@
 
 - [x] 6.1 增加超过窗口的长对话 mock replay，验证压缩后任务仍完成且截断协议文本可观察
 - [x] 6.2 更新配置、CLI usage、审计格式、上下文限制和威胁模型文档，并明确近似估算与 sliding window 的已知权衡
-- [ ] 6.3 运行聚焦测试、完整 pytest、Ruff、离线 golden、OpenSpec strict validation 和 diff check，记录 M17 验证证据
+- [x] 6.3 运行聚焦测试、完整 pytest、Ruff、离线 golden、OpenSpec strict validation 和 diff check，记录 M17 验证证据

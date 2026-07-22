@@ -533,7 +533,7 @@ git commit -m "feat: apply server-owned context policy to HTTP tasks"
 
 ### Task 9: Prompt-cache/长任务验收、文档与全量验证
 
-- [ ] **Task 9 complete: Prompt-cache/长任务验收、文档与全量验证已交付**
+- [x] **Task 9 complete: Prompt-cache/长任务验收、文档与全量验证已交付**
 
 **Files:**
 - Modify: `tests/test_mock_replay_e2e.py`
@@ -572,7 +572,7 @@ Expected: PASS after the M17 implementation; failures must enter systematic-debu
 
 文档必须明确：四字段单位是近似 token、null 自适应公式、估算误差、system/goal fail-fast、continuation 诚实限制、CLI/audit rate 口径、HTTP 无新字段。
 
-- [ ] **Step 4: 运行完整验证矩阵**
+- [x] **Step 4: 运行完整验证矩阵**
 
 ```bash
 .venv/bin/pytest -q
@@ -584,7 +584,7 @@ git diff --check
 
 Expected: pytest 全绿（仅既有 documented skips）、Ruff PASS、golden 全绿、OpenSpec valid、diff check 无输出。
 
-- [ ] **Step 5: 勾选 OpenSpec tasks 并提交验收产物**
+- [x] **Step 5: 勾选 OpenSpec tasks 并提交验收产物**
 
 ```bash
 git add README.md docs/model-client-contract.md docs/m10-usage-observability-and-tools.md docs/http-task-service.md docs/threat-model.md tests/test_mock_replay_e2e.py tests/golden/cases.py openspec/changes/runtime-context-engineering/tasks.md
