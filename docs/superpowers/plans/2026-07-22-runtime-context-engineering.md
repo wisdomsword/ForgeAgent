@@ -478,7 +478,7 @@ git commit -m "feat: report normalized prompt cache rates"
 
 ### Task 8: HTTP server-owned context 装配与 M16 契约回归
 
-- [ ] **Task 8 complete: HTTP server-owned context 装配与 M16 契约回归已交付**
+- [x] **Task 8 complete: HTTP server-owned context 装配与 M16 契约回归已交付**
 
 **Files:**
 - Modify: `src/forgeagent/http_config.py`
@@ -493,7 +493,7 @@ git commit -m "feat: report normalized prompt cache rates"
 - HTTP Task factory passes only server context to `Task`.
 - `_usage_summary` remains exactly `input_tokens`, `output_tokens`, `cached_tokens`, `reasoning_tokens`.
 
-- [ ] **Step 1: 写启动失败、override 拒绝和 usage snapshot 失败测试**
+- [x] **Step 1: 写启动失败、override 拒绝和 usage snapshot 失败测试**
 
 ```python
 def test_http_invalid_context_fails_before_listener_bind():
@@ -508,23 +508,23 @@ def test_http_usage_projection_excludes_internal_prompt_metrics():
 
 提交 body 增加 `context`/limit 字段时继续由 extra-forbid schema 拒绝；MCP autoApprove 绕过回归必须保留。
 
-- [ ] **Step 2: 运行 RED/现有 M16 回归基线**
+- [x] **Step 2: 运行 RED/现有 M16 回归基线**
 
 Run: `.venv/bin/pytest -q tests/test_http_config.py tests/test_http_task_service.py tests/test_http_server.py`
 
 Expected: new context wiring tests FAIL; all pre-existing M16 cases remain PASS.
 
-- [ ] **Step 3: 接入 server-owned ContextConfig 并启动前构造 policy limits**
+- [x] **Step 3: 接入 server-owned ContextConfig 并启动前构造 policy limits**
 
 HTTP 配置验证错误包装为现有 `HttpStartupError`；不新增请求/响应字段。Task factory 继续传 `allow_auto_approve=False` 和 exact allowlist confirmer。
 
-- [ ] **Step 4: 运行 HTTP 与 M16 安全回归**
+- [x] **Step 4: 运行 HTTP 与 M16 安全回归**
 
 Run: `.venv/bin/pytest -q tests/test_http_config.py tests/test_http_task_service.py tests/test_http_server.py tests/test_headless.py tests/test_mcp_manager.py`
 
 Expected: PASS.
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add src/forgeagent/http_config.py src/forgeagent/http_task_service.py src/forgeagent/cli.py tests/test_http_config.py tests/test_http_task_service.py tests/test_http_server.py

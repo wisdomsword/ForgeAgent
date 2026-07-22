@@ -1,7 +1,7 @@
 ## 1. Context 配置与估算基础
 
 - [x] 1.1 完成 Superpowers 技术设计，裁决窗口交互单元、估算公式与安全余量、配置 schema/default、continuation 规则和 normalized denominator 承载方式
-- [ ] 1.2 实现集中验证的 context 配置及旧配置缺失字段兼容测试，确保 CLI/REPL 与 HTTP 服务端装配使用同一语义
+- [x] 1.2 实现集中验证的 context 配置及旧配置缺失字段兼容测试，确保 CLI/REPL 与 HTTP 服务端装配使用同一语义
 - [x] 1.3 实现无外部依赖的本地近似 token 估算，并覆盖中英文、代码、JSON、emoji、多模态元数据和 message framing 边界
 
 ## 2. Sliding-window Context Policy
@@ -21,12 +21,12 @@
 - [x] 4.1 在 Anthropic 与 OpenAI-compatible adapter 边界提供 normalized total prompt denominator，同时保持既有原始 TokenUsage 值
 - [x] 4.2 在 CLI 最终 task/session usage 行增加累计 cache hit rate，并覆盖零分母 `n/a` 与 REPL 不跨 goal 继承历史
 - [x] 4.3 在成功 `llm.outcome` 中增加同语义 `cache_hit_rate`，覆盖数值、JSON null、掩码、序列化失败和 audit_degraded 回归
-- [ ] 4.4 验证 HTTP usage 响应 schema 不暴露 cache hit rate 或内部 denominator
+- [x] 4.4 验证 HTTP usage 响应 schema 不暴露 cache hit rate 或内部 denominator
 
 ## 5. Prompt-cache 顺序与跨入口回归
 
 - [ ] 5.1 增加稳定 system 前缀与动态尾部排序审计，验证阈值以下纯追加及窗口滑动后保留消息不被改写
-- [ ] 5.2 增加 CLI、REPL、HTTP Task factory 的 policy wiring 测试，并完整回跑 M16 鉴权、严格 schema、取消、安全投影、审计和 exact allowlist 契约
+- [x] 5.2 增加 CLI、REPL、HTTP Task factory 的 policy wiring 测试，并完整回跑 M16 鉴权、严格 schema、取消、安全投影、审计和 exact allowlist 契约
 
 ## 6. 长任务验收与文档
 
