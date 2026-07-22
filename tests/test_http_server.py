@@ -517,24 +517,14 @@ def test_unknown_method_repeated_authorization_is_one_auth_failure():
     assert [event.event_type for event in events] == ["http.auth_failure"]
 
 
-def test_submit_uses_service_snapshot_instead_of_record_public_view():
-    class Record:
-        task_id = "a" * 32
-
-        def public_view(self):
-            raise AssertionError("HTTP must use the service-owned snapshot")
-
+def test_submit_uses_atomic_service_view_without_exposing_record():
     class Service:
         audit_degraded = False
 
-        def submit(self, goal, options):
+        def submit_view(self, goal, options):
             assert goal == "go"
             assert options == {}
-            return Record()
-
-        def snapshot(self, task_id):
-            assert task_id == "a" * 32
-            return {"task_id": task_id, "status": "queued"}
+            return {"task_id": "a" * 32, "status": "queued"}
 
         def mark_audit_degraded(self):
             raise AssertionError("audit should not fail")
@@ -550,6 +540,31 @@ def test_submit_uses_service_snapshot_instead_of_record_public_view():
     handler._send_json = lambda status, response: captured.append((status, response))
     handler._submit()
     assert captured == [(202, {"task_id": "a" * 32, "status": "queued"})]
+
+
+def test_atomic_submit_view_returns_queued_before_zero_ttl_worker_can_expire_record():
+    release = threading.Event()
+
+    class BlockingTask(FakeTask):
+        def run(self, goal, *, cancel_event=None):
+            release.wait(1.0)
+            return super().run(goal, cancel_event=cancel_event)
+
+    config = HttpServiceConfig(
+        token="test-token",
+        max_workers=1,
+        max_queue=1,
+        max_records=4,
+        terminal_ttl_seconds=0,
+    )
+    service = TaskService(factory=lambda _record: BlockingTask(_outcome()), config=config)
+    try:
+        view = service.submit_view("go", {})
+        assert view["status"] == "queued"
+        assert view["task_id"]
+    finally:
+        release.set()
+        service.shutdown(1.0)
 
 
 def test_service_snapshot_calls_record_projection_under_registry_lock(monkeypatch):
@@ -584,6 +599,56 @@ def test_sticky_sink_degraded_marks_service_even_when_emit_returns_true():
     handler.server = SimpleNamespace(task_service=service, audit_sink=StickySink())
     handler._audit("http.query", task_id="a" * 32, result_status="ok")
     assert marked == [True]
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "body", "event_type", "write_error"),
+    [
+        ("POST", "/tasks", b'{"goal":"go"}', "http.submit", BrokenPipeError),
+        ("GET", "/tasks/" + "a" * 32, None, "http.query", ConnectionResetError),
+        ("POST", "/tasks/" + "a" * 32 + "/cancel", b"{}", "http.cancel", BrokenPipeError),
+    ],
+)
+def test_client_disconnect_after_success_does_not_add_rejection(
+    method, path, body, event_type, write_error
+):
+    class Service:
+        audit_degraded = False
+
+        def submit_view(self, goal, options):
+            return {"task_id": "a" * 32, "status": "queued", "audit_degraded": False}
+
+        def query(self, task_id):
+            return {"task_id": task_id, "status": "running", "audit_degraded": False}
+
+        def cancel(self, task_id):
+            return {"task_id": task_id, "status": "cancelled", "audit_degraded": False}
+
+        def mark_audit_degraded(self):
+            raise AssertionError("audit should not fail")
+
+    sink = RecordingSink()
+    handler = object.__new__(ForgeRequestHandler)
+    values = {"Authorization": ["Bearer secret"]}
+    if body is not None:
+        values["Content-Length"] = [str(len(body))]
+    handler.headers = _HeaderStub(values)
+    handler.rfile = BytesIO(body or b"")
+    handler.path = path
+    handler.close_connection = False
+    handler.server = SimpleNamespace(
+        config=SimpleNamespace(token="secret", max_body_bytes=64 * 1024),
+        task_service=Service(),
+        audit_sink=sink,
+    )
+
+    def disconnect(_status, _payload):
+        raise write_error("client disconnected")
+
+    handler._send_json = disconnect
+    handler._dispatch(method)
+    assert [event.event_type for event in sink.events] == [event_type]
+    assert handler.close_connection is True
 
 
 def test_failing_http_audit_marks_submit_query_and_cancel_responses_degraded():

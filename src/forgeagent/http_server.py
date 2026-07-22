@@ -166,6 +166,9 @@ class ForgeRequestHandler(BaseHTTPRequestHandler):
             if error.kind not in {"unauthorized", "capacity_exceeded"}:
                 self._audit("http.reject", result_status=error.kind)
             self._send_error(error.status, error.kind)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            self.close_connection = True
+            _logger.debug("HTTP client disconnected while writing response")
         except Exception:
             self.close_connection = True
             _logger.error("HTTP request failed")
@@ -221,14 +224,14 @@ class ForgeRequestHandler(BaseHTTPRequestHandler):
         if not isinstance(goal, str) or not goal.strip():
             raise HttpError(400, "invalid_request")
         try:
-            record = self.server.task_service.submit(goal, {})
+            response = self.server.task_service.submit_view(goal, {})
         except ServiceCapacityError:
             self._audit("http.capacity_rejection", result_status="capacity_exceeded")
             raise HttpError(429, "capacity_exceeded") from None
         except ServiceClosedError:
             raise HttpError(503, "service_closed") from None
-        response = self.server.task_service.snapshot(record.task_id)
-        self._audit("http.submit", task_id=record.task_id, result_status="accepted")
+        task_id = cast(str, response["task_id"])
+        self._audit("http.submit", task_id=task_id, result_status="accepted")
         if self.server.task_service.audit_degraded:
             response["audit_degraded"] = True
         self._send_json(202, response)

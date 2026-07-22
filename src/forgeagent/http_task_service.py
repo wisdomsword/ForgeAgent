@@ -159,6 +159,17 @@ class TaskService:
             self._audit_degraded = True
 
     def submit(self, goal: str, options: Mapping[str, object]) -> TaskRecord:
+        record, _ = self._submit_internal(goal, options)
+        return record
+
+    def submit_view(self, goal: str, options: Mapping[str, object]) -> dict[str, object]:
+        """Create a task and return its initial public view in one lock scope."""
+        _, view = self._submit_internal(goal, options)
+        return view
+
+    def _submit_internal(
+        self, goal: str, options: Mapping[str, object]
+    ) -> tuple[TaskRecord, dict[str, object]]:
         option_snapshot: dict[str, object] = {}
         for key, value in options.items():
             if not isinstance(key, str) or type(value) not in _OPTION_SCALAR_TYPES:
@@ -187,7 +198,7 @@ class TaskService:
             except Exception:
                 del self._records[record.task_id]
                 raise
-            return record
+            return record, record.public_view(service_audit_degraded=self._audit_degraded)
 
     def query(self, task_id: str) -> dict[str, object]:
         return self.snapshot(task_id)
