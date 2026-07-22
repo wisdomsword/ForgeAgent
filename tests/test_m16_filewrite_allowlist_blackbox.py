@@ -117,10 +117,15 @@ def write_fake_forgeagent(tmp_path: Path) -> Path:
                         "filewrite-extra-tool",
                         "denied-token-leak",
                         "wrong-decision-extra-tool",
+                        "allowed-wrong-decision-extra-tool",
                     }:
                         allowed = target_operation in config["allowlist"]
-                        wrong_decision = mode == "wrong-decision-extra-tool" and not allowed
-                        decision = "preapproved" if allowed or wrong_decision else "denied"
+                        if mode == "wrong-decision-extra-tool" and not allowed:
+                            decision = "preapproved"
+                        elif mode == "allowed-wrong-decision-extra-tool" and allowed:
+                            decision = "denied"
+                        else:
+                            decision = "preapproved" if allowed else "denied"
                         tool_status = "success" if decision == "preapproved" else "failed"
                         operation_id = f"operation-{decision}"
                         events = [
@@ -139,7 +144,11 @@ def write_fake_forgeagent(tmp_path: Path) -> Path:
                                 "result_status": tool_status,
                             },
                         ]
-                        if mode in {"filewrite-extra-tool", "wrong-decision-extra-tool"}:
+                        extra_tool = mode in {
+                            "filewrite-extra-tool",
+                            "wrong-decision-extra-tool",
+                        } or (mode == "allowed-wrong-decision-extra-tool" and allowed)
+                        if extra_tool:
                             events.append(
                                 {
                                     "task_id": task_id,
@@ -160,7 +169,7 @@ def write_fake_forgeagent(tmp_path: Path) -> Path:
                                 }
                             )
                         append_audit(events)
-                        if allowed:
+                        if allowed and decision == "preapproved":
                             (allowed_root / "m16-allowlist.txt").write_text(
                                 target_content,
                                 encoding="utf-8",
@@ -259,6 +268,18 @@ def test_tool_drift_takes_precedence_over_wrong_allowlist_decision(tmp_path: Pat
 
     assert result.returncode == 2
     assert "INCONCLUSIVE" in result.stderr
+
+
+def test_allowed_phase_tool_drift_precedes_wrong_decision(tmp_path: Path) -> None:
+    result = run_script(tmp_path, "allowed-wrong-decision-extra-tool")
+
+    assert result.returncode == 2
+    assert "PASS: empty allowlist denied FileWrite" in result.stdout
+    assert "The model emitted additional tool operations." in result.stderr
+    submitted_goals = (
+        (tmp_path / "evidence/submitted-goals.jsonl").read_text(encoding="utf-8").splitlines()
+    )
+    assert len(submitted_goals) == 2
 
 
 def test_blackbox_script_rejects_token_leak_in_denied_audit(tmp_path: Path) -> None:
