@@ -524,11 +524,16 @@ class WebFetchTool(Tool):
             f"{content_type}){truncated_note}\n"
             f"preview{preview_note}:\n{preview}"
         )
+        continuation = (
+            f"截断响应已保存至 {dest.name}；可使用 FileRead 读取"
+            if truncated
+            else f"完整响应已保存至 {dest.name}；可使用 FileRead 读取"
+        )
         return ToolOutcome(
             tool="WebFetch",
             success=True,
             detail=detail,
-            continuation=f"完整响应已保存至 {dest.name}；可使用 FileRead 读取",
+            continuation=continuation,
             truncation_mode="head",
         )
 

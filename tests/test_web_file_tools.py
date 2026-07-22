@@ -25,6 +25,7 @@ from forgeagent.protocol import FileListArgs, FileReadArgs, FileWriteArgs, WebFe
 from forgeagent.runtime import Runtime
 from forgeagent.ssrf_guard import SSRFGuardError
 from forgeagent.tools import (
+    _MAX_FETCH_BYTES,
     CodeBlockStore,
     FileListTool,
     FileReadTool,
@@ -126,6 +127,22 @@ def test_webfetch_success_reports_continuation_after_saving_artifact(
     assert "REDACTED" in saved_content
     assert outcome.truncation_mode == "head"
     assert outcome.continuation == f"完整响应已保存至 {saved[0].name}；可使用 FileRead 读取"
+
+
+def test_webfetch_truncated_response_reports_truncated_artifact(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "forgeagent.tools.guarded_urlopen",
+        lambda url, **kw: _FakeResponse(b"x" * (_MAX_FETCH_BYTES + 1), "text/plain"),
+    )
+
+    outcome = WebFetchTool().run(
+        WebFetchArgs(url="http://example.com/large.txt"),
+        _webfetch_ctx(allowed_root=str(tmp_path)),
+    )
+
+    saved = next(tmp_path.glob("webfetch_*.txt"))
+    assert saved.read_bytes() == b"x" * _MAX_FETCH_BYTES
+    assert outcome.continuation == f"截断响应已保存至 {saved.name}；可使用 FileRead 读取"
 
 
 def test_webfetch_success_detail_reports_utf8_artifact_byte_length(tmp_path, monkeypatch):
