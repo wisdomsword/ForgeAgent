@@ -458,11 +458,132 @@ def test_unknown_method_error_is_json_405_not_501():
     service = SimpleNamespace(mark_audit_degraded=lambda: None, audit_degraded=False)
     handler = object.__new__(ForgeRequestHandler)
     handler.close_connection = False
-    handler.server = SimpleNamespace(task_service=service, audit_sink=sink)
+    handler.headers = _HeaderStub({"Authorization": ["Bearer secret"]})
+    handler.server = SimpleNamespace(
+        config=SimpleNamespace(token="secret"), task_service=service, audit_sink=sink
+    )
     captured: list[tuple[int, str]] = []
     handler._send_error = lambda status, kind: captured.append((status, kind))
     handler.send_error(501, "unsupported")
     assert captured == [(405, "method_not_allowed")]
+
+
+@pytest.mark.parametrize(
+    ("authorization", "expected_status", "expected_event"),
+    [
+        (None, b"401", "http.auth_failure"),
+        ("Bearer wrong", b"401", "http.auth_failure"),
+        ("Bearer t\u00f6ken", b"401", "http.auth_failure"),
+        ("Bearer secret", b"405", "http.reject"),
+    ],
+)
+def test_unknown_method_authenticates_before_405(authorization, expected_status, expected_event):
+    headers = b""
+    if authorization is not None:
+        headers = f"Authorization: {authorization}\r\n".encode()
+    response, events = _raw_response(b"FROB /tasks HTTP/1.1\r\n" + headers + b"\r\n")
+    assert expected_status in response.split(b"\r\n", 1)[0]
+    assert [event.event_type for event in events] == [expected_event]
+
+
+def test_head_authenticated_405_has_no_body_and_correct_content_length():
+    response, events = _raw_response(
+        b"HEAD /tasks HTTP/1.1\r\nAuthorization: Bearer secret\r\n\r\n"
+    )
+    headers, body = response.split(b"\r\n\r\n", 1)
+    assert b"405" in headers.split(b"\r\n", 1)[0]
+    assert body == b""
+    content_length = next(
+        line for line in headers.split(b"\r\n") if line.startswith(b"Content-Length:")
+    )
+    assert int(content_length.split(b":", 1)[1]) > 0
+    assert [event.event_type for event in events] == ["http.reject"]
+
+
+def test_head_auth_failure_has_no_body():
+    response, events = _raw_response(b"HEAD /tasks HTTP/1.1\r\nAuthorization: Bearer wrong\r\n\r\n")
+    headers, body = response.split(b"\r\n\r\n", 1)
+    assert b"401" in headers.split(b"\r\n", 1)[0]
+    assert body == b""
+    assert [event.event_type for event in events] == ["http.auth_failure"]
+
+
+def test_unknown_method_repeated_authorization_is_one_auth_failure():
+    response, events = _raw_response(
+        b"FROB /tasks HTTP/1.1\r\nAuthorization: Bearer secret\r\n"
+        b"Authorization: Bearer secret\r\n\r\n"
+    )
+    assert b"401" in response.split(b"\r\n", 1)[0]
+    assert [event.event_type for event in events] == ["http.auth_failure"]
+
+
+def test_submit_uses_service_snapshot_instead_of_record_public_view():
+    class Record:
+        task_id = "a" * 32
+
+        def public_view(self):
+            raise AssertionError("HTTP must use the service-owned snapshot")
+
+    class Service:
+        audit_degraded = False
+
+        def submit(self, goal, options):
+            assert goal == "go"
+            assert options == {}
+            return Record()
+
+        def snapshot(self, task_id):
+            assert task_id == "a" * 32
+            return {"task_id": task_id, "status": "queued"}
+
+        def mark_audit_degraded(self):
+            raise AssertionError("audit should not fail")
+
+    config = HttpServiceConfig(token="test-token")
+    sink = RecordingSink()
+    handler = object.__new__(ForgeRequestHandler)
+    handler.server = SimpleNamespace(config=config, task_service=Service(), audit_sink=sink)
+    payload = b'{"goal":"go"}'
+    handler.headers = _HeaderStub({"Content-Length": [str(len(payload))]})
+    handler.rfile = BytesIO(payload)
+    captured = []
+    handler._send_json = lambda status, response: captured.append((status, response))
+    handler._submit()
+    assert captured == [(202, {"task_id": "a" * 32, "status": "queued"})]
+
+
+def test_service_snapshot_calls_record_projection_under_registry_lock(monkeypatch):
+    config = HttpServiceConfig(token="test-token", max_workers=1, max_queue=1, max_records=4)
+    service = TaskService(factory=lambda _record: FakeTask(_outcome()), config=config)
+    record = service.submit("go", {})
+    observed: list[bool] = []
+    original = TaskRecord.public_view
+
+    def checked(self, **kwargs):
+        observed.append(service._lock.locked())
+        return original(self, **kwargs)
+
+    monkeypatch.setattr(TaskRecord, "public_view", checked)
+    try:
+        service.snapshot(record.task_id)
+        assert observed and all(observed)
+    finally:
+        service.shutdown(1.0)
+
+
+def test_sticky_sink_degraded_marks_service_even_when_emit_returns_true():
+    class StickySink:
+        degraded = True
+
+        def emit(self, event):
+            return True
+
+    marked = []
+    service = SimpleNamespace(mark_audit_degraded=lambda: marked.append(True), audit_degraded=False)
+    handler = object.__new__(ForgeRequestHandler)
+    handler.server = SimpleNamespace(task_service=service, audit_sink=StickySink())
+    handler._audit("http.query", task_id="a" * 32, result_status="ok")
+    assert marked == [True]
 
 
 def test_failing_http_audit_marks_submit_query_and_cancel_responses_degraded():

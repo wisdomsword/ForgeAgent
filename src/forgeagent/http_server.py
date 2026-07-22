@@ -122,8 +122,12 @@ class ForgeRequestHandler(BaseHTTPRequestHandler):
         del message, explain
         self.close_connection = True
         if code == 501:
-            self._audit("http.reject", result_status="method_not_allowed")
-            self._send_error(405, "method_not_allowed")
+            if not self._authorized():
+                self._audit("http.auth_failure", result_status="denied")
+                self._send_error(401, "unauthorized")
+            else:
+                self._audit("http.reject", result_status="method_not_allowed")
+                self._send_error(405, "method_not_allowed")
             return
         self._audit("http.reject", result_status="invalid_request")
         self._send_error(code, "invalid_request")
@@ -223,10 +227,10 @@ class ForgeRequestHandler(BaseHTTPRequestHandler):
             raise HttpError(429, "capacity_exceeded") from None
         except ServiceClosedError:
             raise HttpError(503, "service_closed") from None
+        response = self.server.task_service.snapshot(record.task_id)
         self._audit("http.submit", task_id=record.task_id, result_status="accepted")
-        response = record.public_view(
-            service_audit_degraded=self.server.task_service.audit_degraded
-        )
+        if self.server.task_service.audit_degraded:
+            response["audit_degraded"] = True
         self._send_json(202, response)
 
     def _query(self, task_id: str) -> None:
@@ -293,7 +297,11 @@ class ForgeRequestHandler(BaseHTTPRequestHandler):
                 result_status=result_status,
             ),
         )
-        if not persisted:
+        try:
+            degraded = bool(getattr(self.server.audit_sink, "degraded", False))
+        except Exception:
+            degraded = True
+        if not persisted or degraded:
             self.server.task_service.mark_audit_degraded()
 
     def _send_error(self, status: int, kind: str) -> None:
@@ -317,7 +325,8 @@ class ForgeRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(raw)))
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
-        self.wfile.write(raw)
+        if getattr(self, "command", None) != "HEAD":
+            self.wfile.write(raw)
 
 
 def create_http_server(

@@ -190,6 +190,10 @@ class TaskService:
             return record
 
     def query(self, task_id: str) -> dict[str, object]:
+        return self.snapshot(task_id)
+
+    def snapshot(self, task_id: str) -> dict[str, object]:
+        """Return one service-owned public snapshot while holding the registry lock."""
         with self._lock:
             record = self._get_record_locked(task_id)
             return record.public_view(service_audit_degraded=self._audit_degraded)
