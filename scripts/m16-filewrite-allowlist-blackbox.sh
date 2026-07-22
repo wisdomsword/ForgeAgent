@@ -281,6 +281,41 @@ has_decision() {
         "$CURRENT_AUDIT" >/dev/null 2>&1
 }
 
+current_task_tool_operation_count() {
+    if [ ! -f "$CURRENT_AUDIT" ]; then
+        printf '0\n'
+        return
+    fi
+    jq -s -r \
+        --arg task "$CURRENT_TASK_ID" \
+        '[.[] | select(.task_id == $task and .event_type == "tool.operation")] | length' \
+        "$CURRENT_AUDIT"
+}
+
+has_matching_filewrite_operation() {
+    decision=$1
+    [ -f "$CURRENT_AUDIT" ] && jq -s -e \
+        --arg task "$CURRENT_TASK_ID" \
+        --arg decision "$decision" \
+        '. as $events
+        | [$events[] | select(
+            .task_id == $task
+            and .event_type == "confirmation.decision"
+            and .parameters.operation == "file/m16-allowlist.txt"
+            and .result_status == $decision
+          )] as $decisions
+        | any($decisions[];
+            .operation_id as $operation
+            | any($events[];
+                .task_id == $task
+                and .event_type == "tool.operation"
+                and .operation_id == $operation
+                and .parameters.tool == "FileWrite"
+              )
+          )' \
+        "$CURRENT_AUDIT" >/dev/null 2>&1
+}
+
 has_matching_tool_result() {
     decision=$1
     tool_status=$2
@@ -308,6 +343,22 @@ has_matching_tool_result() {
         "$CURRENT_AUDIT" >/dev/null 2>&1
 }
 
+require_only_target_filewrite() {
+    decision=$1
+    tool_count=$(current_task_tool_operation_count) \
+        || fail "Could not inspect current-task tool operations."
+    if [ "$tool_count" -gt 1 ]; then
+        inconclusive "The model emitted additional tool operations."
+    fi
+    if [ "$tool_count" -eq 1 ] && ! has_matching_filewrite_operation "$decision"; then
+        inconclusive "The model emitted a different tool operation."
+    fi
+}
+
+audit_contains_bearer_token() {
+    [ -f "$CURRENT_AUDIT" ] && grep -Fq -- "$BEARER_TOKEN" "$CURRENT_AUDIT"
+}
+
 allowed_root_has_artifact() {
     find "$ALLOWED_ROOT" -mindepth 1 -print -quit 2>/dev/null | grep -q .
 }
@@ -326,11 +377,15 @@ run_denied_phase() {
         fi
         inconclusive "The model did not call the target FileWrite in the denied phase."
     fi
+    require_only_target_filewrite denied
     if ! has_matching_tool_result denied failed; then
         fail "Denied FileWrite has no operation-linked failed tool result."
     fi
     if [ -e "$TARGET_FILE" ] || allowed_root_has_artifact; then
         inconclusive "The model produced an alternative filesystem write in the denied phase."
+    fi
+    if audit_contains_bearer_token; then
+        fail "Bearer token appeared in the audit log."
     fi
     DENIED_TASK_ID=$CURRENT_TASK_ID
     printf 'PASS: empty allowlist denied FileWrite (task %s)\n' "$DENIED_TASK_ID"
@@ -348,6 +403,7 @@ run_allowed_phase() {
     if ! has_decision preapproved; then
         inconclusive "The model did not call the target FileWrite in the allowed phase."
     fi
+    require_only_target_filewrite preapproved
     if ! has_matching_tool_result preapproved success; then
         fail "Preapproved FileWrite has no operation-linked successful tool result."
     fi
@@ -365,7 +421,7 @@ run_allowed_phase() {
     if [ "$audit_mode" != 0600 ]; then
         fail "Audit file mode is $audit_mode instead of 0600."
     fi
-    if grep -Fq -- "$BEARER_TOKEN" "$CURRENT_AUDIT"; then
+    if audit_contains_bearer_token; then
         fail "Bearer token appeared in the audit log."
     fi
     ALLOWED_TASK_ID=$CURRENT_TASK_ID

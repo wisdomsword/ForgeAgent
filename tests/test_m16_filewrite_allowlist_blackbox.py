@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import stat
 import subprocess
@@ -8,6 +9,12 @@ from pathlib import Path
 from textwrap import dedent
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+EXPECTED_GOAL = (
+    'Use exactly one FileWrite tool call to write the exact text "M16 FileWrite '
+    'allowlist verified." to relative path "m16-allowlist.txt". Do not use Exec, '
+    "MCP, Python, shell, or any other tool. After the FileWrite result, report "
+    "completion without another tool call."
+)
 
 
 def write_fake_forgeagent(tmp_path: Path) -> Path:
@@ -57,6 +64,13 @@ def write_fake_forgeagent(tmp_path: Path) -> Path:
             task_id = "0123456789abcdef0123456789abcdef"
             target_operation = "file/m16-allowlist.txt"
             target_content = "M16 FileWrite allowlist verified."
+            expected_goal = (
+                'Use exactly one FileWrite tool call to write the exact text "M16 FileWrite '
+                'allowlist verified." to relative path "m16-allowlist.txt". Do not use Exec, '
+                "MCP, Python, shell, or any other tool. After the FileWrite result, report "
+                "completion without another tool call."
+            )
+            submitted_goals_path = allowed_root.parent / "submitted-goals.jsonl"
             mode = os.environ.get("FAKE_M16_MODE", "filewrite")
 
 
@@ -94,30 +108,52 @@ def write_fake_forgeagent(tmp_path: Path) -> Path:
                         self.send_json(404, {"error": {"kind": "not_found"}})
                         return
                     length = int(self.headers.get("Content-Length", "0"))
-                    json.loads(self.rfile.read(length))
-                    if mode == "filewrite":
+                    request = json.loads(self.rfile.read(length))
+                    assert request == {"goal": expected_goal}
+                    with submitted_goals_path.open("a", encoding="utf-8") as handle:
+                        handle.write(json.dumps(request["goal"]) + "\n")
+                    if mode in {"filewrite", "filewrite-extra-tool", "denied-token-leak"}:
                         allowed = target_operation in config["allowlist"]
                         decision = "preapproved" if allowed else "denied"
                         tool_status = "success" if allowed else "failed"
                         operation_id = f"operation-{decision}"
-                        append_audit(
-                            [
-                                {
-                                    "task_id": task_id,
-                                    "event_type": "confirmation.decision",
-                                    "operation_id": operation_id,
-                                    "parameters": {"operation": target_operation},
-                                    "result_status": decision,
-                                },
+                        events = [
+                            {
+                                "task_id": task_id,
+                                "event_type": "confirmation.decision",
+                                "operation_id": operation_id,
+                                "parameters": {"operation": target_operation},
+                                "result_status": decision,
+                            },
+                            {
+                                "task_id": task_id,
+                                "event_type": "tool.operation",
+                                "operation_id": operation_id,
+                                "parameters": {"tool": "FileWrite"},
+                                "result_status": tool_status,
+                            },
+                        ]
+                        if mode == "filewrite-extra-tool":
+                            events.append(
                                 {
                                     "task_id": task_id,
                                     "event_type": "tool.operation",
-                                    "operation_id": operation_id,
-                                    "parameters": {"tool": "FileWrite"},
-                                    "result_status": tool_status,
-                                },
-                            ]
-                        )
+                                    "operation_id": "operation-extra",
+                                    "parameters": {"tool": "Exec"},
+                                    "result_status": "success",
+                                }
+                            )
+                        if mode == "denied-token-leak" and not allowed:
+                            events.append(
+                                {
+                                    "task_id": task_id,
+                                    "event_type": "fake.token_leak",
+                                    "operation_id": "operation-leak",
+                                    "parameters": {"token": expected_token},
+                                    "result_status": "recorded",
+                                }
+                            )
+                        append_audit(events)
                         if allowed:
                             (allowed_root / "m16-allowlist.txt").write_text(
                                 target_content,
@@ -190,6 +226,12 @@ def test_blackbox_script_passes_exact_two_phase_contract(tmp_path: Path) -> None
     assert result.returncode == 0
     assert "PASS: empty allowlist denied FileWrite" in result.stdout
     assert "PASS: exact allowlist preapproved FileWrite" in result.stdout
+    submitted_goal_lines = (
+        (tmp_path / "evidence/submitted-goals.jsonl").read_text(encoding="utf-8").splitlines()
+    )
+    assert submitted_goal_lines[0] == submitted_goal_lines[1]
+    assert [json.loads(line) for line in submitted_goal_lines] == [EXPECTED_GOAL, EXPECTED_GOAL]
+    assert "Do not use Exec, MCP, Python, shell, or any other tool." in EXPECTED_GOAL
 
 
 def test_blackbox_script_reports_model_tool_drift_as_inconclusive(tmp_path: Path) -> None:
@@ -197,3 +239,17 @@ def test_blackbox_script_reports_model_tool_drift_as_inconclusive(tmp_path: Path
 
     assert result.returncode == 2
     assert "INCONCLUSIVE" in result.stderr
+
+
+def test_blackbox_script_rejects_forbidden_extra_tool_as_inconclusive(tmp_path: Path) -> None:
+    result = run_script(tmp_path, "filewrite-extra-tool")
+
+    assert result.returncode == 2
+    assert "INCONCLUSIVE" in result.stderr
+
+
+def test_blackbox_script_rejects_token_leak_in_denied_audit(tmp_path: Path) -> None:
+    result = run_script(tmp_path, "denied-token-leak")
+
+    assert result.returncode == 1
+    assert "Bearer token appeared in the audit log." in result.stderr
