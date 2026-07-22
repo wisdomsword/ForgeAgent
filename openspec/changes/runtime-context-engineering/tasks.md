@@ -2,7 +2,7 @@
 
 - [x] 1.1 完成 Superpowers 技术设计，裁决窗口交互单元、估算公式与安全余量、配置 schema/default、continuation 规则和 normalized denominator 承载方式
 - [ ] 1.2 实现集中验证的 context 配置及旧配置缺失字段兼容测试，确保 CLI/REPL 与 HTTP 服务端装配使用同一语义
-- [ ] 1.3 实现无外部依赖的本地近似 token 估算，并覆盖中英文、代码、JSON、emoji、多模态元数据和 message framing 边界
+- [x] 1.3 实现无外部依赖的本地近似 token 估算，并覆盖中英文、代码、JSON、emoji、多模态元数据和 message framing 边界
 
 ## 2. Sliding-window Context Policy
 

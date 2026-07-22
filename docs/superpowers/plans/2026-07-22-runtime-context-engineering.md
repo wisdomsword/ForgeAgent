@@ -40,7 +40,7 @@ base-ref: b7ba133ad4def9c10d0352b6bc3b8a1e95b84ef2
 
 ### Task 1: ContextConfig 与确定性 token 估算器
 
-- [ ] **Task 1 complete: ContextConfig 与确定性 token 估算器已交付**
+- [x] **Task 1 complete: ContextConfig 与确定性 token 估算器已交付**
 
 **Files:**
 - Create: `src/forgeagent/context.py`
@@ -51,7 +51,7 @@ base-ref: b7ba133ad4def9c10d0352b6bc3b8a1e95b84ef2
 - Produces `load_context_config(path: Path | None = None, *, data: Mapping[str, object] | None = None) -> ContextConfig`.
 - Produces `estimate_text_tokens(text: str) -> int`, `estimate_message_tokens(message: Message, config: ContextConfig) -> int`, and `estimate_request_tokens(messages: Sequence[Message], config: ContextConfig) -> int`.
 
-- [ ] **Step 1: 写配置与 estimator 的失败测试**
+- [x] **Step 1: 写配置与 estimator 的失败测试**
 
 ```python
 def test_context_config_missing_mapping_uses_bounded_defaults():
@@ -68,13 +68,13 @@ def test_estimator_uses_ceil_and_image_reserve():
     assert estimate_message_tokens(message, cfg) == 2 + 100 + 4
 ```
 
-- [ ] **Step 2: 运行 RED**
+- [x] **Step 2: 运行 RED**
 
 Run: `.venv/bin/pytest -q tests/test_context.py`
 
 Expected: FAIL with `ModuleNotFoundError: forgeagent.context`.
 
-- [ ] **Step 3: 实现 frozen 配置、load-time 校验和估算公式**
+- [x] **Step 3: 实现 frozen 配置、load-time 校验和估算公式**
 
 ```python
 class ContextConfig(BaseModel):
@@ -97,13 +97,13 @@ class ContextConfig(BaseModel):
 
 `load_context_config` 只读取顶层 `context` mapping；缺失时用 `{}`，存在但不是 mapping 时抛 Pydantic/ValueError。文本 estimator 精确实现 Design Doc 的三类 ceil 公式、4/message 和 2/request framing；图片只计 reserve。
 
-- [ ] **Step 4: 跑配置、英文/中文/代码/JSON/emoji/多模态测试**
+- [x] **Step 4: 跑配置、英文/中文/代码/JSON/emoji、多模态测试**
 
 Run: `.venv/bin/pytest -q tests/test_context.py`
 
 Expected: PASS.
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add src/forgeagent/context.py tests/test_context.py
