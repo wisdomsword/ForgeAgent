@@ -310,6 +310,7 @@ def test_concurrent_http_handler_submissions_keep_task_records_isolated():
 
 
 def test_task_service_shutdown_leaves_no_owned_worker_or_manager_thread():
+    baseline_threads = set(threading.enumerate())
     manager_closed = threading.Event()
 
     class Manager:
@@ -338,7 +339,8 @@ def test_task_service_shutdown_leaves_no_owned_worker_or_manager_thread():
         owned_threads = [
             thread
             for thread in threading.enumerate()
-            if thread.name.startswith(("forgeagent-task", "forgeagent-mcp"))
+            if thread not in baseline_threads
+            and thread.name.startswith(("forgeagent-task", "forgeagent-mcp"))
         ]
         if not owned_threads:
             break
@@ -392,25 +394,40 @@ def test_body_size_is_bounded(running_server):
     assert payload["error"]["kind"] == "body_too_large"
 
 
-def test_capacity_maps_to_429_without_leaking_exception(running_server, monkeypatch):
-    address, sink, service = running_server
+def test_capacity_maps_to_429_without_leaking_exception(monkeypatch):
+    config = HttpServiceConfig(token="test-token")
+    sink = RecordingSink()
+    service = TaskService(
+        factory=lambda _record: FakeTask(_outcome()),
+        config=config,
+        audit_sink=sink,
+    )
+    server = SimpleNamespace(config=config, task_service=service, audit_sink=sink)
 
     def reject(_goal, _options):
         raise ServiceCapacityError
 
-    monkeypatch.setattr(service, "submit", reject)
-    status, payload, raw = _request(address, "POST", "/tasks", body={"goal": "go"})
-    assert status == 429
-    assert payload == {
-        "error": {
-            "kind": "capacity_exceeded",
-            "detail": "Task service capacity is exhausted.",
+    monkeypatch.setattr(service, "submit_view", reject)
+    try:
+        status, payload, raw = _request_via_handler(
+            server,
+            "POST",
+            "/tasks",
+            body={"goal": "go"},
+        )
+        assert status == 429
+        assert payload == {
+            "error": {
+                "kind": "capacity_exceeded",
+                "detail": "Task service capacity is exhausted.",
+            }
         }
-    }
-    assert b"ServiceCapacityError" not in raw
-    assert any(event.event_type == "http.capacity_rejection" for event in sink.events)
-    assert [event.event_type for event in sink.events].count("http.capacity_rejection") == 1
-    assert [event.event_type for event in sink.events].count("http.reject") == 0
+        assert b"ServiceCapacityError" not in raw
+        assert any(event.event_type == "http.capacity_rejection" for event in sink.events)
+        assert [event.event_type for event in sink.events].count("http.capacity_rejection") == 1
+        assert [event.event_type for event in sink.events].count("http.reject") == 0
+    finally:
+        service.shutdown(1.0)
 
 
 def test_server_does_not_expose_shutdown_method(running_server):
