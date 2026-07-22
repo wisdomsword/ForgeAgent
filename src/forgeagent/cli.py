@@ -961,14 +961,24 @@ def _run_owned_http_server(
     *,
     shutdown_timeout: float,
     once: bool,
+    on_started: Callable[[], None] | None = None,
 ) -> None:
     stop_requested = threading.Event()
+    wrapper_entered = threading.Event()
+    serve_entered = getattr(server, "serve_entered", wrapper_entered)
     server_errors: list[BaseException] = []
+    cleanup_errors: list[BaseException] = []
+    previous_handlers: dict[signal.Signals, object] = {}
+    server_thread: threading.Thread | None = None
+    thread_started = False
+    listener_entered = False
+    primary_error: BaseException | None = None
 
     def request_stop(_signum=None, _frame=None) -> None:
         stop_requested.set()
 
     def run_server() -> None:
+        wrapper_entered.set()
         try:
             server.serve_forever(poll_interval=0.1)
         except BaseException as error:
@@ -976,67 +986,80 @@ def _run_owned_http_server(
         finally:
             stop_requested.set()
 
-    previous_handlers: dict[signal.Signals, object] = {}
-    if threading.current_thread() is threading.main_thread():
-        for signal_number in (signal.SIGINT, signal.SIGTERM):
-            previous_handlers[signal_number] = signal.getsignal(signal_number)
-            signal.signal(signal_number, request_stop)
-
-    server_thread = threading.Thread(
-        target=run_server,
-        name="forgeagent-http-server",
-        daemon=False,
-    )
     try:
+        if threading.current_thread() is threading.main_thread():
+            for signal_number in (signal.SIGINT, signal.SIGTERM):
+                previous_handler = signal.getsignal(signal_number)
+                signal.signal(signal_number, request_stop)
+                previous_handlers[signal_number] = previous_handler
+
+        server_thread = threading.Thread(
+            target=run_server,
+            name="forgeagent-http-server",
+            daemon=False,
+        )
         server_thread.start()
-    except BaseException as error:
-        try:
-            service.shutdown(timeout=shutdown_timeout)
-        except Exception:
-            logger.error("HTTP task service shutdown failed")
-        try:
-            server.server_close()
-        except Exception:
-            logger.error("HTTP listener close failed")
-        for signal_number, previous_handler in previous_handlers.items():
-            signal.signal(signal_number, previous_handler)
-        if not isinstance(error, Exception):
-            raise
-        raise HttpStartupError("HTTP listener thread could not start.") from error
-    if once:
-        stop_requested.set()
-
-    cleanup_failed = False
-    try:
+        thread_started = True
+        listener_entered = serve_entered.wait(timeout=max(1.0, shutdown_timeout))
+        if not listener_entered:
+            raise HttpStartupError("HTTP listener did not enter its serve loop.")
+        if on_started is not None:
+            on_started()
+        if once:
+            stop_requested.set()
         while server_thread.is_alive() and not stop_requested.wait(0.1):
             pass
+    except BaseException as error:
+        primary_error = error
     finally:
-        try:
-            server.shutdown()
-        except Exception:
-            cleanup_failed = True
-            logger.error("HTTP listener shutdown failed")
+        if thread_started and listener_entered:
+            try:
+                server.shutdown()
+            except BaseException as error:
+                cleanup_errors.append(error)
+                logger.error("HTTP listener shutdown failed")
         try:
             service.shutdown(timeout=shutdown_timeout)
-        except Exception:
-            cleanup_failed = True
+        except BaseException as error:
+            cleanup_errors.append(error)
             logger.error("HTTP task service shutdown failed")
         try:
             server.server_close()
-        except Exception:
-            cleanup_failed = True
+        except BaseException as error:
+            cleanup_errors.append(error)
             logger.error("HTTP listener close failed")
-        server_thread.join(timeout=shutdown_timeout)
-        for signal_number, previous_handler in previous_handlers.items():
-            signal.signal(signal_number, previous_handler)
+        if thread_started and server_thread is not None:
+            try:
+                server_thread.join(timeout=shutdown_timeout)
+            except BaseException as error:
+                cleanup_errors.append(error)
+                logger.error("HTTP listener thread join failed")
+        for signal_number, previous_handler in reversed(previous_handlers.items()):
+            try:
+                signal.signal(signal_number, previous_handler)
+            except BaseException as error:
+                cleanup_errors.append(error)
+                logger.error("HTTP signal handler restoration failed")
 
-    if server_thread.is_alive() or cleanup_failed:
-        raise HttpStartupError("HTTP service shutdown did not complete cleanly.")
-    if server_errors:
-        error = server_errors[0]
+    if isinstance(primary_error, (KeyboardInterrupt, SystemExit)):
+        raise primary_error
+    for error in cleanup_errors:
         if isinstance(error, (KeyboardInterrupt, SystemExit)):
             raise error
+    for error in server_errors:
+        if isinstance(error, (KeyboardInterrupt, SystemExit)):
+            raise error
+    if primary_error is not None:
+        if isinstance(primary_error, HttpStartupError):
+            raise primary_error
+        if isinstance(primary_error, Exception):
+            raise HttpStartupError("HTTP service owner failed.") from primary_error
+        raise primary_error
+    if server_errors:
+        error = server_errors[0]
         raise HttpStartupError("HTTP listener stopped unexpectedly.") from error
+    if (server_thread is not None and server_thread.is_alive()) or cleanup_errors:
+        raise HttpStartupError("HTTP service shutdown did not complete cleanly.")
 
 
 def serve_http(
@@ -1050,16 +1073,6 @@ def serve_http(
     settings = _load_http_runtime_settings(config_path)
     audit_path = settings.service.audit_path.expanduser()
     try:
-        audit_path.parent.mkdir(parents=True, exist_ok=True)
-        descriptor = os.open(
-            audit_path,
-            os.O_WRONLY | os.O_APPEND | os.O_CREAT,
-            0o600,
-        )
-        try:
-            os.fchmod(descriptor, 0o600)
-        finally:
-            os.close(descriptor)
         audit_sink = JsonlAuditSink(
             audit_path,
             max_bytes=settings.service.audit_max_bytes,
@@ -1115,14 +1128,14 @@ def serve_http(
             raise
         raise HttpStartupError("HTTP service could not start.") from error
 
-    console.print(
-        f"[green]serving[/green] on {settings.service.bind_host}:{server.server_address[1]}"
-    )
     _run_owned_http_server(
         server,
         service,
         shutdown_timeout=settings.shutdown_timeout_seconds,
         once=once,
+        on_started=lambda: console.print(
+            f"[green]serving[/green] on {settings.service.bind_host}:{server.server_address[1]}"
+        ),
     )
 
 

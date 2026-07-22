@@ -140,6 +140,35 @@ def test_http_config_rejects_non_finite_terminal_ttl(value):
 @pytest.mark.parametrize(
     ("field", "value"),
     [
+        ("port", "8765"),
+        ("port", 8765.0),
+        ("port", True),
+        ("max_workers", 1.9),
+        ("max_workers", False),
+        ("max_queue", 1.9),
+        ("max_queue", True),
+        ("max_records", 2.5),
+        ("max_body_bytes", 1024.5),
+        ("audit_max_bytes", 100.9),
+        ("audit_retention_files", 2.5),
+    ],
+)
+def test_http_config_rejects_non_integer_limit_types(field, value):
+    with pytest.raises(ValueError, match=field):
+        HttpServiceConfig.from_sources(config={"token": "secret", field: value}, env={})
+
+
+@pytest.mark.parametrize("value", [True, False, "1.5"])
+def test_http_config_rejects_non_numeric_terminal_ttl_types(value):
+    with pytest.raises(ValueError, match="terminal_ttl_seconds"):
+        HttpServiceConfig.from_sources(
+            config={"token": "secret", "terminal_ttl_seconds": value}, env={}
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
         ("port", 1),
         ("port", 65535),
         ("max_workers", 1),

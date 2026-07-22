@@ -14,6 +14,7 @@ from forgeagent.http_config import HttpServiceConfig
 from forgeagent.http_server import (
     ForgeRequestHandler,
     HttpError,
+    _ForgeHttpServer,
     _parse_content_length,
     create_http_server,
 )
@@ -45,6 +46,15 @@ class FakeTask:
 
     def close(self) -> None:
         return None
+
+
+def test_forge_http_server_marks_first_serve_loop_iteration_entered():
+    server = object.__new__(_ForgeHttpServer)
+    server.serve_entered = threading.Event()
+
+    server.service_actions()
+
+    assert server.serve_entered.is_set()
 
 
 def _outcome() -> TaskOutcome:

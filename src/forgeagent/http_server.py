@@ -8,6 +8,7 @@ import json
 import logging
 import re
 import socket
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import cast
 from urllib.parse import urlsplit
@@ -71,7 +72,11 @@ class _ForgeHttpServer(ThreadingHTTPServer):
         self.config = config
         self.task_service = service
         self.audit_sink: AuditSink | None = getattr(service, "_audit_sink", None)
+        self.serve_entered = threading.Event()
         super().__init__((config.bind_host, config.port), ForgeRequestHandler)
+
+    def service_actions(self) -> None:
+        self.serve_entered.set()
 
 
 class ForgeRequestHandler(BaseHTTPRequestHandler):

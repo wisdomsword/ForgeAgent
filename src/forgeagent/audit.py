@@ -18,6 +18,18 @@ from .secret_policy import mask_audit_data, sensitive_env_values
 
 _logger = logging.getLogger(__name__)
 _MIN_LINE_BYTES = 3
+_PRIVATE_FILE_MODE = 0o600
+_PRIVATE_OPEN_FLAGS = getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+
+
+def _open_private_descriptor(path: Path, flags: int) -> int:
+    descriptor = os.open(path, flags | _PRIVATE_OPEN_FLAGS, _PRIVATE_FILE_MODE)
+    try:
+        os.fchmod(descriptor, _PRIVATE_FILE_MODE)
+    except BaseException:
+        os.close(descriptor)
+        raise
+    return descriptor
 
 
 def _utc_now() -> str:
@@ -72,10 +84,14 @@ class JsonlAuditSink:
         )
         self._lock = threading.Lock()
         self._degraded = False
-        # Opening the configured destination is a startup check. Runtime writes do not
-        # recreate a missing destination, so an unexpected path failure is observable.
+        # Opening the destination is a startup check; every later recreation uses the
+        # same descriptor-level private mode enforcement.
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._path.open("a", encoding="utf-8").close()
+        descriptor = _open_private_descriptor(
+            self._path,
+            os.O_WRONLY | os.O_APPEND | os.O_CREAT,
+        )
+        os.close(descriptor)
         self._remove_stale_rotated_files()
         for candidate in (self._path, *(path for _, path in self._rotated_files())):
             self._compact_existing_file(candidate)
@@ -103,8 +119,7 @@ class JsonlAuditSink:
                 if len(line.encode("utf-8")) > self._max_bytes:
                     line = self._oversize_line()
                 self._rotate_if_needed(len(line.encode("utf-8")))
-                with self._path.open("a", encoding="utf-8") as handle:
-                    handle.write(line)
+                self._append_line(line)
                 return True
             except OSError:
                 self._degraded = True
@@ -116,8 +131,7 @@ class JsonlAuditSink:
                 try:
                     line = self._oversize_line(result_status="serialization_error")
                     self._rotate_if_needed(len(line.encode("utf-8")))
-                    with self._path.open("a", encoding="utf-8") as handle:
-                        handle.write(line)
+                    self._append_line(line)
                     return True
                 except OSError:
                     return False
@@ -137,7 +151,9 @@ class JsonlAuditSink:
         """Drop malformed/oversized startup lines so retained files stay bounded."""
         if not path.exists():
             return
-        raw_lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        descriptor = _open_private_descriptor(path, os.O_RDONLY)
+        with os.fdopen(descriptor, "r", encoding="utf-8", errors="replace") as handle:
+            raw_lines = handle.read().splitlines()
         kept: list[str] = []
         total = 0
         for raw in reversed(raw_lines):
@@ -151,7 +167,20 @@ class JsonlAuditSink:
                 continue
             kept.append(candidate)
             total += size
-        path.write_text("".join(reversed(kept)), encoding="utf-8")
+        descriptor = _open_private_descriptor(
+            path,
+            os.O_WRONLY | os.O_TRUNC | os.O_CREAT,
+        )
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write("".join(reversed(kept)))
+
+    def _append_line(self, line: str) -> None:
+        descriptor = _open_private_descriptor(
+            self._path,
+            os.O_WRONLY | os.O_APPEND | os.O_CREAT,
+        )
+        with os.fdopen(descriptor, "a", encoding="utf-8") as handle:
+            handle.write(line)
 
     def _rotate_if_needed(self, incoming_bytes: int) -> None:
         if not self._path.exists() or self._path.stat().st_size == 0:

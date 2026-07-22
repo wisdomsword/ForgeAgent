@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import stat
 import threading
 
 import pytest
@@ -116,6 +118,39 @@ def test_audit_rotation_retains_bounded_files_and_marks_runtime_failure_degraded
     sink._path = tmp_path / "missing" / "audit.jsonl"
     assert sink.emit(AuditEvent(event_type="http.query")) is False
     assert sink.degraded is True
+
+
+def test_audit_startup_tightens_current_and_rotated_file_permissions(tmp_path):
+    path = tmp_path / "audit.jsonl"
+    rotated = tmp_path / "audit.jsonl.1"
+    path.write_text('{"event_type":"current"}\n', encoding="utf-8")
+    rotated.write_text('{"event_type":"rotated"}\n', encoding="utf-8")
+    path.chmod(0o644)
+    rotated.chmod(0o644)
+
+    JsonlAuditSink(path, max_bytes=1_000, retention_files=2, secret_values=set())
+
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    assert stat.S_IMODE(rotated.stat().st_mode) == 0o600
+
+
+def test_audit_rotation_and_active_recreation_keep_permissions_private(tmp_path):
+    path = tmp_path / "audit.jsonl"
+    previous_umask = os.umask(0)
+    try:
+        sink = JsonlAuditSink(path, max_bytes=180, retention_files=3, secret_values=set())
+        for attempt in range(8):
+            assert sink.emit(AuditEvent(event_type="llm.attempt", attempt=attempt))
+
+        retained = list(tmp_path.glob("audit.jsonl*"))
+        assert len(retained) == 3
+        assert all(stat.S_IMODE(candidate.stat().st_mode) == 0o600 for candidate in retained)
+
+        path.unlink()
+        assert sink.emit(AuditEvent(event_type="http.query"))
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    finally:
+        os.umask(previous_umask)
 
 
 def test_audit_startup_removes_stale_high_index_rotated_files(tmp_path):

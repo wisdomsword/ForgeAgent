@@ -10,6 +10,7 @@ import copy
 import gc
 import json
 import logging
+import signal
 import stat
 import sys
 import threading
@@ -2724,3 +2725,241 @@ def test_http_owner_closes_bound_resources_when_server_thread_cannot_start(monke
         )
 
     assert events == ["service.shutdown:0.25", "server.close"]
+
+
+@pytest.mark.parametrize(
+    ("console_error", "process_control"),
+    [
+        (RuntimeError("console unavailable"), False),
+        (KeyboardInterrupt(), True),
+    ],
+    ids=["ordinary", "keyboard-interrupt"],
+)
+def test_serve_closes_listener_service_and_mcp_when_startup_output_fails(
+    monkeypatch, tmp_path, console_error, process_control
+):
+    import forgeagent.cli as cli_module
+    import forgeagent.http_server as http_server_module
+
+    config_path = tmp_path / "http.yaml"
+    config_path.write_text(
+        f"token: file-token\nno_identity: true\naudit_path: {tmp_path / 'audit.jsonl'}\n"
+    )
+    events: list[str] = []
+    server_entered = threading.Event()
+    release_server = threading.Event()
+
+    class FakeMCP:
+        def close(self):
+            events.append("mcp.close")
+
+    mcp = FakeMCP()
+
+    class FakeService:
+        def __init__(self, *, shared_mcp_manager, **kwargs):
+            self._mcp = shared_mcp_manager
+
+        def shutdown(self, timeout):
+            events.append("service.shutdown")
+            self._mcp.close()
+
+    class FakeServer:
+        server_address = ("127.0.0.1", 8765)
+        serve_entered = server_entered
+
+        def serve_forever(self, poll_interval):
+            server_entered.set()
+            release_server.wait(1.0)
+
+        def shutdown(self):
+            events.append("server.shutdown")
+            release_server.set()
+
+        def server_close(self):
+            events.append("server.close")
+
+    class FailingConsole:
+        def print(self, *args, **kwargs):
+            raise console_error
+
+    monkeypatch.setattr(cli_module, "TaskService", FakeService)
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda console: mcp)
+    monkeypatch.setattr(cli_module, "resolve_cli_identity", lambda **kwargs: None)
+    monkeypatch.setattr(
+        http_server_module,
+        "create_http_server",
+        lambda config, service: FakeServer(),
+    )
+
+    expected_error = KeyboardInterrupt if process_control else cli_module.HttpStartupError
+    with pytest.raises(expected_error):
+        cli_module.serve_http(
+            config_path,
+            client_factory=_factory([]),
+            console=FailingConsole(),
+            once=True,
+        )
+
+    assert events == ["server.shutdown", "service.shutdown", "mcp.close", "server.close"]
+
+
+def test_http_owner_restores_partial_signal_install_and_closes_resources(monkeypatch):
+    import forgeagent.cli as cli_module
+
+    events: list[str] = []
+    signal_calls: list[tuple[object, object]] = []
+    failed_sigterm = False
+
+    class FakeServer:
+        def server_close(self):
+            events.append("server.close")
+
+    class FakeService:
+        def shutdown(self, timeout):
+            events.extend(["service.shutdown", "mcp.close"])
+
+    def fake_getsignal(signal_number):
+        return f"previous:{signal_number}"
+
+    def fake_signal(signal_number, handler):
+        nonlocal failed_sigterm
+        signal_calls.append((signal_number, handler))
+        if signal_number == signal.SIGTERM and not failed_sigterm:
+            failed_sigterm = True
+            raise RuntimeError("SIGTERM unavailable")
+
+    monkeypatch.setattr(cli_module.signal, "getsignal", fake_getsignal)
+    monkeypatch.setattr(cli_module.signal, "signal", fake_signal)
+
+    with pytest.raises(cli_module.HttpStartupError):
+        cli_module._run_owned_http_server(
+            FakeServer(),
+            FakeService(),
+            shutdown_timeout=0.25,
+            once=False,
+        )
+
+    assert events == ["service.shutdown", "mcp.close", "server.close"]
+    assert signal_calls[-1] == (signal.SIGINT, f"previous:{signal.SIGINT}")
+
+
+def test_http_owner_once_waits_until_serve_forever_has_entered():
+    import forgeagent.cli as cli_module
+
+    entered = threading.Event()
+    release = threading.Event()
+    events: list[str] = []
+
+    class FakeServer:
+        serve_entered = entered
+
+        def serve_forever(self, poll_interval):
+            threading.Event().wait(0.05)
+            entered.set()
+            release.wait(1.0)
+
+        def shutdown(self):
+            was_entered = entered.is_set()
+            events.append("server.shutdown")
+            release.set()
+            assert was_entered, "shutdown ran before serve_forever entered"
+
+        def server_close(self):
+            events.append("server.close")
+
+    class FakeService:
+        def shutdown(self, timeout):
+            events.append("service.shutdown")
+
+    cli_module._run_owned_http_server(
+        FakeServer(),
+        FakeService(),
+        shutdown_timeout=0.25,
+        once=True,
+    )
+
+    assert events == ["server.shutdown", "service.shutdown", "server.close"]
+
+
+def test_http_owner_preserves_server_process_control_over_cleanup_failure():
+    import forgeagent.cli as cli_module
+
+    entered = threading.Event()
+
+    class FakeServer:
+        serve_entered = entered
+
+        def serve_forever(self, poll_interval):
+            entered.set()
+            raise KeyboardInterrupt
+
+        def shutdown(self):
+            pass
+
+        def server_close(self):
+            pass
+
+    class FakeService:
+        def shutdown(self, timeout):
+            raise RuntimeError("cleanup failed")
+
+    with pytest.raises(KeyboardInterrupt):
+        cli_module._run_owned_http_server(
+            FakeServer(),
+            FakeService(),
+            shutdown_timeout=0.25,
+            once=False,
+        )
+
+
+def test_http_owner_restores_signals_when_thread_join_is_interrupted(monkeypatch):
+    import forgeagent.cli as cli_module
+
+    entered = threading.Event()
+    signal_calls: list[tuple[object, object]] = []
+    real_join = threading.Thread.join
+
+    class FakeServer:
+        serve_entered = entered
+
+        def serve_forever(self, poll_interval):
+            entered.set()
+
+        def shutdown(self):
+            pass
+
+        def server_close(self):
+            pass
+
+    class FakeService:
+        def shutdown(self, timeout):
+            pass
+
+    def interrupted_join(thread, timeout=None):
+        real_join(thread, timeout)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(
+        cli_module.signal,
+        "getsignal",
+        lambda signal_number: f"previous:{signal_number}",
+    )
+    monkeypatch.setattr(
+        cli_module.signal,
+        "signal",
+        lambda signal_number, handler: signal_calls.append((signal_number, handler)),
+    )
+    monkeypatch.setattr(cli_module.threading.Thread, "join", interrupted_join)
+
+    with pytest.raises(KeyboardInterrupt):
+        cli_module._run_owned_http_server(
+            FakeServer(),
+            FakeService(),
+            shutdown_timeout=0.25,
+            once=False,
+        )
+
+    assert signal_calls[-2:] == [
+        (signal.SIGTERM, f"previous:{signal.SIGTERM}"),
+        (signal.SIGINT, f"previous:{signal.SIGINT}"),
+    ]
