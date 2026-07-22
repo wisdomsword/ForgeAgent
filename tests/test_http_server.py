@@ -447,12 +447,106 @@ def test_serve_rejects_resolved_mixed_context_override_before_listener_creation(
         "create_http_server",
         lambda *_args, **_kwargs: pytest.fail("invalid policy must not create a listener"),
     )
+    monkeypatch.setattr(
+        cli_module,
+        "JsonlAuditSink",
+        lambda *_args, **_kwargs: pytest.fail("invalid policy must not create an audit sink"),
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "resolve_cli_identity",
+        lambda **_kwargs: pytest.fail("invalid policy must not resolve identity"),
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "build_mcp_manager",
+        lambda _console: pytest.fail("invalid policy must not start MCP"),
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "TaskService",
+        lambda **_kwargs: pytest.fail("invalid policy must not create a task service"),
+    )
 
     with pytest.raises(cli_module.HttpStartupError, match="context"):
         cli_module.serve_http(config_path, client_factory=client_factory, console=SimpleNamespace())
 
     assert len(clients) == 1
     assert clients[0].closed is True
+
+
+def test_serve_real_client_uses_one_validated_registry_snapshot_for_tasks(monkeypatch, tmp_path):
+    import forgeagent.cli as cli_module
+    import forgeagent.http_server as http_server_module
+
+    config_path = tmp_path / "http.yaml"
+    config_path.write_text(
+        "token: test-token\nno_identity: true\ncontext:\n  image_token_reserve: 512\n"
+    )
+    snapshot = object()
+    load_calls = []
+    validation_snapshots = []
+    build_snapshots = []
+    captured = {}
+
+    def fake_load_registry():
+        load_calls.append(None)
+        return snapshot
+
+    def fake_validate_context_policy(model, registry, context_config):
+        validation_snapshots.append((model, registry, context_config))
+
+    def fake_real_builder(model, env=None, *, registry=None):
+        build_snapshots.append((model, registry))
+        return MockClient(script=[])
+
+    class FakeService:
+        def __init__(self, *, factory, config, shared_mcp_manager, audit_sink):
+            captured["factory"] = factory
+            captured["config"] = config
+
+        def shutdown(self, timeout):
+            return None
+
+    class FakeServer:
+        server_address = ("127.0.0.1", 8765)
+
+        def serve_forever(self, poll_interval):
+            return None
+
+        def shutdown(self):
+            return None
+
+        def server_close(self):
+            return None
+
+    monkeypatch.setattr(cli_module, "load_registry", fake_load_registry)
+    monkeypatch.setattr(cli_module, "_validate_context_policy", fake_validate_context_policy)
+    monkeypatch.setattr(cli_module, "build_real_client", fake_real_builder)
+    monkeypatch.setattr(cli_module, "JsonlAuditSink", lambda *_args, **_kwargs: SimpleNamespace())
+    monkeypatch.setattr(cli_module, "resolve_cli_identity", lambda **_kwargs: None)
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda _console: None)
+    monkeypatch.setattr(cli_module, "TaskService", FakeService)
+    monkeypatch.setattr(http_server_module, "create_http_server", lambda *_args: FakeServer())
+
+    cli_module.serve_http(
+        config_path,
+        client_factory=cli_module.build_real_client,
+        console=SimpleNamespace(print=lambda *_args: None),
+        once=True,
+    )
+
+    assert load_calls == [None]
+    assert validation_snapshots == [
+        ("claude-sonnet-5", snapshot, ContextConfig(image_token_reserve=512))
+    ]
+    assert build_snapshots == []
+    task = captured["factory"](SimpleNamespace(task_id="registry-snapshot"))
+    try:
+        assert build_snapshots == [("claude-sonnet-5", snapshot)]
+        assert task._context_policy._config is captured["config"].context_config
+    finally:
+        task.close()
 
 
 def test_serve_task_factory_passes_only_server_context_to_task(monkeypatch, tmp_path):
