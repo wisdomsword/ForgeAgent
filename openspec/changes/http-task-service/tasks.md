@@ -6,10 +6,10 @@
 
 ## 2. 审计日志
 
-- [ ] 2.1 实现注入式 audit sink：稳定字段、UTC 时间、task correlation、风险级别、secret masking 和安全 fallback 序列化。
-- [ ] 2.2 实现加锁 JSONL 写入与按字节轮转/保留；按用户裁决验证审计不可用时的 fail-open 或 fail-closed 行为。
-- [ ] 2.3 定义 event idempotence/attempt 字段，为模型请求 attempt、逻辑工具操作和 confirmer 决策添加核心埋点。
-- [ ] 2.4 根据 Design 裁决决定并实现 HTTP 提交、鉴权失败、查询、取消、拒绝等生命周期事件是否进入审计流。
+- [x] 2.1 实现注入式 audit sink：稳定字段、UTC 时间、task correlation、风险级别、secret masking 和安全 fallback 序列化。
+- [x] 2.2 实现加锁 JSONL 写入与按字节轮转/保留；按用户裁决验证审计不可用时的 fail-open 或 fail-closed 行为。
+- [x] 2.3 定义 event idempotence/attempt 字段，为模型请求 attempt、逻辑工具操作和 confirmer 决策添加核心埋点。
+- [x] 2.4 根据 Design 裁决决定并实现 HTTP 提交、鉴权失败、查询、取消、拒绝等生命周期事件是否进入审计流。
 
 ## 3. 任务服务
 

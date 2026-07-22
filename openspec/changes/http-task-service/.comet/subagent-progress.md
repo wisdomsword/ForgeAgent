@@ -3,19 +3,21 @@
 - Change: http-task-service
 - Review mode: standard
 - TDD mode: tdd
-- Current task: Task 1 — 配置与取消核心契约
+- Current task: Task 2 — 注入式审计 sink 与安全序列化
 - Stage: done
-- Implementer: DONE, commit `0f8795efdb55a871139facbadece5355bac4bac9`
-- Changed files: `src/forgeagent/http_config.py`, `src/forgeagent/task.py`, `src/forgeagent/step.py`, `tests/test_http_config.py`, `tests/test_task.py`, `tests/test_step.py`
-- RED: targeted cancellation/config tests failed before implementation (see `.superpowers/sdd/task-1-report.md`)
-- GREEN: `pytest tests/test_http_config.py tests/test_task.py tests/test_step.py -q` -> 77 passed; Ruff passed
-- Risk review: triggered (security-sensitive config, concurrency/cancellation, public Task/Step API)
-- Reviewer: approved after user-authorized extra fix `935d96d`; no findings
-- Important findings: per-tool cancellation boundary missing; string/bytes allowlist accepted; unusable whitespace/control bearer token accepted
-- Minor findings: non-finite TTL; missing direct defaults/edge tests
-- Nit: document cooperative `cancel_event`
-- Fix evidence: `pytest tests/test_http_config.py tests/test_task.py tests/test_step.py -q` -> 104 passed; Ruff/format/diff-check passed
-- Remaining Important: bearer token has no explicit maximum length below stdlib HTTP header-line limit
-- Remaining Minor: `HttpServiceConfig` dataclass repr exposes token
-- Blocker decision: user must authorize one exceptional second fix round or explicitly accept the remaining risk
-- Extra fix evidence: 4096 accepted/4097 rejected; token `repr=False`; focused suite 107 passed; Ruff/format/diff-check passed
+- Implementer: DONE, commit `adaf34c615c7528504d312993cd2eddb724b3df8`
+- Changed files: `audit.py`, `secret_policy.py`, `task.py`, `step.py`, `tools.py` and focused tests
+- RED/GREEN: see `.superpowers/sdd/task-2-report.md`; focused compatibility suite 158 passed; Ruff/format/diff-check passed
+- Reviewer: approved after user-authorized extra fix `ce9b56c`; no Critical/Important
+- Risk review: triggered (security-sensitive logging, concurrency, persistence, public API, cross-module instrumentation)
+- Important findings: hostile Mapping key stringification; host paths in arbitrary text fields; oversized single JSONL event; provider retry/stream attempts not observable; unexpected LLM exceptions leave no outcome; confirmation/tool operation IDs do not correlate
+- Minor follow-ups in same round: stable risk levels, retained-file parsing/startup/rotation tests, confirmer exception decision
+- Fix evidence: targeted RED/GREEN complete; non-packaging full suite 1057 passed, 13 skipped, 1 deselected; packaging-only DNS failure; Ruff/format/diff-check passed
+- Remaining Important: Step attempt observer is never restored, causing client reuse cross-task audit leakage/duplication
+- Remaining Important: lowering retention leaves stale high-index rotated files indefinitely
+- Remaining Minor: startup compaction reads whole oversized files; UNC path scrub missing
+- Blocker decision: user must authorize one exceptional extra fix round or explicitly accept remaining risks
+- Extra fix scope: restore per-Step attempt observer and delete stale high-index rotated audit files
+- Extra fix evidence: 245 passed; Ruff/format/diff-check passed
+- Accepted Minor: startup compaction reads whole pre-existing audit files; bounded write path unaffected, defer streaming compaction
+- Accepted Minor: UNC path scrub not implemented; current M16 runtime target is loopback Unix/macOS, POSIX and drive-letter paths covered

@@ -170,7 +170,7 @@ git commit -m "feat: add HTTP config and cooperative cancellation contract"
 - `AuditEvent` 为不可变模型，包含 `timestamp`, `event_type`, `task_id`, `risk_level`, `operation_id`, `attempt`, `parameters`, `result_status`, `duration_ms`, `audit_degraded`。
 - `AuditSink.emit(event: AuditEvent) -> bool`；`JsonlAuditSink.degraded` 在运行时写失败后为 `True`。
 
-- [ ] **Step 1: 写字段、掩码和异常 fallback 测试**
+- [x] **Step 1: 写字段、掩码和异常 fallback 测试**
 
 ```python
 def test_audit_event_masks_secret_and_never_serializes_raw_path(tmp_path):
@@ -183,7 +183,7 @@ def test_audit_event_masks_secret_and_never_serializes_raw_path(tmp_path):
     assert "/Users/a" not in json.dumps(record)
 ```
 
-- [ ] **Step 2: 实现稳定事件模型和 JSONL sink**
+- [x] **Step 2: 实现稳定事件模型和 JSONL sink**
 
 ```python
 class AuditEvent(BaseModel):
@@ -215,7 +215,7 @@ class JsonlAuditSink:
 
 同时为 `Task`、`Step` 和 `ToolContext` 增加可选 audit sink/context；`None` 保持既有 CLI/direct Task 行为。Step 在每次模型 request 前后发出一条 attempt/outcome 事件，工具和确认门在核心 dispatch 路径发出逻辑操作/decision 事件。
 
-- [ ] **Step 3: 覆盖轮转、并发 append、fail-open degraded 和 attempt 语义**
+- [x] **Step 3: 覆盖轮转、并发 append、fail-open degraded 和 attempt 语义**
 
 ```python
 def test_audit_rotation_and_degraded(tmp_path):
@@ -228,7 +228,7 @@ def test_audit_rotation_and_degraded(tmp_path):
     assert sink.degraded is True
 ```
 
-- [ ] **Step 4: 运行审计、Task 和 Step 测试并提交**
+- [x] **Step 4: 运行审计、Task 和 Step 测试并提交**
 
 Run: `pytest tests/test_audit.py tests/test_task.py tests/test_step.py -q`
 Expected: PASS。
