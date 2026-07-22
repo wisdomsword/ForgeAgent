@@ -549,7 +549,7 @@ git commit -m "feat: apply server-owned context policy to HTTP tasks"
 - RecordingClient exposes exact request histories for stable-prefix assertions.
 - Long replay deterministically crosses the sliding threshold and still reaches `complete()`.
 
-- [ ] **Step 1: 写 prompt stability 与长对话 mock replay**
+- [x] **Step 1: 写 prompt stability 与长对话 mock replay**
 
 ```python
 def test_long_replay_slides_old_rounds_but_preserves_stable_prefix():
@@ -562,13 +562,13 @@ def test_long_replay_slides_old_rounds_but_preserves_stable_prefix():
 
 另断言阈值以下已有消息逐字稳定、滑动后保留消息未改写、截断 marker 可观察。
 
-- [ ] **Step 2: 运行 replay/golden RED-GREEN**
+- [x] **Step 2: 运行 replay/golden RED-GREEN**
 
 Run: `.venv/bin/pytest -q tests/test_mock_replay_e2e.py tests/test_golden_runner.py`
 
 Expected: PASS after the M17 implementation; failures must enter systematic-debugging before source edits.
 
-- [ ] **Step 3: 更新配置、CLI、审计、HTTP 和威胁模型文档**
+- [x] **Step 3: 更新配置、CLI、审计、HTTP 和威胁模型文档**
 
 文档必须明确：四字段单位是近似 token、null 自适应公式、估算误差、system/goal fail-fast、continuation 诚实限制、CLI/audit rate 口径、HTTP 无新字段。
 

@@ -25,11 +25,11 @@
 
 ## 5. Prompt-cache 顺序与跨入口回归
 
-- [ ] 5.1 增加稳定 system 前缀与动态尾部排序审计，验证阈值以下纯追加及窗口滑动后保留消息不被改写
+- [x] 5.1 增加稳定 system 前缀与动态尾部排序审计，验证阈值以下纯追加及窗口滑动后保留消息不被改写
 - [x] 5.2 增加 CLI、REPL、HTTP Task factory 的 policy wiring 测试，并完整回跑 M16 鉴权、严格 schema、取消、安全投影、审计和 exact allowlist 契约
 
 ## 6. 长任务验收与文档
 
-- [ ] 6.1 增加超过窗口的长对话 mock replay，验证压缩后任务仍完成且截断协议文本可观察
-- [ ] 6.2 更新配置、CLI usage、审计格式、上下文限制和威胁模型文档，并明确近似估算与 sliding window 的已知权衡
+- [x] 6.1 增加超过窗口的长对话 mock replay，验证压缩后任务仍完成且截断协议文本可观察
+- [x] 6.2 更新配置、CLI usage、审计格式、上下文限制和威胁模型文档，并明确近似估算与 sliding window 的已知权衡
 - [ ] 6.3 运行聚焦测试、完整 pytest、Ruff、离线 golden、OpenSpec strict validation 和 diff check，记录 M17 验证证据
