@@ -6,10 +6,10 @@
 
 ## 2. Task、身份与审计集成
 
-- [ ] 2.1 将 memory snapshot 注入 Task system prompt 组合，但不削弱显式 `system_prompt` 或 M15 身份信任边界。
-- [ ] 2.2 收集已完成 round 的候选并经配置的 MemoryManager 应用；暴露处理结果但不改变 Task 完成语义。
-- [ ] 2.3 通过现有核心 audit sink 写入最小披露的记忆生命周期事件，并补充审计断言。
-- [ ] 2.4 增加跨任务 mock replay 与项目重启测试，证明已接受记忆只在目标作用域可见，拒绝的投毒内容不会出现在后续 prompt。
+- [x] 2.1 将 memory snapshot 注入 Task system prompt 组合，但不削弱显式 `system_prompt` 或 M15 身份信任边界。
+- [x] 2.2 收集已完成 round 的候选并经配置的 MemoryManager 应用；暴露处理结果但不改变 Task 完成语义。
+- [x] 2.3 通过现有核心 audit sink 写入最小披露的记忆生命周期事件，并补充审计断言。
+- [x] 2.4 增加跨任务 mock replay 与项目重启测试，证明已接受记忆只在目标作用域可见，拒绝的投毒内容不会出现在后续 prompt。
 
 ## 3. CLI 与 headless 控制
 

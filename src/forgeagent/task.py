@@ -22,6 +22,7 @@ from .context import ContextConfig, ContextPolicy, SlidingWindowContextPolicy
 from .executor import ContainerBackend, ExecutorBackend, RestrictedBackend, TrustedBackend
 from .identity import ApprovedIdentity, compose_system_prompt
 from .mcp_manager import MCPManager
+from .memory import MemoryManager
 from .models import GenerationParams, ImageItem, Message, Role, StreamEventKind, TextItem
 from .runtime import Runtime
 from .step import RoundResult, Step, Termination
@@ -98,6 +99,7 @@ class Task:
         task_id: str | None = None,
         context_config: ContextConfig | None = None,
         context_policy: ContextPolicy | None = None,
+        memory_manager: MemoryManager | None = None,
     ):
         self._client = client
         self._tier = tier
@@ -128,6 +130,7 @@ class Task:
         self._on_stream_text = on_stream_text
         self._audit_sink = audit_sink
         self._task_id = task_id
+        self._memory_manager = memory_manager
         self._context_policy = context_policy or SlidingWindowContextPolicy(
             client.capability,
             params,
@@ -151,6 +154,13 @@ class Task:
             identity = self._identity or ApprovedIdentity(
                 soul=None, user=None, project_agents=None, memory=None
             )
+            if self._memory_manager is not None:
+                identity = ApprovedIdentity(
+                    soul=identity.soul,
+                    user=identity.user,
+                    project_agents=identity.project_agents,
+                    memory=self._memory_manager.render() or None,
+                )
             base = compose_system_prompt(identity)
         if self._mcp is None:
             return base
@@ -203,6 +213,10 @@ class Task:
             context_policy=self._context_policy,
         )
         rounds = step.run(messages)
+        if self._memory_manager is not None:
+            for round_result in rounds:
+                for candidate in round_result.memory_candidates:
+                    self._memory_manager.apply(candidate, task_id=self._task_id)
         return TaskOutcome(status=self._derive_status(rounds), rounds=rounds)
 
     def _derive_status(self, rounds: list[RoundResult]) -> TaskStatus:

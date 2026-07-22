@@ -46,6 +46,7 @@ from .models import (
 )
 from .policy import CodeAnalyzer
 from .protocol import (
+    MemoryCandidate,
     ParseResult,
     TaskStatus,
     ToolCall,
@@ -161,6 +162,7 @@ class RoundResult(BaseModel):
     # which build a RoundResult without ever calling _handle_reply). See docs/m10 §3.2.
     usage: TokenUsage | None = None
     parse_errors: list[str] = Field(default_factory=list)
+    memory_candidates: list[MemoryCandidate] = Field(default_factory=list)
     outcomes: list[ToolOutcome] = Field(default_factory=list)
     # True only for a model-declared completion (Termination.COMPLETED). A prose answer
     # is a soft success (Termination.ANSWERED_IN_PROSE) — solved, but not `completed`.
@@ -478,6 +480,7 @@ class Step:
             stop_reason=reply.stop_reason,
             usage=reply.usage,
             parse_errors=[f"{e.error_type}: {e.message}" for e in parsed.errors],
+            memory_candidates=parsed.memory_candidates,
         )
         # Register code blocks provided in this response before running tool calls.
         for block in parsed.code_blocks:
