@@ -41,19 +41,20 @@ trap 'stop_server' EXIT
 trap 'stop_server; exit 130' INT
 trap 'stop_server; exit 143' TERM
 
-if ! case "$M16_TIMEOUT_SECONDS" in
-    ''|*[!0-9]*|0) false ;;
-    *) true ;;
-esac; then
-    printf 'FAIL: M16_TIMEOUT_SECONDS must be a positive integer.\n' >&2
-    exit 1
-fi
-
 if [ -n "${M16_EVIDENCE_DIR:-}" ]; then
     EVIDENCE_DIR=$M16_EVIDENCE_DIR
     mkdir -p "$EVIDENCE_DIR" || exit 1
 else
     EVIDENCE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/forgeagent-m16-filewrite.XXXXXX") || exit 1
+fi
+
+if ! case "$M16_TIMEOUT_SECONDS" in
+    ''|*[!0-9]*|0) false ;;
+    *) true ;;
+esac; then
+    printf 'Evidence directory: %s\n' "$EVIDENCE_DIR" >&2
+    printf 'FAIL: M16_TIMEOUT_SECONDS must be a positive integer.\n' >&2
+    exit 1
 fi
 
 ALLOWED_ROOT=$EVIDENCE_DIR/allowed-root
@@ -262,6 +263,13 @@ poll_terminal() {
                 sleep 0.2
                 ;;
             *)
+                if ! jq -e \
+                    'has("audit_degraded")
+                    and (.audit_degraded | type == "boolean")
+                    and .audit_degraded == false' \
+                    "$CURRENT_TERMINAL" >/dev/null 2>&1; then
+                    fail "Terminal response audit_degraded must be boolean false."
+                fi
                 return
                 ;;
         esac
