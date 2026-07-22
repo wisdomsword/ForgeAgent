@@ -14,6 +14,7 @@ from types import MappingProxyType
 from typing import Protocol
 from uuid import uuid4
 
+from .audit import AuditSink
 from .http_config import HttpServiceConfig
 from .step import Termination
 from .task import Task, TaskOutcome
@@ -116,11 +117,13 @@ class TaskService:
         config: HttpServiceConfig,
         clock: Callable[[], float] = time.monotonic,
         shared_mcp_manager: _Closeable | None = None,
+        audit_sink: AuditSink | None = None,
     ) -> None:
         self._factory = factory
         self._config = config
         self._clock = clock
         self._shared_mcp_manager = shared_mcp_manager
+        self._audit_sink = audit_sink
         self._records: dict[str, TaskRecord] = {}
         self._expired_ids: set[str] = set()
         self._expired_order: deque[str] = deque()

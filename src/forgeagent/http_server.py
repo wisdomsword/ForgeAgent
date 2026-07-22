@@ -1,0 +1,270 @@
+"""Authenticated loopback HTTP adapter for the bounded task service."""
+
+from __future__ import annotations
+
+import hmac
+import ipaddress
+import json
+import logging
+import re
+import socket
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import cast
+from urllib.parse import urlsplit
+
+from .audit import AuditEvent, AuditSink, emit_audit
+from .http_config import MAX_BEARER_TOKEN_LENGTH, HttpServiceConfig
+from .http_task_service import (
+    ServiceCapacityError,
+    ServiceClosedError,
+    TaskNotFound,
+    TaskService,
+)
+
+_logger = logging.getLogger(__name__)
+_TASK_PATH = re.compile(r"/tasks/([0-9a-f]{32})\Z")
+_CANCEL_PATH = re.compile(r"/tasks/([0-9a-f]{32})/cancel\Z")
+_ERROR_DETAILS = {
+    "unauthorized": "Authentication required.",
+    "not_found": "Task not found.",
+    "method_not_allowed": "Method not allowed.",
+    "invalid_content_type": "Content-Type must be application/json.",
+    "invalid_length": "A valid Content-Length is required.",
+    "body_too_large": "Request body is too large.",
+    "invalid_json": "Request body must be a JSON object.",
+    "invalid_request": "Request body does not match the accepted schema.",
+    "capacity_exceeded": "Task service capacity is exhausted.",
+    "service_closed": "Task service is shutting down.",
+    "internal_error": "Request failed.",
+}
+
+
+class HttpError(Exception):
+    def __init__(self, status: int, kind: str) -> None:
+        super().__init__(kind)
+        self.status = status
+        self.kind = kind
+
+
+class _ForgeHttpServer(ThreadingHTTPServer):
+    daemon_threads = True
+    allow_reuse_address = False
+
+    def __init__(self, config: HttpServiceConfig, service: TaskService) -> None:
+        self.address_family = socket.AF_INET6 if ":" in config.bind_host else socket.AF_INET
+        self.config = config
+        self.task_service = service
+        self.audit_sink: AuditSink | None = getattr(service, "_audit_sink", None)
+        super().__init__((config.bind_host, config.port), ForgeRequestHandler)
+
+
+class ForgeRequestHandler(BaseHTTPRequestHandler):
+    """Parse authenticated requests and delegate all task work to TaskService."""
+
+    protocol_version = "HTTP/1.1"
+    server: _ForgeHttpServer
+
+    def do_GET(self) -> None:
+        self._dispatch("GET")
+
+    def do_POST(self) -> None:
+        self._dispatch("POST")
+
+    def do_PUT(self) -> None:
+        self._dispatch("PUT")
+
+    def do_PATCH(self) -> None:
+        self._dispatch("PATCH")
+
+    def do_DELETE(self) -> None:
+        self._dispatch("DELETE")
+
+    def do_OPTIONS(self) -> None:
+        self._dispatch("OPTIONS")
+
+    def do_HEAD(self) -> None:
+        self._dispatch("HEAD")
+
+    def do_CONNECT(self) -> None:
+        self._dispatch("CONNECT")
+
+    def do_TRACE(self) -> None:
+        self._dispatch("TRACE")
+
+    def send_error(self, code: int, message: str | None = None, explain: str | None = None) -> None:
+        del message, explain
+        kind = "method_not_allowed" if code == 501 else "internal_error"
+        self._send_error(code, kind)
+
+    def log_message(self, format: str, *args: object) -> None:
+        _logger.debug("HTTP request completed")
+
+    def _dispatch(self, method: str) -> None:
+        try:
+            if not self._authorized():
+                self._audit("http.auth_failure", result_status="denied")
+                raise HttpError(401, "unauthorized")
+            path = urlsplit(self.path)
+            if path.query or path.fragment:
+                raise HttpError(404, "not_found")
+            if method == "POST" and path.path == "/tasks":
+                self._submit()
+                return
+            query_match = _TASK_PATH.fullmatch(path.path)
+            if method == "GET" and query_match:
+                self._query(query_match.group(1))
+                return
+            cancel_match = _CANCEL_PATH.fullmatch(path.path)
+            if method == "POST" and cancel_match:
+                self._cancel(cancel_match.group(1))
+                return
+            if path.path == "/tasks" or _TASK_PATH.fullmatch(path.path) or cancel_match:
+                raise HttpError(405, "method_not_allowed")
+            raise HttpError(404, "not_found")
+        except HttpError as error:
+            # Rejecting before consuming a request body must not let leftover bytes
+            # become a second request on a persistent HTTP/1.1 connection.
+            self.close_connection = True
+            self._audit("http.reject", result_status=error.kind)
+            self._send_error(error.status, error.kind)
+        except Exception:
+            self.close_connection = True
+            _logger.error("HTTP request failed")
+            self._audit("http.reject", result_status="internal_error")
+            self._send_error(500, "internal_error")
+
+    def _authorized(self) -> bool:
+        values = self.headers.get_all("Authorization", failobj=[])
+        if len(values) != 1:
+            return False
+        raw = values[0]
+        scheme, separator, token = raw.partition(" ")
+        if scheme != "Bearer" or separator != " " or not token or " " in token:
+            return False
+        return hmac.compare_digest(token, self.server.config.token)
+
+    def _submit(self) -> None:
+        body = self._read_json()
+        if set(body) != {"goal"}:
+            raise HttpError(400, "invalid_request")
+        goal = body["goal"]
+        if not isinstance(goal, str) or not goal.strip():
+            raise HttpError(400, "invalid_request")
+        try:
+            record = self.server.task_service.submit(goal, {})
+        except ServiceCapacityError:
+            self._audit("http.capacity_rejection", result_status="capacity_exceeded")
+            raise HttpError(429, "capacity_exceeded") from None
+        except ServiceClosedError:
+            raise HttpError(503, "service_closed") from None
+        response = record.public_view()
+        self._audit("http.submit", task_id=record.task_id, result_status="accepted")
+        self._send_json(202, response)
+
+    def _query(self, task_id: str) -> None:
+        try:
+            response = self.server.task_service.query(task_id)
+        except TaskNotFound:
+            raise HttpError(404, "not_found") from None
+        self._audit("http.query", task_id=task_id, result_status="ok")
+        self._send_json(200, response)
+
+    def _cancel(self, task_id: str) -> None:
+        body = self._read_json()
+        if body:
+            raise HttpError(400, "invalid_request")
+        try:
+            response = self.server.task_service.cancel(task_id)
+        except TaskNotFound:
+            raise HttpError(404, "not_found") from None
+        status = 200 if response["status"] not in {"queued", "running"} else 202
+        self._audit("http.cancel", task_id=task_id, result_status=str(response["status"]))
+        self._send_json(status, response)
+
+    def _read_json(self) -> dict[str, object]:
+        if self.headers.get_content_type() != "application/json":
+            raise HttpError(415, "invalid_content_type")
+        if self.headers.get("Transfer-Encoding") is not None:
+            raise HttpError(400, "invalid_length")
+        values = self.headers.get_all("Content-Length", failobj=[])
+        if len(values) != 1:
+            raise HttpError(400, "invalid_length")
+        try:
+            length = int(values[0], 10)
+        except ValueError:
+            raise HttpError(400, "invalid_length") from None
+        if length < 0:
+            raise HttpError(400, "invalid_length")
+        if length > self.server.config.max_body_bytes:
+            raise HttpError(413, "body_too_large")
+        try:
+            value = json.loads(self.rfile.read(length))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            raise HttpError(400, "invalid_json") from None
+        if not isinstance(value, dict):
+            raise HttpError(400, "invalid_json")
+        return cast(dict[str, object], value)
+
+    def _audit(
+        self,
+        event_type: str,
+        *,
+        task_id: str | None = None,
+        result_status: str,
+    ) -> None:
+        emit_audit(
+            self.server.audit_sink,
+            AuditEvent(
+                event_type=event_type,
+                task_id=task_id,
+                parameters={},
+                result_status=result_status,
+            ),
+        )
+
+    def _send_error(self, status: int, kind: str) -> None:
+        if kind == "unauthorized":
+            self.send_response(status)
+            self.send_header("WWW-Authenticate", "Bearer")
+            self._finish_json_headers({"error": {"kind": kind, "detail": _ERROR_DETAILS[kind]}})
+            return
+        self._send_json(
+            status,
+            {"error": {"kind": kind, "detail": _ERROR_DETAILS[kind]}},
+        )
+
+    def _send_json(self, status: int, payload: dict[str, object]) -> None:
+        self.send_response(status)
+        self._finish_json_headers(payload)
+
+    def _finish_json_headers(self, payload: dict[str, object]) -> None:
+        raw = json.dumps(payload, ensure_ascii=True, separators=(",", ":")).encode()
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(raw)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(raw)
+
+
+def create_http_server(
+    config: HttpServiceConfig,
+    service: TaskService,
+) -> ThreadingHTTPServer:
+    """Create the owner-controlled loopback listener without starting its thread."""
+    try:
+        is_loopback = ipaddress.ip_address(config.bind_host).is_loopback
+    except ValueError as error:
+        raise ValueError("HTTP service must bind to a loopback IP address") from error
+    if not is_loopback:
+        raise ValueError("HTTP service must bind to loopback")
+    token = config.token
+    if (
+        not isinstance(token, str)
+        or not token
+        or len(token) > MAX_BEARER_TOKEN_LENGTH
+        or not token.isascii()
+        or not token.isprintable()
+        or any(character.isspace() for character in token)
+    ):
+        raise ValueError("HTTP bearer token is invalid")
+    return _ForgeHttpServer(config, service)
