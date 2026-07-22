@@ -67,6 +67,32 @@ class StreamEvent(BaseModel):
     message: AssistantMessage | None = None
 ```
 
+## Runtime context policy
+
+`Task` gives `Step` one shared sliding-window policy for CLI, REPL, and HTTP tasks.
+`ContextConfig` has four fields: `utilization_ratio` is a dimensionless ratio; the
+`image_token_reserve`, `round_feedback_max_tokens`, and `tool_result_max_tokens`
+limits are **approximate tokens**, not provider tokenizer values. A null feedback
+limit is adaptive: for context window `C`, ratio `R`, and effective output reserve
+`O`, `input = floor(C * R) - O`, `round = floor(input * 10%)`, and
+`tool = floor(round * 25%)`. `O` is `GenerationParams.max_output_tokens` when set,
+otherwise `ModelCapability.max_output_tokens`.
+
+The local estimator includes fixed message framing and an image reserve. It is a
+conservative approximation rather than a billing or tokenizer substitute; the default
+`R=0.8` leaves headroom but may slide early, and a provider context-length response
+remains a normal structured `ClientError`. Request views never mutate the task's real
+conversation or results: they retain system and initial goal verbatim, then retain the
+newest whole assistant + user-feedback units. A prefix or latest whole unit that cannot
+fit fails before a provider call rather than being split or rewritten.
+
+All tool feedback passes one bounded renderer before entering the next user message.
+Head/tail truncation states the original character total, displayed range, and only a
+real continuation method; raw `ToolOutcome` data remains in `RoundResult`. If required
+headers, markers, and continuation metadata alone exceed the round budget, the task
+fails with the bounded `feedback metadata exceeds context budget` detail instead of
+dropping a tool state.
+
 `AssistantMessage` is a successful response even when `stop_reason` is
 `refusal` or `content_filter`; refusal is not a `ClientError`. Native tool-call
 arguments remain a JSON string until `protocol.parse()` validates them against

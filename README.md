@@ -86,6 +86,22 @@ export LLM_BASE_URL="..."               # 必须含 /v1
 
 **`OPENAI_BASE_URL`/`LLM_BASE_URL` 必须自带 `/v1` 路径段**——OpenAI SDK 不会自动拼接（不同于 Anthropic SDK）。多数网关在缺 `/v1` 的路径上返回 200 的 HTML 前端页面而不是 404，容易误判成"连上了"，实际每次请求都会因响应体不是 JSON 而解析失败。
 
+### 上下文窗口
+
+`config.yaml` 可含顶层 `context`：`utilization_ratio`（无量纲比例，默认 `0.8`）、
+`image_token_reserve`、`round_feedback_max_tokens` 和 `tool_result_max_tokens`。后三者
+均为**近似 token**；后两个为 `null` 时自动推导。对模型窗口 `C`、比例 `R` 和有效
+输出预留 `O`，输入预算为 `floor(C * R) - O`，单轮反馈预算为该值的 `floor(10%)`，
+单工具结果预算为单轮预算的 `floor(25%)`。`O` 使用本次请求的
+`max_output_tokens`，未指定时使用模型 capability 的 `max_output_tokens`。
+
+估算是本地、保守的字符/图片储备近似值，不等同 provider tokenizer 或计费口径；默认
+`0.8` 留出误差余量，仍可能提前滑动，provider 的实际 context-length 错误仍按普通
+结构化 client error 返回。每次请求都保留 system prompt 和初始 goal，只按完整的
+assistant + feedback 交互单元淘汰最旧历史；前缀或最新完整单元无法放入时 fail-fast，
+不会截断或调用 provider。工具反馈按 head/tail 规则限额，并在被截断时如实给出原始
+总量、展示范围和真实 continuation；固定元数据本身超预算也会 fail-fast。
+
 ## 沙箱档位（安全边界）
 
 执行后端按档位挂载，档位语义即隔离强度（详见 [`docs/threat-model.md`](docs/threat-model.md)）：
@@ -139,6 +155,11 @@ uv run forgeagent --no-identity run "..."
 # REPL 内：
 /reload
 ```
+
+`/reload` 先读取并验证新的 models 与 context 配置及当前模型的窗口预算；全部成功后
+才一次性替换 REPL 的 registry + context 快照。任一步失败会保留先前的 registry 与
+context，并报告 `reload failed`，不会部分发布这两个配置。随后独立重读身份；身份重载
+失败只保留先前身份，不会回滚已经成功发布的 registry + context 快照。
 
 ## MCP 服务（连接外部工具）
 

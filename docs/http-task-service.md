@@ -47,6 +47,19 @@ not evicted to make room for new work. Capacity returns `429` with
 `capacity_exceeded`; expired and unknown records return the same non-disclosing `404`
 envelope.
 
+### Server-owned context policy
+
+The optional `context` mapping in the server YAML is parsed only by the server. It uses
+the same approximate-token sliding-window policy as CLI and REPL: a stable system +
+initial-goal prefix and complete assistant + feedback units, with fail-fast behavior
+when the prefix or latest complete unit cannot fit. It does not weaken the existing
+headless allowlist, confirmation, cancellation, audit, or safe-result boundaries.
+
+`POST /tasks` does not accept context policy, window, feedback limit, or cache options.
+The request schema and terminal `usage` projection gain no M17 fields: usage remains
+the four raw counts `input_tokens`, `output_tokens`, `cached_tokens`, and
+`reasoning_tokens`; cache rate and request-view internals are not exposed over HTTP.
+
 ## HTTP contract
 
 Every route requires exactly one `Authorization: Bearer <token>` header. The request

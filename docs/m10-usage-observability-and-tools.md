@@ -298,6 +298,7 @@ class ToolContext:
 5. **目录约定：单一 `allowed_root`，废除强制子目录**：不设 `output/raw/`/`output/text/` 这类固定子目录约定。WebFetch 落盘文件与 File 工具共用同一个 `allowed_root`，与 §3.5 的 project-root 锁定原则完全一致——"文件工具能碰的范围"只有一套配置，不分裂出第二套目录心智。
 6. **WebFetch 下载/预览上限的具体数值：`MAX_FETCH_BYTES = 1_048_576`（1MB）、`PREVIEW_CHARS = 2048`**：1MB 是内存安全与实用性的平衡点,超限截断落盘并在 `detail` 里标注截断状态（如 `truncated: true`）,截断的整份内容仍然落盘（§3.4 混合返回)。2048 字符的 preview 足够模型判断内容类型（"这是 JSON"还是"这是 HTML"）,又不浪费 token。混合返回方案已经让 preview 天然小于 `_FEEDBACK_TAIL_LIMIT`,不再需要 §3.3 早先讨论的"WebFetch 自截"逻辑,这条随混合返回方案一并落地。
 7. **多模态用量字段：Spike 优先,无则不加**：不在里程碑中预留"猜测的字段"。Phase 0 spike 必须实测 Anthropic/OpenAI 两个 provider 的真实 usage 结构体；若字段名不稳定或无标准形状,则 M10 不加任何多模态占位字段,observability 只记录确定的 `input_tokens`/`output_tokens`/`cached_tokens`（对应 §3.1 已述的 spike-then-decide 流程,此处正式过一次裁决）。
+
 8. **File 工具不加独立的 `--allowed-root` CLI flag,复用隐式 `Path.cwd()`**：这是保持心智模型简单的关键——用户只需理解"Agent 只能看到和执行当前目录下的东西",避免 `restricted`/`container` 档位配置与 File 工具配置漂移成两套。一套 `allowed_root`（即 cwd）,贯彻到底（§3.7 已按此假设设计,不需要改动)。
 9. **FileListTool 输出形式：返回相对路径,禁止绝对路径**：安全上减少信息泄露（不暴露宿主 `/home/user/...` 之类的目录结构）;一致性上,所有 File 工具操作均基于 `allowed_root` 的相对路径。即使模型试图列 `../`,后端仍按 `_validate_path`（§3.5）解析并拒绝越界,不会因为"只是列目录"而放宽。
 10. **`WebFetchTool` v1 仅支持 GET,拒绝 POST/自定义 header**：安全铁律是"SSRF 防御的核心是只读"——POST 会把 SSRF 升级为对内网服务的有效写操作（如未授权 Redis 执行命令、内网 API 的 DELETE),现有 SSRF Guard 设计以"读"为前提,不覆盖这类风险；职责分离上,通用 HTTP 客户端（Method/Headers/Body 齐全）属于 MCP 范畴,WebFetch 定位是"查看网页内容",不是"调用 API";攻击面上,自定义 header 可用于 Host 头注入等手法攻击内网服务,GET 已足够满足"查看"需求。`WebFetchArgs`（§3.4）本就只有 `url` 一个字段,不接受 method/headers 参数,这个决定与当前设计天然一致,不需要额外改动。
@@ -344,3 +345,20 @@ class ToolContext:
 ### 8.3 端到端放行路径验证
 
 用同一个 `_GuardedHTTPHandler` opener 真实访问 `http://example.com/`,断言 `status == 200` 且能正常读到响应体——确认校验逻辑本身不会误伤合法的公网请求（不是只测出"挡得住",也测了"没挡错")。
+
+## M17: Cache rate and bounded feedback
+
+当前 CLI 每个 Task 完成后显示 `cache_hit`；单次 run 按该 Task 的所有成功 round 汇总，
+REPL 按整个 session 汇总。两者均是 `sum(cached_tokens) / sum(normalized_total_prompt_tokens)`，
+绝不平均逐轮百分比；分母缺失、为零或 provider 数据不一致时显示 `cache_hit=n/a`。
+
+`llm.outcome.parameters` 保留同级 `usage` 和 `cache_hit_rate`：后者是 numeric 或 JSON
+`null`，不会嵌入或改写原始 usage。原始 usage 仍只有
+`input_tokens`、`output_tokens`、`cached_tokens`、`reasoning_tokens` 四个字段；normalized
+prompt denominator 是内部派生量，不改变 provider 原始计数。
+
+所有工具 outcome 在反馈进入下一轮前共用近似-token limiter。限额按结果的 head/tail
+语义保留内容，截断 marker 诚实报告原始字符总量、展示范围和工具确实支持的 continuation；
+不虚构 cursor 或 offset。完整 outcome、执行审计和安全结果投影仍保留实际执行事实。若
+状态头、marker 和 continuation 的固定元数据已超出单轮预算，任务在下一次 provider 调用前
+以 `feedback metadata exceeds context budget` 失败，而不是省略某个已执行工具状态。

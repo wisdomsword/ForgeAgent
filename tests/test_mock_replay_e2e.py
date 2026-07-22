@@ -6,15 +6,49 @@ from types import SimpleNamespace
 import pytest
 
 from forgeagent.client import MockClient
+from forgeagent.context import ContextConfig
 from forgeagent.executor import RestrictedBackend
 from forgeagent.http_config import HttpServiceConfig
 from forgeagent.http_task_service import TaskService
+from forgeagent.models import Message, ModelCapability, Role
 from forgeagent.task import Task
 from tests.golden import cases
 from tests.golden.manifest import GOLDEN_SCENARIOS, GoldenEvidence
 from tests.test_http_server import _request_via_handler, _wait_for_terminal_via_handler
 
 COMMON_IDS = ("G01", "G03", "G05", "G08", "G11", "G13", "G15", "G17", "G27", "G43")
+
+
+class RecordingClient(MockClient):
+    """Mock replay client that retains immutable request snapshots for prompt checks."""
+
+    def __init__(self, script: list, capability: ModelCapability) -> None:
+        super().__init__(script=script, capability=capability)
+        self.calls: list[list[Message]] = []
+
+    def complete(self, messages, params=None):
+        self.calls.append([message.model_copy(deep=True) for message in messages])
+        return super().complete(messages, params)
+
+
+def _small_capability() -> ModelCapability:
+    return ModelCapability(
+        model_id="replay-context",
+        context_window=300,
+        max_output_tokens=20,
+        supports_thinking=False,
+        thinking_always_on=False,
+        supports_effort=False,
+        client_kind="anthropic",
+    )
+
+
+def _tool_round(name: str, output: str) -> str:
+    return cases._exec(f"print({output!r})", name)
+
+
+def _history_contents(messages: list[Message]) -> list[str]:
+    return [str(message.content) for message in messages]
 
 
 @pytest.mark.parametrize("scenario_id", COMMON_IDS)
@@ -82,3 +116,95 @@ def test_golden_mock_replay_matches_http_safe_projection(tmp_path: Path):
         assert "NameError" not in repr(view)
     finally:
         service.shutdown(2.0)
+
+
+def test_replay_requests_append_without_rewriting_prefix_below_context_threshold():
+    client = RecordingClient(
+        script=[
+            cases._reply(_tool_round("first", "first-result")),
+            cases._reply(_tool_round("second", "second-result")),
+            cases._reply(cases._done()),
+        ],
+        capability=_small_capability(),
+    )
+
+    outcome = Task(
+        client,
+        system_prompt="stable-system-prompt",
+        context_config=ContextConfig(
+            utilization_ratio=1.0,
+            round_feedback_max_tokens=80,
+            tool_result_max_tokens=30,
+        ),
+    ).run("finish replay")
+
+    assert outcome.status.completed is True
+    assert len(client.calls) == 3
+    for earlier, later in zip(client.calls, client.calls[1:], strict=False):
+        assert later[: len(earlier)] == earlier
+        assert [message.role for message in later[len(earlier) :]] == [
+            Role.ASSISTANT,
+            Role.USER,
+        ]
+    assert all(call[0].content == "stable-system-prompt" for call in client.calls)
+    assert all(call[1].content == "finish replay" for call in client.calls)
+
+
+def test_long_replay_slides_complete_rounds_and_keeps_bounded_feedback_honest():
+    long_output = "long-detail-" * 120
+    client = RecordingClient(
+        script=[
+            cases._reply(cases._exec("print('long-detail-' * 120)", "round-0")),
+            cases._reply(_tool_round("round-1", "one")),
+            cases._reply(_tool_round("round-2", "two")),
+            cases._reply(_tool_round("round-3", "three")),
+            cases._reply(cases._done()),
+        ],
+        capability=_small_capability(),
+    )
+
+    outcome = Task(
+        client,
+        system_prompt="stable-system-prompt",
+        max_rounds=5,
+        context_config=ContextConfig(
+            utilization_ratio=1.0,
+            round_feedback_max_tokens=120,
+            tool_result_max_tokens=40,
+        ),
+    ).run("finish replay")
+
+    assert outcome.status.completed is True
+    assert len(client.calls) == 5
+
+    stable_prefix = client.calls[0]
+    assert len(stable_prefix) == 2
+    assert all(call[:2] == stable_prefix for call in client.calls)
+    assert client.calls[1][: len(client.calls[0])] == client.calls[0]
+
+    # The first unit reaches the model before sliding, then leaves as an intact pair.
+    assert "round-0" in "\n".join(_history_contents(client.calls[1]))
+    assert "round-0" not in "\n".join(_history_contents(client.calls[-1][2:]))
+    assert any(
+        len(current) < len(previous) + 2
+        for previous, current in zip(client.calls, client.calls[1:], strict=False)
+    )
+    for call in client.calls:
+        history = call[2:]
+        assert len(history) % 2 == 0
+        assert [message.role for message in history] == [
+            role for _ in range(len(history) // 2) for role in (Role.ASSISTANT, Role.USER)
+        ]
+
+    latest_request = client.calls[-1]
+    assert "round-3" in str(latest_request[-2].content)
+    assert "[Exec round-3]" in str(latest_request[-1].content)
+
+    feedback = client.calls[1][-1].content
+    assert isinstance(feedback, str)
+    assert "[truncated:" in feedback
+    assert f"original {len(long_output)} chars" in feedback
+    assert "[continuation]" in feedback
+    first_outcome = outcome.rounds[0].outcomes[0]
+    assert first_outcome.exec_result is not None
+    assert first_outcome.exec_result.stdout == long_output + "\n"
