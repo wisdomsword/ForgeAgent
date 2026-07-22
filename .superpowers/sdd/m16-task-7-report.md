@@ -25,6 +25,9 @@ no-bind handler harness and passed (2/2 new concurrency/shutdown tests). The gol
 parity test first failed because its leak assertion searched for the single character
 `4`, which also occurs in random task ids; the assertion was narrowed to actual raw
 tool markers (`stdout`, `NameError`, and `undefined_variable`) and then passed.
+The first complete socketpair harness run also timed out while waiting for EOF because
+the peer socket remained open; response `Content-Length` framing and explicit handler
+socket closure were added, after which the real request loop passed reliably.
 
 ## Verification
 
