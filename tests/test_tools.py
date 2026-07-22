@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from forgeagent.audit import AuditEvent
 from forgeagent.executor import TrustedBackend
+from forgeagent.headless import HeadlessConfirmer
 from forgeagent.policy import CodeAnalyzer
 from forgeagent.protocol import (
     EditArgs,
@@ -216,7 +217,7 @@ class _FakeMCP:
         return {"ok": True, "text": f"{server}:{tool} ran"}
 
 
-def _mcp_ctx(mcp=None, confirmer=None) -> ToolContext:
+def _mcp_ctx(mcp=None, confirmer=None, *, allow_auto_approve=True) -> ToolContext:
     return ToolContext(
         blocks=CodeBlockStore(),
         backend=TrustedBackend(),
@@ -224,6 +225,7 @@ def _mcp_ctx(mcp=None, confirmer=None) -> ToolContext:
         analyzer=CodeAnalyzer(),
         mcp=mcp,
         confirmer=confirmer,
+        allow_auto_approve=allow_auto_approve,
     )
 
 
@@ -240,6 +242,46 @@ def test_mcp_auto_approved_call_skips_gate_and_runs():
     outcome = MCPTool().run(MCPArgs(server="fs", tool="read_file", arguments={"p": "x"}), ctx)
     assert outcome.success is True
     assert fake.calls == [("fs", "read_file", {"p": "x"})]
+
+
+def test_http_context_does_not_inherit_mcp_auto_approval() -> None:
+    class _AutoApproveMustNotBeRead(_FakeMCP):
+        def is_auto_approved(self, server: str, tool: str) -> bool:
+            raise AssertionError("HTTP context must not read MCP autoApprove")
+
+    fake = _AutoApproveMustNotBeRead(auto_approved={("fs", "write_file")})
+    sink = _RecordingAuditSink()
+    confirmer = HeadlessConfirmer([], audit=sink)
+    ctx = _mcp_ctx(mcp=fake, confirmer=confirmer, allow_auto_approve=False)
+    ctx.audit_sink = sink
+    ctx.task_id = "http-task"
+    ctx.operation_id = "http-tool-call-denied"
+
+    outcome = MCPTool().run(MCPArgs(server="fs", tool="write_file"), ctx)
+
+    assert outcome.success is False
+    assert fake.calls == []
+    assert len(sink.events) == 1
+    assert sink.events[0].result_status == "denied"
+    assert sink.events[0].operation_id == "http-tool-call-denied"
+
+
+def test_http_allowlist_preapproval_uses_tool_operation_id_once() -> None:
+    fake = _FakeMCP()
+    sink = _RecordingAuditSink()
+    confirmer = HeadlessConfirmer({"fs/write_file"}, audit=sink)
+    ctx = _mcp_ctx(mcp=fake, confirmer=confirmer, allow_auto_approve=False)
+    ctx.audit_sink = sink
+    ctx.task_id = "http-task"
+    ctx.operation_id = "http-tool-call-preapproved"
+
+    outcome = MCPTool().run(MCPArgs(server="fs", tool="write_file"), ctx)
+
+    assert outcome.success is True
+    assert fake.calls == [("fs", "write_file", {})]
+    assert len(sink.events) == 1
+    assert sink.events[0].result_status == "preapproved"
+    assert sink.events[0].operation_id == "http-tool-call-preapproved"
 
 
 def test_mcp_non_approved_call_needs_confirmer_yes():

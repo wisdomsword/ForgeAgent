@@ -144,6 +144,9 @@ class ToolContext:
     audit_sink: AuditSink | None = None
     task_id: str | None = None
     operation_id: str | None = None
+    # MCP autoApprove is a CLI/REPL compatibility path. HTTP contexts disable it so
+    # their explicit headless allowlist is the only non-interactive pre-approval.
+    allow_auto_approve: bool = True
 
 
 class Tool(ABC):
@@ -196,6 +199,16 @@ def _confirm(
         return False
     started = time.monotonic()
     try:
+        contextual_confirm = getattr(ctx.confirmer, "confirm_with_context", None)
+        if callable(contextual_confirm):
+            approved = bool(
+                contextual_confirm(
+                    args,
+                    task_id=ctx.task_id,
+                    operation_id=ctx.operation_id or uuid4().hex,
+                )
+            )
+            return approved
         approved = bool(ctx.confirmer(args))
     except Exception:
         _audit_confirmation(
@@ -365,7 +378,7 @@ class MCPTool(Tool):
                 detail="no MCP servers are configured",
             )
         parameters = {"server": args.server, "operation": args.tool}
-        if ctx.mcp.is_auto_approved(args.server, args.tool):
+        if ctx.allow_auto_approve and ctx.mcp.is_auto_approved(args.server, args.tool):
             _audit_confirmation(ctx, tool="MCP", decision="preapproved", parameters=parameters)
         elif not _confirm(ctx, args, tool="MCP", parameters=parameters):
             if ctx.confirmer is None:
