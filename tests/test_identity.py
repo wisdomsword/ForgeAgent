@@ -99,6 +99,26 @@ def test_compose_system_prompt_protocol_is_fixed_text():
     assert baseline.count("Exec") == with_identity.count("Exec")
 
 
+def test_default_protocol_advertises_every_registered_builtin_tool():
+    rendered = compose_system_prompt(ApprovedIdentity(None, None, None, None))
+
+    for tool_name in (
+        "Exec",
+        "Edit",
+        "Survey",
+        "WebFetch",
+        "FileRead",
+        "FileWrite",
+        "FileList",
+    ):
+        assert f'"name":"{tool_name}"' in rendered
+    assert (
+        '<!-- ToolCall: {"name":"FileWrite","arguments":{"path":"report.txt",'
+        '"content":"finished"}} -->'
+    ) in rendered
+    assert "When a direct built-in tool matches the goal, use that tool" in rendered
+
+
 def test_protocol_unchanged_when_project_agents_attempts_override():
     expected_protocol = _expected_protocol_text()
     injecting_agents = (
