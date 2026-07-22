@@ -96,6 +96,18 @@ class _OverBudgetPolicy:
         raise ContextBudgetExceeded(self.detail)
 
 
+class _FirstViewThenOverBudgetPolicy:
+    def __init__(self, detail="context does not fit"):
+        self.detail = detail
+        self.calls = 0
+
+    def request_view(self, messages):
+        self.calls += 1
+        if self.calls == 1:
+            return list(messages)
+        raise ContextBudgetExceeded(self.detail)
+
+
 # --- loop control ------------------------------------------------------------
 
 
@@ -180,6 +192,47 @@ def test_oversized_context_detail_is_bounded():
 
     assert rounds[-1].stopped_reason == Termination.FAILED
     assert rounds[-1].stopped_detail == "x" * 160
+
+
+def test_latest_complete_round_over_budget_stops_before_second_provider_attempt():
+    class _ProviderAttemptClient(MockClient):
+        def complete(self, messages, params=None):
+            self._notify_attempt(ProviderAttempt(attempt=1, status="started"))
+            result = super().complete(messages, params)
+            self._notify_attempt(ProviderAttempt(attempt=1, status="success"))
+            return result
+
+    sink = _RecordingAuditSink()
+    client = _ProviderAttemptClient(script=[_reply(_exec_call("print('ok')"))])
+    policy = _FirstViewThenOverBudgetPolicy("x" * 500)
+
+    rounds = Step(
+        client,
+        TrustedBackend(),
+        Runtime(),
+        context_policy=policy,
+        audit_sink=sink,
+    ).run(_user())
+
+    assert rounds[0].outcomes[0].success is True
+    assert rounds[-1].stopped_reason == Termination.FAILED
+    assert len(rounds[-1].stopped_detail) <= 160
+    assert client.calls_made == 1
+    assert policy.calls == 2
+    logical_events = [event for event in sink.events if event.event_type != "llm.provider_attempt"]
+    provider_events = [event for event in sink.events if event.event_type == "llm.provider_attempt"]
+    assert [
+        (event.event_type, event.attempt, event.result_status)
+        for event in logical_events
+        if event.event_type.startswith("llm.")
+    ] == [
+        ("llm.attempt", 1, "started"),
+        ("llm.outcome", 1, "success"),
+    ]
+    assert [(event.attempt, event.result_status) for event in provider_events] == [
+        (1, "started"),
+        (1, "success"),
+    ]
 
 
 def test_step_cancel_event_stops_before_next_model_call():
