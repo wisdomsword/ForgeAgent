@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from http.client import HTTPConnection
 from http.server import BaseHTTPRequestHandler
 from io import BytesIO
@@ -111,7 +113,11 @@ def running_server(tmp_path):
         return FakeTask(_outcome())
 
     service = TaskService(factory=factory, config=config, audit_sink=sink)
-    server = create_http_server(config, service)
+    try:
+        server = create_http_server(config, service)
+    except PermissionError as error:
+        service.shutdown(1.0)
+        pytest.skip(f"loopback bind unavailable in this environment: {error}")
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -150,6 +156,94 @@ def test_submit_query_cancel_and_auth(running_server):
     assert [event.event_type for event in sink.events].count("http.reject") == 0
     assert "test-token" not in repr(sink.events)
     assert private_goal not in repr(sink.events)
+
+
+def test_concurrent_http_handler_submissions_keep_task_records_isolated():
+    release = threading.Event()
+
+    class BlockingTask(FakeTask):
+        def run(self, goal, *, cancel_event=None):
+            assert release.wait(2.0)
+            return super().run(goal, cancel_event=cancel_event)
+
+    config = HttpServiceConfig(
+        bind_host="127.0.0.1",
+        port=0,
+        token="test-token",
+        max_workers=4,
+        max_queue=8,
+        max_records=16,
+    )
+    sink = RecordingSink()
+    service = TaskService(
+        factory=lambda _record: BlockingTask(_outcome()),
+        config=config,
+        audit_sink=sink,
+    )
+
+    def submit(index: int) -> tuple[int, dict[str, object]]:
+        payload = json.dumps({"goal": f"task-{index}"}).encode()
+        handler = object.__new__(ForgeRequestHandler)
+        handler.headers = _HeaderStub({"Content-Length": [str(len(payload))]})
+        handler.rfile = BytesIO(payload)
+        handler.server = SimpleNamespace(config=config, task_service=service, audit_sink=sink)
+        responses: list[tuple[int, dict[str, object]]] = []
+        handler._send_json = lambda status, response: responses.append((status, response))
+        handler._submit()
+        return responses[0]
+
+    try:
+        with ThreadPoolExecutor(max_workers=8) as clients:
+            responses = list(clients.map(submit, range(8)))
+        assert all(status == 202 for status, _payload in responses)
+        task_ids = [str(payload["task_id"]) for _status, payload in responses]
+        assert len(set(task_ids)) == 8
+
+        release.set()
+        views = [service.wait(task_id, timeout=2.0) for task_id in task_ids]
+        assert [view["task_id"] for view in views] == task_ids
+        assert all(view["reason"] == Termination.COMPLETED for view in views)
+    finally:
+        release.set()
+        service.shutdown(2.0)
+
+
+def test_task_service_shutdown_leaves_no_owned_worker_or_manager_thread():
+    manager_closed = threading.Event()
+
+    class Manager:
+        def close(self):
+            manager_closed.set()
+
+    config = HttpServiceConfig(
+        token="test-token",
+        max_workers=2,
+        max_queue=2,
+        max_records=4,
+    )
+    service = TaskService(
+        factory=lambda _record: FakeTask(_outcome()),
+        config=config,
+        shared_mcp_manager=Manager(),
+    )
+    task_ids = [service.submit("go", {}).task_id for _ in range(2)]
+    for task_id in task_ids:
+        service.wait(task_id, timeout=2.0)
+    service.shutdown(2.0)
+
+    deadline = time.monotonic() + 2.0
+    owned_threads = []
+    while time.monotonic() < deadline:
+        owned_threads = [
+            thread
+            for thread in threading.enumerate()
+            if thread.name.startswith(("forgeagent-task", "forgeagent-mcp"))
+        ]
+        if not owned_threads:
+            break
+        time.sleep(0.01)
+    assert manager_closed.is_set()
+    assert owned_threads == []
 
 
 @pytest.mark.parametrize(

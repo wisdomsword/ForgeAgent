@@ -215,3 +215,11 @@ uv run python -m tests.golden.runner --real-model claude-sonnet-5 \
 uv run pytest      # 运行全部测试（无需 key、无需网络）
 uv run ruff check  # 静态检查
 ```
+
+## 本地 HTTP 服务（可选）
+
+HTTP 服务默认不启动，必须显式执行 `forgeagent serve --config PATH`。它只监听
+loopback，不提供 TLS；配置文件负责模型、sandbox、allowed root、容量、TTL、审计和
+精确 allowlist。`FORGEAGENT_HTTP_TOKEN` 优先于配置文件中的 `token`，修改 token 或
+策略后重启生效，不支持热加载。完整路由、请求 schema、结果投影、取消和残余风险见
+[`docs/http-task-service.md`](docs/http-task-service.md)。
