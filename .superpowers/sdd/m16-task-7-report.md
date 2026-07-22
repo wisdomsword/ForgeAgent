@@ -12,6 +12,9 @@ Implemented the M16 documentation and security-acceptance layer.
   handler isolation, shutdown resource cleanup, and offline golden parity. Requests
   include real request lines, Bearer authentication, JSON framing, and parsed HTTP
   responses without binding a network port.
+- Concurrent acceptance holds workers at a gate, proves all eight task views are
+  nonterminal through real GET requests, then polls each task to a terminal result
+  under a five-second deadline; timeout failures include the task id.
 - Made existing real-loopback tests skip only when the environment explicitly denies
   `bind()` with `PermissionError`; no-bind protocol tests remain mandatory.
 - Recorded verification evidence in
@@ -34,6 +37,8 @@ socket closure were added, after which the real request loop passed reliably.
 - Ruff check: PASS.
 - Changed-file format check: PASS.
 - Focused HTTP/golden tests: 62 passed, 10 environment skips.
+- The concurrency/shutdown/golden focused selection passed five consecutive runs
+  (3 passed per run).
 - Golden runner: exit code 0; its generated offline report records 20/20 (100%).
 - OpenSpec strict validation and `git diff --check`: PASS.
 - Full non-packaging pytest did not produce a completion summary in this sandbox; it

@@ -7,8 +7,10 @@ Date: 2026-07-22
 - The no-bind HTTP handler harness used `socket.socketpair()` and the real
   `ForgeRequestHandler` request loop with complete request lines, Bearer headers,
   JSON framing, and response parsing. It submitted eight tasks concurrently,
-  observed eight distinct task ids, and verified that every terminal projection
-  retained its own id through `GET /tasks/{id}`.
+  observed eight distinct task ids, verified all eight were `queued` or `running`
+  while workers were deterministically blocked, then polled each `GET /tasks/{id}`
+  to a terminal state under a five-second deadline. Every terminal projection
+  retained its own id.
 - TaskService shutdown was checked for worker/cleanup thread exit and one-time shared
   MCP manager close.
 - Offline golden G13 used equivalent MockClient scripts through direct Task and the
@@ -25,6 +27,7 @@ Date: 2026-07-22
 | `.venv/bin/ruff check src tests` | PASS (`All checks passed!`) |
 | `.venv/bin/ruff format --check tests/test_http_server.py tests/test_mock_replay_e2e.py` | PASS (`2 files already formatted`) |
 | `.venv/bin/pytest -q tests/test_http_server.py tests/test_mock_replay_e2e.py` | PASS: 62 passed, 10 skipped |
+| Focused concurrency/shutdown/golden command repeated five times | PASS: 3 passed per run, 5/5 runs |
 | `.venv/bin/python -m tests.golden.runner` | PASS: exit code 0; generated `artifacts/golden/offline/report.md` records 20/20 (100%) |
 | `openspec validate http-task-service --strict` | PASS |
 | `git diff --check` | PASS (no output) |

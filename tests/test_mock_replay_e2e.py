@@ -1,6 +1,5 @@
 """Shared mock-replay coverage for the Task 8 golden scenarios."""
 
-import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -13,7 +12,7 @@ from forgeagent.http_task_service import TaskService
 from forgeagent.task import Task
 from tests.golden import cases
 from tests.golden.manifest import GOLDEN_SCENARIOS, GoldenEvidence
-from tests.test_http_server import _request_via_handler
+from tests.test_http_server import _request_via_handler, _wait_for_terminal_via_handler
 
 COMMON_IDS = ("G01", "G03", "G05", "G08", "G11", "G13", "G15", "G17", "G27", "G43")
 
@@ -69,15 +68,7 @@ def test_golden_mock_replay_matches_http_safe_projection(tmp_path: Path):
         assert status == 202
         assert initial is not None
         task_id = str(initial["task_id"])
-        deadline = time.monotonic() + 5.0
-        view = None
-        while time.monotonic() < deadline:
-            status, view, _raw = _request_via_handler(server, "GET", f"/tasks/{task_id}")
-            assert status == 200
-            if view is not None and view["status"] not in {"queued", "running"}:
-                break
-            time.sleep(0.01)
-        assert view is not None and view["status"] not in {"queued", "running"}
+        view = _wait_for_terminal_via_handler(server, task_id)
         assert captured
         assert view["status"] == direct.status.reason
         assert view["reason"] == direct.status.reason

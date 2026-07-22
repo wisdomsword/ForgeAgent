@@ -170,6 +170,24 @@ def _request_via_handler(
     return status, parsed, raw
 
 
+def _wait_for_terminal_via_handler(
+    server: object,
+    task_id: str,
+    *,
+    timeout: float = 5.0,
+) -> dict[str, object]:
+    deadline = time.monotonic() + timeout
+    while True:
+        status, view, _raw = _request_via_handler(server, "GET", f"/tasks/{task_id}")
+        assert status == 200
+        assert view is not None
+        if view["status"] not in {"queued", "running"}:
+            return view
+        if time.monotonic() >= deadline:
+            pytest.fail(f"task {task_id} did not reach a terminal state before timeout")
+        time.sleep(0.01)
+
+
 @pytest.fixture
 def running_server(tmp_path):
     sink = RecordingSink()
@@ -274,13 +292,16 @@ def test_concurrent_http_handler_submissions_keep_task_records_isolated():
         task_ids = [str(payload["task_id"]) for _status, payload in responses]
         assert len(set(task_ids)) == 8
 
+        nonterminal_views = [
+            _request_via_handler(server, "GET", f"/tasks/{task_id}")[1] for task_id in task_ids
+        ]
+        assert all(
+            view is not None and view["status"] in {"queued", "running"}
+            for view in nonterminal_views
+        )
+
         release.set()
-        views = []
-        for task_id in task_ids:
-            status, view, _raw = _request_via_handler(server, "GET", f"/tasks/{task_id}")
-            assert status == 200
-            assert view is not None
-            views.append(view)
+        views = [_wait_for_terminal_via_handler(server, task_id) for task_id in task_ids]
         assert [view["task_id"] for view in views] == task_ids
         assert all(view["reason"] == Termination.COMPLETED for view in views)
     finally:
