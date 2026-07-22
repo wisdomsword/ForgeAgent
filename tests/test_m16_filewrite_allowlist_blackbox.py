@@ -70,6 +70,9 @@ def write_fake_forgeagent(tmp_path: Path) -> Path:
             )
             with (evidence_dir / "fake-server-pids.txt").open("a", encoding="utf-8") as handle:
                 handle.write(f"{os.getpid()}\n")
+            with (evidence_dir / "fake-service-homes.txt").open("a", encoding="utf-8") as handle:
+                handle.write(os.environ["HOME"] + "\n")
+            assert os.environ["FAKE_M16_PRESERVED_CREDENTIAL"] == "preserved"
             task_id = "0123456789abcdef0123456789abcdef"
             target_operation = "file/m16-allowlist.txt"
             target_content = "M16 FileWrite allowlist verified."
@@ -208,6 +211,18 @@ def write_fake_forgeagent(tmp_path: Path) -> Path:
                         self.send_json(401, {"error": {"kind": "unauthorized"}})
                         return
                     if self.path == f"/tasks/{task_id}":
+                        append_audit(
+                            [
+                                {
+                                    "task_id": task_id,
+                                    "event_type": "http.query",
+                                    "operation_id": f"query-{index}",
+                                    "parameters": {},
+                                    "result_status": "success",
+                                }
+                                for index in range(5)
+                            ]
+                        )
                         status = "queued" if mode == "queued-forever" else "completed"
                         self.send_json(
                             200,
@@ -246,6 +261,7 @@ def run_script(
         "M16_EVIDENCE_DIR": str(tmp_path / "evidence"),
         "M16_TIMEOUT_SECONDS": timeout_seconds,
         "FAKE_M16_MODE": mode,
+        "FAKE_M16_PRESERVED_CREDENTIAL": "preserved",
     }
     return subprocess.run(
         ["bash", "scripts/m16-filewrite-allowlist-blackbox.sh"],
@@ -277,6 +293,11 @@ def assert_fake_servers_stopped(tmp_path: Path) -> None:
             os.kill(pid, 0)
 
 
+def assert_query_events_compacted(result: subprocess.CompletedProcess[str]) -> None:
+    assert '"event_type": "http.query"' not in result.stderr
+    assert "http.query events omitted: 5" in result.stderr
+
+
 def test_blackbox_script_passes_exact_two_phase_contract(tmp_path: Path) -> None:
     result = run_script(tmp_path, "filewrite")
 
@@ -289,6 +310,15 @@ def test_blackbox_script_passes_exact_two_phase_contract(tmp_path: Path) -> None
     assert submitted_goal_lines[0] == submitted_goal_lines[1]
     assert [json.loads(line) for line in submitted_goal_lines] == [EXPECTED_GOAL, EXPECTED_GOAL]
     assert "Do not use Exec, MCP, Python, shell, or any other tool." in EXPECTED_GOAL
+    service_homes = (
+        (tmp_path / "evidence/fake-service-homes.txt").read_text(encoding="utf-8").splitlines()
+    )
+    expected_service_home = str(tmp_path / "evidence/service-home")
+    assert service_homes == [expected_service_home, expected_service_home]
+    assert all(home != os.environ.get("HOME") for home in service_homes)
+    config_paths = list((tmp_path / "evidence").glob("*/config.yaml"))
+    assert len(config_paths) == 2
+    assert all("no_identity: true" in path.read_text(encoding="utf-8") for path in config_paths)
     assert_evidence_retained(tmp_path, "denied", "allowed")
     assert_fake_servers_stopped(tmp_path)
 
@@ -298,6 +328,9 @@ def test_blackbox_script_reports_model_tool_drift_as_inconclusive(tmp_path: Path
 
     assert result.returncode == 2
     assert "INCONCLUSIVE" in result.stderr
+    assert_query_events_compacted(result)
+    assert '"event_type": "llm.outcome"' in result.stderr
+    assert '"audit_degraded":false' in result.stderr
     assert_evidence_retained(tmp_path, "denied")
     assert_fake_servers_stopped(tmp_path)
 
@@ -333,6 +366,9 @@ def test_blackbox_script_rejects_token_leak_in_denied_audit(tmp_path: Path) -> N
 
     assert result.returncode == 1
     assert "Bearer token appeared in the audit log." in result.stderr
+    assert_query_events_compacted(result)
+    assert '"event_type": "confirmation.decision"' in result.stderr
+    assert '"event_type": "tool.operation"' in result.stderr
     bearer_token = (tmp_path / "evidence/fake-bearer-token.txt").read_text(encoding="utf-8")
     assert bearer_token not in result.stdout
     assert bearer_token not in result.stderr
@@ -353,10 +389,10 @@ def test_blackbox_script_rejects_degraded_terminal_audit(tmp_path: Path) -> None
 
 
 def test_blackbox_script_times_out_and_stops_queued_server(tmp_path: Path) -> None:
-    result = run_script(tmp_path, "queued-forever", timeout_seconds="1")
+    result = run_script(tmp_path, "queued-forever", timeout_seconds="2")
 
     assert result.returncode == 1
-    assert "did not reach a terminal state within 1 seconds" in result.stderr
+    assert "did not reach a terminal state within 2 seconds" in result.stderr
     assert_evidence_retained(tmp_path, "denied")
     assert_fake_servers_stopped(tmp_path)
 

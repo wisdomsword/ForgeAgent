@@ -57,6 +57,13 @@ esac; then
     exit 1
 fi
 
+SERVICE_HOME=${M16_SERVICE_HOME:-$EVIDENCE_DIR/service-home}
+if ! mkdir -p "$SERVICE_HOME"; then
+    printf 'Evidence directory: %s\n' "$EVIDENCE_DIR" >&2
+    printf 'FAIL: Could not create isolated service HOME: %s\n' "$SERVICE_HOME" >&2
+    exit 1
+fi
+
 ALLOWED_ROOT=$EVIDENCE_DIR/allowed-root
 EXPECTED_FILE=$EVIDENCE_DIR/expected-content.txt
 TARGET_FILE=$ALLOWED_ROOT/$TARGET_RELATIVE_PATH
@@ -115,7 +122,8 @@ from pathlib import Path
 import sys
 
 audit_path, task_id, token = sys.argv[1:]
-matched = False
+printed = False
+omitted_queries = 0
 for line in Path(audit_path).read_text(encoding="utf-8", errors="replace").splitlines():
     try:
         event = json.loads(line)
@@ -123,9 +131,26 @@ for line in Path(audit_path).read_text(encoding="utf-8", errors="replace").split
         continue
     if task_id and event.get("task_id") != task_id:
         continue
+    event_type = event.get("event_type")
+    if event_type == "http.query":
+        omitted_queries += 1
+        continue
+    is_key_event = (
+        event_type in {"confirmation.decision", "tool.operation"}
+        or isinstance(event_type, str)
+        and (
+            event_type.startswith("llm.")
+            or event_type.startswith("model.")
+            or event_type.startswith("http.")
+        )
+    )
+    if not is_key_event:
+        continue
     print(json.dumps(event, sort_keys=True).replace(token, "[REDACTED]"))
-    matched = True
-if not matched:
+    printed = True
+if omitted_queries:
+    print(f"http.query events omitted: {omitted_queries}")
+if not printed and not omitted_queries:
     print("(none)")
 PY
     else
@@ -171,6 +196,7 @@ write_config() {
         printf 'port: %s\n' "$port"
         printf 'model: %s\n' "$(json_string "$M16_MODEL")"
         printf 'tier: "restricted"\n'
+        printf 'no_identity: true\n'
         printf 'allowed_root: %s\n' "$(json_string "$ALLOWED_ROOT")"
         printf 'audit_path: %s\n' "$(json_string "$CURRENT_AUDIT")"
         if [ -z "$allow" ]; then
@@ -198,7 +224,7 @@ start_server() {
     port=$(find_port) || fail "Could not allocate a loopback port for $phase."
     write_config "$phase" "$port" "$allow"
 
-    FORGEAGENT_HTTP_TOKEN=$BEARER_TOKEN \
+    HOME=$SERVICE_HOME FORGEAGENT_HTTP_TOKEN=$BEARER_TOKEN \
         "$M16_FORGEAGENT_BIN" serve --config "$phase_dir/config.yaml" \
         >"$CURRENT_SERVER_LOG" 2>&1 &
     SERVER_PID=$!
