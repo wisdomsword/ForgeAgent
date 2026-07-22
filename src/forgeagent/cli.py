@@ -108,7 +108,12 @@ _HTTP_RUNTIME_KEYS = frozenset(
         "shutdown_timeout_seconds",
     }
 )
-_HTTP_CONFIG_KEYS = frozenset(field.name for field in fields(HttpServiceConfig))
+_HTTP_CONFIG_KEYS = frozenset(
+    {
+        *(field.name for field in fields(HttpServiceConfig) if field.name != "context_config"),
+        "context",
+    }
+)
 _SERVE_FORBIDDEN_CLI_OPTIONS = (
     "--tier",
     "--container-image",
@@ -174,6 +179,27 @@ def _validate_context_policy(
 def _validate_client_context_policy(client: ModelClient, context_config: ContextConfig) -> None:
     """Validate an injected client's actual capability before constructing its Task."""
     SlidingWindowContextPolicy(client.capability, None, context_config)
+
+
+def _http_client_factory_with_validated_context(
+    model: str,
+    client_factory: ClientFactory,
+    context_config: ContextConfig,
+) -> ClientFactory:
+    """Validate HTTP context limits against the exact capability source used by tasks."""
+    if client_factory is build_real_client:
+        registry = load_registry()
+        _validate_context_policy(model, registry, context_config)
+        return _client_factory_for_registry(registry, client_factory)
+
+    probe = client_factory(model)
+    try:
+        _validate_client_context_policy(probe, context_config)
+    finally:
+        close = getattr(probe, "close", None)
+        if callable(close):
+            close()
+    return client_factory
 
 
 def _make_stream_callback(console: Console) -> tuple[Live, Callable[[str, StreamEventKind], None]]:
@@ -996,6 +1022,8 @@ def _load_http_runtime_settings(path: str | Path) -> _HttpRuntimeSettings:
             {key: value for key, value in values.items() if key in _HTTP_CONFIG_KEYS}
         )
     except (TypeError, ValueError) as error:
+        if str(error).startswith("context "):
+            raise HttpStartupError("HTTP service context configuration is invalid.") from error
         raise HttpStartupError("HTTP service configuration is invalid.") from error
 
     model = values.get("model", DEFAULT_MODEL)
@@ -1171,6 +1199,16 @@ def serve_http(
 ) -> None:
     """Assemble and own the opt-in local HTTP task service."""
     settings = _load_http_runtime_settings(config_path)
+    try:
+        task_client_factory = _http_client_factory_with_validated_context(
+            settings.model,
+            client_factory,
+            settings.service.context_config,
+        )
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except Exception as error:
+        raise HttpStartupError("HTTP service context policy is invalid.") from error
     audit_path = settings.service.audit_path.expanduser()
     try:
         audit_sink = JsonlAuditSink(
@@ -1199,7 +1237,7 @@ def serve_http(
 
         def task_factory(record: TaskRecord) -> Task:
             return Task(
-                client_factory(settings.model),
+                task_client_factory(settings.model),
                 tier=settings.tier,
                 allowed_root=settings.allowed_root,
                 identity=identity,
@@ -1209,6 +1247,7 @@ def serve_http(
                 container_image=settings.container_image,
                 audit_sink=audit_sink,
                 task_id=record.task_id,
+                context_config=settings.service.context_config,
             )
 
         service = TaskService(

@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from forgeagent.context import ContextConfig
 from forgeagent.http_config import MAX_BEARER_TOKEN_LENGTH, HttpServiceConfig
 
 
@@ -119,6 +120,45 @@ def test_http_config_uses_documented_defaults():
     assert HttpServiceConfig.from_sources(config={"token": "secret"}, env={}) == (
         HttpServiceConfig(token="secret")
     )
+
+
+def test_http_config_owns_validated_context_defaults_and_explicit_values():
+    default_config = HttpServiceConfig.from_sources(config={"token": "secret"}, env={})
+    configured = HttpServiceConfig.from_sources(
+        config={
+            "token": "secret",
+            "context": {
+                "utilization_ratio": 0.75,
+                "image_token_reserve": 512,
+                "tool_result_max_tokens": 20,
+                "round_feedback_max_tokens": 40,
+            },
+        },
+        env={},
+    )
+
+    assert default_config.context_config == ContextConfig()
+    assert configured.context_config == ContextConfig(
+        utilization_ratio=0.75,
+        image_token_reserve=512,
+        tool_result_max_tokens=20,
+        round_feedback_max_tokens=40,
+    )
+
+
+@pytest.mark.parametrize(
+    "context",
+    [
+        [],
+        {"utilization_ratio": 8},
+        {"image_token_reserve": 0},
+        {"unknown": 1},
+        {"tool_result_max_tokens": 20, "round_feedback_max_tokens": 10},
+    ],
+)
+def test_http_config_rejects_invalid_context_mapping(context):
+    with pytest.raises(ValueError, match="context"):
+        HttpServiceConfig.from_sources(config={"token": "secret", "context": context}, env={})
 
 
 @pytest.mark.parametrize("allowlist", ["server/tool", b"server/tool"])

@@ -13,6 +13,8 @@ from types import SimpleNamespace
 import pytest
 
 from forgeagent.audit import AuditEvent
+from forgeagent.client import MockClient
+from forgeagent.context import ContextConfig
 from forgeagent.http_config import HttpServiceConfig
 from forgeagent.http_server import (
     ForgeRequestHandler,
@@ -22,6 +24,7 @@ from forgeagent.http_server import (
     create_http_server,
 )
 from forgeagent.http_task_service import ServiceCapacityError, TaskRecord, TaskService
+from forgeagent.models import ModelCapability
 from forgeagent.step import RoundResult, Termination
 from forgeagent.task import TaskOutcome, TaskStatus
 
@@ -367,6 +370,12 @@ def test_task_service_shutdown_leaves_no_owned_worker_or_manager_thread():
             400,
             "invalid_request",
         ),
+        (
+            {"Content-Type": "application/json"},
+            {"goal": "go", "context": {"utilization_ratio": 1}},
+            400,
+            "invalid_request",
+        ),
     ],
 )
 def test_invalid_request_matrix(running_server, headers, body, expected_status, kind):
@@ -374,6 +383,142 @@ def test_invalid_request_matrix(running_server, headers, body, expected_status, 
     status, payload, _ = _request(address, "POST", "/tasks", body=body, headers=headers)
     assert status == expected_status
     assert payload["error"]["kind"] == kind
+
+
+def test_serve_rejects_invalid_context_before_listener_creation(monkeypatch, tmp_path):
+    import forgeagent.cli as cli_module
+    import forgeagent.http_server as http_server_module
+
+    config_path = tmp_path / "http.yaml"
+    config_path.write_text("token: test-token\ncontext:\n  utilization_ratio: 8\n")
+    factory_called = False
+
+    def client_factory(_model):
+        nonlocal factory_called
+        factory_called = True
+        return MockClient(script=[])
+
+    monkeypatch.setattr(
+        http_server_module,
+        "create_http_server",
+        lambda *_args, **_kwargs: pytest.fail("invalid context must not create a listener"),
+    )
+
+    with pytest.raises(cli_module.HttpStartupError, match="context"):
+        cli_module.serve_http(config_path, client_factory=client_factory, console=SimpleNamespace())
+
+    assert factory_called is False
+
+
+def test_serve_rejects_resolved_mixed_context_override_before_listener_creation(
+    monkeypatch, tmp_path
+):
+    import forgeagent.cli as cli_module
+    import forgeagent.http_server as http_server_module
+
+    config_path = tmp_path / "http.yaml"
+    config_path.write_text("token: test-token\ncontext:\n  tool_result_max_tokens: 71\n")
+    capability = ModelCapability(
+        model_id="injected",
+        context_window=1_000,
+        max_output_tokens=100,
+        supports_thinking=False,
+        thinking_always_on=False,
+        supports_effort=False,
+        client_kind="anthropic",
+    )
+    clients = []
+
+    class CloseTrackingClient(MockClient):
+        def __init__(self):
+            super().__init__(script=[], capability=capability)
+            self.closed = False
+
+        def close(self):
+            self.closed = True
+
+    def client_factory(_model):
+        client = CloseTrackingClient()
+        clients.append(client)
+        return client
+
+    monkeypatch.setattr(
+        http_server_module,
+        "create_http_server",
+        lambda *_args, **_kwargs: pytest.fail("invalid policy must not create a listener"),
+    )
+
+    with pytest.raises(cli_module.HttpStartupError, match="context"):
+        cli_module.serve_http(config_path, client_factory=client_factory, console=SimpleNamespace())
+
+    assert len(clients) == 1
+    assert clients[0].closed is True
+
+
+def test_serve_task_factory_passes_only_server_context_to_task(monkeypatch, tmp_path):
+    import forgeagent.cli as cli_module
+    import forgeagent.http_server as http_server_module
+
+    config_path = tmp_path / "http.yaml"
+    config_path.write_text(
+        "token: test-token\nno_identity: true\ncontext:\n  image_token_reserve: 512\n"
+    )
+    captured = {}
+    clients = []
+
+    class CloseTrackingClient(MockClient):
+        def __init__(self):
+            super().__init__(script=[])
+            self.closed = False
+
+        def close(self):
+            self.closed = True
+
+    class FakeService:
+        def __init__(self, *, factory, config, shared_mcp_manager, audit_sink):
+            captured["factory"] = factory
+            captured["config"] = config
+
+        def shutdown(self, timeout):
+            return None
+
+    class FakeServer:
+        server_address = ("127.0.0.1", 8765)
+
+        def serve_forever(self, poll_interval):
+            return None
+
+        def shutdown(self):
+            return None
+
+        def server_close(self):
+            return None
+
+    def client_factory(_model):
+        client = CloseTrackingClient()
+        clients.append(client)
+        return client
+
+    monkeypatch.setattr(cli_module, "TaskService", FakeService)
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda _console: None)
+    monkeypatch.setattr(http_server_module, "create_http_server", lambda *_args: FakeServer())
+
+    cli_module.serve_http(
+        config_path,
+        client_factory=client_factory,
+        console=SimpleNamespace(print=lambda *_args: None),
+        once=True,
+    )
+
+    assert len(clients) == 1
+    assert clients[0].closed is True
+    task = captured["factory"](SimpleNamespace(task_id="server-owned-context"))
+    try:
+        assert task._context_policy._config is captured["config"].context_config
+        assert task._context_policy._config == ContextConfig(image_token_reserve=512)
+    finally:
+        task.close()
+        task._client.close()
 
 
 def test_unknown_task_and_unknown_route_use_safe_errors(running_server):

@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from pathlib import Path
 
+from .context import ContextConfig
+
 MAX_BEARER_TOKEN_LENGTH = 4096
 
 
@@ -64,6 +66,7 @@ class HttpServiceConfig:
     audit_max_bytes: int = 10 * 1024 * 1024
     audit_retention_files: int = 5
     allowlist: tuple[str, ...] = ()
+    context_config: ContextConfig = dataclass_field(default_factory=ContextConfig)
 
     @classmethod
     def from_sources(
@@ -77,6 +80,14 @@ class HttpServiceConfig:
         token = source_env.get("FORGEAGENT_HTTP_TOKEN", values.get("token", ""))
         host = str(values.get("bind_host", "127.0.0.1"))
         allowlist = values.get("allowlist", ())
+        context_value = values.get("context", {})
+
+        try:
+            if not isinstance(context_value, Mapping):
+                raise ValueError
+            context_config = ContextConfig.model_validate(context_value)
+        except ValueError as error:
+            raise ValueError("context configuration is invalid") from error
 
         try:
             is_loopback = ipaddress.ip_address(host).is_loopback
@@ -118,6 +129,7 @@ class HttpServiceConfig:
             audit_max_bytes=_integer_value(values, "audit_max_bytes", 10 * 1024 * 1024),
             audit_retention_files=_integer_value(values, "audit_retention_files", 5),
             allowlist=tuple(allowlist),
+            context_config=context_config,
         )
         if not 1 <= result.port <= 65535:
             raise ValueError("port must be between 1 and 65535")

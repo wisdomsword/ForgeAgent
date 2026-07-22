@@ -16,6 +16,7 @@ from forgeagent.http_task_service import (
     TaskNotFound,
     TaskRecord,
     TaskService,
+    _usage_summary,
 )
 from forgeagent.models import TokenUsage
 from forgeagent.step import RoundResult, Termination
@@ -176,6 +177,28 @@ def test_answered_in_prose_projection_never_returns_model_or_file_content():
         assert "model answer" not in repr(view)
     finally:
         service.shutdown(1.0)
+
+
+def test_usage_projection_excludes_internal_normalized_prompt_metrics():
+    summary = _usage_summary(
+        _outcome(
+            usage=TokenUsage(
+                input_tokens=7,
+                output_tokens=5,
+                cached_tokens=3,
+                reasoning_tokens=2,
+                total_prompt_tokens=10,
+                cache_rate_unavailable=True,
+            )
+        )
+    )
+
+    assert summary == {
+        "input_tokens": 7,
+        "output_tokens": 5,
+        "cached_tokens": 3,
+        "reasoning_tokens": 2,
+    }
 
 
 def test_unknown_outcome_reason_projects_fixed_internal_error():
