@@ -74,9 +74,11 @@ class StreamEvent(BaseModel):
 `image_token_reserve`, `round_feedback_max_tokens`, and `tool_result_max_tokens`
 limits are **approximate tokens**, not provider tokenizer values. A null feedback
 limit is adaptive: for context window `C`, ratio `R`, and effective output reserve
-`O`, `input = floor(C * R) - O`, `round = floor(input * 10%)`, and
-`tool = floor(round * 25%)`. `O` is `GenerationParams.max_output_tokens` when set,
-otherwise `ModelCapability.max_output_tokens`.
+`O`, `input = floor(C * R) - O`, `adaptive_round = floor(input * 10%)`, and
+`adaptive_tool = floor(adaptive_round * 25%)`. The explicit round and tool settings
+then independently override `adaptive_round` and `adaptive_tool`; the final values
+must both be positive and `round >= tool`. `O` is `GenerationParams.max_output_tokens`
+when set, otherwise `ModelCapability.max_output_tokens`.
 
 The local estimator includes fixed message framing and an image reserve. It is a
 conservative approximation rather than a billing or tokenizer substitute; the default

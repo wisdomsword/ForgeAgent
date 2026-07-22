@@ -91,8 +91,10 @@ export LLM_BASE_URL="..."               # 必须含 /v1
 `config.yaml` 可含顶层 `context`：`utilization_ratio`（无量纲比例，默认 `0.8`）、
 `image_token_reserve`、`round_feedback_max_tokens` 和 `tool_result_max_tokens`。后三者
 均为**近似 token**；后两个为 `null` 时自动推导。对模型窗口 `C`、比例 `R` 和有效
-输出预留 `O`，输入预算为 `floor(C * R) - O`，单轮反馈预算为该值的 `floor(10%)`，
-单工具结果预算为单轮预算的 `floor(25%)`。`O` 使用本次请求的
+输出预留 `O`，输入预算为 `floor(C * R) - O`；先独立计算自适应单轮反馈预算
+`floor(input * 10%)` 和自适应单工具结果预算 `floor(adaptive_round * 25%)`，再由
+`round_feedback_max_tokens` 和 `tool_result_max_tokens` 分别覆盖对应自适应值，最后验证
+两个最终值均为正且单轮预算不小于单工具预算。`O` 使用本次请求的
 `max_output_tokens`，未指定时使用模型 capability 的 `max_output_tokens`。
 
 估算是本地、保守的字符/图片储备近似值，不等同 provider tokenizer 或计费口径；默认

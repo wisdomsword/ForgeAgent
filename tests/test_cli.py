@@ -1479,40 +1479,51 @@ def test_repl_cache_rate_accumulates_without_reusing_task_messages():
     assert console.export_text().count("cache_hit=40.0%") == 1
 
 
-def test_repl_context_reload_failure_keeps_previous_context_and_never_reports_success(monkeypatch):
+def test_repl_falsey_context_reload_keeps_previous_registry_and_context(monkeypatch, tmp_path):
     import forgeagent.cli as cli_module
+    import forgeagent.context as context_module
     from forgeagent.context import ContextConfig
+    from forgeagent.model_registry import load_registry
 
+    old_registry = load_registry()
+    candidate_registry = old_registry.model_copy(deep=True)
     old_context = ContextConfig(image_token_reserve=111)
     inputs = iter(["/reload", "do a thing", "quit"])
     seen_contexts = []
+    seen_registries = []
     real_run_once = cli_module.run_once
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("false\n")
 
-    monkeypatch.setattr(
-        cli_module,
-        "load_context_config",
-        lambda: (_ for _ in ()).throw(ValueError("invalid context")),
-    )
+    monkeypatch.setattr(context_module, "_DEFAULT_CONFIG_PATH", config_path)
+    monkeypatch.setattr(cli_module, "reload_registry", lambda: candidate_registry)
+
+    def real_factory(model, *, registry=None, env=None):
+        seen_registries.append(registry)
+        return MockClient(script=[_reply(_done())])
 
     def record_run_once(*args, **kwargs):
         seen_contexts.append(kwargs["context_config"])
         return real_run_once(*args, **kwargs)
 
+    monkeypatch.setattr(cli_module, "build_real_client", real_factory)
     monkeypatch.setattr(cli_module, "run_once", record_run_once)
     console = _console()
     cli_module.repl(
         tier="trusted",
         model="claude-sonnet-5",
-        client_factory=_factory([_reply(_done())]),
+        client_factory=real_factory,
         console=console,
         read_line=lambda prompt: next(inputs),
         context_config=old_context,
+        registry=old_registry,
     )
 
     text = console.export_text()
     assert "reload failed" in text
     assert "reloaded:" not in text
     assert seen_contexts == [old_context]
+    assert seen_registries == [old_registry]
 
 
 def test_repl_context_reload_swaps_context_only_after_both_configs_validate(monkeypatch):

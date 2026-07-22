@@ -62,15 +62,17 @@ class SlidingWindowContextPolicy:
         if input_budget <= 0:
             raise ValueError("input budget must be positive")
 
+        adaptive_round_feedback_limit = math.floor(input_budget * 0.10)
+        adaptive_tool_result_limit = math.floor(adaptive_round_feedback_limit * 0.25)
         round_feedback_limit = (
             config.round_feedback_max_tokens
             if config.round_feedback_max_tokens is not None
-            else math.floor(input_budget * 0.10)
+            else adaptive_round_feedback_limit
         )
         tool_result_limit = (
             config.tool_result_max_tokens
             if config.tool_result_max_tokens is not None
-            else math.floor(round_feedback_limit * 0.25)
+            else adaptive_tool_result_limit
         )
         if round_feedback_limit <= 0:
             raise ValueError("round feedback limit must be positive")
@@ -176,7 +178,9 @@ def load_context_config(
     if data is None:
         config_path = _DEFAULT_CONFIG_PATH if path is None else path
         if config_path.exists():
-            loaded = yaml.safe_load(config_path.read_text()) or {}
+            loaded = yaml.safe_load(config_path.read_text())
+            if loaded is None:
+                loaded = {}
         else:
             loaded = {}
     else:

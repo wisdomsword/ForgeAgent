@@ -72,6 +72,24 @@ def test_load_context_config_reads_only_top_level_context_mapping(tmp_path: Path
     assert load_context_config(path) == ContextConfig(utilization_ratio=0.5, image_token_reserve=99)
 
 
+@pytest.mark.parametrize("contents", ["[]\n", "false\n", "0\n", "\"\"\n"])
+def test_load_context_config_rejects_falsey_non_mapping_roots_from_path(
+    tmp_path: Path, contents: str
+):
+    path = tmp_path / "config.yaml"
+    path.write_text(contents)
+
+    with pytest.raises(ValueError, match="^configuration root must be a mapping$"):
+        load_context_config(path)
+
+
+def test_load_context_config_empty_document_uses_defaults(tmp_path: Path):
+    path = tmp_path / "config.yaml"
+    path.write_text("")
+
+    assert load_context_config(path) == ContextConfig()
+
+
 @pytest.mark.parametrize(
     ("text", "expected"),
     [
@@ -164,7 +182,7 @@ def test_policy_reserves_effective_output_and_resolves_adaptive_limits():
 @pytest.mark.parametrize(
     ("config", "expected_round_limit", "expected_result_limit"),
     [
-        (ContextConfig(round_feedback_max_tokens=90), 90, 22),
+        (ContextConfig(round_feedback_max_tokens=90), 90, 17),
         (ContextConfig(tool_result_max_tokens=20), 70, 20),
     ],
 )
