@@ -237,7 +237,7 @@ git commit -m "feat: apply context policy at model request boundaries"
 
 ### Task 4: ToolOutcome 截断语义与真实 continuation
 
-- [ ] **Task 4 complete: ToolOutcome 截断语义与真实 continuation 已交付**
+- [x] **Task 4 complete: ToolOutcome 截断语义与真实 continuation 已交付**
 
 **Files:**
 - Modify: `src/forgeagent/tools.py`
@@ -249,7 +249,7 @@ git commit -m "feat: apply context policy at model request boundaries"
 - `ToolOutcome.truncation_mode: Literal["head", "tail"] = "tail"`.
 - Exec stays tail; FileRead/FileList/WebFetch/Survey/MCP return head and truthful continuation.
 
-- [ ] **Step 1: 写每个工具 outcome 元数据的失败测试**
+- [x] **Step 1: 写每个工具 outcome 元数据的失败测试**
 
 ```python
 def test_exec_uses_tail_and_mcp_uses_honest_head_continuation():
@@ -261,13 +261,13 @@ def test_exec_uses_tail_and_mcp_uses_honest_head_continuation():
 
 File/WebFetch 测试只断言真实现有能力；不得断言新 cursor/offset。
 
-- [ ] **Step 2: 运行 RED**
+- [x] **Step 2: 运行 RED**
 
 Run: `.venv/bin/pytest -q tests/test_tools.py tests/test_web_file_tools.py -k 'continuation or truncation_mode'`
 
 Expected: FAIL because ToolOutcome fields are missing.
 
-- [ ] **Step 3: 添加两个字段并在工具执行结果处设置**
+- [x] **Step 3: 添加两个字段并在工具执行结果处设置**
 
 ```python
 class ToolOutcome(BaseModel):
@@ -278,13 +278,13 @@ class ToolOutcome(BaseModel):
 
 字段由工具构造 outcome 时设置，executor/Step 不按工具名分支。WebFetch 只有在已有完整落盘文件时才引用真实相对路径。
 
-- [ ] **Step 4: 运行工具回归**
+- [x] **Step 4: 运行工具回归**
 
 Run: `.venv/bin/pytest -q tests/test_tools.py tests/test_web_file_tools.py tests/test_mcp_manager.py`
 
 Expected: PASS.
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add src/forgeagent/tools.py tests/test_tools.py tests/test_web_file_tools.py
