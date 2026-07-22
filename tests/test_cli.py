@@ -33,7 +33,13 @@ from forgeagent.client import MockClient
 from forgeagent.executor import TrustedBackend
 from forgeagent.mcp_manager import MCPManager, MCPServerConfig
 from forgeagent.model_registry import RegistryError
-from forgeagent.models import AssistantMessage, StreamEvent, StreamEventKind, TokenUsage
+from forgeagent.models import (
+    AssistantMessage,
+    ModelCapability,
+    StreamEvent,
+    StreamEventKind,
+    TokenUsage,
+)
 from forgeagent.protocol import FileListArgs, FileWriteArgs, MCPArgs, ToolCall, WebFetchArgs
 from forgeagent.runtime import Runtime
 from forgeagent.step import RoundResult, Step, Termination
@@ -1632,7 +1638,7 @@ def test_repl_registry_snapshot_never_bypasses_injected_factory():
     assert calls == ["claude-sonnet-5"]
 
 
-def test_repl_rejects_model_switch_when_current_context_cannot_fit_its_capability():
+def test_repl_rejects_model_switch_when_current_context_cannot_fit_its_capability(monkeypatch):
     import forgeagent.cli as cli_module
     from forgeagent.context import ContextConfig
     from forgeagent.model_registry import load_registry
@@ -1640,15 +1646,16 @@ def test_repl_rejects_model_switch_when_current_context_cannot_fit_its_capabilit
     models = []
     inputs = iter(["/model claude-haiku-4-5", "do a thing", "quit"])
 
-    def injected_factory(model):
+    def real_factory(model, *, registry=None, env=None):
         models.append(model)
         return MockClient(script=[_reply(_done())])
 
+    monkeypatch.setattr(cli_module, "build_real_client", real_factory)
     console = _console()
     cli_module.repl(
         tier="trusted",
         model="claude-sonnet-5",
-        client_factory=injected_factory,
+        client_factory=real_factory,
         console=console,
         read_line=lambda prompt: next(inputs),
         context_config=ContextConfig(tool_result_max_tokens=10_000),
@@ -1671,6 +1678,83 @@ def test_main_returns_config_error_for_initial_unresolvable_context_policy(monke
 
     assert cli_module.main(["run", "do a thing"], client_factory=_factory([_reply(_done())])) == 2
     assert "config error" in capsys.readouterr().out
+
+
+def test_main_custom_injected_model_uses_factory_without_registry_lookup():
+    custom_capability = ModelCapability(
+        model_id="custom-model",
+        context_window=1_000_000,
+        max_output_tokens=128_000,
+        supports_thinking=False,
+        thinking_always_on=False,
+        supports_effort=False,
+        client_kind="anthropic",
+    )
+    calls = []
+
+    def injected_factory(model):
+        calls.append(model)
+        return MockClient(script=[_reply(_done())], capability=custom_capability)
+
+    assert main(["--model", "custom-model", "run", "goal"], client_factory=injected_factory) == 0
+    assert calls == ["custom-model"]
+
+
+def test_main_injected_capability_policy_failure_is_structured_and_single_use(capsys):
+    incompatible_capability = ModelCapability(
+        model_id="claude-sonnet-5",
+        context_window=100,
+        max_output_tokens=100,
+        supports_thinking=False,
+        thinking_always_on=False,
+        supports_effort=False,
+        client_kind="anthropic",
+    )
+    clients = []
+
+    def injected_factory(model):
+        client = MockClient(script=[_reply(_done())], capability=incompatible_capability)
+        clients.append(client)
+        return client
+
+    assert main(["run", "goal"], client_factory=injected_factory) == 2
+    assert "config error" in capsys.readouterr().out
+    assert len(clients) == 1
+    assert clients[0].calls_made == 0
+
+
+def test_direct_repl_registry_does_not_prevalidate_injected_custom_model():
+    import forgeagent.cli as cli_module
+    from forgeagent.model_registry import load_registry
+
+    custom_capability = ModelCapability(
+        model_id="custom-model",
+        context_window=1_000_000,
+        max_output_tokens=128_000,
+        supports_thinking=False,
+        thinking_always_on=False,
+        supports_effort=False,
+        client_kind="anthropic",
+    )
+    calls = []
+    inputs = iter(["goal", "quit"])
+
+    def injected_factory(model):
+        calls.append(model)
+        return MockClient(script=[_reply(_done())], capability=custom_capability)
+
+    console = _console()
+    cli_module.repl(
+        tier="trusted",
+        model="custom-model",
+        client_factory=injected_factory,
+        console=console,
+        read_line=lambda prompt: next(inputs),
+        registry=load_registry(),
+    )
+
+    assert calls == ["custom-model"]
+    assert "completed" in console.export_text()
 
 
 def test_repl_reload_unchanged_identity_does_not_reconfirm(monkeypatch, tmp_path):

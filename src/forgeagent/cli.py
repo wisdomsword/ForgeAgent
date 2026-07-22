@@ -171,6 +171,11 @@ def _validate_context_policy(
     SlidingWindowContextPolicy(get_capability(model, registry), None, context_config)
 
 
+def _validate_client_context_policy(client: ModelClient, context_config: ContextConfig) -> None:
+    """Validate an injected client's actual capability before constructing its Task."""
+    SlidingWindowContextPolicy(client.capability, None, context_config)
+
+
 def _make_stream_callback(console: Console) -> tuple[Live, Callable[[str, StreamEventKind], None]]:
     """A rich.live.Live + callback pair for `--stream` display (design doc §3.3):
     THINKING_DELTA renders dim, TEXT_DELTA plain. auto_refresh is off — the callback
@@ -490,21 +495,29 @@ def run_once(
     console = console or Console()
     usage_total = usage_total if usage_total is not None else TokenUsage()
     client = client_factory(model)
+    resolved_context_config = context_config or ContextConfig()
+    try:
+        _validate_client_context_policy(client, resolved_context_config)
+    except ValueError as exc:
+        raise RegistryError(f"Invalid context configuration: {exc}") from exc
     live: Live | None = None
     on_stream_text = None
     if stream and console.is_terminal:
         live, on_stream_text = _make_stream_callback(console)
-    task = Task(
-        client,
-        tier=tier,
-        asker=asker,
-        mcp=mcp,
-        confirmer=confirmer,
-        identity=identity,
-        container_image=container_image,
-        on_stream_text=on_stream_text,
-        context_config=context_config or ContextConfig(),
-    )
+    try:
+        task = Task(
+            client,
+            tier=tier,
+            asker=asker,
+            mcp=mcp,
+            confirmer=confirmer,
+            identity=identity,
+            container_image=container_image,
+            on_stream_text=on_stream_text,
+            context_config=resolved_context_config,
+        )
+    except ValueError as exc:
+        raise RegistryError(f"Invalid context configuration: {exc}") from exc
     try:
         if live is not None:
             with live:
@@ -579,6 +592,7 @@ def _handle_model_command(
     console: Console,
     registry: Registry | None = None,
     context_config: ContextConfig | None = None,
+    validate_context: bool = True,
 ) -> str:
     """`/model` lists registered models (reuses `print_models`); `/model <id-or-alias>`
     switches the current REPL session's model. Returns the model to use for subsequent
@@ -589,18 +603,19 @@ def _handle_model_command(
         print_models(console, registry)
         return model
     requested = parts[1].strip()
-    try:
-        _validate_context_policy(
-            requested,
-            registry if registry is not None else load_registry(),
-            context_config or ContextConfig(),
-        )
-    except RegistryError as exc:
-        console.print(f"[red]unknown model[/red]: {exc}")
-        return model
-    except ValueError as exc:
-        console.print(f"[red]model switch failed[/red]: invalid context configuration: {exc}")
-        return model
+    if validate_context:
+        try:
+            _validate_context_policy(
+                requested,
+                registry if registry is not None else load_registry(),
+                context_config or ContextConfig(),
+            )
+        except RegistryError as exc:
+            console.print(f"[red]unknown model[/red]: {exc}")
+            return model
+        except ValueError as exc:
+            console.print(f"[red]model switch failed[/red]: invalid context configuration: {exc}")
+            return model
     console.print(f"[green]switched[/green] to {requested}")
     return requested
 
@@ -712,13 +727,13 @@ def repl(
     console = console or Console()
     current_context = context_config or ContextConfig()
     current_registry = registry
-    if current_registry is not None:
+    if use_registry_snapshot is None:
+        use_registry_snapshot = client_factory is build_real_client
+    if use_registry_snapshot and current_registry is not None:
         try:
             _validate_context_policy(model, current_registry, current_context)
         except ValueError as exc:
             raise RegistryError(f"Invalid context configuration: {exc}") from exc
-    if use_registry_snapshot is None:
-        use_registry_snapshot = client_factory is build_real_client
 
     def task_client_factory(selected_model: str) -> ModelClient:
         if use_registry_snapshot and current_registry is not None:
@@ -764,7 +779,12 @@ def repl(
                 continue
             if goal == "/model" or goal.startswith("/model "):
                 model = _handle_model_command(
-                    goal, model, console, current_registry, current_context
+                    goal,
+                    model,
+                    console,
+                    current_registry,
+                    current_context,
+                    use_registry_snapshot or current_registry is None,
                 )
                 continue
             if goal == "/search" or goal.startswith("/search "):
@@ -803,7 +823,8 @@ def repl(
                 try:
                     candidate_registry = reload_registry()
                     candidate_context = load_context_config()
-                    _validate_context_policy(model, candidate_registry, candidate_context)
+                    if use_registry_snapshot:
+                        _validate_context_policy(model, candidate_registry, candidate_context)
                 except (OSError, RegistryError, ValueError, yaml.YAMLError) as exc:
                     console.print(f"[red]reload failed[/red]: {exc}")
                     continue
@@ -1323,11 +1344,12 @@ def main(
         identity_diagnostic = make_console_identity_diagnostic(console)
         if args.command == "run":
             context_config = _load_cli_context_config()
-            runtime_registry = load_registry()
-            try:
-                _validate_context_policy(args.model, runtime_registry, context_config)
-            except ValueError as exc:
-                raise RegistryError(f"Invalid context configuration: {exc}") from exc
+            runtime_registry = load_registry() if client_factory is build_real_client else None
+            if runtime_registry is not None:
+                try:
+                    _validate_context_policy(args.model, runtime_registry, context_config)
+                except ValueError as exc:
+                    raise RegistryError(f"Invalid context configuration: {exc}") from exc
             runtime_client_factory = _client_factory_for_registry(
                 runtime_registry if client_factory is build_real_client else None,
                 client_factory,
@@ -1378,11 +1400,12 @@ def main(
             )
             return 0 if ok else 1
         context_config = _load_cli_context_config()
-        runtime_registry = load_registry()
-        try:
-            _validate_context_policy(args.model, runtime_registry, context_config)
-        except ValueError as exc:
-            raise RegistryError(f"Invalid context configuration: {exc}") from exc
+        runtime_registry = load_registry() if client_factory is build_real_client else None
+        if runtime_registry is not None:
+            try:
+                _validate_context_policy(args.model, runtime_registry, context_config)
+            except ValueError as exc:
+                raise RegistryError(f"Invalid context configuration: {exc}") from exc
         repl(
             tier=args.tier,
             model=args.model,
