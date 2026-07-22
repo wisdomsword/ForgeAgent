@@ -379,6 +379,7 @@ class Step:
                     "model": model_id,
                     "stop_reason": reply.stop_reason,
                     "usage": reply.usage.model_dump(mode="python"),
+                    "cache_hit_rate": reply.usage.cache_hit_rate,
                 }
             self._emit(
                 AuditEvent(

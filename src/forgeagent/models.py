@@ -87,6 +87,40 @@ class TokenUsage(BaseModel):
     # Anthropic: always 0 (thinking is billed inside output_tokens, never split out).
     reasoning_tokens: int = 0
     total_prompt_tokens: int | None = Field(default=None, exclude=True, repr=False)
+    # Session accumulators need to distinguish no calls from an unknown denominator;
+    # neither flag is part of the provider-facing usage contract.
+    cache_rate_seen: bool = Field(default=False, exclude=True, repr=False)
+    cache_rate_unavailable: bool = Field(default=False, exclude=True, repr=False)
+
+    @property
+    def cache_hit_rate(self) -> float | None:
+        """Return a valid cached-prompt ratio without normalizing bad provider data."""
+        total = self.total_prompt_tokens
+        if (
+            self.cache_rate_unavailable
+            or total is None
+            or total <= 0
+            or self.cached_tokens < 0
+            or self.cached_tokens > total
+        ):
+            return None
+        return self.cached_tokens / total
+
+    def accumulate_cache_rate(self, usage: TokenUsage) -> None:
+        """Add one successful call's prompt denominator to this mutable accumulator."""
+        self.cache_rate_seen = True
+        denominator = usage.total_prompt_tokens
+        if denominator is None:
+            self.cache_rate_unavailable = True
+            self.total_prompt_tokens = None
+            return
+        if usage.cached_tokens < 0 or usage.cached_tokens > denominator:
+            self.cache_rate_unavailable = True
+        if self.total_prompt_tokens is None:
+            if not self.cache_rate_unavailable:
+                self.total_prompt_tokens = denominator
+            return
+        self.total_prompt_tokens += denominator
 
 
 class NativeToolCall(BaseModel):

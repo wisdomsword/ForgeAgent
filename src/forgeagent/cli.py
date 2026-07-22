@@ -40,6 +40,7 @@ from . import http_server
 from .anthropic_client import AnthropicClient
 from .audit import JsonlAuditSink
 from .client import ModelClient
+from .context import ContextConfig, load_context_config
 from .executor import ContainerRuntimeError
 from .headless import HeadlessConfirmer
 from .http_config import HttpServiceConfig
@@ -56,6 +57,7 @@ from .identity import (
 from .image_input import load_images
 from .mcp_manager import MCPManager, load_mcp_config
 from .model_registry import (
+    Registry,
     RegistryError,
     get_capability,
     list_models,
@@ -128,7 +130,12 @@ _CLIENT_CLASSES: dict[str, type[AnthropicClient | OpenAICompatibleClient]] = {
 }
 
 
-def build_real_client(model: str, env: dict[str, str] | None = None) -> ModelClient:
+def build_real_client(
+    model: str,
+    env: dict[str, str] | None = None,
+    *,
+    registry: Registry | None = None,
+) -> ModelClient:
     """Assemble a real client from the environment (key never stored).
 
     Dispatches to AnthropicClient or OpenAICompatibleClient by
@@ -136,13 +143,25 @@ def build_real_client(model: str, env: dict[str, str] | None = None) -> ModelCli
     the right provider is by the model's own registered group (model_registry.py),
     not by scanning whichever provider's env vars happen to be set.
     """
-    resolved = resolve_model(model, load_registry(), env=env)
+    resolved = resolve_model(model, registry if registry is not None else load_registry(), env=env)
     client_class = _CLIENT_CLASSES[resolved.capability.client_kind]
     return client_class(
         capability=resolved.capability,
         api_key=resolved.api_key,
         base_url=resolved.base_url,
     )
+
+
+def _client_factory_for_registry(
+    registry: Registry | None, fallback: ClientFactory
+) -> ClientFactory:
+    if registry is None:
+        return fallback
+
+    def build_from_snapshot(model: str) -> ModelClient:
+        return build_real_client(model, registry=registry)
+
+    return build_from_snapshot
 
 
 def _make_stream_callback(console: Console) -> tuple[Live, Callable[[str, StreamEventKind], None]]:
@@ -201,13 +220,16 @@ def _accumulate_usage(total: TokenUsage, rounds: list[RoundResult]) -> None:
         total.output_tokens += rnd.usage.output_tokens
         total.cached_tokens += rnd.usage.cached_tokens
         total.reasoning_tokens += rnd.usage.reasoning_tokens
+        total.accumulate_cache_rate(rnd.usage)
 
 
 def _print_usage(total: TokenUsage, console: Console) -> None:
+    cache_hit = total.cache_hit_rate
+    cache_hit_display = "n/a" if cache_hit is None else f"{cache_hit * 100:.1f}%"
     console.print(
         f"[dim]usage: in={total.input_tokens} out={total.output_tokens} "
         f"cached={total.cached_tokens} reasoning={total.reasoning_tokens} "
-        f"(session total)[/dim]"
+        f"(session total) cache_hit={cache_hit_display}[/dim]"
     )
 
 
@@ -442,6 +464,7 @@ def run_once(
     usage_total: TokenUsage | None = None,
     images: list[ImageItem] | None = None,
     stream: bool = False,
+    context_config: ContextConfig | None = None,
 ) -> TaskOutcome:
     """Run a single goal and render its outcome. Returns the outcome for testing.
 
@@ -473,6 +496,7 @@ def run_once(
         identity=identity,
         container_image=container_image,
         on_stream_text=on_stream_text,
+        context_config=context_config or ContextConfig(),
     )
     try:
         if live is not None:
@@ -542,18 +566,20 @@ def _handle_mcp_slash(goal: str, mcp: MCPManager | None, console: Console) -> No
         _print_mcp_tools(mcp, console)
 
 
-def _handle_model_command(goal: str, model: str, console: Console) -> str:
+def _handle_model_command(
+    goal: str, model: str, console: Console, registry: Registry | None = None
+) -> str:
     """`/model` lists registered models (reuses `print_models`); `/model <id-or-alias>`
     switches the current REPL session's model. Returns the model to use for subsequent
     goals — unchanged if no argument was given or the requested id is unknown (an
     unknown id reports an error and never switches, design doc §3.5)."""
     parts = goal.split(maxsplit=1)
     if len(parts) == 1:
-        print_models(console)
+        print_models(console, registry)
         return model
     requested = parts[1].strip()
     try:
-        get_capability(requested)
+        get_capability(requested, registry)
     except RegistryError as exc:
         console.print(f"[red]unknown model[/red]: {exc}")
         return model
@@ -656,6 +682,8 @@ def repl(
     container_image: str | None = None,
     stream: bool = False,
     no_identity: bool = False,
+    context_config: ContextConfig | None = None,
+    registry: Registry | None = None,
 ) -> None:
     """Interactive loop: read a goal, run it, repeat. Blank line or EOF/quit exits.
 
@@ -663,6 +691,16 @@ def repl(
     `stream` (M9 Phase 3) renders each goal's response live as it arrives.
     """
     console = console or Console()
+    current_context = context_config or ContextConfig()
+    current_registry = registry
+    use_registry_snapshot = registry is not None
+
+    def task_client_factory(selected_model: str) -> ModelClient:
+        if use_registry_snapshot:
+            assert current_registry is not None
+            return build_real_client(selected_model, registry=current_registry)
+        return client_factory(selected_model)
+
     console.print("[bold]ForgeAgent[/bold] REPL — enter a goal, blank line or 'quit' to exit.")
     console.print("[dim]type '/' and enter for the command menu, or '/help'[/dim]")
     # Survey remains available through the injected reader; side-effecting operations need
@@ -701,7 +739,7 @@ def repl(
                 _print_command_menu(console)
                 continue
             if goal == "/model" or goal.startswith("/model "):
-                model = _handle_model_command(goal, model, console)
+                model = _handle_model_command(goal, model, console, current_registry)
                 continue
             if goal == "/search" or goal.startswith("/search "):
                 _handle_search_command(goal, console)
@@ -719,7 +757,7 @@ def repl(
                     goal,
                     tier=tier,
                     model=model,
-                    client_factory=client_factory,
+                    client_factory=task_client_factory,
                     console=console,
                     asker=asker,
                     mcp=mcp,
@@ -729,19 +767,22 @@ def repl(
                     usage_total=usage_total,
                     images=images,
                     stream=stream,
+                    context_config=current_context,
                 )
                 continue
             if goal == "/mcp" or goal.startswith("/mcp "):
                 _handle_mcp_slash(goal, mcp, console)
                 continue
             if goal == "/reload":
-                # Re-validate model config, then re-resolve identity. Changed project
-                # content re-enters the trust gate; unchanged content reuses its digest.
                 try:
-                    reloaded = reload_registry()
-                    console.print(f"[green]reloaded[/green]: {len(reloaded.models)} models")
-                except RegistryError as exc:
+                    candidate_registry = reload_registry()
+                    candidate_context = load_context_config()
+                except (OSError, RegistryError, ValueError, yaml.YAMLError) as exc:
                     console.print(f"[red]reload failed[/red]: {exc}")
+                    continue
+                current_registry = candidate_registry
+                current_context = candidate_context
+                console.print(f"[green]reloaded[/green]: {len(current_registry.models)} models")
                 if not no_identity:
                     try:
                         identity = resolve_cli_identity(
@@ -765,7 +806,7 @@ def repl(
                 goal,
                 tier=tier,
                 model=model,
-                client_factory=client_factory,
+                client_factory=task_client_factory,
                 console=console,
                 asker=asker,
                 mcp=mcp,
@@ -775,6 +816,7 @@ def repl(
                 usage_total=usage_total,
                 images=staged_images,
                 stream=stream,
+                context_config=current_context,
             )
             staged_images = None
     finally:
@@ -868,15 +910,23 @@ def build_mcp_manager(console: Console) -> MCPManager | None:
     return manager
 
 
-def print_models(console: Console) -> None:
+def print_models(console: Console, registry: Registry | None = None) -> None:
     """Print the registered models with their aliases and key capabilities."""
     console.print("[bold]Available models[/bold] (canonical — aliases):")
-    for info in list_models():
+    for info in list_models(registry):
         aliases = ", ".join(info.aliases) if info.aliases else "—"
         console.print(
             f"  [cyan]{info.model_id}[/cyan] — {aliases}  "
             f"[dim]({info.client_kind}, ctx {info.context_window})[/dim]"
         )
+
+
+def _load_cli_context_config() -> ContextConfig:
+    """Translate context parsing failures to the CLI's existing config-error path."""
+    try:
+        return load_context_config()
+    except (OSError, ValueError, yaml.YAMLError) as exc:
+        raise RegistryError(f"Invalid context configuration: {exc}") from exc
 
 
 def _load_http_runtime_settings(path: str | Path) -> _HttpRuntimeSettings:
@@ -1245,6 +1295,9 @@ def main(
         )
         identity_diagnostic = make_console_identity_diagnostic(console)
         if args.command == "run":
+            context_config = _load_cli_context_config()
+            runtime_registry = load_registry() if client_factory is build_real_client else None
+            runtime_client_factory = _client_factory_for_registry(runtime_registry, client_factory)
             images = None
             if args.image:
                 try:
@@ -1265,7 +1318,7 @@ def main(
                     args.goal,
                     tier=args.tier,
                     model=args.model,
-                    client_factory=client_factory,
+                    client_factory=runtime_client_factory,
                     console=console,
                     asker=make_console_asker(console) if args.interactive else None,
                     mcp=mcp,
@@ -1274,6 +1327,7 @@ def main(
                     container_image=args.container_image,
                     images=images,
                     stream=args.stream,
+                    context_config=context_config,
                 )
             finally:
                 if mcp is not None:
@@ -1289,14 +1343,19 @@ def main(
                 tier=args.tier, models=models, client_factory=client_factory, console=console
             )
             return 0 if ok else 1
+        context_config = _load_cli_context_config()
+        runtime_registry = load_registry() if client_factory is build_real_client else None
+        runtime_client_factory = _client_factory_for_registry(runtime_registry, client_factory)
         repl(
             tier=args.tier,
             model=args.model,
-            client_factory=client_factory,
+            client_factory=runtime_client_factory,
             console=console,
             container_image=args.container_image,
             stream=args.stream,
             no_identity=args.no_identity,
+            context_config=context_config,
+            registry=runtime_registry,
         )
         return 0
     except RegistryError as exc:

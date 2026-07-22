@@ -1412,6 +1412,134 @@ def test_repl_accumulates_usage_across_tasks_in_one_session():
     assert "usage: in=30 out=12 cached=4 reasoning=0 (session total)" in text
 
 
+def test_usage_line_uses_cache_hit_ratio_of_sums_and_rejects_unusable_denominators():
+    from forgeagent.cli import _accumulate_usage, _print_usage
+
+    total = TokenUsage()
+    _accumulate_usage(
+        total,
+        [RoundResult(text="", usage=TokenUsage(cached_tokens=10, total_prompt_tokens=40))],
+    )
+    _accumulate_usage(
+        total,
+        [RoundResult(text="", usage=TokenUsage(cached_tokens=30, total_prompt_tokens=60))],
+    )
+    console = _console()
+    _print_usage(total, console)
+    assert "cache_hit=40.0%" in console.export_text()
+
+    _accumulate_usage(total, [RoundResult(text="", usage=TokenUsage(total_prompt_tokens=None))])
+    console = _console()
+    _print_usage(total, console)
+    assert "cache_hit=n/a" in console.export_text()
+
+    for usage in (
+        TokenUsage(cached_tokens=0, total_prompt_tokens=0),
+        TokenUsage(cached_tokens=-1, total_prompt_tokens=10),
+        TokenUsage(cached_tokens=11, total_prompt_tokens=10),
+    ):
+        console = _console()
+        _print_usage(usage, console)
+        assert "cache_hit=n/a" in console.export_text()
+
+
+def test_repl_cache_rate_accumulates_without_reusing_task_messages():
+    from forgeagent.cli import repl
+
+    received_message_counts: list[int] = []
+
+    class RecordingClient(MockClient):
+        def complete(self, messages, params=None):
+            received_message_counts.append(len(messages))
+            return super().complete(messages, params)
+
+    per_task_scripts = iter(
+        [
+            [_reply(_done(), usage=TokenUsage(cached_tokens=10, total_prompt_tokens=40))],
+            [_reply(_done(), usage=TokenUsage(cached_tokens=30, total_prompt_tokens=60))],
+        ]
+    )
+    console = _console()
+    inputs = iter(["first goal", "second goal", "quit"])
+    repl(
+        tier="trusted",
+        model="claude-sonnet-5",
+        client_factory=lambda model: RecordingClient(script=next(per_task_scripts)),
+        console=console,
+        read_line=lambda prompt: next(inputs),
+    )
+
+    assert received_message_counts == [2, 2]
+    assert console.export_text().count("cache_hit=40.0%") == 1
+
+
+def test_repl_context_reload_failure_keeps_previous_context_and_never_reports_success(monkeypatch):
+    import forgeagent.cli as cli_module
+    from forgeagent.context import ContextConfig
+
+    old_context = ContextConfig(image_token_reserve=111)
+    inputs = iter(["/reload", "do a thing", "quit"])
+    seen_contexts = []
+    real_run_once = cli_module.run_once
+
+    monkeypatch.setattr(
+        cli_module,
+        "load_context_config",
+        lambda: (_ for _ in ()).throw(ValueError("invalid context")),
+    )
+
+    def record_run_once(*args, **kwargs):
+        seen_contexts.append(kwargs["context_config"])
+        return real_run_once(*args, **kwargs)
+
+    monkeypatch.setattr(cli_module, "run_once", record_run_once)
+    console = _console()
+    cli_module.repl(
+        tier="trusted",
+        model="claude-sonnet-5",
+        client_factory=_factory([_reply(_done())]),
+        console=console,
+        read_line=lambda prompt: next(inputs),
+        context_config=old_context,
+    )
+
+    text = console.export_text()
+    assert "reload failed" in text
+    assert "reloaded:" not in text
+    assert seen_contexts == [old_context]
+
+
+def test_repl_context_reload_swaps_context_only_after_both_configs_validate(monkeypatch):
+    import forgeagent.cli as cli_module
+    from forgeagent.context import ContextConfig
+
+    old_context = ContextConfig(image_token_reserve=111)
+    new_context = ContextConfig(image_token_reserve=222)
+    inputs = iter(["/reload", "do a thing", "quit"])
+    seen_contexts = []
+    real_run_once = cli_module.run_once
+
+    monkeypatch.setattr(cli_module, "load_context_config", lambda: new_context)
+
+    def record_run_once(*args, **kwargs):
+        seen_contexts.append(kwargs["context_config"])
+        return real_run_once(*args, **kwargs)
+
+    monkeypatch.setattr(cli_module, "run_once", record_run_once)
+    console = _console()
+    cli_module.repl(
+        tier="trusted",
+        model="claude-sonnet-5",
+        client_factory=_factory([_reply(_done())]),
+        console=console,
+        read_line=lambda prompt: next(inputs),
+        context_config=old_context,
+    )
+
+    assert "reloaded:" in console.export_text()
+    assert seen_contexts == [new_context]
+
+
 def test_repl_reload_unchanged_identity_does_not_reconfirm(monkeypatch, tmp_path):
     import forgeagent.cli as cli_module
 

@@ -11,6 +11,11 @@ import pytest
 from pydantic import ValidationError
 
 from forgeagent.audit import AuditEvent, JsonlAuditSink
+from forgeagent.client import MockClient
+from forgeagent.executor import TrustedBackend
+from forgeagent.models import AssistantMessage, Message, Role, TokenUsage
+from forgeagent.runtime import Runtime
+from forgeagent.step import Step
 
 
 def _read_records(path):
@@ -246,3 +251,56 @@ def test_audit_concurrent_appends_are_complete_json_lines(tmp_path):
     records = _read_records(path)
     assert len(records) == 30
     assert {record["operation_id"] for record in records} == {str(i) for i in range(30)}
+
+
+@pytest.mark.parametrize(
+    ("usage", "expected_rate"),
+    [
+        (TokenUsage(input_tokens=30, cached_tokens=10, total_prompt_tokens=40), 0.25),
+        (TokenUsage(input_tokens=30, cached_tokens=10, total_prompt_tokens=None), None),
+        (TokenUsage(input_tokens=30, cached_tokens=50, total_prompt_tokens=40), None),
+    ],
+)
+def test_successful_llm_audit_records_cache_rate_without_changing_raw_usage(
+    tmp_path, usage, expected_rate
+):
+    class RecordingSink:
+        def __init__(self):
+            self.events = []
+
+        def emit(self, event):
+            self.events.append(event)
+            return True
+
+    path = tmp_path / "audit.jsonl"
+    reply = AssistantMessage(
+        content="---\ntask_status:\n  completed: true\n---\n",
+        usage=usage,
+        stop_reason="end_turn",
+    )
+    recording_sink = RecordingSink()
+    Step(
+        MockClient(script=[reply]),
+        TrustedBackend(),
+        Runtime(),
+        audit_sink=recording_sink,
+    ).run(
+        [
+            Message(role=Role.SYSTEM, content="system"),
+            Message(role=Role.USER, content="goal"),
+        ]
+    )
+    outcome = next(
+        event
+        for event in recording_sink.events
+        if event.event_type == "llm.outcome" and event.result_status == "success"
+    )
+    assert outcome.parameters["usage"] == usage.model_dump(mode="python")
+    assert outcome.parameters["cache_hit_rate"] == expected_rate
+
+    sink = JsonlAuditSink(path, secret_values=set())
+    assert sink.emit(outcome)
+    persisted = next(
+        record for record in _read_records(path) if record["event_type"] == "llm.outcome"
+    )
+    assert persisted["parameters"]["cache_hit_rate"] == expected_rate
