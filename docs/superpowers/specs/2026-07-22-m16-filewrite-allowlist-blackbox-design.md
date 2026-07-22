@@ -8,7 +8,10 @@
 
 - 使用动态空闲 loopback 端口、独立临时 allowed root、配置、日志和 JSONL 审计文件，不影响用户当前运行的服务。
 - 使用现有 `.venv/bin/forgeagent`、`curl`、`jq` 和当前 shell 中已有的模型凭证；默认模型为 `claude-sonnet-5`，可由 `M16_MODEL` 覆盖。
-- 两个阶段使用完全相同的目标文本，明确要求只调用一次 FileWrite，不得改用 Exec、MCP、Python、shell 或其他工具。
+- 两个阶段使用完全相同的目标文本，并内嵌唯一、完整的 ForgeAgent
+  `<!-- ToolCall: ... -->` FileWrite 标记及精确 `path`/`content` 参数。目标明确要求
+  模型原样发出该标记，不得改用 Exec、MCP、Python、shell 或其他工具。这样黑盒测试
+  只验证文本协议解析、HTTP allowlist 和真实执行链，不把未公开工具语法的猜测能力混入判据。
 - 每个阶段独立启动和关闭服务；脚本退出时通过 trap 清理后台进程，但保留临时证据目录。
 - 真实模型调用会产生费用，且执行时长受 provider 延迟影响。
 
