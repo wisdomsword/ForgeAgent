@@ -4,7 +4,7 @@ import json
 
 from forgeagent.client import MockClient
 from forgeagent.executor import RestrictedBackend, TrustedBackend
-from forgeagent.models import AssistantMessage, TokenUsage
+from forgeagent.models import AssistantMessage, Message, Role, TokenUsage
 from forgeagent.runtime import Runtime
 from forgeagent.step import Step
 from forgeagent.task import Task, _backend_for_tier
@@ -31,23 +31,30 @@ def _trusted_step(script) -> Step:
     return Step(MockClient(script=script), TrustedBackend(), Runtime(), max_rounds=5)
 
 
+def _initial_conversation() -> list[Message]:
+    return [
+        Message(role=Role.SYSTEM, content="system"),
+        Message(role=Role.USER, content="goal"),
+    ]
+
+
 def test_static_feedback_attached_for_forbidden_import():
     step = _trusted_step([_reply(_exec("import ctypes\nprint('hi')")), _reply(_done())])
-    rounds = step.run([])
+    rounds = step.run(_initial_conversation())
     outcome = rounds[0].outcomes[0]
     assert "forbidden-import" in outcome.static_feedback
 
 
 def test_static_feedback_flags_dynamic_import_t7():
     step = _trusted_step([_reply(_exec("m = __import__('os')")), _reply(_done())])
-    rounds = step.run([])
+    rounds = step.run(_initial_conversation())
     assert "dynamic-import" in rounds[0].outcomes[0].static_feedback
 
 
 def test_static_feedback_does_not_block_trusted_execution():
     # A flagged import still runs under trusted tier (static layer is advisory only).
     step = _trusted_step([_reply(_exec("import ctypes\nprint('ran anyway')")), _reply(_done())])
-    rounds = step.run([])
+    rounds = step.run(_initial_conversation())
     outcome = rounds[0].outcomes[0]
     assert outcome.success is True
     assert "ran anyway" in outcome.exec_result.stdout
@@ -56,14 +63,14 @@ def test_static_feedback_does_not_block_trusted_execution():
 
 def test_clean_code_has_no_static_feedback():
     step = _trusted_step([_reply(_exec("print(1 + 1)")), _reply(_done())])
-    rounds = step.run([])
+    rounds = step.run(_initial_conversation())
     assert rounds[0].outcomes[0].static_feedback == ""
 
 
 def test_static_feedback_enters_rendered_feedback():
     # The advisory feedback must reach the conversation feedback so the model sees it.
     step = _trusted_step([_reply(_exec("import ctypes\nprint('x')")), _reply(_done())])
-    step.run([])
+    step.run(_initial_conversation())
     # Round 1 produced feedback that includes the static advisory.
     fb = step._render_feedback(step.rounds[0])
     assert "forbidden-import" in fb
