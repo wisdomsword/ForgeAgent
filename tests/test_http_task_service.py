@@ -34,11 +34,12 @@ def _outcome(
     reason: str = Termination.COMPLETED,
     *,
     detail: str | None = None,
+    text: str = "private model text",
     usage: TokenUsage | None = None,
 ) -> TaskOutcome:
     return TaskOutcome(
         status=TaskStatus(completed=reason == Termination.COMPLETED, reason=reason, detail=detail),
-        rounds=[RoundResult(text="private model text", usage=usage)],
+        rounds=[RoundResult(text=text, usage=usage)],
     )
 
 
@@ -134,16 +135,15 @@ def test_submit_copies_options_and_factory_receives_private_record_data():
         service.shutdown(1.0)
 
 
-def test_safe_projection_masks_and_bounds_terminal_detail_and_sums_usage():
-    unsafe_detail = (
-        "service-secret-token at /Users/admin/private/answer.txt " + "\N{SNOWMAN}" * 3000
-    )
+def test_answered_in_prose_projection_never_returns_model_or_file_content():
+    private_content = "service-secret-token at /Users/admin/private/answer.txt"
 
     def factory(_record: TaskRecord) -> _FakeTask:
         return _FakeTask(
             lambda _goal, _cancel: _outcome(
-                Termination.NEEDS_INFO,
-                detail=unsafe_detail,
+                Termination.ANSWERED_IN_PROSE,
+                detail=private_content,
+                text=f"model answer copied from {private_content}",
                 usage=TokenUsage(
                     input_tokens=7,
                     output_tokens=5,
@@ -160,12 +160,9 @@ def test_safe_projection_masks_and_bounds_terminal_detail_and_sums_usage():
         service.wait(record.task_id, timeout=1.0)
         view = service.query(record.task_id)
 
-        assert view["status"] == "needs_info"
-        assert view["reason"] == "needs_info"
-        assert "service-secret-token" not in str(view["detail"])
-        assert "/Users/admin" not in str(view["detail"])
-        assert len(str(view["detail"])) <= 1024
-        assert len(str(view["detail"]).encode("utf-8")) <= 2048
+        assert view["status"] == "answered_in_prose"
+        assert view["reason"] == "answered_in_prose"
+        assert view["detail"] is None
         assert view["round_count"] == 1
         assert view["usage"] == {
             "input_tokens": 7,
@@ -174,7 +171,19 @@ def test_safe_projection_masks_and_bounds_terminal_detail_and_sums_usage():
             "reasoning_tokens": 2,
         }
         assert view["audit_degraded"] is True
-        assert "private model text" not in repr(view)
+        assert "service-secret-token" not in repr(view)
+        assert "/Users/admin/private/answer.txt" not in repr(view)
+        assert "model answer" not in repr(view)
+    finally:
+        service.shutdown(1.0)
+
+
+def test_submit_rejects_nested_mutable_options():
+    service = TaskService(factory=_instant_factory, config=CONFIG)
+    try:
+        with pytest.raises(TypeError, match="scalar"):
+            service.submit("goal", {"nested": {"mutable": True}})
+        assert service.records == {}
     finally:
         service.shutdown(1.0)
 
@@ -257,6 +266,22 @@ def test_worker_failure_is_safe_and_does_not_affect_another_task():
         service.shutdown(1.0)
 
 
+def test_worker_base_exception_terminalizes_record_before_propagating():
+    def factory(_record: TaskRecord) -> _FakeTask:
+        return _FakeTask(lambda _goal, _cancel: (_ for _ in ()).throw(KeyboardInterrupt("stop")))
+
+    service = TaskService(factory=factory, config=CONFIG)
+    try:
+        record = service.submit("goal", {})
+        assert record.future is not None
+        with pytest.raises(KeyboardInterrupt, match="stop"):
+            record.future.result(timeout=1.0)
+        assert service.query(record.task_id)["status"] == "failed"
+        assert service.query(record.task_id)["reason"] == "internal_error"
+    finally:
+        service.shutdown(1.0)
+
+
 def test_terminal_records_expire_before_capacity_is_reused():
     clock = _Clock()
     service = TaskService(
@@ -329,3 +354,41 @@ def test_shutdown_cancels_queued_tasks_without_constructing_them():
 
     release_first.set()
     service.wait(first.task_id, timeout=1.0)
+
+
+def test_shutdown_defers_shared_manager_close_until_active_worker_exits():
+    started = threading.Event()
+    release = threading.Event()
+    manager_closed = threading.Event()
+    close_calls = 0
+
+    class Manager:
+        def close(self) -> None:
+            nonlocal close_calls
+            close_calls += 1
+            manager_closed.set()
+
+    def factory(_record: TaskRecord) -> _FakeTask:
+        def run(_goal: str, cancel_event: threading.Event) -> TaskOutcome:
+            started.set()
+            release.wait()
+            assert cancel_event.is_set()
+            return _outcome()
+
+        return _FakeTask(run)
+
+    service = TaskService(factory=factory, config=CONFIG, shared_mcp_manager=Manager())
+    record = service.submit("goal", {})
+    assert started.wait(1.0)
+
+    service.shutdown(0.0)
+    assert manager_closed.is_set() is False
+    assert close_calls == 0
+
+    release.set()
+    service.wait(record.task_id, timeout=1.0)
+    assert manager_closed.wait(1.0)
+    assert close_calls == 1
+
+    service.shutdown(0.0)
+    assert close_calls == 1

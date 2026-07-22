@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import threading
 import time
 from collections import deque
@@ -14,13 +15,11 @@ from typing import Protocol
 from uuid import uuid4
 
 from .http_config import HttpServiceConfig
-from .secret_policy import mask_audit_data, sensitive_env_values
 from .task import Task, TaskOutcome
 
 _logger = logging.getLogger(__name__)
-_DETAIL_MAX_CHARS = 1024
-_DETAIL_MAX_BYTES = 2048
-_TRUNCATION_MARKER = "... [truncated]"
+_PUBLIC_DETAILS = {"internal_error": "Task execution failed."}
+_OPTION_SCALAR_TYPES = {str, int, float, bool, type(None)}
 
 
 class ServiceCapacityError(RuntimeError):
@@ -69,21 +68,15 @@ class TaskRecord:
     created_at: float = field(default_factory=time.monotonic)
     started_at: float | None = None
     ended_at: float | None = None
-    _secret_values: frozenset[str] = field(default_factory=frozenset, repr=False)
 
     def public_view(self) -> dict[str, object]:
         outcome_status = self.outcome.status if self.outcome is not None else None
-        detail = (
-            self.detail
-            if self.detail is not None
-            else (outcome_status.detail if outcome_status is not None else None)
-        )
+        reason = self.reason or (outcome_status.reason if outcome_status is not None else None)
         return {
             "task_id": self.task_id,
             "status": self.status,
-            "reason": self.reason
-            or (outcome_status.reason if outcome_status is not None else None),
-            "detail": _safe_detail(detail, self._secret_values),
+            "reason": reason,
+            "detail": _PUBLIC_DETAILS.get(reason),
             "round_count": len(self.outcome.rounds) if self.outcome is not None else 0,
             "usage": _usage_summary(self.outcome),
             "audit_degraded": self.audit_degraded,
@@ -117,21 +110,30 @@ class TaskService:
         self._expired_order: deque[str] = deque()
         self._lock = threading.Lock()
         self._accepting = True
+        self._shutdown_started = False
         self._shutdown_complete = False
+        self._shutdown_cleanup_thread: threading.Thread | None = None
         self._executor = ThreadPoolExecutor(
             max_workers=config.max_workers,
             thread_name_prefix="forgeagent-task",
         )
-        self._secret_values = frozenset({*sensitive_env_values(), config.token})
 
     @property
-    def records(self) -> dict[str, TaskRecord]:
-        """Return a shallow registry snapshot so callers cannot replace service state."""
+    def records(self) -> dict[str, dict[str, object]]:
+        """Return public snapshots without exposing mutable registry records."""
         with self._lock:
             self._purge_expired_locked()
-            return dict(self._records)
+            return {task_id: record.public_view() for task_id, record in self._records.items()}
 
     def submit(self, goal: str, options: Mapping[str, object]) -> TaskRecord:
+        option_snapshot: dict[str, object] = {}
+        for key, value in options.items():
+            if not isinstance(key, str) or type(value) not in _OPTION_SCALAR_TYPES:
+                raise TypeError("Task options must use string keys and scalar values.")
+            if type(value) is float and not math.isfinite(value):
+                raise TypeError("Task options must use finite scalar values.")
+            option_snapshot[key] = value
+
         with self._lock:
             if not self._accepting:
                 raise ServiceClosedError
@@ -143,9 +145,8 @@ class TaskService:
             record = TaskRecord(
                 task_id=uuid4().hex,
                 goal=goal,
-                options=MappingProxyType(dict(options)),
+                options=MappingProxyType(option_snapshot),
                 created_at=self._clock(),
-                _secret_values=self._secret_values,
             )
             self._records[record.task_id] = record
             try:
@@ -185,26 +186,50 @@ class TaskService:
 
     def shutdown(self, timeout: float) -> None:
         with self._lock:
-            if self._shutdown_complete:
+            if self._shutdown_started:
                 return
             self._accepting = False
+            self._shutdown_started = True
             futures: list[Future[None]] = []
             for record in self._records.values():
-                if record.status == "queued":
+                if record.ended_at is None:
                     record.cancel_event.set()
+                if record.status == "queued":
                     self._set_cancelled_locked(record)
                     if record.future is not None:
                         record.future.cancel()
                 if record.future is not None:
                     futures.append(record.future)
-            self._shutdown_complete = True
 
-        if futures:
-            wait(futures, timeout=max(0.0, timeout))
         self._executor.shutdown(wait=False, cancel_futures=True)
-        if self._shared_mcp_manager is not None:
+        _, pending = wait(futures, timeout=max(0.0, timeout)) if futures else (set(), set())
+        if pending:
+            cleanup_thread = threading.Thread(
+                target=self._finish_shutdown,
+                args=(futures,),
+                name="forgeagent-task-cleanup",
+                daemon=True,
+            )
+            with self._lock:
+                self._shutdown_cleanup_thread = cleanup_thread
+            cleanup_thread.start()
+        else:
+            self._close_shared_mcp_manager_once()
+
+    def _finish_shutdown(self, futures: list[Future[None]]) -> None:
+        wait(futures)
+        self._close_shared_mcp_manager_once()
+
+    def _close_shared_mcp_manager_once(self) -> None:
+        with self._lock:
+            if self._shutdown_complete:
+                return
+            self._shutdown_complete = True
+            manager = self._shared_mcp_manager
+            self._shared_mcp_manager = None
+        if manager is not None:
             try:
-                self._shared_mcp_manager.close()
+                manager.close()
             except Exception:
                 _logger.error("shared MCP manager close failed")
 
@@ -218,16 +243,24 @@ class TaskService:
         task: Task | None = None
         outcome: TaskOutcome | None = None
         failed = False
+        process_control_error: BaseException | None = None
         audit_degraded = False
         try:
             task = self._factory(record)
             outcome = task.run(record.goal, cancel_event=record.cancel_event)
-        except Exception:
+        except BaseException as error:
             failed = True
+            process_control_error = error if not isinstance(error, Exception) else None
             _logger.error("task worker failed")
         finally:
             if task is not None:
-                failed = not self._close_task_resources(task) or failed
+                try:
+                    failed = not self._close_task_resources(task) or failed
+                except BaseException as error:
+                    failed = True
+                    if process_control_error is None:
+                        process_control_error = error
+                    _logger.error("task resource close failed")
                 audit_degraded = _audit_degraded(task)
 
         with self._lock:
@@ -246,6 +279,9 @@ class TaskService:
                 record.status = outcome.status.reason
                 record.reason = outcome.status.reason
                 record.ended_at = self._clock()
+
+        if process_control_error is not None:
+            raise process_control_error
 
     def _close_task_resources(self, task: Task) -> bool:
         succeeded = True
@@ -321,20 +357,3 @@ def _usage_summary(outcome: TaskOutcome | None) -> dict[str, int] | None:
         for field_name in total:
             total[field_name] += getattr(round_result.usage, field_name)
     return total
-
-
-def _safe_detail(detail: str | None, secret_values: frozenset[str]) -> str | None:
-    if detail is None:
-        return None
-    projected = mask_audit_data(detail, secret_values)
-    safe = projected if isinstance(projected, str) else "<unsupported-detail>"
-    return _truncate_utf8(safe)
-
-
-def _truncate_utf8(text: str) -> str:
-    if len(text) <= _DETAIL_MAX_CHARS and len(text.encode("utf-8")) <= _DETAIL_MAX_BYTES:
-        return text
-    prefix = text[: _DETAIL_MAX_CHARS - len(_TRUNCATION_MARKER)]
-    byte_budget = _DETAIL_MAX_BYTES - len(_TRUNCATION_MARKER.encode("utf-8"))
-    prefix = prefix.encode("utf-8")[:byte_budget].decode("utf-8", errors="ignore")
-    return prefix + _TRUNCATION_MARKER
