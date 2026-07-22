@@ -19,6 +19,10 @@ Date: 2026-07-22
   omitted tool stdout, errors, and model text.
 - Existing tests continue to cover capacity/TTL, strict schema, exact typed allowlist,
   cancellation races, safe result projection, and audit masking/degraded behavior.
+- The real `serve` task factory was exercised through `Task`, `Step`, and `MCPTool`
+  with an empty HTTP allowlist and an MCP server-side `autoApprove` entry. The HTTP
+  path neither queried that entry nor executed the operation: `serve` explicitly
+  disables MCP auto-approval while CLI/REPL tasks retain the compatible default.
 
 ## Commands and results
 
@@ -27,11 +31,12 @@ Date: 2026-07-22
 | `.venv/bin/ruff check src tests` | PASS: exit code 0 (`All checks passed!`) |
 | `.venv/bin/ruff format --check tests/test_http_server.py tests/test_mock_replay_e2e.py` | PASS: both changed test files formatted |
 | `.venv/bin/pytest -q tests/test_http_server.py tests/test_mock_replay_e2e.py` | PASS: 62 passed, 10 skipped |
+| Focused HTTP auto-approval regression, tools, and headless tests | PASS: 63 passed |
 | Focused concurrency/shutdown/golden command repeated five times | PASS: 3 passed per run, 5/5 runs |
 | `.venv/bin/python -m tests.golden.runner` | PASS: exit code 0; generated `artifacts/golden/offline/report.md` records 20/20 (100%) |
 | `openspec validate http-task-service --strict` | PASS: exit code 0 (`Change 'http-task-service' is valid`) |
 | `git diff --check` | PASS: exit code 0, no output |
-| `PYTHONPATH=src .venv/bin/pytest -q --ignore=tests/test_packaging.py` | PASS: exit code 0; 1220 passed, 23 skipped in 58.89s |
+| `PYTHONPATH=src .venv/bin/pytest -q --ignore=tests/test_packaging.py` | PASS: exit code 0; 1221 passed, 23 skipped in 50.99s |
 | `PYTHONPATH=src .venv/bin/pytest -q tests/test_packaging.py` | Environment failure: 1 failed, 2 passed in 8.14s; `uv build` exited 2 |
 | `UV_CACHE_DIR=/tmp/forgeagent-m16-final-uv-cache uv build --out-dir /tmp/forgeagent-m16-final-build` | Environment failure: after three retries, `https://pypi.org/simple/hatchling/` could not be fetched because DNS lookup failed |
 
@@ -46,6 +51,9 @@ Operation not permitted`. The tests still attempt the real bind and skip only fo
 that explicit permission failure. The handler/framing/concurrency suite runs without
 a listener and passed. This is an environment restriction, not evidence that a real
 listener ran successfully here.
+
+The whole-change re-review after commit `f4a3ef7` passed with no Critical or
+Important findings.
 
 ## Security boundaries and residuals
 

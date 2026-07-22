@@ -19,6 +19,9 @@ Implemented the M16 documentation and security-acceptance layer.
   `bind()` with `PermissionError`; no-bind protocol tests remain mandatory.
 - Recorded verification evidence in
   `docs/superpowers/reports/2026-07-21-http-task-service-verify.md`.
+- Closed the final trust-boundary finding in commit `f4a3ef7`: the HTTP `serve`
+  factory now propagates `allow_auto_approve=False` through `Task` and `Step` to
+  `ToolContext`, leaving CLI/REPL compatibility unchanged.
 
 ## TDD evidence
 
@@ -31,19 +34,26 @@ tool markers (`stdout`, `NameError`, and `undefined_variable`) and then passed.
 The first complete socketpair harness run also timed out while waiting for EOF because
 the peer socket remained open; response `Content-Length` framing and explicit handler
 socket closure were added, after which the real request loop passed reliably.
+The final HTTP authorization regression first failed because an MCP operation marked
+`autoApprove` executed despite an empty HTTP allowlist. After explicit Task/Step
+propagation from the real `serve` factory, the end-to-end test passed and confirmed
+that HTTP neither queries MCP auto-approval nor calls the tool.
 
 ## Verification
 
 - Ruff check: PASS.
 - Changed-file format check: PASS.
 - Focused HTTP/golden tests: 62 passed, 10 environment skips.
+- Focused HTTP auto-approval regression, tools, and headless tests: 63 passed.
 - The concurrency/shutdown/golden focused selection passed five consecutive runs
   (3 passed per run).
 - Golden runner: exit code 0; its generated offline report records 20/20 (100%).
 - OpenSpec strict validation and `git diff --check`: PASS.
 - Full non-packaging pytest (`PYTHONPATH=src .venv/bin/pytest -q
-  --ignore=tests/test_packaging.py`): PASS, exit code 0; 1220 passed, 23 skipped in
-  58.89s.
+  --ignore=tests/test_packaging.py`): PASS, exit code 0; 1221 passed, 23 skipped in
+  50.99s.
 - Packaging: 1 failed, 2 passed in 8.14s because the nested `uv build` exited 2;
   direct build evidence shows three retries followed by a DNS lookup failure while
   fetching `https://pypi.org/simple/hatchling/`.
+- Final whole-change re-review after `f4a3ef7`: PASS, with no Critical or Important
+  findings.
