@@ -293,7 +293,7 @@ git commit -m "feat: describe truthful tool feedback truncation"
 
 ### Task 5: 水位 feedback limiter 与 Step 统一渲染
 
-- [ ] **Task 5 complete: 水位 feedback limiter 与 Step 统一渲染已交付**
+- [x] **Task 5 complete: 水位 feedback limiter 与 Step 统一渲染已交付**
 
 **Files:**
 - Modify: `src/forgeagent/context.py`
@@ -305,7 +305,7 @@ git commit -m "feat: describe truthful tool feedback truncation"
 - Produces `render_bounded_feedback(round_result: RoundResult, *, config/policy limits, mask: Callable[[str], str]) -> str` or an equivalent pure function consuming parse errors/outcomes and resolved limits.
 - Raises `ContextBudgetExceeded("feedback metadata exceeds context budget")` only when fixed metadata cannot fit.
 
-- [ ] **Step 1: 写水位、公平、head/tail 和 metadata overflow 失败测试**
+- [x] **Step 1: 写水位、公平、head/tail 和 metadata overflow 失败测试**
 
 ```python
 def test_waterfill_reassigns_short_outcome_budget_and_preserves_headers():
@@ -326,23 +326,23 @@ def test_metadata_overflow_keeps_outcomes_and_skips_next_provider_call():
 
 另测 static feedback、dropped_state_keys、secret masking、marker 仅在截断时出现和迭代集合收敛。
 
-- [ ] **Step 2: 运行 RED**
+- [x] **Step 2: 运行 RED**
 
 Run: `.venv/bin/pytest -q tests/test_context.py tests/test_step.py -k 'feedback or waterfill or metadata'`
 
 Expected: FAIL because the unified limiter is absent.
 
-- [ ] **Step 3: 实现确定性 limiter 并替换 `_truncate_tail` 分支**
+- [x] **Step 3: 实现确定性 limiter 并替换 `_truncate_tail` 分支**
 
 固定成本使用同一 estimator；剩余 detail budget 在未满足 outcome 间均分，短项余量继续分配。每个 detail 受 result cap；head/tail 最大片段用字符长度二分。marker 集合变化后重算，最多 `len(outcomes)+1` 次。Step 只把成功渲染出的 bounded feedback append 到 convo。
 
-- [ ] **Step 4: 运行 context/Step/工具全回归**
+- [x] **Step 4: 运行 context/Step/工具全回归**
 
 Run: `.venv/bin/pytest -q tests/test_context.py tests/test_step.py tests/test_tools.py tests/test_web_file_tools.py`
 
 Expected: PASS and no legacy 4096-only branch remains in `_render_feedback`.
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add src/forgeagent/context.py src/forgeagent/step.py tests/test_context.py tests/test_step.py

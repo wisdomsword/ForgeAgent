@@ -12,9 +12,9 @@
 
 ## 3. 统一工具反馈限额
 
-- [ ] 3.1 用统一的可配置 limiter 替换固定 4096 字符分支逻辑，覆盖成功/失败 Exec、MCP、Survey、File、WebFetch 和其他 ToolOutcome
-- [ ] 3.2 为每种工具实现诚实的截断标记、原始总量、展示范围与真实 continuation，并验证不会虚构分页或持久结果
-- [ ] 3.3 验证 request feedback 截断不改写原始 ToolOutcome、任务终态、CLI 本地结果或 HTTP 安全投影
+- [x] 3.1 用统一的可配置 limiter 替换固定 4096 字符分支逻辑，覆盖成功/失败 Exec、MCP、Survey、File、WebFetch 和其他 ToolOutcome
+- [x] 3.2 为每种工具实现诚实的截断标记、原始总量、展示范围与真实 continuation，并验证不会虚构分页或持久结果
+- [x] 3.3 验证 request feedback 截断不改写原始 ToolOutcome、任务终态、CLI 本地结果或 HTTP 安全投影
 
 ## 4. Cache 指标与审计
 
