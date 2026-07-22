@@ -104,7 +104,9 @@ class _RaisingResponse(_FakeResponse):
 # --- WebFetchTool (M10 Phase 3) ----------------------------------------------
 
 
-def test_webfetch_success_saves_to_disk_and_masks_secrets(tmp_path, monkeypatch):
+def test_webfetch_success_reports_continuation_after_saving_artifact(
+    tmp_path, monkeypatch
+):
     monkeypatch.setattr(
         "forgeagent.tools.guarded_urlopen",
         lambda url, **kw: _FakeResponse(b"hello supersecretvalue123 world", "text/plain"),
@@ -122,6 +124,8 @@ def test_webfetch_success_saves_to_disk_and_masks_secrets(tmp_path, monkeypatch)
     saved_content = saved[0].read_text()
     assert "supersecretvalue123" not in saved_content
     assert "REDACTED" in saved_content
+    assert outcome.truncation_mode == "head"
+    assert outcome.continuation == f"完整响应已保存至 {saved[0].name}；可使用 FileRead 读取"
 
 
 def test_webfetch_success_detail_reports_utf8_artifact_byte_length(tmp_path, monkeypatch):
@@ -375,7 +379,7 @@ def test_webfetch_trusted_tier_skips_confirmer(tmp_path, monkeypatch):
 # --- File tools (M10 Phase 4) -------------------------------------------------
 
 
-def test_file_read_within_root_masks_secrets(tmp_path, monkeypatch):
+def test_file_read_within_root_masks_secrets_and_reports_continuation(tmp_path, monkeypatch):
     (tmp_path / "f.txt").write_text("token=supersecretvalue123")
     monkeypatch.setattr("forgeagent.tools.sensitive_env_values", lambda: {"supersecretvalue123"})
     ctx = _file_ctx(allowed_root=str(tmp_path))
@@ -385,6 +389,8 @@ def test_file_read_within_root_masks_secrets(tmp_path, monkeypatch):
     assert outcome.success is True
     assert "supersecretvalue123" not in outcome.detail
     assert "REDACTED" in outcome.detail
+    assert outcome.truncation_mode == "head"
+    assert outcome.continuation == "可使用 FileRead 读取其他路径，或使用 Exec 处理此文件"
 
 
 @pytest.mark.parametrize("tier", ["restricted", "container"])
@@ -624,7 +630,7 @@ def test_file_write_trusted_tier_skips_confirmer(tmp_path):
     assert (tmp_path / "out.txt").read_text() == "x"
 
 
-def test_file_list_returns_sorted_relative_paths(tmp_path):
+def test_file_list_returns_sorted_relative_paths_and_reports_continuation(tmp_path):
     (tmp_path / "b.txt").write_text("")
     (tmp_path / "a.txt").write_text("")
     (tmp_path / "sub").mkdir()
@@ -637,6 +643,8 @@ def test_file_list_returns_sorted_relative_paths(tmp_path):
     assert entries == sorted(entries)
     assert set(entries) == {"a.txt", "b.txt", "sub"}
     assert all(not os.path.isabs(entry) for entry in entries)
+    assert outcome.truncation_mode == "head"
+    assert outcome.continuation == "可缩小目录路径后重新调用 FileList"
 
 
 def test_file_list_escaping_root_is_blocked(tmp_path):

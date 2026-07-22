@@ -57,6 +57,12 @@ _EXT_BY_CONTENT_TYPE = {"text/html": ".html", "application/json": ".json", "text
 
 _logger = logging.getLogger(__name__)
 
+_FILE_READ_CONTINUATION = "可使用 FileRead 读取其他路径，或使用 Exec 处理此文件"
+_FILE_LIST_CONTINUATION = "可缩小目录路径后重新调用 FileList"
+_MCP_CONTINUATION = "此工具不保留游标；如需更多结果，请缩小查询参数后重新调用"
+_SURVEY_CONTINUATION = "此工具不保留游标；如需更多结果，请重新提问"
+_WEBFETCH_RETRY_CONTINUATION = "此工具不保留游标；可缩小请求范围后重新调用 WebFetch"
+
 # Sandbox tier. Lives here (not task.py) so ToolContext.tier can reference it without
 # a circular import: task.py already imports from tools.py (see docs/m10 §3.7).
 Tier = Literal["trusted", "restricted", "container"]
@@ -115,6 +121,8 @@ class ToolOutcome(BaseModel):
     # and, if set, ends the loop with `Termination.NEEDS_INFO` using `detail` as the
     # user-facing question. See docs/m7-tools-mcp-survey.md §3.5.
     needs_info: bool = False
+    continuation: str | None = None
+    truncation_mode: Literal["head", "tail"] = "tail"
 
 
 @dataclass
@@ -343,6 +351,8 @@ class SurveyTool(Tool):
                 success=False,
                 needs_info=True,
                 detail=args.question,
+                continuation=_SURVEY_CONTINUATION,
+                truncation_mode="head",
             )
         answer = ctx.asker(args)
         if answer is None:
@@ -351,9 +361,17 @@ class SurveyTool(Tool):
                 success=False,
                 needs_info=True,
                 detail=args.question,
+                continuation=_SURVEY_CONTINUATION,
+                truncation_mode="head",
             )
         # The answer text becomes the tool's feedback line for the next round.
-        return ToolOutcome(tool="Survey", success=True, detail=answer)
+        return ToolOutcome(
+            tool="Survey",
+            success=True,
+            detail=answer,
+            continuation=_SURVEY_CONTINUATION,
+            truncation_mode="head",
+        )
 
 
 class MCPTool(Tool):
@@ -386,6 +404,8 @@ class MCPTool(Tool):
                 block_name=label,
                 success=False,
                 detail="no MCP servers are configured",
+                continuation=_MCP_CONTINUATION,
+                truncation_mode="head",
             )
         parameters = {"server": args.server, "operation": args.tool}
         if ctx.allow_auto_approve and ctx.mcp.is_auto_approved(args.server, args.tool):
@@ -397,12 +417,16 @@ class MCPTool(Tool):
                     block_name=label,
                     success=False,
                     detail="rejected: no interactive confirmation channel available",
+                    continuation=_MCP_CONTINUATION,
+                    truncation_mode="head",
                 )
             return ToolOutcome(
                 tool="MCP",
                 block_name=label,
                 success=False,
                 detail=_denial_detail(ctx, f"MCP call {label} was not approved by the user"),
+                continuation=_MCP_CONTINUATION,
+                truncation_mode="head",
             )
         result = ctx.mcp.call_tool(args.server, args.tool, args.arguments)
         return ToolOutcome(
@@ -410,6 +434,8 @@ class MCPTool(Tool):
             block_name=label,
             success=bool(result.get("ok")),
             detail=result.get("text", ""),
+            continuation=_MCP_CONTINUATION,
+            truncation_mode="head",
         )
 
 
@@ -437,11 +463,15 @@ class WebFetchTool(Tool):
                         tool="WebFetch",
                         success=False,
                         detail="rejected: no interactive confirmation channel available",
+                        continuation=_WEBFETCH_RETRY_CONTINUATION,
+                        truncation_mode="head",
                     )
                 return ToolOutcome(
                     tool="WebFetch",
                     success=False,
                     detail=_denial_detail(ctx, "WebFetch was not approved by the user"),
+                    continuation=_WEBFETCH_RETRY_CONTINUATION,
+                    truncation_mode="head",
                 )
         try:
             url_validator = getattr(ctx.confirmer, "allows_web_url", None)
@@ -454,10 +484,20 @@ class WebFetchTool(Tool):
                 raw = response.read(_MAX_FETCH_BYTES + 1)
         except SSRFGuardError:
             return ToolOutcome(
-                tool="WebFetch", success=False, detail="WebFetch blocked by network policy"
+                tool="WebFetch",
+                success=False,
+                detail="WebFetch blocked by network policy",
+                continuation=_WEBFETCH_RETRY_CONTINUATION,
+                truncation_mode="head",
             )
         except (OSError, http.client.HTTPException, ValueError):
-            return ToolOutcome(tool="WebFetch", success=False, detail="WebFetch request failed")
+            return ToolOutcome(
+                tool="WebFetch",
+                success=False,
+                detail="WebFetch request failed",
+                continuation=_WEBFETCH_RETRY_CONTINUATION,
+                truncation_mode="head",
+            )
         truncated = len(raw) > _MAX_FETCH_BYTES
         if truncated:
             raw = raw[:_MAX_FETCH_BYTES]
@@ -471,7 +511,11 @@ class WebFetchTool(Tool):
             dest.write_text(masked, encoding="utf-8", errors="replace")
         except (OSError, ValueError):
             return ToolOutcome(
-                tool="WebFetch", success=False, detail="WebFetch response save failed"
+                tool="WebFetch",
+                success=False,
+                detail="WebFetch response save failed",
+                continuation=_WEBFETCH_RETRY_CONTINUATION,
+                truncation_mode="head",
             )
         preview = masked[:_FETCH_PREVIEW_CHARS]
         preview_note = " (preview truncated)" if len(masked) > _FETCH_PREVIEW_CHARS else ""
@@ -480,7 +524,13 @@ class WebFetchTool(Tool):
             f"{content_type}){truncated_note}\n"
             f"preview{preview_note}:\n{preview}"
         )
-        return ToolOutcome(tool="WebFetch", success=True, detail=detail)
+        return ToolOutcome(
+            tool="WebFetch",
+            success=True,
+            detail=detail,
+            continuation=f"完整响应已保存至 {dest.name}；可使用 FileRead 读取",
+            truncation_mode="head",
+        )
 
 
 def _validate_path(path: str, allowed_root: str) -> Path:
@@ -527,9 +577,21 @@ class FileReadTool(Tool):
                 )
             content = resolved.read_text(encoding="utf-8", errors="replace")
         except (PermissionError, OSError, ValueError):
-            return ToolOutcome(tool="FileRead", success=False, detail="FileRead failed")
+            return ToolOutcome(
+                tool="FileRead",
+                success=False,
+                detail="FileRead failed",
+                continuation=_FILE_READ_CONTINUATION,
+                truncation_mode="head",
+            )
         masked = mask_secrets(content, sensitive_env_values())
-        return ToolOutcome(tool="FileRead", success=True, detail=masked)
+        return ToolOutcome(
+            tool="FileRead",
+            success=True,
+            detail=masked,
+            continuation=_FILE_READ_CONTINUATION,
+            truncation_mode="head",
+        )
 
 
 class FileWriteTool(Tool):
@@ -602,8 +664,20 @@ class FileListTool(Tool):
             base = Path(os.path.realpath(ctx.allowed_root))
             entries = sorted(p.relative_to(base).as_posix() for p in resolved.iterdir())
         except (PermissionError, OSError, ValueError):
-            return ToolOutcome(tool="FileList", success=False, detail="FileList failed")
-        return ToolOutcome(tool="FileList", success=True, detail="\n".join(entries))
+            return ToolOutcome(
+                tool="FileList",
+                success=False,
+                detail="FileList failed",
+                continuation=_FILE_LIST_CONTINUATION,
+                truncation_mode="head",
+            )
+        return ToolOutcome(
+            tool="FileList",
+            success=True,
+            detail="\n".join(entries),
+            continuation=_FILE_LIST_CONTINUATION,
+            truncation_mode="head",
+        )
 
 
 class ToolRegistry:

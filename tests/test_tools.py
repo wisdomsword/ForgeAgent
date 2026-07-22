@@ -30,6 +30,7 @@ from forgeagent.protocol import (
 from forgeagent.runtime import Runtime
 from forgeagent.tools import (
     CodeBlockStore,
+    ExecTool,
     MCPTool,
     SurveyTool,
     Tool,
@@ -197,6 +198,18 @@ def test_survey_options_passed_through_to_asker():
     assert seen[0].options == ["a", "b"]
 
 
+def test_exec_uses_tail_and_survey_uses_honest_head_continuation():
+    exec_outcome = ExecTool().run(ExecArgs(code="print('done')"), _survey_ctx())
+    survey_outcome = SurveyTool().run(
+        SurveyArgs(question="which file?"), _survey_ctx(asker=lambda args: "report.txt")
+    )
+
+    assert exec_outcome.truncation_mode == "tail"
+    assert exec_outcome.continuation is None
+    assert survey_outcome.truncation_mode == "head"
+    assert survey_outcome.continuation == "此工具不保留游标；如需更多结果，请重新提问"
+
+
 # --- MCP tool confirmation gate (M7 Phase 3) ---------------------------------
 # These exercise MCPTool.run's gate logic with a tiny fake manager, so no real MCP
 # server is launched (the real discover/call path is covered in test_mcp_manager.py).
@@ -233,6 +246,16 @@ def test_mcp_no_manager_is_structured_error():
     outcome = MCPTool().run(MCPArgs(server="s", tool="t"), _mcp_ctx(mcp=None))
     assert outcome.success is False
     assert "no MCP servers" in outcome.detail
+
+
+def test_mcp_uses_honest_head_continuation():
+    outcome = MCPTool().run(
+        MCPArgs(server="fs", tool="read_file"),
+        _mcp_ctx(mcp=_FakeMCP(auto_approved={("fs", "read_file")})),
+    )
+
+    assert outcome.truncation_mode == "head"
+    assert outcome.continuation == "此工具不保留游标；如需更多结果，请缩小查询参数后重新调用"
 
 
 def test_mcp_auto_approved_call_skips_gate_and_runs():
