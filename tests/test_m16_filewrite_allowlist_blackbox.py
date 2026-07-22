@@ -12,10 +12,11 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 EXPECTED_GOAL = (
-    'Use exactly one FileWrite tool call to write the exact text "M16 FileWrite '
-    'allowlist verified." to relative path "m16-allowlist.txt". Do not use Exec, '
-    "MCP, Python, shell, or any other tool. After the FileWrite result, report "
-    "completion without another tool call."
+    "Emit exactly this ForgeAgent text-protocol tool call as your first response: "
+    '<!-- ToolCall: {"name":"FileWrite","arguments":{"path":"m16-allowlist.txt",'
+    '"content":"M16 FileWrite allowlist verified."}} --> Do not use Exec, MCP, Python, '
+    "shell, or any other tool, and do not emit any other tool call. After receiving the "
+    "FileWrite result, report the result without another tool call."
 )
 
 
@@ -77,10 +78,11 @@ def write_fake_forgeagent(tmp_path: Path) -> Path:
             target_operation = "file/m16-allowlist.txt"
             target_content = "M16 FileWrite allowlist verified."
             expected_goal = (
-                'Use exactly one FileWrite tool call to write the exact text "M16 FileWrite '
-                'allowlist verified." to relative path "m16-allowlist.txt". Do not use Exec, '
-                "MCP, Python, shell, or any other tool. After the FileWrite result, report "
-                "completion without another tool call."
+                "Emit exactly this ForgeAgent text-protocol tool call as your first response: "
+                '<!-- ToolCall: {"name":"FileWrite","arguments":{"path":"m16-allowlist.txt",'
+                '"content":"M16 FileWrite allowlist verified."}} --> Do not use Exec, MCP, '
+                "Python, shell, or any other tool, and do not emit any other tool call. After "
+                "receiving the FileWrite result, report the result without another tool call."
             )
             submitted_goals_path = allowed_root.parent / "submitted-goals.jsonl"
             mode = os.environ.get("FAKE_M16_MODE", "filewrite")
@@ -309,7 +311,11 @@ def test_blackbox_script_passes_exact_two_phase_contract(tmp_path: Path) -> None
     )
     assert submitted_goal_lines[0] == submitted_goal_lines[1]
     assert [json.loads(line) for line in submitted_goal_lines] == [EXPECTED_GOAL, EXPECTED_GOAL]
-    assert "Do not use Exec, MCP, Python, shell, or any other tool." in EXPECTED_GOAL
+    assert (
+        '<!-- ToolCall: {"name":"FileWrite","arguments":{"path":"m16-allowlist.txt",'
+        '"content":"M16 FileWrite allowlist verified."}} -->'
+    ) in EXPECTED_GOAL
+    assert "Do not use Exec, MCP, Python, shell, or any other tool" in EXPECTED_GOAL
     service_homes = (
         (tmp_path / "evidence/fake-service-homes.txt").read_text(encoding="utf-8").splitlines()
     )

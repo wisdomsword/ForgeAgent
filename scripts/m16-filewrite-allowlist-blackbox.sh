@@ -9,7 +9,7 @@ M16_PYTHON_BIN=${M16_PYTHON_BIN:-.venv/bin/python}
 TARGET_RELATIVE_PATH=m16-allowlist.txt
 TARGET_OPERATION=file/m16-allowlist.txt
 TARGET_CONTENT='M16 FileWrite allowlist verified.'
-TASK_GOAL='Use exactly one FileWrite tool call to write the exact text "M16 FileWrite allowlist verified." to relative path "m16-allowlist.txt". Do not use Exec, MCP, Python, shell, or any other tool. After the FileWrite result, report completion without another tool call.'
+TASK_GOAL='Emit exactly this ForgeAgent text-protocol tool call as your first response: <!-- ToolCall: {"name":"FileWrite","arguments":{"path":"m16-allowlist.txt","content":"M16 FileWrite allowlist verified."}} --> Do not use Exec, MCP, Python, shell, or any other tool, and do not emit any other tool call. After receiving the FileWrite result, report the result without another tool call.'
 
 SERVER_PID=
 CURRENT_PHASE=
