@@ -4,13 +4,17 @@ Date: 2026-07-22
 
 ## Acceptance coverage
 
-- The no-bind HTTP handler harness submitted eight tasks concurrently, observed eight
-  distinct task ids, and verified that every terminal projection retained its own id.
+- The no-bind HTTP handler harness used `socket.socketpair()` and the real
+  `ForgeRequestHandler` request loop with complete request lines, Bearer headers,
+  JSON framing, and response parsing. It submitted eight tasks concurrently,
+  observed eight distinct task ids, and verified that every terminal projection
+  retained its own id through `GET /tasks/{id}`.
 - TaskService shutdown was checked for worker/cleanup thread exit and one-time shared
   MCP manager close.
-- Offline golden G13 used equivalent MockClient scripts through direct Task and
-  TaskService paths. Both produced `completed`, three rounds, and two tool outcomes;
-  the HTTP projection omitted tool stdout, errors, and model text.
+- Offline golden G13 used equivalent MockClient scripts through direct Task and the
+  complete socketpair HTTP `POST /tasks` plus polled `GET /tasks/{id}` path. Both
+  produced `completed`, three rounds, and two tool outcomes; the HTTP projection
+  omitted tool stdout, errors, and model text.
 - Existing tests continue to cover capacity/TTL, strict schema, exact typed allowlist,
   cancellation races, safe result projection, and audit masking/degraded behavior.
 
@@ -21,7 +25,7 @@ Date: 2026-07-22
 | `.venv/bin/ruff check src tests` | PASS (`All checks passed!`) |
 | `.venv/bin/ruff format --check tests/test_http_server.py tests/test_mock_replay_e2e.py` | PASS (`2 files already formatted`) |
 | `.venv/bin/pytest -q tests/test_http_server.py tests/test_mock_replay_e2e.py` | PASS: 62 passed, 10 skipped |
-| `.venv/bin/python -m tests.golden.runner` | PASS: offline report 20/20 (100%) |
+| `.venv/bin/python -m tests.golden.runner` | PASS: exit code 0; generated `artifacts/golden/offline/report.md` records 20/20 (100%) |
 | `openspec validate http-task-service --strict` | PASS |
 | `git diff --check` | PASS (no output) |
 | `.venv/bin/pytest -q --ignore=tests/test_packaging.py` | INCOMPLETE in this sandbox: process ended at 46% with no pytest failure summary; no individual failure was printed |

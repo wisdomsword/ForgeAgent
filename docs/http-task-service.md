@@ -20,8 +20,9 @@ or overlong token fails startup. The token is held in memory and is never writte
 responses or audit records. There is no hot reload: change the token or policy and
 restart the service.
 
-The listener accepts loopback addresses only (`127.0.0.1` or `::1`) and M16 does not
-provide TLS. Do not expose the port through a reverse proxy or port forward without
+The listener accepts loopback addresses only (for example, `127.0.0.1` or `::1`; the
+configuration uses the platform's `ipaddress` loopback check) and M16 does not provide
+TLS. Do not expose the port through a reverse proxy or port forward without
 adding an independently reviewed authentication and transport boundary.
 
 Example configuration:
@@ -37,7 +38,7 @@ audit_path: ~/.forgeagent/http-audit.jsonl
 allowlist:
   - mcp/github/create_issue
   - file/write/project.txt
-  - web/example.com
+  - web/https/example.com/443/
 ```
 
 The service uses four workers, a queue of 32, at most 256 retained records, and a
@@ -84,7 +85,8 @@ Headless HTTP confirmation uses exact typed keys only:
 
 * `mcp/<server>/<tool>` for one MCP operation;
 * `file/<normalized-project-relative-path>` for one FileWrite target;
-* `web/<lowercase-idna-host>` for one WebFetch host.
+* `web/<scheme>/<lowercase-idna-host>/<port>/<normalized-path>` for one WebFetch URL,
+  such as `web/https/example.com/443/` for the HTTPS root path.
 
 The HTTP confirmer is the only HTTP pre-approval path. It deliberately does not read
 or inherit MCP's CLI/REPL `autoApprove` settings. CLI `autoApprove` compatibility is

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import socket
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -96,6 +97,79 @@ def _request(
     return response.status, parsed, raw
 
 
+def _request_via_handler(
+    server: object,
+    method: str,
+    path: str,
+    *,
+    body: object | None = None,
+    token: str = "test-token",
+) -> tuple[int, dict[str, object] | None, bytes]:
+    """Run the real request handler over a socketpair without binding a port."""
+    request_body = b""
+    headers = [
+        f"{method} {path} HTTP/1.0",
+        "Host: localhost",
+        f"Authorization: Bearer {token}",
+        "Connection: close",
+    ]
+    if body is not None:
+        request_body = json.dumps(body).encode()
+        headers.extend(
+            [
+                "Content-Type: application/json",
+                f"Content-Length: {len(request_body)}",
+            ]
+        )
+    request = ("\r\n".join(headers) + "\r\n\r\n").encode() + request_body
+    client_socket, handler_socket = socket.socketpair()
+    handler_errors: list[BaseException] = []
+
+    def run_handler() -> None:
+        try:
+            ForgeRequestHandler(handler_socket, ("127.0.0.1", 1), server)
+        except BaseException as error:
+            handler_errors.append(error)
+
+    handler_thread = threading.Thread(
+        target=run_handler,
+        daemon=True,
+    )
+    handler_thread.start()
+    try:
+        client_socket.settimeout(2.0)
+        client_socket.sendall(request)
+        raw = b""
+        while b"\r\n\r\n" not in raw:
+            chunk = client_socket.recv(65536)
+            if not chunk:
+                break
+            raw += chunk
+        if b"\r\n\r\n" in raw:
+            header_bytes, body_bytes = raw.split(b"\r\n\r\n", 1)
+            content_length = next(
+                int(line.split(b":", 1)[1].strip())
+                for line in header_bytes.split(b"\r\n")
+                if line.lower().startswith(b"content-length:")
+            )
+            while len(body_bytes) < content_length:
+                chunk = client_socket.recv(65536)
+                if not chunk:
+                    break
+                body_bytes += chunk
+            raw = header_bytes + b"\r\n\r\n" + body_bytes
+    finally:
+        client_socket.close()
+        handler_thread.join(timeout=2.0)
+        handler_socket.close()
+    assert not handler_thread.is_alive()
+    assert handler_errors == []
+    header_bytes, body_bytes = raw.split(b"\r\n\r\n", 1)
+    status = int(header_bytes.split(b" ", 2)[1])
+    parsed = json.loads(body_bytes) if body_bytes else None
+    return status, parsed, raw
+
+
 @pytest.fixture
 def running_server(tmp_path):
     sink = RecordingSink()
@@ -181,16 +255,17 @@ def test_concurrent_http_handler_submissions_keep_task_records_isolated():
         audit_sink=sink,
     )
 
+    server = SimpleNamespace(config=config, task_service=service, audit_sink=sink)
+
     def submit(index: int) -> tuple[int, dict[str, object]]:
-        payload = json.dumps({"goal": f"task-{index}"}).encode()
-        handler = object.__new__(ForgeRequestHandler)
-        handler.headers = _HeaderStub({"Content-Length": [str(len(payload))]})
-        handler.rfile = BytesIO(payload)
-        handler.server = SimpleNamespace(config=config, task_service=service, audit_sink=sink)
-        responses: list[tuple[int, dict[str, object]]] = []
-        handler._send_json = lambda status, response: responses.append((status, response))
-        handler._submit()
-        return responses[0]
+        status, response, _raw = _request_via_handler(
+            server,
+            "POST",
+            "/tasks",
+            body={"goal": f"task-{index}"},
+        )
+        assert response is not None
+        return status, response
 
     try:
         with ThreadPoolExecutor(max_workers=8) as clients:
@@ -200,7 +275,12 @@ def test_concurrent_http_handler_submissions_keep_task_records_isolated():
         assert len(set(task_ids)) == 8
 
         release.set()
-        views = [service.wait(task_id, timeout=2.0) for task_id in task_ids]
+        views = []
+        for task_id in task_ids:
+            status, view, _raw = _request_via_handler(server, "GET", f"/tasks/{task_id}")
+            assert status == 200
+            assert view is not None
+            views.append(view)
         assert [view["task_id"] for view in views] == task_ids
         assert all(view["reason"] == Termination.COMPLETED for view in views)
     finally:
