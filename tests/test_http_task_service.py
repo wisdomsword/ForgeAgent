@@ -284,7 +284,15 @@ def test_running_cancel_is_cooperative_and_terminal_is_not_overwritten():
         def run(_goal: str, cancel_event: threading.Event) -> TaskOutcome:
             started.set()
             assert cancel_event.wait(1.0)
-            return _outcome(Termination.COMPLETED)
+            return _outcome(
+                Termination.COMPLETED,
+                usage=TokenUsage(
+                    input_tokens=7,
+                    output_tokens=5,
+                    cached_tokens=3,
+                    reasoning_tokens=2,
+                ),
+            )
 
         return _FakeTask(run)
 
@@ -294,7 +302,15 @@ def test_running_cancel_is_cooperative_and_terminal_is_not_overwritten():
         assert started.wait(1.0)
         assert service.cancel(record.task_id)["status"] in {"running", "cancelled"}
         service.wait(record.task_id, timeout=1.0)
-        assert service.query(record.task_id)["status"] == "cancelled"
+        view = service.query(record.task_id)
+        assert view["status"] == "cancelled"
+        assert view["round_count"] == 1
+        assert view["usage"] == {
+            "input_tokens": 7,
+            "output_tokens": 5,
+            "cached_tokens": 3,
+            "reasoning_tokens": 2,
+        }
         assert service.cancel(record.task_id)["status"] == "cancelled"
     finally:
         service.shutdown(1.0)
