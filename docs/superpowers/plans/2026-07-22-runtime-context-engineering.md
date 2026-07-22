@@ -40,6 +40,8 @@ base-ref: b7ba133ad4def9c10d0352b6bc3b8a1e95b84ef2
 
 ### Task 1: ContextConfig 与确定性 token 估算器
 
+- [ ] **Task 1 complete: ContextConfig 与确定性 token 估算器已交付**
+
 **Files:**
 - Create: `src/forgeagent/context.py`
 - Create: `tests/test_context.py`
@@ -110,6 +112,8 @@ git commit -m "feat: add context configuration and token estimator"
 
 ### Task 2: SlidingWindowContextPolicy 与预算边界
 
+- [ ] **Task 2 complete: SlidingWindowContextPolicy 与预算边界已交付**
+
 **Files:**
 - Modify: `src/forgeagent/context.py`
 - Modify: `tests/test_context.py`
@@ -174,6 +178,8 @@ git commit -m "feat: add sliding window context policy"
 
 ### Task 3: Task/Step policy 装配与本地失败时序
 
+- [ ] **Task 3 complete: Task/Step policy 装配与本地失败时序已交付**
+
 **Files:**
 - Modify: `src/forgeagent/task.py`
 - Modify: `src/forgeagent/step.py`
@@ -231,6 +237,8 @@ git commit -m "feat: apply context policy at model request boundaries"
 
 ### Task 4: ToolOutcome 截断语义与真实 continuation
 
+- [ ] **Task 4 complete: ToolOutcome 截断语义与真实 continuation 已交付**
+
 **Files:**
 - Modify: `src/forgeagent/tools.py`
 - Modify: `tests/test_tools.py`
@@ -284,6 +292,8 @@ git commit -m "feat: describe truthful tool feedback truncation"
 ```
 
 ### Task 5: 水位 feedback limiter 与 Step 统一渲染
+
+- [ ] **Task 5 complete: 水位 feedback limiter 与 Step 统一渲染已交付**
 
 **Files:**
 - Modify: `src/forgeagent/context.py`
@@ -341,6 +351,8 @@ git commit -m "feat: bound all tool feedback with water filling"
 
 ### Task 6: Provider-normalized prompt denominator
 
+- [ ] **Task 6 complete: Provider-normalized prompt denominator 已交付**
+
 **Files:**
 - Modify: `src/forgeagent/models.py`
 - Modify: `src/forgeagent/anthropic_client.py`
@@ -390,6 +402,8 @@ git commit -m "feat: normalize provider prompt token totals"
 ```
 
 ### Task 7: CLI/session cache rate、audit 与事务化 reload
+
+- [ ] **Task 7 complete: CLI/session cache rate、audit 与事务化 reload 已交付**
 
 **Files:**
 - Modify: `src/forgeagent/cli.py`
@@ -464,6 +478,8 @@ git commit -m "feat: report normalized prompt cache rates"
 
 ### Task 8: HTTP server-owned context 装配与 M16 契约回归
 
+- [ ] **Task 8 complete: HTTP server-owned context 装配与 M16 契约回归已交付**
+
 **Files:**
 - Modify: `src/forgeagent/http_config.py`
 - Modify: `src/forgeagent/http_task_service.py`
@@ -516,6 +532,8 @@ git commit -m "feat: apply server-owned context policy to HTTP tasks"
 ```
 
 ### Task 9: Prompt-cache/长任务验收、文档与全量验证
+
+- [ ] **Task 9 complete: Prompt-cache/长任务验收、文档与全量验证已交付**
 
 **Files:**
 - Modify: `tests/test_mock_replay_e2e.py`
