@@ -17,22 +17,33 @@ import argparse
 import ipaddress
 import json
 import logging
+import math
 import os
 import re
+import signal
 import sys
+import threading
 import unicodedata
 from collections.abc import Callable
+from dataclasses import dataclass, fields
 from pathlib import Path
+from typing import cast
 from urllib.parse import parse_qsl, quote, unquote, urlencode, urlsplit, urlunsplit
 
+import yaml
 from pydantic import BaseModel
 from rich.console import Console
 from rich.live import Live
 from rich.text import Text
 
+from . import http_server
 from .anthropic_client import AnthropicClient
+from .audit import JsonlAuditSink
 from .client import ModelClient
 from .executor import ContainerRuntimeError
+from .headless import HeadlessConfirmer
+from .http_config import HttpServiceConfig
+from .http_task_service import TaskRecord, TaskService
 from .identity import (
     ApprovedIdentity,
     IdentityConfigError,
@@ -68,6 +79,41 @@ logger = logging.getLogger(__name__)
 
 class MCPStartupError(RuntimeError):
     """MCP manager startup failed or an enabled required service was unavailable."""
+
+
+class HttpStartupError(RuntimeError):
+    """The opt-in HTTP service could not be configured, bound, or started."""
+
+
+@dataclass(frozen=True)
+class _HttpRuntimeSettings:
+    service: HttpServiceConfig
+    model: str
+    tier: Tier
+    allowed_root: str
+    no_identity: bool
+    container_image: str | None
+    shutdown_timeout_seconds: float
+
+
+_HTTP_RUNTIME_KEYS = frozenset(
+    {
+        "model",
+        "tier",
+        "allowed_root",
+        "no_identity",
+        "container_image",
+        "shutdown_timeout_seconds",
+    }
+)
+_HTTP_CONFIG_KEYS = frozenset(field.name for field in fields(HttpServiceConfig))
+_SERVE_FORBIDDEN_CLI_OPTIONS = (
+    "--tier",
+    "--container-image",
+    "--model",
+    "--stream",
+    "--no-identity",
+)
 
 
 # Injectable client factory: (model) -> ModelClient. Default builds a real client from
@@ -833,6 +879,253 @@ def print_models(console: Console) -> None:
         )
 
 
+def _load_http_runtime_settings(path: str | Path) -> _HttpRuntimeSettings:
+    config_path = Path(path).expanduser()
+    try:
+        loaded = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, yaml.YAMLError) as error:
+        raise HttpStartupError("HTTP service configuration is invalid or unavailable.") from error
+    if loaded is None:
+        loaded = {}
+    if not isinstance(loaded, dict) or any(not isinstance(key, str) for key in loaded):
+        raise HttpStartupError("HTTP service configuration must be a mapping.")
+    values = cast(dict[str, object], loaded)
+    if set(values) - _HTTP_CONFIG_KEYS - _HTTP_RUNTIME_KEYS:
+        raise HttpStartupError("HTTP service configuration contains unknown fields.")
+
+    try:
+        service = HttpServiceConfig.from_sources(
+            {key: value for key, value in values.items() if key in _HTTP_CONFIG_KEYS}
+        )
+    except (TypeError, ValueError) as error:
+        raise HttpStartupError("HTTP service configuration is invalid.") from error
+
+    model = values.get("model", DEFAULT_MODEL)
+    if not isinstance(model, str) or not model.strip() or any(ord(char) < 32 for char in model):
+        raise HttpStartupError("HTTP service model configuration is invalid.")
+
+    tier_value = values.get("tier", "restricted")
+    if tier_value not in {"trusted", "restricted", "container"}:
+        raise HttpStartupError("HTTP service tier configuration is invalid.")
+    tier = cast(Tier, tier_value)
+
+    allowed_root_value = values.get("allowed_root", str(Path.cwd()))
+    if not isinstance(allowed_root_value, str) or not allowed_root_value.strip():
+        raise HttpStartupError("HTTP service allowed root is invalid.")
+    try:
+        allowed_root_path = Path(allowed_root_value).expanduser().resolve(strict=True)
+    except (OSError, RuntimeError) as error:
+        raise HttpStartupError("HTTP service allowed root is invalid.") from error
+    if not allowed_root_path.is_dir():
+        raise HttpStartupError("HTTP service allowed root is invalid.")
+
+    no_identity = values.get("no_identity", False)
+    if not isinstance(no_identity, bool):
+        raise HttpStartupError("HTTP service identity configuration is invalid.")
+
+    container_image = values.get("container_image")
+    if container_image is not None and (
+        not isinstance(container_image, str) or not container_image.strip()
+    ):
+        raise HttpStartupError("HTTP service container configuration is invalid.")
+
+    shutdown_timeout = values.get("shutdown_timeout_seconds", 5.0)
+    if type(shutdown_timeout) not in {int, float}:
+        raise HttpStartupError("HTTP service shutdown timeout is invalid.")
+    shutdown_timeout_seconds = float(shutdown_timeout)
+    if not math.isfinite(shutdown_timeout_seconds) or not 0 < shutdown_timeout_seconds <= 60:
+        raise HttpStartupError("HTTP service shutdown timeout is invalid.")
+
+    return _HttpRuntimeSettings(
+        service=service,
+        model=model,
+        tier=tier,
+        allowed_root=str(allowed_root_path),
+        no_identity=no_identity,
+        container_image=container_image,
+        shutdown_timeout_seconds=shutdown_timeout_seconds,
+    )
+
+
+def _serve_has_cli_policy_override(argv: list[str]) -> bool:
+    return any(
+        argument == option or argument.startswith(f"{option}=")
+        for argument in argv
+        for option in _SERVE_FORBIDDEN_CLI_OPTIONS
+    )
+
+
+def _run_owned_http_server(
+    server,
+    service: TaskService,
+    *,
+    shutdown_timeout: float,
+    once: bool,
+) -> None:
+    stop_requested = threading.Event()
+    server_errors: list[BaseException] = []
+
+    def request_stop(_signum=None, _frame=None) -> None:
+        stop_requested.set()
+
+    def run_server() -> None:
+        try:
+            server.serve_forever(poll_interval=0.1)
+        except BaseException as error:
+            server_errors.append(error)
+        finally:
+            stop_requested.set()
+
+    previous_handlers: dict[signal.Signals, object] = {}
+    if threading.current_thread() is threading.main_thread():
+        for signal_number in (signal.SIGINT, signal.SIGTERM):
+            previous_handlers[signal_number] = signal.getsignal(signal_number)
+            signal.signal(signal_number, request_stop)
+
+    server_thread = threading.Thread(
+        target=run_server,
+        name="forgeagent-http-server",
+        daemon=False,
+    )
+    try:
+        server_thread.start()
+    except BaseException as error:
+        try:
+            service.shutdown(timeout=shutdown_timeout)
+        except Exception:
+            logger.error("HTTP task service shutdown failed")
+        try:
+            server.server_close()
+        except Exception:
+            logger.error("HTTP listener close failed")
+        for signal_number, previous_handler in previous_handlers.items():
+            signal.signal(signal_number, previous_handler)
+        if not isinstance(error, Exception):
+            raise
+        raise HttpStartupError("HTTP listener thread could not start.") from error
+    if once:
+        stop_requested.set()
+
+    cleanup_failed = False
+    try:
+        while server_thread.is_alive() and not stop_requested.wait(0.1):
+            pass
+    finally:
+        try:
+            server.shutdown()
+        except Exception:
+            cleanup_failed = True
+            logger.error("HTTP listener shutdown failed")
+        try:
+            service.shutdown(timeout=shutdown_timeout)
+        except Exception:
+            cleanup_failed = True
+            logger.error("HTTP task service shutdown failed")
+        try:
+            server.server_close()
+        except Exception:
+            cleanup_failed = True
+            logger.error("HTTP listener close failed")
+        server_thread.join(timeout=shutdown_timeout)
+        for signal_number, previous_handler in previous_handlers.items():
+            signal.signal(signal_number, previous_handler)
+
+    if server_thread.is_alive() or cleanup_failed:
+        raise HttpStartupError("HTTP service shutdown did not complete cleanly.")
+    if server_errors:
+        error = server_errors[0]
+        if isinstance(error, (KeyboardInterrupt, SystemExit)):
+            raise error
+        raise HttpStartupError("HTTP listener stopped unexpectedly.") from error
+
+
+def serve_http(
+    config_path: str | Path,
+    *,
+    client_factory: ClientFactory,
+    console: Console,
+    once: bool = False,
+) -> None:
+    """Assemble and own the opt-in local HTTP task service."""
+    settings = _load_http_runtime_settings(config_path)
+    audit_path = settings.service.audit_path.expanduser()
+    try:
+        audit_path.parent.mkdir(parents=True, exist_ok=True)
+        descriptor = os.open(
+            audit_path,
+            os.O_WRONLY | os.O_APPEND | os.O_CREAT,
+            0o600,
+        )
+        try:
+            os.fchmod(descriptor, 0o600)
+        finally:
+            os.close(descriptor)
+        audit_sink = JsonlAuditSink(
+            audit_path,
+            max_bytes=settings.service.audit_max_bytes,
+            retention_files=settings.service.audit_retention_files,
+        )
+        headless_confirmer = HeadlessConfirmer(
+            settings.service.allowlist,
+            audit=audit_sink,
+            root=settings.allowed_root,
+        )
+    except (OSError, ValueError) as error:
+        raise HttpStartupError("HTTP audit or allowlist configuration is invalid.") from error
+
+    identity = resolve_cli_identity(
+        no_identity=settings.no_identity,
+        allowed_root=settings.allowed_root,
+        confirmer=None,
+        diagnostic=make_console_identity_diagnostic(console),
+    )
+    mcp: MCPManager | None = None
+    service: TaskService | None = None
+    try:
+        mcp = build_mcp_manager(console)
+
+        def task_factory(record: TaskRecord) -> Task:
+            return Task(
+                client_factory(settings.model),
+                tier=settings.tier,
+                allowed_root=settings.allowed_root,
+                identity=identity,
+                mcp=mcp,
+                confirmer=headless_confirmer,
+                container_image=settings.container_image,
+                audit_sink=audit_sink,
+                task_id=record.task_id,
+            )
+
+        service = TaskService(
+            factory=task_factory,
+            config=settings.service,
+            shared_mcp_manager=mcp,
+            audit_sink=audit_sink,
+        )
+        server = http_server.create_http_server(settings.service, service)
+    except BaseException as error:
+        if service is not None:
+            service.shutdown(timeout=settings.shutdown_timeout_seconds)
+        elif mcp is not None:
+            mcp.close()
+        if not isinstance(error, Exception):
+            raise
+        if isinstance(error, (MCPStartupError, HttpStartupError)):
+            raise
+        raise HttpStartupError("HTTP service could not start.") from error
+
+    console.print(
+        f"[green]serving[/green] on {settings.service.bind_host}:{server.server_address[1]}"
+    )
+    _run_owned_http_server(
+        server,
+        service,
+        shutdown_timeout=settings.shutdown_timeout_seconds,
+        once=once,
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="forgeagent", description="Lightweight code-as-action agent."
@@ -888,6 +1181,14 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="also run gpt-5.4-mini/glm-5.2/deepseek-v4-flash (opt-in: separate API keys required)",
     )
+    serve_p = sub.add_parser("serve", help="run the local authenticated HTTP task service")
+    serve_p.add_argument(
+        "--config",
+        required=True,
+        metavar="PATH",
+        help="server-owned HTTP service configuration",
+    )
+    serve_p.add_argument("--once", action="store_true", help=argparse.SUPPRESS)
     return parser
 
 
@@ -901,11 +1202,25 @@ def main(
     No subcommand -> REPL. `run <goal>` -> single execution. A missing API key surfaces
     as a clear message and a non-zero exit, never a traceback.
     """
-    args = build_parser().parse_args(argv)
+    raw_argv = list(sys.argv[1:] if argv is None else argv)
+    args = build_parser().parse_args(raw_argv)
     console = Console()
     try:
         if args.command == "models":
             print_models(console)
+            return 0
+        if args.command == "serve":
+            if _serve_has_cli_policy_override(raw_argv):
+                console.print(
+                    "[red]HTTP startup error[/red]: execution policy must come from --config"
+                )
+                return 2
+            serve_http(
+                args.config,
+                client_factory=client_factory,
+                console=console,
+                once=args.once,
+            )
             return 0
         allowed_root = str(Path.cwd().resolve())
         interactive_identity = console.is_terminal and sys.stdin.isatty()
@@ -979,6 +1294,9 @@ def main(
         return 2
     except IdentityConfigError as exc:
         console.print(f"[red]identity config error[/red]: {exc}")
+        return 2
+    except HttpStartupError:
+        console.print("[red]HTTP startup error[/red]: service did not start")
         return 2
 
 

@@ -8,6 +8,14 @@ import tarfile
 from pathlib import Path
 
 
+def test_http_service_entrypoints_are_public():
+    import forgeagent
+
+    assert forgeagent.HttpServiceConfig.__name__ == "HttpServiceConfig"
+    assert forgeagent.TaskService.__name__ == "TaskService"
+    assert forgeagent.create_http_server.__name__ == "create_http_server"
+
+
 def _clean_python_environment(environment: dict[str, str]) -> dict[str, str]:
     cleaned = environment.copy()
     cleaned.pop("PYTHONHOME", None)

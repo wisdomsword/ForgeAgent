@@ -10,10 +10,12 @@ import copy
 import gc
 import json
 import logging
+import stat
 import sys
 import threading
 import time
 import warnings
+from types import SimpleNamespace
 from urllib.parse import parse_qsl, unquote, urlsplit
 
 import pytest
@@ -2502,3 +2504,223 @@ def test_make_console_identity_confirmer_uses_injected_reader_and_plain_text():
     assert ".../repo/[bold]literal label[/bold]" in rendered
     assert "[bold]literal markup[/bold]" in rendered
     assert "\\x1b" in rendered
+
+
+def test_main_default_does_not_create_http_server(monkeypatch):
+    import forgeagent.cli as cli_module
+    import forgeagent.http_server as http_server_module
+
+    monkeypatch.setattr(
+        http_server_module,
+        "create_http_server",
+        lambda *args, **kwargs: pytest.fail("default CLI must not create an HTTP server"),
+    )
+    monkeypatch.setattr(cli_module, "repl", lambda **kwargs: None)
+
+    assert cli_module.main([], client_factory=_factory([])) == 0
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        ["--tier", "trusted"],
+        ["--model", "claude-haiku-4-5"],
+        ["--container-image", "custom-image"],
+        ["--no-identity"],
+    ],
+)
+def test_serve_rejects_cli_execution_policy_overrides(monkeypatch, tmp_path, override):
+    import forgeagent.cli as cli_module
+    import forgeagent.http_server as http_server_module
+
+    config_path = tmp_path / "http.yaml"
+    config_path.write_text("token: file-token\n")
+    monkeypatch.setattr(
+        http_server_module,
+        "create_http_server",
+        lambda *args, **kwargs: pytest.fail("invalid serve invocation must not bind"),
+    )
+
+    assert cli_module.main([*override, "serve", "--config", str(config_path)]) == 2
+
+
+def test_serve_builds_server_owned_task_factory_and_closes_in_order(monkeypatch, tmp_path):
+    import forgeagent.cli as cli_module
+    import forgeagent.http_server as http_server_module
+
+    allowed_root = tmp_path / "project"
+    allowed_root.mkdir()
+    audit_path = tmp_path / "audit" / "events.jsonl"
+    config_path = tmp_path / "http.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "token: file-token",
+                "bind_host: 127.0.0.1",
+                "port: 8765",
+                "tier: trusted",
+                "model: claude-sonnet-5",
+                f"allowed_root: {allowed_root}",
+                "no_identity: true",
+                f"audit_path: {audit_path}",
+                "allowlist:",
+                "  - file/reports/result.txt",
+                "shutdown_timeout_seconds: 0.1",
+            ]
+        )
+        + "\n"
+    )
+    monkeypatch.setenv("FORGEAGENT_HTTP_TOKEN", "environment-token")
+
+    events: list[str] = []
+    captured: dict[str, object] = {}
+    identity = object()
+
+    class FakeMCP:
+        def close(self):
+            events.append("mcp.close")
+
+    mcp = FakeMCP()
+
+    class FakeService:
+        def __init__(self, *, factory, config, shared_mcp_manager, audit_sink):
+            captured.update(
+                factory=factory,
+                config=config,
+                shared_mcp_manager=shared_mcp_manager,
+                audit_sink=audit_sink,
+            )
+            self.shared_mcp_manager = shared_mcp_manager
+
+        def shutdown(self, timeout):
+            captured["shutdown_timeout"] = timeout
+            events.append("service.shutdown")
+            self.shared_mcp_manager.close()
+
+    class FakeServer:
+        server_address = ("127.0.0.1", 8765)
+
+        def serve_forever(self, poll_interval):
+            pass
+
+        def shutdown(self):
+            events.append("server.shutdown")
+
+        def server_close(self):
+            events.append("server.close")
+
+    monkeypatch.setattr(cli_module, "TaskService", FakeService)
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda console: mcp)
+    monkeypatch.setattr(cli_module, "resolve_cli_identity", lambda **kwargs: identity)
+    monkeypatch.setattr(
+        http_server_module,
+        "create_http_server",
+        lambda config, service: FakeServer(),
+    )
+
+    assert (
+        cli_module.main(
+            ["serve", "--config", str(config_path), "--once"],
+            client_factory=_factory([]),
+        )
+        == 0
+    )
+
+    config = captured["config"]
+    assert config.token == "environment-token"
+    assert captured["shared_mcp_manager"] is mcp
+    assert captured["shutdown_timeout"] == 0.1
+    assert events == ["server.shutdown", "service.shutdown", "mcp.close", "server.close"]
+    assert stat.S_IMODE(audit_path.stat().st_mode) == 0o600
+
+    task = captured["factory"](SimpleNamespace(task_id="task-123"))
+    try:
+        assert task._tier == "trusted"
+        assert task._allowed_root == str(allowed_root.resolve())
+        assert task._identity is identity
+        assert task._mcp is mcp
+        assert task._audit_sink is captured["audit_sink"]
+        assert task._task_id == "task-123"
+        assert task._confirmer.is_headless is True
+    finally:
+        task.close()
+
+
+def test_serve_audit_startup_failure_does_not_create_listener(monkeypatch, tmp_path):
+    import forgeagent.cli as cli_module
+    import forgeagent.http_server as http_server_module
+
+    blocked_parent = tmp_path / "not-a-directory"
+    blocked_parent.write_text("file")
+    config_path = tmp_path / "http.yaml"
+    config_path.write_text(f"token: file-token\naudit_path: {blocked_parent / 'audit.jsonl'}\n")
+    monkeypatch.setattr(
+        http_server_module,
+        "create_http_server",
+        lambda *args, **kwargs: pytest.fail("audit failure must happen before listener creation"),
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "build_mcp_manager",
+        lambda console: pytest.fail("audit failure must happen before MCP startup"),
+    )
+
+    assert cli_module.main(["serve", "--config", str(config_path), "--once"]) == 2
+
+
+@pytest.mark.parametrize(
+    "extra_config",
+    [
+        "allowlist:\n  - file/*.txt\n",
+        "audit_max_bytes: 1\n",
+    ],
+    ids=["invalid-allowlist", "audit-line-too-small"],
+)
+def test_serve_validates_headless_and_audit_policy_before_listener(
+    monkeypatch, tmp_path, extra_config
+):
+    import forgeagent.cli as cli_module
+    import forgeagent.http_server as http_server_module
+
+    config_path = tmp_path / "http.yaml"
+    config_path.write_text(
+        f"token: file-token\naudit_path: {tmp_path / 'audit.jsonl'}\n{extra_config}"
+    )
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda console: None)
+    monkeypatch.setattr(
+        http_server_module,
+        "create_http_server",
+        lambda *args, **kwargs: pytest.fail("invalid policy must not create a listener"),
+    )
+
+    assert cli_module.main(["serve", "--config", str(config_path), "--once"]) == 2
+
+
+def test_http_owner_closes_bound_resources_when_server_thread_cannot_start(monkeypatch):
+    import forgeagent.cli as cli_module
+
+    events: list[str] = []
+
+    class FakeServer:
+        def server_close(self):
+            events.append("server.close")
+
+    class FakeService:
+        def shutdown(self, timeout):
+            events.append(f"service.shutdown:{timeout}")
+
+    monkeypatch.setattr(
+        cli_module.threading.Thread,
+        "start",
+        lambda self: (_ for _ in ()).throw(RuntimeError("thread unavailable")),
+    )
+
+    with pytest.raises(cli_module.HttpStartupError):
+        cli_module._run_owned_http_server(
+            FakeServer(),
+            FakeService(),
+            shutdown_timeout=0.25,
+            once=False,
+        )
+
+    assert events == ["service.shutdown:0.25", "server.close"]
