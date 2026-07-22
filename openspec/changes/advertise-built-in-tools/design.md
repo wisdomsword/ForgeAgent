@@ -29,6 +29,9 @@ prose。工具实现、parser 和 headless confirmer 均未被触发。
    marker 和参数说明；Exec/Edit 的既有详细示例保留。
 4. 在 identity 组合测试中断言默认 prompt 含完整工具目录及 FileWrite 精确 marker，
    以防注册表和 prompt 再次漂移。
+5. M16 黑盒以目标 FileWrite 的 operation-linked confirmation/tool 事件和最终文件
+   状态为权威证据。额外成功工具可能产生替代效果，继续判为 INCONCLUSIVE；
+   额外失败工具没有成功执行效果，只保留在审计中，不否定目标 FileWrite 决策。
 
 ## Risks / Trade-offs
 
@@ -37,3 +40,5 @@ prose。工具实现、parser 和 headless confirmer 均未被触发。
   同步更新协议断言。
 - [模型仍可能不遵循文本协议] → 保留 M16 真实模型黑盒与 INCONCLUSIVE，不把提示
   存在误当作真实遵循证据。
+- [失败工具可能在报错前产生部分文件副作用] → denied 阶段要求 allowed root 全空，
+  allowed 阶段要求除精确目标外无其他 artifact；任一意外落盘仍判为 INCONCLUSIVE。

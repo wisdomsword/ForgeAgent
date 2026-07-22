@@ -15,7 +15,9 @@
 - 两阶段目标文本必须逐字相同，内嵌唯一、完整的 FileWrite ToolCall 标记及精确
   `path`/`content`，并明确禁止模型改用 Exec、MCP、Python、shell 或其他工具。
 - bearer token 临时生成且不得写入配置、输出或审计。
-- 模型未调用目标 FileWrite 或改用其他工具时退出码为 `2`（INCONCLUSIVE），不得误报 PASS/FAIL。
+- 模型未调用目标 FileWrite、出现额外成功工具或产生目标外 artifact 时退出码为
+  `2`（INCONCLUSIVE），不得误报 PASS/FAIL；目标 FileWrite 后的额外失败工具
+  只保留为诊断，不覆盖已经形成的 allowlist 证据。
 - PASS 为 `0`，确定性产品/契约失败为 `1`；所有退出路径保留证据目录并清理后台服务。
 
 ---

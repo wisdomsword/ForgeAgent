@@ -6,3 +6,7 @@
 ## 2. 验证
 
 - [x] 2.1 运行 identity、Task、Step、HTTP allowlist 相关回归与静态检查，并保留 M16 真实模型黑盒复跑入口
+
+## 3. 黑盒判据修复
+
+- [x] 3.1 用失败测试复现“目标 FileWrite 已正确拒绝但后续失败 Exec 导致 INCONCLUSIVE”，并仅放行无副作用的失败工具漂移

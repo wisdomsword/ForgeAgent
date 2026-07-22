@@ -35,7 +35,10 @@
 
 - `PASS`：两个阶段的审计决策、工具结果和文件断言全部满足。
 - `FAIL`：服务无法启动、HTTP 契约错误、空 allowlist 仍预批准目标 FileWrite、精确 allowlist 拒绝目标 FileWrite、审计缺失/泄密，或文件内容错误。
-- `INCONCLUSIVE`：真实模型没有调用目标 FileWrite，或改用 Exec/MCP/其他工具。该结果不说明 allowlist 正确或错误，脚本以非零状态退出并保留证据。
+- `INCONCLUSIVE`：真实模型没有调用目标 FileWrite、存在额外成功工具操作，或产生
+  目标之外的文件 artifact。目标 FileWrite 已产生权威 decision/tool 事件后，额外
+  失败工具操作只保留为诊断，不覆盖 allowlist 证据。该结果不说明 allowlist 正确
+  或错误，脚本以非零状态退出并保留证据。
 
 ## 错误处理与输出
 

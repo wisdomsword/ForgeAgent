@@ -326,6 +326,32 @@ current_task_tool_operation_count() {
         "$CURRENT_AUDIT"
 }
 
+current_task_successful_non_target_tool_operation_count() {
+    if [ ! -f "$CURRENT_AUDIT" ]; then
+        printf '0\n'
+        return
+    fi
+    jq -s -r \
+        --arg task "$CURRENT_TASK_ID" \
+        '. as $events
+        | [$events[] | select(
+            .task_id == $task
+            and .event_type == "confirmation.decision"
+            and .parameters.operation == "file/m16-allowlist.txt"
+          ) | .operation_id] as $target_operations
+        | [$events[] | select(
+            .task_id == $task
+            and .event_type == "tool.operation"
+            and .result_status == "success"
+            and (
+                .parameters.tool != "FileWrite"
+                or (.operation_id as $operation
+                    | ($target_operations | index($operation)) == null)
+            )
+          )] | length' \
+        "$CURRENT_AUDIT"
+}
+
 has_target_filewrite_operation() {
     [ -f "$CURRENT_AUDIT" ] && jq -s -e \
         --arg task "$CURRENT_TASK_ID" \
@@ -377,7 +403,9 @@ has_matching_tool_result() {
 require_only_target_filewrite() {
     tool_count=$(current_task_tool_operation_count) \
         || fail "Could not inspect current-task tool operations."
-    if [ "$tool_count" -gt 1 ]; then
+    successful_non_target_count=$(current_task_successful_non_target_tool_operation_count) \
+        || fail "Could not inspect successful non-target tool operations."
+    if [ "$successful_non_target_count" -gt 0 ]; then
         inconclusive "The model emitted additional tool operations."
     fi
     if [ "$tool_count" -eq 1 ] && ! has_target_filewrite_operation; then
@@ -391,6 +419,11 @@ audit_contains_bearer_token() {
 
 allowed_root_has_artifact() {
     find "$ALLOWED_ROOT" -mindepth 1 -print -quit 2>/dev/null | grep -q .
+}
+
+allowed_root_has_unexpected_artifact() {
+    find "$ALLOWED_ROOT" -mindepth 1 ! -path "$TARGET_FILE" -print -quit 2>/dev/null \
+        | grep -q .
 }
 
 run_denied_phase() {
@@ -442,6 +475,9 @@ run_allowed_phase() {
     fi
     if ! cmp -s "$EXPECTED_FILE" "$TARGET_FILE"; then
         fail "Target file content does not match the fixed expected content."
+    fi
+    if allowed_root_has_unexpected_artifact; then
+        inconclusive "The model produced an additional filesystem artifact in the allowed phase."
     fi
     audit_mode=$(
         "$M16_PYTHON_BIN" -c \

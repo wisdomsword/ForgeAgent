@@ -129,6 +129,8 @@ def write_fake_forgeagent(tmp_path: Path) -> Path:
                     if mode in {
                         "filewrite",
                         "filewrite-extra-tool",
+                        "filewrite-failed-extra-tool",
+                        "filewrite-failed-extra-artifact",
                         "denied-token-leak",
                         "wrong-decision-extra-tool",
                         "allowed-wrong-decision-extra-tool",
@@ -166,6 +168,8 @@ def write_fake_forgeagent(tmp_path: Path) -> Path:
                         ]
                         extra_tool = mode in {
                             "filewrite-extra-tool",
+                            "filewrite-failed-extra-tool",
+                            "filewrite-failed-extra-artifact",
                             "wrong-decision-extra-tool",
                         } or (mode == "allowed-wrong-decision-extra-tool" and allowed)
                         if extra_tool:
@@ -175,8 +179,21 @@ def write_fake_forgeagent(tmp_path: Path) -> Path:
                                     "event_type": "tool.operation",
                                     "operation_id": "operation-extra",
                                     "parameters": {"tool": "Exec"},
-                                    "result_status": "success",
+                                    "result_status": (
+                                        "failed"
+                                        if mode
+                                        in {
+                                            "filewrite-failed-extra-tool",
+                                            "filewrite-failed-extra-artifact",
+                                        }
+                                        else "success"
+                                    ),
                                 }
+                            )
+                        if mode == "filewrite-failed-extra-artifact" and allowed:
+                            (allowed_root / "unexpected.txt").write_text(
+                                "partial side effect",
+                                encoding="utf-8",
                             )
                         if mode == "denied-token-leak" and not allowed:
                             events.append(
@@ -346,6 +363,22 @@ def test_blackbox_script_rejects_forbidden_extra_tool_as_inconclusive(tmp_path: 
 
     assert result.returncode == 2
     assert "INCONCLUSIVE" in result.stderr
+
+
+def test_failed_extra_tool_does_not_override_filewrite_evidence(tmp_path: Path) -> None:
+    result = run_script(tmp_path, "filewrite-failed-extra-tool")
+
+    assert result.returncode == 0
+    assert "PASS: empty allowlist denied FileWrite" in result.stdout
+    assert "PASS: exact allowlist preapproved FileWrite" in result.stdout
+
+
+def test_failed_extra_tool_with_artifact_remains_inconclusive(tmp_path: Path) -> None:
+    result = run_script(tmp_path, "filewrite-failed-extra-artifact")
+
+    assert result.returncode == 2
+    assert "PASS: empty allowlist denied FileWrite" in result.stdout
+    assert "additional filesystem artifact" in result.stderr
 
 
 def test_tool_drift_takes_precedence_over_wrong_allowlist_decision(tmp_path: Path) -> None:

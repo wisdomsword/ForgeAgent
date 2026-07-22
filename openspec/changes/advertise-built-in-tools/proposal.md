@@ -11,6 +11,8 @@ Python/Exec。无自定义 identity 的真实模型因此无法可靠发现 File
 - 使包内固定协议与默认工具注册表保持一致，列出每个内置工具的精确 ToolCall 参数。
 - 明确直接工具匹配任务时优先使用对应工具，其余执行型任务再使用 Python/Exec。
 - 增加固定提示词回归测试，确保无 identity 时仍向模型公开完整内置工具协议。
+- 收窄 M16 人工黑盒的工具漂移判据：目标 FileWrite 已产生权威决策后，额外失败
+  工具不覆盖该证据；额外成功工具或意外落盘仍判为不确定。
 - 不改变工具注册、解析器、HTTP schema、allowlist、确认门或执行语义。
 
 ## Capabilities
@@ -29,4 +31,6 @@ Python/Exec。无自定义 identity 的真实模型因此无法可靠发现 File
 - `src/forgeagent/res/prompts/protocol.md`
 - `tests/test_identity.py`
 - M16 FileWrite allowlist 真实模型黑盒验收
+- `scripts/m16-filewrite-allowlist-blackbox.sh`
+- `tests/test_m16_filewrite_allowlist_blackbox.py`
 - 无新增依赖、配置、API 或 schema。
