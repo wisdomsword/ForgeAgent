@@ -85,7 +85,7 @@ class TaskRecord:
     started_at: float | None = None
     ended_at: float | None = None
 
-    def public_view(self) -> dict[str, object]:
+    def public_view(self, *, service_audit_degraded: bool = False) -> dict[str, object]:
         outcome_status = self.outcome.status if self.outcome is not None else None
         reason = self.reason or (outcome_status.reason if outcome_status is not None else None)
         status, reason = _public_status_reason(self.status, reason)
@@ -96,7 +96,7 @@ class TaskRecord:
             "detail": _PUBLIC_DETAILS.get(reason),
             "round_count": len(self.outcome.rounds) if self.outcome is not None else 0,
             "usage": _usage_summary(self.outcome),
-            "audit_degraded": self.audit_degraded,
+            "audit_degraded": self.audit_degraded or service_audit_degraded,
         }
 
 
@@ -124,6 +124,7 @@ class TaskService:
         self._clock = clock
         self._shared_mcp_manager = shared_mcp_manager
         self._audit_sink = audit_sink
+        self._audit_degraded = False
         self._records: dict[str, TaskRecord] = {}
         self._expired_ids: set[str] = set()
         self._expired_order: deque[str] = deque()
@@ -142,7 +143,20 @@ class TaskService:
         """Return public snapshots without exposing mutable registry records."""
         with self._lock:
             self._purge_expired_locked()
-            return {task_id: record.public_view() for task_id, record in self._records.items()}
+            return {
+                task_id: record.public_view(service_audit_degraded=self._audit_degraded)
+                for task_id, record in self._records.items()
+            }
+
+    @property
+    def audit_degraded(self) -> bool:
+        with self._lock:
+            return self._audit_degraded
+
+    def mark_audit_degraded(self) -> None:
+        """Remember a service-level audit failure for all current and future views."""
+        with self._lock:
+            self._audit_degraded = True
 
     def submit(self, goal: str, options: Mapping[str, object]) -> TaskRecord:
         option_snapshot: dict[str, object] = {}
@@ -178,19 +192,19 @@ class TaskService:
     def query(self, task_id: str) -> dict[str, object]:
         with self._lock:
             record = self._get_record_locked(task_id)
-            return record.public_view()
+            return record.public_view(service_audit_degraded=self._audit_degraded)
 
     def cancel(self, task_id: str) -> dict[str, object]:
         with self._lock:
             record = self._get_record_locked(task_id)
             if record.ended_at is not None:
-                return record.public_view()
+                return record.public_view(service_audit_degraded=self._audit_degraded)
             record.cancel_event.set()
             if record.status == "queued":
                 self._set_cancelled_locked(record)
                 if record.future is not None:
                     record.future.cancel()
-            return record.public_view()
+            return record.public_view(service_audit_degraded=self._audit_degraded)
 
     def wait(self, task_id: str, timeout: float | None = None) -> dict[str, object]:
         with self._lock:

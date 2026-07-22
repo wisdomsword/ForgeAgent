@@ -22,6 +22,7 @@ from .http_task_service import (
 )
 
 _logger = logging.getLogger(__name__)
+_READ_TIMEOUT_SECONDS = 10.0
 _TASK_PATH = re.compile(r"/tasks/([0-9a-f]{32})\Z")
 _CANCEL_PATH = re.compile(r"/tasks/([0-9a-f]{32})/cancel\Z")
 _ERROR_DETAILS = {
@@ -33,6 +34,7 @@ _ERROR_DETAILS = {
     "body_too_large": "Request body is too large.",
     "invalid_json": "Request body must be a JSON object.",
     "invalid_request": "Request body does not match the accepted schema.",
+    "invalid_target": "Request target must use origin form.",
     "capacity_exceeded": "Task service capacity is exhausted.",
     "service_closed": "Task service is shutting down.",
     "internal_error": "Request failed.",
@@ -44,6 +46,20 @@ class HttpError(Exception):
         super().__init__(kind)
         self.status = status
         self.kind = kind
+
+
+def _parse_content_length(values: list[str]) -> int | None:
+    if not values:
+        return None
+    if len(values) != 1:
+        raise HttpError(400, "invalid_length")
+    raw = values[0]
+    if not raw or not raw.isascii() or any(character < "0" or character > "9" for character in raw):
+        raise HttpError(400, "invalid_length")
+    try:
+        return int(raw, 10)
+    except ValueError:
+        raise HttpError(400, "invalid_length") from None
 
 
 class _ForgeHttpServer(ThreadingHTTPServer):
@@ -63,6 +79,17 @@ class ForgeRequestHandler(BaseHTTPRequestHandler):
 
     protocol_version = "HTTP/1.1"
     server: _ForgeHttpServer
+
+    def setup(self) -> None:
+        super().setup()
+        self.connection.settimeout(_READ_TIMEOUT_SECONDS)
+
+    def parse_request(self) -> bool:
+        try:
+            self._raw_request_target = self.raw_requestline.decode("iso-8859-1").split()[1]
+        except (IndexError, UnicodeError):
+            self._raw_request_target = ""
+        return super().parse_request()
 
     def do_GET(self) -> None:
         self._dispatch("GET")
@@ -93,8 +120,13 @@ class ForgeRequestHandler(BaseHTTPRequestHandler):
 
     def send_error(self, code: int, message: str | None = None, explain: str | None = None) -> None:
         del message, explain
-        kind = "method_not_allowed" if code == 501 else "internal_error"
-        self._send_error(code, kind)
+        self.close_connection = True
+        if code == 501:
+            self._audit("http.reject", result_status="method_not_allowed")
+            self._send_error(405, "method_not_allowed")
+            return
+        self._audit("http.reject", result_status="invalid_request")
+        self._send_error(code, "invalid_request")
 
     def log_message(self, format: str, *args: object) -> None:
         _logger.debug("HTTP request completed")
@@ -104,7 +136,9 @@ class ForgeRequestHandler(BaseHTTPRequestHandler):
             if not self._authorized():
                 self._audit("http.auth_failure", result_status="denied")
                 raise HttpError(401, "unauthorized")
-            path = urlsplit(self.path)
+            path = self._origin_form_target()
+            if method != "POST":
+                self._reject_unexpected_body()
             if path.query or path.fragment:
                 raise HttpError(404, "not_found")
             if method == "POST" and path.path == "/tasks":
@@ -125,7 +159,8 @@ class ForgeRequestHandler(BaseHTTPRequestHandler):
             # Rejecting before consuming a request body must not let leftover bytes
             # become a second request on a persistent HTTP/1.1 connection.
             self.close_connection = True
-            self._audit("http.reject", result_status=error.kind)
+            if error.kind not in {"unauthorized", "capacity_exceeded"}:
+                self._audit("http.reject", result_status=error.kind)
             self._send_error(error.status, error.kind)
         except Exception:
             self.close_connection = True
@@ -139,9 +174,40 @@ class ForgeRequestHandler(BaseHTTPRequestHandler):
             return False
         raw = values[0]
         scheme, separator, token = raw.partition(" ")
-        if scheme != "Bearer" or separator != " " or not token or " " in token:
+        if (
+            scheme != "Bearer"
+            or separator != " "
+            or not token
+            or len(token) > MAX_BEARER_TOKEN_LENGTH
+            or not token.isascii()
+            or not token.isprintable()
+            or any(character.isspace() for character in token)
+        ):
             return False
         return hmac.compare_digest(token, self.server.config.token)
+
+    def _origin_form_target(self):
+        raw_target = getattr(self, "_raw_request_target", self.path)
+        try:
+            target = urlsplit(raw_target)
+        except ValueError:
+            raise HttpError(400, "invalid_target") from None
+        if (
+            target.scheme
+            or target.netloc
+            or raw_target.startswith("//")
+            or not target.path.startswith("/")
+            or target.path.startswith("//")
+        ):
+            raise HttpError(400, "invalid_target")
+        return target
+
+    def _reject_unexpected_body(self) -> None:
+        if self.headers.get_all("Transfer-Encoding", failobj=[]):
+            raise HttpError(400, "invalid_length")
+        length = _parse_content_length(self.headers.get_all("Content-Length", failobj=[]))
+        if length not in {None, 0}:
+            raise HttpError(400, "invalid_length")
 
     def _submit(self) -> None:
         body = self._read_json()
@@ -157,8 +223,10 @@ class ForgeRequestHandler(BaseHTTPRequestHandler):
             raise HttpError(429, "capacity_exceeded") from None
         except ServiceClosedError:
             raise HttpError(503, "service_closed") from None
-        response = record.public_view()
         self._audit("http.submit", task_id=record.task_id, result_status="accepted")
+        response = record.public_view(
+            service_audit_degraded=self.server.task_service.audit_degraded
+        )
         self._send_json(202, response)
 
     def _query(self, task_id: str) -> None:
@@ -167,6 +235,8 @@ class ForgeRequestHandler(BaseHTTPRequestHandler):
         except TaskNotFound:
             raise HttpError(404, "not_found") from None
         self._audit("http.query", task_id=task_id, result_status="ok")
+        if self.server.task_service.audit_degraded:
+            response["audit_degraded"] = True
         self._send_json(200, response)
 
     def _cancel(self, task_id: str) -> None:
@@ -179,6 +249,8 @@ class ForgeRequestHandler(BaseHTTPRequestHandler):
             raise HttpError(404, "not_found") from None
         status = 200 if response["status"] not in {"queued", "running"} else 202
         self._audit("http.cancel", task_id=task_id, result_status=str(response["status"]))
+        if self.server.task_service.audit_degraded:
+            response["audit_degraded"] = True
         self._send_json(status, response)
 
     def _read_json(self) -> dict[str, object]:
@@ -186,19 +258,19 @@ class ForgeRequestHandler(BaseHTTPRequestHandler):
             raise HttpError(415, "invalid_content_type")
         if self.headers.get("Transfer-Encoding") is not None:
             raise HttpError(400, "invalid_length")
-        values = self.headers.get_all("Content-Length", failobj=[])
-        if len(values) != 1:
-            raise HttpError(400, "invalid_length")
-        try:
-            length = int(values[0], 10)
-        except ValueError:
-            raise HttpError(400, "invalid_length") from None
-        if length < 0:
+        length = _parse_content_length(self.headers.get_all("Content-Length", failobj=[]))
+        if length is None:
             raise HttpError(400, "invalid_length")
         if length > self.server.config.max_body_bytes:
             raise HttpError(413, "body_too_large")
         try:
-            value = json.loads(self.rfile.read(length))
+            raw = self.rfile.read(length)
+        except OSError:
+            raise HttpError(400, "invalid_length") from None
+        if len(raw) != length:
+            raise HttpError(400, "invalid_length")
+        try:
+            value = json.loads(raw)
         except (UnicodeDecodeError, json.JSONDecodeError):
             raise HttpError(400, "invalid_json") from None
         if not isinstance(value, dict):
@@ -212,7 +284,7 @@ class ForgeRequestHandler(BaseHTTPRequestHandler):
         task_id: str | None = None,
         result_status: str,
     ) -> None:
-        emit_audit(
+        persisted = emit_audit(
             self.server.audit_sink,
             AuditEvent(
                 event_type=event_type,
@@ -221,6 +293,8 @@ class ForgeRequestHandler(BaseHTTPRequestHandler):
                 result_status=result_status,
             ),
         )
+        if not persisted:
+            self.server.task_service.mark_audit_degraded()
 
     def _send_error(self, status: int, kind: str) -> None:
         if kind == "unauthorized":
