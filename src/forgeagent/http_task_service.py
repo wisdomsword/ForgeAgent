@@ -195,7 +195,17 @@ class TaskService:
             self._records[record.task_id] = record
             try:
                 record.future = self._executor.submit(self._run_record, record)
-            except Exception:
+            except BaseException:
+                # A custom/external executor may enqueue the callable before raising.
+                # Publish a terminal tombstone while holding the registry lock so a
+                # late worker observes it and returns without constructing a Task.
+                record.cancel_event.set()
+                record.status = "cancelled"
+                record.reason = "cancelled"
+                try:
+                    record.ended_at = self._clock()
+                except BaseException:
+                    record.ended_at = time.monotonic()
                 del self._records[record.task_id]
                 raise
             return record, record.public_view(service_audit_degraded=self._audit_degraded)

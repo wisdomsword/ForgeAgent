@@ -209,6 +209,46 @@ def test_submit_rejects_nested_mutable_options():
         service.shutdown(1.0)
 
 
+@pytest.mark.parametrize("raised", [RuntimeError("submit failed"), KeyboardInterrupt()])
+def test_executor_submit_failure_tombstones_queued_record_and_reraises(raised):
+    created: list[str] = []
+
+    def factory(record: TaskRecord) -> _FakeTask:
+        created.append(record.task_id)
+        return _FakeTask(lambda _goal, _cancel: _outcome())
+
+    class EnqueueThenFail:
+        def __init__(self) -> None:
+            self.fn = None
+            self.record = None
+
+        def submit(self, fn, record):
+            self.fn = fn
+            self.record = record
+            raise raised
+
+        def shutdown(self, **_kwargs):
+            return None
+
+    service = TaskService(factory=factory, config=CONFIG)
+    old_executor = service._executor
+    old_executor.shutdown(wait=False, cancel_futures=True)
+    executor = EnqueueThenFail()
+    service._executor = executor
+    try:
+        with pytest.raises(type(raised)):
+            service.submit("goal", {})
+        assert service.records == {}
+        assert executor.record is not None
+        assert executor.record.cancel_event.is_set()
+        assert executor.record.status == "cancelled"
+        assert executor.record.ended_at is not None
+        executor.fn(executor.record)
+        assert created == []
+    finally:
+        service.shutdown(1.0)
+
+
 def test_queued_cancel_is_terminal_without_constructing_task():
     first_started = threading.Event()
     release_first = threading.Event()
