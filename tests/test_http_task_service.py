@@ -178,6 +178,27 @@ def test_answered_in_prose_projection_never_returns_model_or_file_content():
         service.shutdown(1.0)
 
 
+def test_unknown_outcome_reason_projects_fixed_internal_error():
+    private_reason = "service-secret-token from /Users/admin/private/result.txt"
+
+    def factory(_record: TaskRecord) -> _FakeTask:
+        return _FakeTask(lambda _goal, _cancel: _outcome(private_reason))
+
+    service = TaskService(factory=factory, config=CONFIG)
+    try:
+        record = service.submit("goal", {})
+        service.wait(record.task_id, timeout=1.0)
+        view = service.query(record.task_id)
+
+        assert view["status"] == "failed"
+        assert view["reason"] == "internal_error"
+        assert view["detail"] == "Task execution failed."
+        assert "service-secret-token" not in repr(view)
+        assert "/Users/admin/private/result.txt" not in repr(view)
+    finally:
+        service.shutdown(1.0)
+
+
 def test_submit_rejects_nested_mutable_options():
     service = TaskService(factory=_instant_factory, config=CONFIG)
     try:
@@ -278,6 +299,34 @@ def test_worker_base_exception_terminalizes_record_before_propagating():
             record.future.result(timeout=1.0)
         assert service.query(record.task_id)["status"] == "failed"
         assert service.query(record.task_id)["reason"] == "internal_error"
+    finally:
+        service.shutdown(1.0)
+
+
+def test_audit_degraded_base_exception_does_not_prevent_terminal_publication():
+    class AuditAttributeFailureTask:
+        _client = _FakeClient()
+
+        @property
+        def _audit_sink(self):
+            raise KeyboardInterrupt("audit attribute failed")
+
+        def run(self, goal: str, *, cancel_event: threading.Event | None = None) -> TaskOutcome:
+            assert cancel_event is not None
+            return _outcome()
+
+        def close(self) -> None:
+            pass
+
+    service = TaskService(factory=lambda _record: AuditAttributeFailureTask(), config=CONFIG)
+    try:
+        record = service.submit("goal", {})
+        service.wait(record.task_id, timeout=1.0)
+
+        view = service.query(record.task_id)
+        assert view["status"] == "completed"
+        assert view["reason"] == "completed"
+        assert view["audit_degraded"] is True
     finally:
         service.shutdown(1.0)
 
@@ -384,6 +433,49 @@ def test_shutdown_defers_shared_manager_close_until_active_worker_exits():
     service.shutdown(0.0)
     assert manager_closed.is_set() is False
     assert close_calls == 0
+
+    release.set()
+    service.wait(record.task_id, timeout=1.0)
+    assert manager_closed.wait(1.0)
+    assert close_calls == 1
+    assert service._shutdown_cleanup_thread is None
+
+    service.shutdown(0.0)
+    assert close_calls == 1
+
+
+def test_shutdown_thread_start_failure_falls_back_to_future_callback(monkeypatch):
+    started = threading.Event()
+    release = threading.Event()
+    manager_closed = threading.Event()
+    close_calls = 0
+
+    class Manager:
+        def close(self) -> None:
+            nonlocal close_calls
+            close_calls += 1
+            manager_closed.set()
+
+    def factory(_record: TaskRecord) -> _FakeTask:
+        def run(_goal: str, cancel_event: threading.Event) -> TaskOutcome:
+            started.set()
+            release.wait()
+            assert cancel_event.is_set()
+            return _outcome()
+
+        return _FakeTask(run)
+
+    service = TaskService(factory=factory, config=CONFIG, shared_mcp_manager=Manager())
+    record = service.submit("goal", {})
+    assert started.wait(1.0)
+
+    def fail_start(_thread: threading.Thread) -> None:
+        raise RuntimeError("thread start failed")
+
+    monkeypatch.setattr(threading.Thread, "start", fail_start)
+    service.shutdown(0.0)
+    assert manager_closed.is_set() is False
+    assert service._shutdown_cleanup_thread is None
 
     release.set()
     service.wait(record.task_id, timeout=1.0)

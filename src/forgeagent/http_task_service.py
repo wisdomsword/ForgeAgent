@@ -15,11 +15,26 @@ from typing import Protocol
 from uuid import uuid4
 
 from .http_config import HttpServiceConfig
+from .step import Termination
 from .task import Task, TaskOutcome
 
 _logger = logging.getLogger(__name__)
 _PUBLIC_DETAILS = {"internal_error": "Task execution failed."}
 _OPTION_SCALAR_TYPES = {str, int, float, bool, type(None)}
+_PUBLIC_NONTERMINAL_STATES = frozenset({"queued", "running"})
+_PUBLIC_TERMINAL_REASONS = frozenset(
+    {
+        *(termination.value for termination in Termination),
+        "client_error:network",
+        "client_error:auth",
+        "client_error:rate_limit",
+        "client_error:invalid_request",
+        "client_error:timeout",
+        "client_error:unknown",
+        "no_rounds",
+        "unknown",
+    }
+)
 
 
 class ServiceCapacityError(RuntimeError):
@@ -72,9 +87,10 @@ class TaskRecord:
     def public_view(self) -> dict[str, object]:
         outcome_status = self.outcome.status if self.outcome is not None else None
         reason = self.reason or (outcome_status.reason if outcome_status is not None else None)
+        status, reason = _public_status_reason(self.status, reason)
         return {
             "task_id": self.task_id,
-            "status": self.status,
+            "status": status,
             "reason": reason,
             "detail": _PUBLIC_DETAILS.get(reason),
             "round_count": len(self.outcome.rounds) if self.outcome is not None else 0,
@@ -212,13 +228,31 @@ class TaskService:
             )
             with self._lock:
                 self._shutdown_cleanup_thread = cleanup_thread
-            cleanup_thread.start()
+            try:
+                cleanup_thread.start()
+            except Exception:
+                _logger.error("task cleanup thread failed to start; using future callbacks")
+                with self._lock:
+                    if self._shutdown_cleanup_thread is cleanup_thread:
+                        self._shutdown_cleanup_thread = None
+                self._finish_shutdown_with_callbacks(futures)
         else:
             self._close_shared_mcp_manager_once()
 
     def _finish_shutdown(self, futures: list[Future[None]]) -> None:
         wait(futures)
+        with self._lock:
+            if self._shutdown_cleanup_thread is threading.current_thread():
+                self._shutdown_cleanup_thread = None
         self._close_shared_mcp_manager_once()
+
+    def _finish_shutdown_with_callbacks(self, futures: list[Future[None]]) -> None:
+        def close_when_drained(_future: Future[None]) -> None:
+            if all(future.done() for future in futures):
+                self._close_shared_mcp_manager_once()
+
+        for future in futures:
+            future.add_done_callback(close_when_drained)
 
     def _close_shared_mcp_manager_once(self) -> None:
         with self._lock:
@@ -335,11 +369,21 @@ class TaskService:
 
 
 def _audit_degraded(task: Task) -> bool:
-    sink = getattr(task, "_audit_sink", None)
     try:
+        sink = getattr(task, "_audit_sink", None)
         return bool(getattr(sink, "degraded", False))
-    except Exception:
+    except BaseException:
         return True
+
+
+def _public_status_reason(status: str, reason: str | None) -> tuple[str, str | None]:
+    if status in _PUBLIC_NONTERMINAL_STATES and reason is None:
+        return status, None
+    if status == "failed" and reason == "internal_error":
+        return status, reason
+    if status == reason and reason in _PUBLIC_TERMINAL_REASONS:
+        return status, reason
+    return "failed", "internal_error"
 
 
 def _usage_summary(outcome: TaskOutcome | None) -> dict[str, int] | None:
