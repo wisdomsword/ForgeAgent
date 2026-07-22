@@ -30,6 +30,24 @@ def _finite_number_value(values: Mapping[str, object], field: str, default: floa
     return result
 
 
+def _path_value(values: Mapping[str, object], field: str, default: str | os.PathLike[str]) -> Path:
+    value = values.get(field, default)
+    if isinstance(value, str):
+        raw_path = value
+    elif isinstance(value, os.PathLike):
+        try:
+            raw_path = os.fspath(value)
+        except (TypeError, ValueError, OSError) as error:
+            raise ValueError(f"{field} must be a non-empty path") from error
+        if not isinstance(raw_path, str):
+            raise ValueError(f"{field} must be a non-empty path")
+    else:
+        raise ValueError(f"{field} must be a non-empty path")
+    if not raw_path.strip():
+        raise ValueError(f"{field} must be a non-empty path")
+    return Path(raw_path)
+
+
 @dataclass(frozen=True)
 class HttpServiceConfig:
     """Server-owned limits and credentials for the loopback-only HTTP service."""
@@ -92,7 +110,11 @@ class HttpServiceConfig:
             max_records=_integer_value(values, "max_records", 256),
             terminal_ttl_seconds=_finite_number_value(values, "terminal_ttl_seconds", 3600.0),
             max_body_bytes=_integer_value(values, "max_body_bytes", 64 * 1024),
-            audit_path=Path(str(values.get("audit_path", "~/.forgeagent/http-audit.jsonl"))),
+            audit_path=_path_value(
+                values,
+                "audit_path",
+                Path("~/.forgeagent/http-audit.jsonl"),
+            ),
             audit_max_bytes=_integer_value(values, "audit_max_bytes", 10 * 1024 * 1024),
             audit_retention_files=_integer_value(values, "audit_retention_files", 5),
             allowlist=tuple(allowlist),

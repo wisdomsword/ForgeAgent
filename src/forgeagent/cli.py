@@ -925,7 +925,9 @@ def _load_http_runtime_settings(path: str | Path) -> _HttpRuntimeSettings:
 
     container_image = values.get("container_image")
     if container_image is not None and (
-        not isinstance(container_image, str) or not container_image.strip()
+        not isinstance(container_image, str)
+        or not container_image.strip()
+        or any(unicodedata.category(character) == "Cc" for character in container_image)
     ):
         raise HttpStartupError("HTTP service container configuration is invalid.")
 

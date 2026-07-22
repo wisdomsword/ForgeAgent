@@ -2697,6 +2697,36 @@ def test_serve_validates_headless_and_audit_policy_before_listener(
     assert cli_module.main(["serve", "--config", str(config_path), "--once"]) == 2
 
 
+def test_serve_rejects_non_path_audit_config_before_listener(monkeypatch, tmp_path):
+    import forgeagent.cli as cli_module
+    import forgeagent.http_server as http_server_module
+
+    config_path = tmp_path / "http.yaml"
+    config_path.write_text("token: file-token\naudit_path: true\n")
+    monkeypatch.setattr(
+        http_server_module,
+        "create_http_server",
+        lambda *args, **kwargs: pytest.fail("invalid audit path must not create a listener"),
+    )
+
+    assert cli_module.main(["serve", "--config", str(config_path), "--once"]) == 2
+
+
+@pytest.mark.parametrize(
+    "container_image",
+    ["image\nnext", "image\x00next", "image\x7fnext"],
+    ids=["newline", "nul", "delete"],
+)
+def test_http_runtime_config_rejects_container_image_control_characters(tmp_path, container_image):
+    import forgeagent.cli as cli_module
+
+    config_path = tmp_path / "http.json"
+    config_path.write_text(json.dumps({"token": "file-token", "container_image": container_image}))
+
+    with pytest.raises(cli_module.HttpStartupError, match="container"):
+        cli_module._load_http_runtime_settings(config_path)
+
+
 def test_http_owner_closes_bound_resources_when_server_thread_cannot_start(monkeypatch):
     import forgeagent.cli as cli_module
 

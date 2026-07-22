@@ -92,6 +92,29 @@ def test_http_config_environment_token_wins_and_other_values_are_configurable():
     )
 
 
+def test_http_config_preserves_direct_pathlike_audit_path(tmp_path):
+    audit_path = tmp_path / "events.jsonl"
+
+    config = HttpServiceConfig.from_sources(
+        config={"token": "secret", "audit_path": audit_path},
+        env={},
+    )
+
+    assert config.audit_path == audit_path
+
+
+@pytest.mark.parametrize(
+    "audit_path",
+    [None, True, 1, 1.5, [], {}, b"audit.jsonl", "", "   \t"],
+)
+def test_http_config_rejects_invalid_audit_path_types_and_blank_strings(audit_path):
+    with pytest.raises(ValueError, match="audit_path"):
+        HttpServiceConfig.from_sources(
+            config={"token": "secret", "audit_path": audit_path},
+            env={},
+        )
+
+
 def test_http_config_uses_documented_defaults():
     assert HttpServiceConfig.from_sources(config={"token": "secret"}, env={}) == (
         HttpServiceConfig(token="secret")
