@@ -441,7 +441,7 @@ git commit -m "feat: expose bounded loopback HTTP task endpoints"
 - 新增 `forgeagent serve` 子命令，默认不启动 HTTP；命令装配配置、audit sink、MCP manager、headless confirmer 和服务端 task factory。
 - `forgeagent serve --config PATH` 仅读取服务端配置，不接受客户端覆盖的 tier/root/identity/credential 参数。
 
-- [ ] **Step 1: 写 opt-in 和默认 CLI 回归测试**
+- [x] **Step 1: 写 opt-in 和默认 CLI 回归测试**
 
 ```python
 def test_cli_default_does_not_start_http(monkeypatch):
@@ -453,11 +453,11 @@ def test_serve_builds_loopback_server(monkeypatch, tmp_path):
     assert main(["serve", "--config", str(tmp_path / "config.yaml"), "--once"]) == 0
 ```
 
-- [ ] **Step 2: 实现 serve 装配和 bounded shutdown**
+- [x] **Step 2: 实现 serve 装配和 bounded shutdown**
 
 服务启动前验证 `HttpServiceConfig` 和 audit path；创建共享 MCP manager（若配置启用），每个 worker 创建 client/Task/headless confirmer；捕获 SIGINT/SIGTERM 后执行 service shutdown、MCP close、HTTP server close。既有 `run`/REPL 参数和输出不改。
 
-- [ ] **Step 3: 运行 CLI/packaging 测试并提交**
+- [x] **Step 3: 运行 CLI/packaging 测试并提交**
 
 Run: `pytest tests/test_cli.py tests/test_packaging.py -q`
 Expected: PASS。

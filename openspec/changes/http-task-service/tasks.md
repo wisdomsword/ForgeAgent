@@ -23,8 +23,8 @@
 - [x] 4.1 按 Design 最终选型实现 HTTP adapter 和 `POST /tasks`、`GET /tasks/{id}`、`POST /tasks/{id}/cancel` 路由，覆盖 method/body/size 校验。
 - [x] 4.2 实现常量时间 bearer 鉴权、loopback 默认绑定、结构化错误 envelope 和有界安全结果序列化。
 - [x] 4.3 实现非交互 confirmer/HTTP allowlist，并接入 WebFetch、FileWrite、MCP；HTTP 明确不继承 MCP `autoApprove`。
-- [ ] 4.4 接入 opt-in CLI/config 启动，同时保持既有 CLI 和直接 `Task` 构造行为。
-- [ ] 4.5 定义并测试 Authorization 解析、token rotation/reload、非 loopback/TLS 政策和审计文件权限。
+- [x] 4.4 接入 opt-in CLI/config 启动，同时保持既有 CLI 和直接 `Task` 构造行为。
+- [x] 4.5 定义并测试 Authorization 解析、token rotation/reload、非 loopback/TLS 政策和审计文件权限。
 
 ## 5. 验证与文档
 
