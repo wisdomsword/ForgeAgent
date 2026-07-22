@@ -4,6 +4,10 @@
 
 设计文档见 [`docs/`](docs/)，行动计划见 [`ACTION_PLAN.md`](ACTION_PLAN.md)，最高宪法见 [`spec.md`](spec.md)。
 
+当前主线已完成 M16 本地 HTTP headless 服务与审计，以及 M17 Runtime Context
+Engineering；对应收尾记录见 [`milestone_016.md`](milestones/milestone_016.md) 和
+[`milestone_017.md`](milestones/milestone_017.md)。下一阶段为 M18 Memory 运行时。
+
 ## 安装
 
 ```bash
@@ -41,10 +45,10 @@ uv run forgeagent run "描述这张图" --image ./screenshot.png
 每轮结束后打印会话级用量状态行（M10）：
 
 ```
-usage: in=1234 out=567 cached=200 reasoning=0 (session total)
+usage: in=1234 out=567 cached=200 reasoning=0 (session total) cache_hit=16.2%
 ```
 
-`in`/`out` 为累计 input/output tokens，`cached` 为命中缓存的 input tokens（Anthropic 的 cache_creation+cache_read 合并、OpenAI-compatible 的 `prompt_tokens_details.cached_tokens`），`reasoning` 为计费的 thinking/reasoning tokens（Anthropic 已并入 `out`，此处恒为 0；OpenAI-compatible 视供应商在标准/非标准字段间取值，见 [`docs/m9-streaming-multimodal-commands.md`](docs/m9-streaming-multimodal-commands.md) §8 S2）。
+`in`/`out` 为累计 input/output tokens，`cached` 为命中缓存的 input tokens（Anthropic 的 cache_creation+cache_read 合并、OpenAI-compatible 的 `prompt_tokens_details.cached_tokens`），`reasoning` 为计费的 thinking/reasoning tokens（Anthropic 已并入 `out`，此处恒为 0；OpenAI-compatible 视供应商在标准/非标准字段间取值，见 [`docs/m9-streaming-multimodal-commands.md`](docs/m9-streaming-multimodal-commands.md) §8 S2）。`cache_hit` 使用 provider adapter 归一化后的累计 prompt 分母；provider 未提供可靠分母或分母为零时显示 `n/a`，不以目标百分比作为完成门禁。
 
 REPL 内输入 `/` 加回车查看指令菜单，或直接 `/help`。当前支持的指令：
 

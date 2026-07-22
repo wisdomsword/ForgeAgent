@@ -48,7 +48,7 @@ HTTP endpoint、请求/响应 schema 或 M16 鉴权、取消、安全投影、�
 - [x] Provider-normalized prompt denominator、CLI/session cache hit rate 与审计字段
 - [x] Prompt-cache 稳定前缀、长对话 mock replay 与 M16 HTTP 回归
 - [x] 配置、模型契约、HTTP、usage 与威胁模型文档
-- [x] OpenSpec strict 验证、Comet full verify、分支保留和 delta spec 归档
+- [x] OpenSpec strict 验证、Comet full verify、delta spec 归档、合入 `main` 并清理开发分支
 
 ## 交付物清单
 
@@ -87,6 +87,9 @@ HTTP endpoint、请求/响应 schema 或 M16 鉴权、取消、安全投影、�
 - [x] `openspec validate runtime-context-engineering --strict` 与 `git diff --check` 通过
 - [x] M16 bearer auth、严格 schema、取消、安全投影、审计降级、correlation、精确
   allowlist 和 MCP autoApprove 隔离均包含在全量回归中
+- [x] 真实模型人工验收：Exec 实际生成 `0..999`（原始 3889 字符），模型侧 feedback
+  仅保留尾部 160 字符并收到真实 continuation；后续 Exec 验证 `count=1000`、
+  `first=0`、`last=999`、`sum=499500`，同时观察到 `cache_hit=65.0%`
 
 ## 遗留问题
 
@@ -99,9 +102,9 @@ HTTP endpoint、请求/响应 schema 或 M16 鉴权、取消、安全投影、�
 
 ## 续接指引
 
-M17 已在分支 `codex/m17-runtime-context-engineering` 完成验证并归档为
-`openspec/changes/archive/2026-07-22-runtime-context-engineering/`，分支按推荐方案保留，
-未 push。下一阶段是 M18 Memory 运行时：先读取 `TECH_PATH.md` §三 M18 与本文件遗留，
+M17 已归档为 `openspec/changes/archive/2026-07-22-runtime-context-engineering/` 并合入
+`main`，开发分支已清理且未 push。下一阶段是 M18 Memory 运行时：先读取
+`TECH_PATH.md` §三 M18 与本文件遗留，
 通过 `/comet` 创建新的 full change。M18 应复用 M15 的 MEMORY.md 文件层与 M17 的有界
 上下文行为，重点裁决提取触发时机、准入规则、会话/项目两级作用域、冲突替换和记忆投毒
 边界；不得顺带引入向量检索、置信度模型或团队级作用域。
