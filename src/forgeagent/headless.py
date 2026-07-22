@@ -39,28 +39,56 @@ def _validate_relative_key(key: str) -> str:
     return key
 
 
+def _validate_mcp_segment(value: str) -> str:
+    if not value or any(
+        not character.isascii() or not (character.isalnum() or character in "-_.:")
+        for character in value
+    ):
+        raise _invalid_allowlist_entry()
+    return value
+
+
+def _validate_mcp_key(key: str) -> str:
+    try:
+        prefix, server, tool = key.split("/")
+    except ValueError:
+        raise _invalid_allowlist_entry() from None
+    if prefix != "mcp":
+        raise _invalid_allowlist_entry()
+    return f"mcp/{_validate_mcp_segment(server)}/{_validate_mcp_segment(tool)}"
+
+
+def _validate_file_key(key: str) -> str:
+    if not key.startswith("file/"):
+        raise _invalid_allowlist_entry()
+    return f"file/{_validate_relative_key(key.removeprefix('file/'))}"
+
+
+def _canonical_web_host(host: str) -> str:
+    try:
+        canonical = host.encode("idna").decode("ascii").lower()
+    except UnicodeError:
+        raise _invalid_allowlist_entry() from None
+    if not canonical or any(character.isspace() for character in canonical) or "@" in canonical:
+        raise _invalid_allowlist_entry()
+    return canonical
+
+
 def _validate_web_key(key: str) -> str:
     _validate_safe_text(key)
     try:
-        scheme, host, port_text, path = key.split("/", 3)
+        prefix, scheme, host, port_text, path = key.split("/", 4)
         port = int(port_text)
     except (TypeError, ValueError):
         raise _invalid_allowlist_entry() from None
-    if (
-        scheme not in _WEB_SCHEMES
-        or not host
-        or host != host.lower()
-        or any(character.isspace() for character in host)
-        or "@" in host
-        or not 1 <= port <= 65535
-    ):
+    if prefix != "web" or scheme not in _WEB_SCHEMES or not 1 <= port <= 65535:
         raise _invalid_allowlist_entry()
-    # split(..., 3) removes the slash before the URL path. An empty path represents
+    # split(..., 4) removes the slash before the URL path. An empty path represents
     # URL path "/"; non-empty paths must not contain traversal segments.
     decoded_parts = unquote(path).split("/")
     if any(part in {".", ".."} for part in decoded_parts):
         raise _invalid_allowlist_entry()
-    return key
+    return f"web/{scheme}/{_canonical_web_host(host)}/{port}/{path}"
 
 
 def normalize_allowlist(entries: Iterable[str]) -> frozenset[str]:
@@ -71,17 +99,24 @@ def normalize_allowlist(entries: Iterable[str]) -> frozenset[str]:
     for entry in entries:
         if not isinstance(entry, str):
             raise _invalid_allowlist_entry()
-        if entry.startswith(("http/", "https/")) and entry.count("/") >= 3:
+        if entry.startswith("mcp/"):
+            normalized.add(_validate_mcp_key(entry))
+        elif entry.startswith("file/"):
+            normalized.add(_validate_file_key(entry))
+        elif entry.startswith("web/"):
             normalized.add(_validate_web_key(entry))
         else:
-            normalized.add(_validate_relative_key(entry))
+            raise _invalid_allowlist_entry()
     return frozenset(normalized)
 
 
 def operation_key(args: BaseModel, root: Path) -> str:
     """Return the exact authorization key for one gated tool operation."""
     if isinstance(args, MCPArgs):
-        return _validate_relative_key(f"{args.server}/{args.tool}")
+        try:
+            return _validate_mcp_key(f"mcp/{args.server}/{args.tool}")
+        except ValueError:
+            raise ValueError("invalid MCP operation") from None
     if isinstance(args, FileWriteArgs):
         try:
             canonical_root = Path(root).resolve()
@@ -92,7 +127,7 @@ def operation_key(args: BaseModel, root: Path) -> str:
         except (OSError, RuntimeError, ValueError):
             raise ValueError("FileWrite path is outside project root") from None
         try:
-            return _validate_relative_key(relative.as_posix())
+            return _validate_file_key(f"file/{relative.as_posix()}")
         except ValueError:
             raise ValueError("FileWrite path is outside project root") from None
     if isinstance(args, WebFetchArgs):
@@ -103,11 +138,10 @@ def operation_key(args: BaseModel, root: Path) -> str:
                 raise ValueError
             if parts.username is not None or parts.password is not None:
                 raise ValueError
-            host = parts.hostname.encode("idna").decode("ascii").lower()
             parsed_port = parts.port
             port = _WEB_SCHEMES[scheme] if parsed_port is None else parsed_port
             path = parts.path or "/"
-            key = f"{scheme}/{host}/{port}{path}"
+            key = f"web/{scheme}/{parts.hostname}/{port}{path}"
             return _validate_web_key(key)
         except (UnicodeError, ValueError):
             raise ValueError("invalid WebFetch URL") from None
@@ -116,6 +150,8 @@ def operation_key(args: BaseModel, root: Path) -> str:
 
 class HeadlessConfirmer:
     """Deterministic confirmer backed by an exact HTTP-only allowlist."""
+
+    is_headless = True
 
     def __init__(
         self,
@@ -141,14 +177,23 @@ class HeadlessConfirmer:
         *,
         task_id: str | None,
         operation_id: str,
+        allowed_root: str | Path | None = None,
     ) -> bool:
-        try:
-            key = operation_key(args, self._root)
-        except ValueError:
+        if (
+            isinstance(args, FileWriteArgs)
+            and allowed_root is not None
+            and Path(allowed_root).resolve() != self._root
+        ):
             key = "invalid"
             allowed = False
         else:
-            allowed = key in self._allowlist
+            try:
+                key = operation_key(args, self._root)
+            except ValueError:
+                key = "invalid"
+                allowed = False
+            else:
+                allowed = key in self._allowlist
         emit_audit(
             self._audit,
             AuditEvent(
@@ -162,3 +207,11 @@ class HeadlessConfirmer:
             ),
         )
         return allowed
+
+    def allows_web_url(self, url: str) -> bool:
+        """Return whether one effective WebFetch URL has an exact allowlist entry."""
+        try:
+            key = operation_key(WebFetchArgs(url=url), self._root)
+        except ValueError:
+            return False
+        return key in self._allowlist

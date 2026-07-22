@@ -21,15 +21,15 @@ class _RecordingAuditSink:
 def test_normalize_allowlist_accepts_exact_canonical_operation_keys() -> None:
     assert normalize_allowlist(
         {
-            "github/create_issue",
-            "reports/out.txt",
-            "https/example.com/443/api/report",
+            "mcp/github/create_issue",
+            "file/reports/out.txt",
+            "web/https/example.com/443/api/report",
         }
     ) == frozenset(
         {
-            "github/create_issue",
-            "reports/out.txt",
-            "https/example.com/443/api/report",
+            "mcp/github/create_issue",
+            "file/reports/out.txt",
+            "web/https/example.com/443/api/report",
         }
     )
 
@@ -45,16 +45,21 @@ def test_normalize_allowlist_rejects_bare_string_collection() -> None:
         "",
         " reports/out.txt",
         "reports/out.txt ",
+        "github/create_issue",
+        "reports/out.txt",
+        "https/example.com/443/a",
+        "mcp/server/tool/extra",
+        "mcp/server\x1f/tool",
         "reports/*.txt",
         "reports/[ab].txt",
         "../outside.txt",
         "reports/../outside.txt",
         "/absolute.txt",
         "reports\\out.txt",
-        "https/example.com/not-a-port/a",
-        "https/example.com/0/a",
-        "https/example.com/65536/a",
-        "https/example.com/443/a?scope=wide",
+        "web/https/example.com/not-a-port/a",
+        "web/https/example.com/0/a",
+        "web/https/example.com/65536/a",
+        "web/https/example.com/443/a?scope=wide",
     ],
 )
 def test_normalize_allowlist_rejects_glob_unsafe_and_escaping_entries(entry: str) -> None:
@@ -65,9 +70,9 @@ def test_normalize_allowlist_rejects_glob_unsafe_and_escaping_entries(entry: str
 @pytest.mark.parametrize(
     ("url", "expected"),
     [
-        ("http://Example.COM/a?token=one#fragment", "http/example.com/80/a"),
-        ("https://Example.COM/a?token=two", "https/example.com/443/a"),
-        ("https://example.com:8443", "https/example.com/8443/"),
+        ("http://Example.COM/a?token=one#fragment", "web/http/example.com/80/a"),
+        ("https://Example.COM/a?token=two", "web/https/example.com/443/a"),
+        ("https://example.com:8443", "web/https/example.com/8443/"),
     ],
 )
 def test_operation_key_uses_scheme_specific_default_port_and_omits_query(
@@ -97,7 +102,7 @@ def test_file_write_operation_key_is_canonical_project_relative_path(tmp_path: P
         tmp_path,
     )
 
-    assert key == "reports/out.txt"
+    assert key == "file/reports/out.txt"
 
 
 def test_file_write_operation_key_rejects_symlink_escape(tmp_path: Path) -> None:
@@ -112,7 +117,7 @@ def test_file_write_operation_key_rejects_symlink_escape(tmp_path: Path) -> None
 def test_headless_confirmer_exact_match_audits_preapproval_and_denial(tmp_path: Path) -> None:
     sink = _RecordingAuditSink()
     confirmer = HeadlessConfirmer(
-        {"reports/out.txt", "https/example.com/443/a"},
+        {"file/reports/out.txt", "web/https/example.com/443/a"},
         audit=sink,
         root=tmp_path,
     )
@@ -127,9 +132,9 @@ def test_headless_confirmer_exact_match_audits_preapproval_and_denial(tmp_path: 
         "preapproved",
     ]
     assert [event.parameters["operation"] for event in sink.events] == [
-        "reports/out.txt",
-        "reports/other.txt",
-        "https/example.com/443/a",
+        "file/reports/out.txt",
+        "file/reports/other.txt",
+        "web/https/example.com/443/a",
     ]
 
 
@@ -150,5 +155,29 @@ def test_headless_confirmer_denies_invalid_operation_without_disclosing_path(
 
 def test_mcp_operation_key_is_exact_server_and_tool(tmp_path: Path) -> None:
     assert operation_key(MCPArgs(server="github", tool="create_issue"), tmp_path) == (
-        "github/create_issue"
+        "mcp/github/create_issue"
     )
+
+
+@pytest.mark.parametrize(
+    ("server", "tool"),
+    [
+        ("github/admin", "create_issue"),
+        ("github", "admin/create_issue"),
+        ("github\\admin", "create_issue"),
+        ("github", "create\nissue"),
+    ],
+)
+def test_mcp_operation_key_rejects_separator_and_control_characters(
+    server: str, tool: str, tmp_path: Path
+) -> None:
+    with pytest.raises(ValueError, match="MCP"):
+        operation_key(MCPArgs(server=server, tool=tool), tmp_path)
+
+
+def test_web_allowlist_and_runtime_share_idna_host_canonicalization(tmp_path: Path) -> None:
+    configured = normalize_allowlist(["web/https/B\u00dcCHER.Example/443/report"])
+    runtime = operation_key(WebFetchArgs(url="https://b\u00fccher.example/report"), tmp_path)
+
+    assert configured == frozenset({"web/https/xn--bcher-kva.example/443/report"})
+    assert runtime in configured

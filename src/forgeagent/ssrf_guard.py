@@ -10,6 +10,7 @@ import ipaddress
 import socket
 import urllib.parse
 import urllib.request
+from collections.abc import Callable
 
 _NAT64_PREFIX = ipaddress.ip_network("64:ff9b::/96")
 _ALLOWED_SCHEMES = {"http", "https"}
@@ -80,6 +81,10 @@ class _GuardedHTTPSHandler(urllib.request.HTTPSHandler):
 
 
 class _GuardedRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def __init__(self, url_validator: Callable[[str], bool] | None = None) -> None:
+        super().__init__()
+        self._url_validator = url_validator
+
     def http_error_302(self, req, fp, code, msg, headers):
         if "location" in headers:
             newurl = headers["location"]
@@ -109,11 +114,23 @@ class _GuardedRedirectHandler(urllib.request.HTTPRedirectHandler):
             scheme = urllib.parse.urlsplit(redirected.full_url).scheme.lower()
             if scheme not in _ALLOWED_SCHEMES:
                 raise SSRFGuardError(f"redirect scheme {scheme!r} is not allowed")
+            if self._url_validator is not None:
+                try:
+                    authorized = self._url_validator(redirected.full_url)
+                except Exception:
+                    authorized = False
+                if not authorized:
+                    raise SSRFGuardError("redirect target is not authorized")
             redirected._forgeagent_redirect_count = count + 1
         return redirected
 
 
-def guarded_urlopen(url: str, *, timeout: float = 10.0):
+def guarded_urlopen(
+    url: str,
+    *,
+    timeout: float = 10.0,
+    url_validator: Callable[[str], bool] | None = None,
+):
     """Perform a GET request through the SSRF guard.
 
     Rejects non-http/https schemes up front (e.g. `file://`, which would bypass the
@@ -122,9 +139,16 @@ def guarded_urlopen(url: str, *, timeout: float = 10.0):
     scheme = urllib.parse.urlsplit(url).scheme.lower()
     if scheme not in _ALLOWED_SCHEMES:
         raise SSRFGuardError(f"scheme {scheme!r} is not allowed, only http/https")
+    if url_validator is not None:
+        try:
+            authorized = url_validator(url)
+        except Exception:
+            authorized = False
+        if not authorized:
+            raise SSRFGuardError("request target is not authorized")
     opener = urllib.request.build_opener(
         urllib.request.ProxyHandler({}),
-        _GuardedRedirectHandler(),
+        _GuardedRedirectHandler(url_validator),
         _GuardedHTTPHandler(),
         _GuardedHTTPSHandler(),
     )

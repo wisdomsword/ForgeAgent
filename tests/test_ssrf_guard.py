@@ -350,6 +350,49 @@ def test_guarded_urlopen_follows_relative_http_308_with_actual_opener_offline(mo
     assert requests == [(initial_url, "GET"), (target_url, "GET")]
 
 
+@pytest.mark.parametrize(
+    "target_url",
+    [
+        "http://other.example/allowed",
+        "http://public.example/private",
+    ],
+)
+def test_guarded_urlopen_rejects_redirect_outside_exact_allowlist_before_request(
+    monkeypatch, target_url
+):
+    real_build_opener = urllib.request.build_opener
+    initial_url = "http://public.example/allowed"
+    requests = []
+
+    class _SyntheticRedirectHandler(urllib.request.BaseHandler):
+        handler_order = 100
+
+        def http_open(self, request):
+            requests.append(request.full_url)
+            if request.full_url != initial_url:
+                pytest.fail("unauthorized redirect destination was requested")
+            headers = Message()
+            headers["Location"] = target_url
+            response = urllib.response.addinfourl(io.BytesIO(), headers, request.full_url, 302)
+            response.msg = "synthetic redirect"
+            return response
+
+    def _build_opener(*handlers):
+        return real_build_opener(_SyntheticRedirectHandler(), *handlers)
+
+    monkeypatch.setattr("forgeagent.ssrf_guard.urllib.request.build_opener", _build_opener)
+
+    with pytest.raises(SSRFGuardError, match="not authorized") as raised:
+        guarded_urlopen(
+            initial_url,
+            timeout=1,
+            url_validator=lambda url: url == initial_url,
+        )
+
+    assert target_url not in str(raised.value)
+    assert requests == [initial_url]
+
+
 @pytest.mark.parametrize("redirect_code", [301, 302, 303, 307, 308])
 def test_guarded_urlopen_blocks_loopback_redirect_before_socket_construction(
     monkeypatch, redirect_code

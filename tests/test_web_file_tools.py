@@ -19,6 +19,7 @@ from unittest.mock import patch
 import pytest
 
 from forgeagent.executor import TrustedBackend
+from forgeagent.headless import HeadlessConfirmer
 from forgeagent.policy import CodeAnalyzer
 from forgeagent.protocol import FileListArgs, FileReadArgs, FileWriteArgs, WebFetchArgs
 from forgeagent.runtime import Runtime
@@ -311,6 +312,28 @@ def test_webfetch_restricted_tier_confirmer_denial_blocks_fetch(monkeypatch):
     assert calls == []  # denied -> never fetched
 
 
+def test_webfetch_passes_headless_allowlist_validator_to_redirect_guard(tmp_path, monkeypatch):
+    initial_url = "https://public.example/allowed"
+    redirected_url = "https://other.example/allowed"
+    seen = []
+
+    def fake_open(url, **kwargs):
+        validator = kwargs["url_validator"]
+        seen.extend([validator(url), validator(redirected_url)])
+        return _FakeResponse(b"ok", "text/plain")
+
+    monkeypatch.setattr("forgeagent.tools.guarded_urlopen", fake_open)
+    confirmer = HeadlessConfirmer(
+        {"web/https/public.example/443/allowed"}, audit=None, root=tmp_path
+    )
+    ctx = _webfetch_ctx(tier="restricted", confirmer=confirmer, allowed_root=str(tmp_path))
+
+    outcome = WebFetchTool().run(WebFetchArgs(url=initial_url), ctx)
+
+    assert outcome.success is True
+    assert seen == [True, False]
+
+
 def test_webfetch_restricted_tier_without_confirmer_reports_missing_channel(monkeypatch):
     calls = []
     monkeypatch.setattr(
@@ -553,6 +576,22 @@ def test_file_write_restricted_tier_confirmer_denial_blocks_write(tmp_path):
     assert str(external_path) not in outcome.detail
     assert content not in outcome.detail
     assert not (tmp_path / "out.txt").exists()
+
+
+def test_headless_file_write_root_mismatch_fails_closed(tmp_path):
+    confirmer_root = tmp_path / "confirmed"
+    context_root = tmp_path / "runtime"
+    confirmer_root.mkdir()
+    context_root.mkdir()
+    confirmer = HeadlessConfirmer({"file/out.txt"}, audit=None, root=confirmer_root)
+    ctx = _file_ctx(tier="restricted", confirmer=confirmer, allowed_root=str(context_root))
+
+    outcome = FileWriteTool().run(FileWriteArgs(path="out.txt", content="secret"), ctx)
+
+    assert outcome.success is False
+    assert outcome.detail == "rejected: operation is not in the headless allowlist"
+    assert not (confirmer_root / "out.txt").exists()
+    assert not (context_root / "out.txt").exists()
 
 
 def test_file_write_restricted_tier_without_confirmer_reports_missing_channel(tmp_path):

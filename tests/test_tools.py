@@ -269,7 +269,7 @@ def test_http_context_does_not_inherit_mcp_auto_approval() -> None:
 def test_http_allowlist_preapproval_uses_tool_operation_id_once() -> None:
     fake = _FakeMCP()
     sink = _RecordingAuditSink()
-    confirmer = HeadlessConfirmer({"fs/write_file"}, audit=sink)
+    confirmer = HeadlessConfirmer({"mcp/fs/write_file"}, audit=sink)
     ctx = _mcp_ctx(mcp=fake, confirmer=confirmer, allow_auto_approve=False)
     ctx.audit_sink = sink
     ctx.task_id = "http-task"
@@ -282,6 +282,18 @@ def test_http_allowlist_preapproval_uses_tool_operation_id_once() -> None:
     assert len(sink.events) == 1
     assert sink.events[0].result_status == "preapproved"
     assert sink.events[0].operation_id == "http-tool-call-preapproved"
+
+
+def test_http_headless_mcp_denial_names_allowlist_not_user() -> None:
+    fake = _FakeMCP()
+    confirmer = HeadlessConfirmer([], audit=None)
+    ctx = _mcp_ctx(mcp=fake, confirmer=confirmer, allow_auto_approve=False)
+
+    outcome = MCPTool().run(MCPArgs(server="fs", tool="write_file"), ctx)
+
+    assert outcome.success is False
+    assert outcome.detail == "rejected: operation is not in the headless allowlist"
+    assert fake.calls == []
 
 
 def test_mcp_non_approved_call_needs_confirmer_yes():

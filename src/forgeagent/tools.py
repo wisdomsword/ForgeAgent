@@ -201,11 +201,15 @@ def _confirm(
     try:
         contextual_confirm = getattr(ctx.confirmer, "confirm_with_context", None)
         if callable(contextual_confirm):
+            extra_context = {}
+            if getattr(ctx.confirmer, "is_headless", False):
+                extra_context["allowed_root"] = ctx.allowed_root
             approved = bool(
                 contextual_confirm(
                     args,
                     task_id=ctx.task_id,
                     operation_id=ctx.operation_id or uuid4().hex,
+                    **extra_context,
                 )
             )
             return approved
@@ -227,6 +231,12 @@ def _confirm(
         duration_ms=max(0, int((time.monotonic() - started) * 1000)),
     )
     return approved
+
+
+def _denial_detail(ctx: ToolContext, default: str) -> str:
+    if getattr(ctx.confirmer, "is_headless", False):
+        return "rejected: operation is not in the headless allowlist"
+    return default
 
 
 def _apply_edit(current_code: str, args: EditArgs) -> tuple[str | None, str | None]:
@@ -392,7 +402,7 @@ class MCPTool(Tool):
                 tool="MCP",
                 block_name=label,
                 success=False,
-                detail=f"MCP call {label} was not approved by the user",
+                detail=_denial_detail(ctx, f"MCP call {label} was not approved by the user"),
             )
         result = ctx.mcp.call_tool(args.server, args.tool, args.arguments)
         return ToolOutcome(
@@ -431,10 +441,14 @@ class WebFetchTool(Tool):
                 return ToolOutcome(
                     tool="WebFetch",
                     success=False,
-                    detail="WebFetch was not approved by the user",
+                    detail=_denial_detail(ctx, "WebFetch was not approved by the user"),
                 )
         try:
-            response = guarded_urlopen(args.url)
+            url_validator = getattr(ctx.confirmer, "allows_web_url", None)
+            if callable(url_validator) and ctx.tier in ("restricted", "container"):
+                response = guarded_urlopen(args.url, url_validator=url_validator)
+            else:
+                response = guarded_urlopen(args.url)
             with response:
                 content_type = response.headers.get_content_type()
                 raw = response.read(_MAX_FETCH_BYTES + 1)
@@ -549,7 +563,7 @@ class FileWriteTool(Tool):
                 return ToolOutcome(
                     tool="FileWrite",
                     success=False,
-                    detail="FileWrite was not approved by the user",
+                    detail=_denial_detail(ctx, "FileWrite was not approved by the user"),
                 )
         try:
             resolved = _validate_path(args.path, ctx.allowed_root)
