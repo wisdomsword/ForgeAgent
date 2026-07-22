@@ -1,17 +1,17 @@
 # M17 Subagent Progress
 
-- Plan task: Task 6 complete: Provider-normalized prompt denominator 已交付
-- OpenSpec mapping: 4.1 provider-normalized total prompt denominator
+- Plan task: Task 7 complete: CLI/session cache rate、audit 与事务化 reload 已交付
+- OpenSpec mapping: 4.2 CLI/REPL cache rate; 4.3 audit cache rate; 1.2 CLI/REPL context config wiring (partial)
 - Phase: done
-- Base commit: 609f05bdb4d01060c03ce38dfa540cacdf4089e1
-- Implementation commits: 483964d761645405365b0a5bceb5b34225b5f54d; 437a8d4
-- Changed files: src/forgeagent/models.py; src/forgeagent/anthropic_client.py; src/forgeagent/openai_compatible_client.py; tests/test_anthropic_client.py; tests/test_openai_compatible_client.py; tests/test_streaming.py
-- TDD RED: 4 failed as expected because total_prompt_tokens was absent
-- TDD GREEN: focused 4 passed; edge matrix 8 passed; provider regression 79 passed; Ruff/diff check passed
-- Diff size: 117 insertions
+- Base commit: 24d581b22fb4adbd8855c05c228d8716f11f0970
+- Implementation commits: 60f965e; cc23f90; dedd225
+- Changed files: src/forgeagent/cli.py; src/forgeagent/models.py; src/forgeagent/step.py; tests/test_cli.py; tests/test_audit.py
+- TDD RED: 7 focused failures for missing cache display, context reload wiring, and audit rate
+- TDD GREEN: focused 7 passed; review fixes 13+3 passed; CLI/audit 202 passed; related regression 246 passed; Ruff/diff check passed
+- Diff size: 642 insertions, 77 deletions
 - Review mode: standard
 - Risk review triggered: yes
-- Risk signals: cross-provider adapter contract; internal model schema; streaming and non-streaming paths
-- Review/fix round: 1/1
-- Review result: re-review spec PASS; quality APPROVED
+- Risk signals: cross-module CLI/Step/models; audit contract; configuration reload atomicity
+- Review/fix round: 2/2 (narrow continuation for regression introduced by first fix)
+- Review result: final review spec PASS; quality APPROVED
 - Open findings: none

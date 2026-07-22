@@ -403,7 +403,7 @@ git commit -m "feat: normalize provider prompt token totals"
 
 ### Task 7: CLI/session cache rate、audit 与事务化 reload
 
-- [ ] **Task 7 complete: CLI/session cache rate、audit 与事务化 reload 已交付**
+- [x] **Task 7 complete: CLI/session cache rate、audit 与事务化 reload 已交付**
 
 **Files:**
 - Modify: `src/forgeagent/cli.py`
@@ -417,7 +417,7 @@ git commit -m "feat: normalize provider prompt token totals"
 - Successful `llm.outcome.parameters` adds sibling `cache_hit_rate: float | None`.
 - `/reload` validates registry + context before swapping either.
 
-- [ ] **Step 1: 写累计比例、missing/invalid denominator、audit null 和 reload rollback 失败测试**
+- [x] **Step 1: 写累计比例、missing/invalid denominator、audit null 和 reload rollback 失败测试**
 
 ```python
 def test_usage_line_uses_ratio_of_sums_and_any_missing_is_na():
@@ -453,23 +453,23 @@ def test_repl_reload_invalid_context_never_reports_partial_success(monkeypatch):
 
 Audit 测试断言 raw usage 不变、rate 在 0..1 或 null、写入失败仍 `audit_degraded`。
 
-- [ ] **Step 2: 运行 RED**
+- [x] **Step 2: 运行 RED**
 
 Run: `.venv/bin/pytest -q tests/test_cli.py tests/test_audit.py -k 'cache_hit or context_reload'`
 
 Expected: FAIL because rate/reload behavior is absent.
 
-- [ ] **Step 3: 实现统一聚合 helper 并接入 CLI/REPL/audit**
+- [x] **Step 3: 实现统一聚合 helper 并接入 CLI/REPL/audit**
 
 只在 `total > 0` 且 `0 <= cached <= total` 时返回比例；不钳制异常数据。REPL 累计 usage 但每个 goal 的 Task/messages 仍独立。reload 使用临时候选对象验证后一次替换。
 
-- [ ] **Step 4: 运行 CLI/audit 回归**
+- [x] **Step 4: 运行 CLI/audit 回归**
 
 Run: `.venv/bin/pytest -q tests/test_cli.py tests/test_audit.py`
 
 Expected: PASS.
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add src/forgeagent/cli.py src/forgeagent/step.py tests/test_cli.py tests/test_audit.py
