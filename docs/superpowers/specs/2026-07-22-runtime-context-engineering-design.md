@@ -2,6 +2,8 @@
 comet_change: runtime-context-engineering
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-07-22-runtime-context-engineering
+status: final
 ---
 
 # M17 Runtime Context Engineering 技术设计

@@ -2,6 +2,7 @@
 change: runtime-context-engineering
 design-doc: docs/superpowers/specs/2026-07-22-runtime-context-engineering-design.md
 base-ref: b7ba133ad4def9c10d0352b6bc3b8a1e95b84ef2
+archived-with: 2026-07-22-runtime-context-engineering
 ---
 
 # M17 Runtime Context Engineering Implementation Plan

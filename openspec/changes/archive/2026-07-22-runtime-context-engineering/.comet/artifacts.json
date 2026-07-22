@@ -4,5 +4,6 @@
   "openspec_tasks": "openspec/changes/runtime-context-engineering/tasks.md",
   "openspec_delta_spec": "openspec/changes/runtime-context-engineering/specs/audit-logging/spec.md",
   "handoff_context": "openspec/changes/runtime-context-engineering/.comet/handoff/design-context.json",
-  "handoff_markdown": "openspec/changes/runtime-context-engineering/.comet/handoff/design-context.md"
+  "handoff_markdown": "openspec/changes/runtime-context-engineering/.comet/handoff/design-context.md",
+  "archive_directory": "openspec/changes/archive/2026-07-22-runtime-context-engineering"
 }
