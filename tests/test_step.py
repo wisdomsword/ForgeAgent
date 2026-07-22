@@ -738,11 +738,24 @@ def test_failed_status_stops_after_recording_parse_error():
     assert rounds[0].stopped_reason == "failed"
 
 
-def test_long_stdout_is_truncated_in_feedback():
+def test_long_exec_feedback_has_masked_continuation_in_next_provider_request(monkeypatch):
     # A block that prints a lot must not blow up the next round's context; feedback
     # keeps only the tail plus a marker noting how much was cut.
+    import forgeagent.step as step_module
+    import forgeagent.tools as tools_module
+
+    secret = "continuation-secret"
+    monkeypatch.setattr(step_module, "sensitive_env_values", lambda: {secret})
+    monkeypatch.setattr(
+        tools_module,
+        "_EXEC_CONTINUATION",
+        f"请缩小输出范围，或将工作分片执行后重试 {secret}",
+    )
+    client = _RecordingClient(
+        script=[_reply(_exec_call("print('x' * 10_000)")), _reply(_done())]
+    )
     step = Step(
-        MockClient(script=[_reply(_exec_call("print('x' * 10_000)")), _reply(_done())]),
+        client,
         TrustedBackend(),
         Runtime(),
         max_rounds=5,
@@ -751,14 +764,29 @@ def test_long_stdout_is_truncated_in_feedback():
             tool_result_max_tokens=200,
         ),
     )
-    rounds = step.run(_user())
-    feedback = step._render_feedback(rounds[0])
-    assert "truncated" in feedback
+    step.run(_user())
+    feedback = client.seen_messages[1][-1].content
+    assert isinstance(feedback, str)
+    assert "[truncated:" in feedback
+    assert "[continuation] 请缩小输出范围，或将工作分片执行后重试 ***REDACTED***" in feedback
+    assert secret not in feedback
     assert len(feedback) < 10_000
     assert feedback.endswith("x" * 100)
 
 
-def test_feedback_metadata_overflow_keeps_outcomes_and_skips_next_provider_call():
+def test_untruncated_exec_feedback_omits_continuation():
+    client = _RecordingClient(script=[_reply(_exec_call("print('short')")), _reply(_done())])
+
+    Step(client, TrustedBackend(), Runtime()).run(_user())
+
+    feedback = client.seen_messages[1][-1].content
+    assert isinstance(feedback, str)
+    assert "short" in feedback
+    assert "[truncated:" not in feedback
+    assert "[continuation]" not in feedback
+
+
+def test_feedback_metadata_overflow_keeps_outcomes_and_skips_next_provider_call(monkeypatch):
     reply = "".join(_exec_call("print('x' * 500)", name=f"block_{index}") for index in range(6))
     client = MockClient(script=[_reply(reply), _reply(_done())])
     sink = _RecordingAuditSink()
@@ -773,14 +801,23 @@ def test_feedback_metadata_overflow_keeps_outcomes_and_skips_next_provider_call(
         ),
         audit_sink=sink,
     )
+    original_outcomes: list[ToolOutcome] = []
+    render_feedback = Step._render_feedback
+
+    def snapshot_then_render(self, round_result):
+        original_outcomes.extend(
+            outcome.model_copy(deep=True) for outcome in round_result.outcomes
+        )
+        return render_feedback(self, round_result)
+
+    monkeypatch.setattr(Step, "_render_feedback", snapshot_then_render)
 
     rounds = step.run(_user())
 
     assert client.calls_made == 1
     assert len(rounds) == 1
-    assert len(rounds[0].outcomes) == 6
-    assert all(outcome.exec_result is not None for outcome in rounds[0].outcomes)
-    assert all(len(outcome.exec_result.stdout) == 501 for outcome in rounds[0].outcomes)
+    assert len(original_outcomes) == 6
+    assert rounds[0].outcomes == original_outcomes
     assert rounds[0].stopped_reason == Termination.FAILED
     assert rounds[0].stopped_detail == "feedback metadata exceeds context budget"
     tool_events = [event for event in sink.events if event.event_type == "tool.operation"]

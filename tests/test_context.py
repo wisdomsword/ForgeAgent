@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 import pytest
@@ -304,8 +305,10 @@ def test_feedback_waterfill_reassigns_short_budget_and_preserves_header_order():
 
     assert rendered.index("[Edit") < rendered.index("[Exec") < rendered.index("[FileRead")
     assert "[Edit None] ok" in rendered
-    assert "x" * 100 in rendered
-    assert "y" * 100 in rendered
+    shown = [int(value) for value in re.findall(r"showing (?:first|last) (\d+) chars", rendered)]
+    assert len(shown) == 2
+    assert abs(shown[0] - shown[1]) <= 4
+    assert min(estimate_text_tokens("x" * value) for value in shown) > 500 // 3
     assert "x" * 5000 not in rendered
     assert "y" * 5000 not in rendered
     assert estimate_text_tokens(rendered) <= 500
@@ -422,3 +425,56 @@ def test_feedback_raises_only_when_fixed_metadata_exceeds_round_budget():
         render_bounded_feedback(
             [], outcomes, result_limit=5, round_limit=20, mask=lambda text: text
         )
+
+
+def test_feedback_succeeds_when_fixed_metadata_exactly_fits_with_zero_detail():
+    outcome = ToolOutcome(
+        tool="Exec",
+        block_name="chunk",
+        success=True,
+        detail="x" * 400,
+        continuation="请缩小输出范围，或将工作分片执行后重试",
+    )
+    expected = (
+        "[Exec chunk] [truncated: original 400 chars; showing last 0 chars]\n"
+        "[continuation] 请缩小输出范围，或将工作分片执行后重试\n"
+    )
+    exact_limit = estimate_text_tokens(expected)
+
+    rendered = render_bounded_feedback(
+        [], [outcome], result_limit=1, round_limit=exact_limit, mask=lambda text: text
+    )
+
+    assert rendered == expected
+
+    with pytest.raises(ContextBudgetExceeded, match="^feedback metadata exceeds context budget$"):
+        render_bounded_feedback(
+            [],
+            [outcome],
+            result_limit=1,
+            round_limit=exact_limit - 1,
+            mask=lambda text: text,
+        )
+
+
+def test_feedback_preserves_mixed_parse_error_and_outcome_header_order():
+    rendered = render_bounded_feedback(
+        ["first parse failure", "second parse failure"],
+        [
+            ToolOutcome(tool="Edit", block_name="fixed", success=True, detail="updated"),
+            ToolOutcome(tool="Exec", block_name="broken", success=False, detail="boom"),
+        ],
+        result_limit=100,
+        round_limit=300,
+        mask=lambda text: text,
+    )
+
+    headers = [
+        "[parse error] first parse failure",
+        "[parse error] second parse failure",
+        "[Edit fixed] updated",
+        "[Exec broken] FAILED: boom",
+    ]
+    assert [rendered.index(header) for header in headers] == sorted(
+        rendered.index(header) for header in headers
+    )

@@ -198,14 +198,22 @@ def test_survey_options_passed_through_to_asker():
     assert seen[0].options == ["a", "b"]
 
 
-def test_exec_uses_tail_and_survey_uses_honest_head_continuation():
-    exec_outcome = ExecTool().run(ExecArgs(code="print('done')"), _survey_ctx())
+def test_exec_success_and_failure_use_same_tail_continuation():
+    success = ExecTool().run(ExecArgs(code="print('done')"), _survey_ctx())
+    failure = ExecTool().run(ExecArgs(code="raise RuntimeError('boom')"), _survey_ctx())
+
+    assert success.success is True
+    assert failure.success is False
+    assert success.truncation_mode == failure.truncation_mode == "tail"
+    assert success.continuation == failure.continuation
+    assert success.continuation == "请缩小输出范围，或将工作分片执行后重试"
+
+
+def test_survey_uses_honest_head_continuation():
     survey_outcome = SurveyTool().run(
         SurveyArgs(question="which file?"), _survey_ctx(asker=lambda args: "report.txt")
     )
 
-    assert exec_outcome.truncation_mode == "tail"
-    assert exec_outcome.continuation is None
     assert survey_outcome.truncation_mode == "head"
     assert survey_outcome.continuation == "此工具不保留游标；如需更多结果，请重新提问"
 

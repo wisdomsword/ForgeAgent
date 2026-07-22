@@ -59,6 +59,7 @@ _logger = logging.getLogger(__name__)
 
 _FILE_READ_CONTINUATION = "可使用 FileRead 读取其他路径，或使用 Exec 处理此文件"
 _FILE_LIST_CONTINUATION = "可缩小目录路径后重新调用 FileList"
+_EXEC_CONTINUATION = "请缩小输出范围，或将工作分片执行后重试"
 _MCP_CONTINUATION = "此工具不保留游标；如需更多结果，请缩小查询参数后重新调用"
 _SURVEY_CONTINUATION = "此工具不保留游标；如需更多结果，请重新提问"
 _WEBFETCH_RETRY_CONTINUATION = "此工具不保留游标；可缩小请求范围后重新调用 WebFetch"
@@ -298,6 +299,7 @@ class ExecTool(Tool):
             detail=result.error or "",
             exec_result=result,
             static_feedback=static_feedback,
+            continuation=_EXEC_CONTINUATION,
         )
 
 
