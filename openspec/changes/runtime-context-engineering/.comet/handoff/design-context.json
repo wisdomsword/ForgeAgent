@@ -1,0 +1,15 @@
+{
+  "change": "runtime-context-engineering",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "19e2b6443ee0727747b8064779b3c1ff85f90e292282859e68d7f9f97214fbae",
+  "files": [
+    { "path": "openspec/changes/runtime-context-engineering/proposal.md", "sha256": "1e46fd8e8d58711a4e1a6407395c9e5df65d046c0d0d065174577eaafd111655" },
+    { "path": "openspec/changes/runtime-context-engineering/design.md", "sha256": "f1651e0d29f110f7b0242ad69dc213092bd533f81710f5c0a82ed6c0e21a7a3c" },
+    { "path": "openspec/changes/runtime-context-engineering/tasks.md", "sha256": "1f49a83961e261902263c68d26c6193244dfbb3a3f46cadb2c68ed354e1e988d" },
+    { "path": "openspec/changes/runtime-context-engineering/specs/audit-logging/spec.md", "sha256": "d73b7bff2eed7fd21d32aaf1fd0f5a835a4f71b24915fac52e6eeeb9383c2305" },
+    { "path": "openspec/changes/runtime-context-engineering/specs/runtime-context-management/spec.md", "sha256": "dc16a292ec2ee9fdc75e3fd105ff169f87ce6255c592d50b1bee5e9760c88376" }
+  ]
+}
