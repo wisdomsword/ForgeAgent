@@ -502,6 +502,9 @@ trigger: Use when reviewing Python.
 
     outcome = Task(client, skills=skills).run("review this")
 
+    first_request = client.requests[0][0].content
+    assert marker not in first_request
+    assert secret not in first_request
     feedback = client.requests[1][-1].content
     assert secret not in feedback
     assert "***REDACTED***" in feedback
