@@ -68,6 +68,50 @@ REPL 命令必须以 `/` 开头。裸 `models`、`reload`、`mcp` 和 `mcp ...` 
 
 Memory 只保存经过确定性准入的事实、偏好和决策。程序性做事方法会被拒绝并提示沉淀为 Skill；项目级冲突按后写入者替换，文件可直接编辑纠正。`--no-memory` 同时关闭两级记忆。
 
+交互式终端中的 REPL 会在输入 `/` 时即时显示 slash 指令，并随继续输入过滤候选；可用键盘选择候选。上下方向键只回放当前进程内的会话输入，ForgeAgent 不会把 REPL 历史写入文件。测试注入 reader 和非 TTY 输入仍沿用普通输入路径。
+
+## Skills（可验证的程序性知识）
+
+Skill 是本地、只读、按需加载的 Markdown 文档，不是工作流引擎或权限配置。每个 Skill 必须位于以其名称命名的目录中的 `SKILL.md`，并且严格采用下面五部分；`name` 必须与目录名相同：
+
+```markdown
+---
+name: review-python
+trigger: Use when reviewing Python changes before completion.
+---
+
+## Steps
+
+1. Inspect the diff and affected call paths.
+
+## Failure branches
+
+- If focused tests fail, report the exact failure and stop completion.
+
+## Completion criteria
+
+- Findings are resolved or explicitly reported.
+```
+
+用户 Skill root 是 `<home>/.forgeagent/skills/`，项目 Skill root 是
+`<project>/.forgeagent/skills/`。用户级 Skill 默认可用。项目级 Skill 首次使用及内容
+变化后需要终端确认：确认摘要只显示经过掩码且有界的名称/trigger；批准状态单独保存在
+`<home>/.forgeagent/skills-trust.json`，将规范项目身份同时绑定到原始内容摘要和掩码后
+有效输入摘要。这份独立的双摘要记录不与身份文件的 trust record 共用。可信项目 Skill
+可以覆盖同名用户 Skill；未确认的项目 Skill 不会隐藏用户版本。`--no-identity` 关闭项目
+Skill 输入，但不关闭用户 Skill。
+
+初始系统提示词中的 Skill 段只包含按名称稳定排序、数量和字节均受限的 `name — trigger` 目录，
+不包含 Steps、Failure branches 或 Completion criteria 正文。模型根据 trigger 自主决定是否调用
+只读 `Skill` 工具读取全文或某个段落；不存在的名称会作为可恢复的工具失败反馈返回。交互
+CLI 可以进行项目 Skill 确认和 `/reload` 快照替换；headless HTTP 没有确认通道，只使用用户
+Skill 及已预先批准、双摘要仍匹配的项目 Skill。每个 CLI 会话和 HTTP 服务启动时取得一个
+不可变 Skill 快照，HTTP Task 不共享可变的 Skill 执行状态。
+
+Skill 的 Steps、Failure branches 和 Completion criteria 只是给模型的执行指导。它们不能
+授予工具权限、绕过 sandbox、跳过确认，或直接把 Task 标记为完成；现有工具确认、审计与
+两阶段完成判定保持不变。
+
 ## 配置（API key 与端点）
 
 key 只从环境变量读取，**绝不写进配置文件或代码**，运行时才解析：
@@ -137,6 +181,7 @@ uv run forgeagent --tier container --container-image my-image:latest run "..."
 
 - **Exec / Edit**：写并执行 Python 代码块 / 对已有块做 old→new 增量修改。核心的 code-as-action 工具。
 - **Survey**（M7）：任务中途向你提问获取信息（`question` + 可选 `options`）。REPL 与 `run --interactive` 下在终端提问并等你输入；无交互通道（headless）时任务以 `need_info` 干净终止，把问题回传给调用方，而不是卡住或瞎猜。
+- **Skill**（M19）：从当前不可变 Skill 快照只读一个已验证的 Skill 全文，或重读 `steps`、`failure_branches`、`completion_criteria` 段。它没有文件路径或写入参数，不需要确认，也不改变其他工具的确认或审计规则。
 - **WebFetch**（M10）：GET 单个 http(s) URL，经 SSRF 防护后抓取。正文存到 `allowed_root` 下的文件（模型可在后续轮用 Exec/FileRead 处理全文），`detail` 只回传预览（≤1MB 截断），未经审查的网页正文不会整段进模型上下文。`restricted`/`container` 档下这是**唯一**出网路径（Exec 在这两档不能开 socket），因此确认门在这两档是真实的安全边界，不是提示性的 UX。
 - **FileRead / FileWrite / FileList**（M10）：读/写/列出 `allowed_root` 下的文件，路径校验拒绝逃出项目根目录。FileRead 默认不设确认门（只在非 trusted 档记日志，不拦截）；**FileWrite 的确认门只是 UX 提示，不是安全边界**——Exec 工具跑的代码在 `restricted`/`container` 档下本来就能在 `allowed_root` 内任意写文件，不经过这个确认门。FileList 只返回相对路径，不暴露宿主真实目录结构。
 - **MCP**（M7）：调用外部 [MCP](https://modelcontextprotocol.io) server 暴露的工具，见下节。
