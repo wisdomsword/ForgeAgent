@@ -1,7 +1,7 @@
 ## 1. MCP stderr 隔离与诊断
 
-- [ ] 1.1 先写失败测试覆盖 per-server/generation `errlog` 注入、字节上限、成功 chatter 丢弃、secret masking、固定原因分类和旧 generation 不覆盖新诊断
-- [ ] 1.2 实现有界 stderr sink、`stdio_client(..., errlog=...)` 接线和兼容现有 `server_status()` 的 masked diagnostic projection
+- [x] 1.1 先写失败测试覆盖 per-server/generation `errlog` 注入、字节上限、成功 chatter 丢弃、secret masking、固定原因分类和旧 generation 不覆盖新诊断
+- [x] 1.2 实现有界 stderr sink、`stdio_client(..., errlog=...)` 接线和兼容现有 `server_status()` 的 masked diagnostic projection
 
 ## 2. 交互式启动呈现
 

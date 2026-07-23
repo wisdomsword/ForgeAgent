@@ -50,7 +50,7 @@ base-ref: 7e17ad540de9907fdd795c0791e7e03b485e5028
 - Consumes: existing `MCPServerConfig`, `_ServerState`, `_holder_slot_matches(name, generation, task=None, stop=None)`, `mask_secrets()` and public-label mapping.
 - Produces: `MCPServerDiagnostic(name: str, enabled: bool, required: bool, status: str, tool_count: int, reason: str | None, impact: str | None, action: str | None)`; `MCPManager.diagnostics() -> tuple[MCPServerDiagnostic, ...]`; private `MCPManager._publish_unavailable(name: str, generation: int, capture: _BoundedStderrCapture) -> None`; `MCPManager._holder()` calls `stdio_client(params, errlog=capture.stream)`.
 
-- [ ] **Step 1: Write failing capture and projection tests**
+- [x] **Step 1: Write failing capture and projection tests**
 
 Add focused tests that monkeypatch the imported `mcp.client.stdio.stdio_client` and exercise a real `_BoundedStderrCapture` reader without a real provider. Cover independent capture objects for two generations, valid UTF-8, `b"\\xff"` replacement decoding, exactly 8192 retained bytes, `truncated is True` after 8193 bytes, and a writer completing a payload larger than a pipe buffer while `text()` remains bounded.
 
@@ -89,13 +89,13 @@ def test_diagnostics_never_publish_raw_stderr_or_secret(monkeypatch):
 
 Add generation tests that fail generation N, enable generation N+1, then complete N's holder/finalizer; assert N+1's status, `diagnostic_code`, tools and diagnostic tuple are unchanged. Add success-path and close-path tests asserting the capture buffer is cleared, reader is joined, and no non-daemon reader thread survives.
 
-- [ ] **Step 2: Run the new tests to verify RED**
+- [x] **Step 2: Run the new tests to verify RED**
 
 Run: `uv run pytest tests/test_mcp_manager.py -q -k "bounded_stderr_capture or diagnostics or generation"`
 
 Expected: collection/import failure for `_BoundedStderrCapture` and `MCPManager.diagnostics`, or assertion failures because `stdio_client` receives no `errlog` and raw exception types still determine public status.
 
-- [ ] **Step 3: Implement the minimal capture and fixed projection contract**
+- [x] **Step 3: Implement the minimal capture and fixed projection contract**
 
 At module scope, add a private capture with a binary pipe reader. `__enter__()` starts one daemon thread; `close()` closes only the parent write stream first, joins the reader, closes the read descriptor, and is idempotent. The reader must always consume chunks after the cap, only extending the locked bytearray by the remaining capacity.
 
@@ -127,13 +127,13 @@ Create the `@dataclass(frozen=True) MCPServerDiagnostic` exactly as declared abo
 
 In `_holder`, construct the capture before `stdio_client`, pass `errlog=capture.stream`, and in its exception branch call `_publish_unavailable(name, generation, capture)` only when `_holder_slot_matches(name, generation, stop=stop) and not self._closing`. That method clears tools, sets status to the existing compatible `"unavailable: <fixed_code>"`, and sets `diagnostic_code`. Never interpolate `exc`, its type, or raw capture text into state. On successful publication and in `finally`, clear and close the capture after the reader has observed EOF. Reset `diagnostic_code` before every enabled replacement generation. Implement `diagnostics()` on the facade thread: iterate deterministic state order, mask labels, compute `tool_count`, map only the fixed code, and return a tuple.
 
-- [ ] **Step 4: Run focused RED-to-GREEN tests and lifecycle regression**
+- [x] **Step 4: Run focused RED-to-GREEN tests and lifecycle regression**
 
 Run: `uv run pytest tests/test_mcp_manager.py -q -k "bounded_stderr_capture or diagnostics or generation or close_terminates_child_processes"`
 
 Expected: PASS. The successful-holder test observes no retained text; overflow test returns 8192 decoded bytes and `truncated=True`; replacement generation keeps its own projection; close/cancel tests leave no holder or reader resources.
 
-- [ ] **Step 5: Commit the MCP diagnostic boundary**
+- [x] **Step 5: Commit the MCP diagnostic boundary**
 
 ```bash
 git add src/forgeagent/mcp_manager.py tests/test_mcp_manager.py
