@@ -1316,7 +1316,9 @@ def test_optional_status_does_not_expose_secret_exception_text(monkeypatch):
         manager.close()
 
     rendered = console.export_text() + repl_console.export_text()
-    assert "optional: unavailable: RuntimeError" in rendered
+    assert "optional: unavailable" in rendered
+    assert "RuntimeError" not in rendered
+    assert raw_status not in rendered
     for secret_text in (secret, command, argument, "optional-secret-env"):
         assert secret_text not in rendered
 
