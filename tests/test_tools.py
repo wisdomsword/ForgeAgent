@@ -23,15 +23,18 @@ from forgeagent.protocol import (
     FileWriteArgs,
     MCPArgs,
     ParseErrorType,
+    SkillArgs,
     SurveyArgs,
     WebFetchArgs,
     parse,
 )
 from forgeagent.runtime import Runtime
+from forgeagent.skills import SkillDefinition, SkillRegistry
 from forgeagent.tools import (
     CodeBlockStore,
     ExecTool,
     MCPTool,
+    SkillTool,
     SurveyTool,
     Tool,
     ToolContext,
@@ -137,6 +140,61 @@ def test_parse_default_schemas_match_default_registry():
     registry_ok = parse(text, tool_schemas=default_registry().arg_schemas())
     assert not default_ok.errors and not registry_ok.errors
     assert default_ok.tool_calls[0].name == registry_ok.tool_calls[0].name == "Exec"
+
+
+def _registry_with_skill(name: str = "review-python") -> SkillRegistry:
+    return SkillRegistry(
+        {
+            name: SkillDefinition(
+                name=name,
+                trigger="Review Python changes.",
+                steps="1. Inspect the diff.",
+                failure_branches="Stop when the diff is unavailable.",
+                completion_criteria="All findings are recorded.",
+                source="user",
+            )
+        }
+    )
+
+
+def test_skill_tool_returns_requested_section_without_a_confirmer():
+    outcome = SkillTool(_registry_with_skill()).run(
+        SkillArgs(name="review-python", section="steps"),
+        _survey_ctx(),
+    )
+
+    assert outcome.success is True
+    assert outcome.detail == "1. Inspect the diff."
+    assert outcome.continuation == (
+        "Skill result truncated; read steps, failure_branches, or completion_criteria by name."
+    )
+    assert outcome.truncation_mode == "head"
+
+
+def test_skill_tool_unknown_name_is_recoverable_and_registry_is_conditional():
+    registry = _registry_with_skill()
+    outcome = SkillTool(registry).run(SkillArgs(name="missing-skill"), _survey_ctx())
+
+    assert (outcome.success, outcome.detail) == (False, "Skill is unavailable")
+    assert "Skill" not in default_registry().arg_schemas()
+    assert "Skill" not in default_registry(skills=SkillRegistry({})).arg_schemas()
+    assert "Skill" in default_registry(skills=registry).arg_schemas()
+
+
+def test_skill_is_only_parseable_when_its_registry_is_registered():
+    text = (
+        '<!-- ToolCall: {"id": "t1", "name": "Skill", "arguments": {"name": "review-python"}} -->'
+    )
+
+    without_skills = parse(text, tool_schemas=default_registry().arg_schemas())
+    with_skills = parse(
+        text, tool_schemas=default_registry(skills=_registry_with_skill()).arg_schemas()
+    )
+
+    assert without_skills.tool_calls == []
+    assert any("Unknown or missing tool name" in error.message for error in without_skills.errors)
+    assert not with_skills.errors
+    assert isinstance(with_skills.tool_calls[0].arguments, SkillArgs)
 
 
 # --- Survey tool (M7 Phase 2) ------------------------------------------------

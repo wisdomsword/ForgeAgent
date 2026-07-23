@@ -25,6 +25,7 @@ from forgeagent.models import (
 )
 from forgeagent.protocol import EditArgs, FileReadArgs, MCPArgs, ToolCall
 from forgeagent.runtime import Runtime
+from forgeagent.skills import SkillDefinition, SkillRegistry
 from forgeagent.step import RoundResult, Step, Termination, _apply_edit
 from forgeagent.tools import ToolOutcome
 
@@ -76,6 +77,21 @@ def _done(confidence=0.9) -> str:
     return f"---\ntask_status:\n  completed: true\n  confidence: {confidence}\n---\n"
 
 
+def _registry_with_skill(marker: str = "SKILL-BODY-UNIQUE") -> SkillRegistry:
+    return SkillRegistry(
+        {
+            "review-python": SkillDefinition(
+                name="review-python",
+                trigger="Use when reviewing Python.",
+                steps=f"1. {marker}",
+                failure_branches="Stop when the diff is unavailable.",
+                completion_criteria="All findings are recorded.",
+                source="user",
+            )
+        }
+    )
+
+
 class _RecordingPolicy:
     def __init__(self):
         self.views: list[list[Message]] = []
@@ -111,10 +127,22 @@ class _FirstViewThenOverBudgetPolicy:
 # --- loop control ------------------------------------------------------------
 
 
-def test_step_applies_policy_before_every_complete_call():
-    client = _RecordingClient(
-        script=[_reply(_exec_call("print('ok')")), _reply(_done())]
+def test_step_registers_skill_snapshot_for_parse_and_bounded_feedback():
+    step = Step(
+        MockClient(script=[]),
+        TrustedBackend(),
+        Runtime(),
+        skills=_registry_with_skill(),
     )
+
+    round_result = step._handle_reply(_reply(_tool_call("Skill", name="review-python")))
+
+    assert round_result.parse_errors == []
+    assert "SKILL-BODY-UNIQUE" in step._render_feedback(round_result)
+
+
+def test_step_applies_policy_before_every_complete_call():
+    client = _RecordingClient(script=[_reply(_exec_call("print('ok')")), _reply(_done())])
     policy = _RecordingPolicy()
 
     Step(client, TrustedBackend(), Runtime(), context_policy=policy).run(_user())
@@ -751,9 +779,7 @@ def test_long_exec_feedback_has_masked_continuation_in_next_provider_request(mon
         "_EXEC_CONTINUATION",
         f"请缩小输出范围，或将工作分片执行后重试 {secret}",
     )
-    client = _RecordingClient(
-        script=[_reply(_exec_call("print('x' * 10_000)")), _reply(_done())]
-    )
+    client = _RecordingClient(script=[_reply(_exec_call("print('x' * 10_000)")), _reply(_done())])
     step = Step(
         client,
         TrustedBackend(),
@@ -805,9 +831,7 @@ def test_feedback_metadata_overflow_keeps_outcomes_and_skips_next_provider_call(
     render_feedback = Step._render_feedback
 
     def snapshot_then_render(self, round_result):
-        original_outcomes.extend(
-            outcome.model_copy(deep=True) for outcome in round_result.outcomes
-        )
+        original_outcomes.extend(outcome.model_copy(deep=True) for outcome in round_result.outcomes)
         return render_feedback(self, round_result)
 
     monkeypatch.setattr(Step, "_render_feedback", snapshot_then_render)

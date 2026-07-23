@@ -1,0 +1,15 @@
+{
+  "change": "skills-runtime",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "13d54510aa9a36709311fba38a625508b5d8ec1b778563cacfcdcd5077352043",
+  "files": [
+    { "path": "openspec/changes/skills-runtime/proposal.md", "sha256": "b01e0969689024f05b63ab0e918c942d9a4b17f07e809bdd63721b64df1e87f5" },
+    { "path": "openspec/changes/skills-runtime/design.md", "sha256": "88120a7171d00b747074d7f90c59e9026f4e7a0b5eed628ee08ec4682644968a" },
+    { "path": "openspec/changes/skills-runtime/tasks.md", "sha256": "43fa9b4a76327a17eb47d0873903e17ab3b788adc63b452cc3661674f39bf7ee" },
+    { "path": "openspec/changes/skills-runtime/specs/repl-interactive-input/spec.md", "sha256": "e7f44ecbfdd57c74ec390a592a856b90162d700b8dbc1b6e4b847aadbc454dd6" },
+    { "path": "openspec/changes/skills-runtime/specs/skills-runtime/spec.md", "sha256": "1e2f78c0d8e5cfe65d853ed5564b3dcb4ea548c7b00b0974144adbbfee3e1cb8" }
+  ]
+}

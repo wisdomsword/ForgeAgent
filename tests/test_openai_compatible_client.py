@@ -154,9 +154,7 @@ def test_null_content_becomes_empty_string():
 
 
 def test_parse_response_reads_cached_tokens_from_prompt_tokens_details():
-    msg = _parse_response(
-        _fake_reply(prompt_tokens_details=SimpleNamespace(cached_tokens=6))
-    )
+    msg = _parse_response(_fake_reply(prompt_tokens_details=SimpleNamespace(cached_tokens=6)))
     assert msg.usage.cached_tokens == 6
 
 

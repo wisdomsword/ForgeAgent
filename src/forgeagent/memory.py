@@ -116,6 +116,11 @@ class MemoryManager:
         if not allowed:
             self._project.clear()
 
+    def copy_session_from(self, source: MemoryManager) -> None:
+        """Preserve session-scoped facts while replacing project-backed state."""
+        if self._enabled and source._enabled:
+            self._session = dict(source._session)
+
     def apply(self, candidate: MemoryCandidate, task_id: str | None = None) -> MemoryResult:
         if not self._enabled:
             return self._result(candidate, "disabled", "memory_disabled", task_id)
@@ -178,9 +183,11 @@ class MemoryManager:
         path = self._safe_storage_path(for_write=True)
         directory = path.parent
         directory.mkdir(parents=True, exist_ok=True)
-        content = "<!-- forgeagent-memory-v1 -->\n" + "\n".join(
-            f"- {key}: {entries[key].content}" for key in sorted(entries)
-        ) + "\n"
+        content = (
+            "<!-- forgeagent-memory-v1 -->\n"
+            + "\n".join(f"- {key}: {entries[key].content}" for key in sorted(entries))
+            + "\n"
+        )
         descriptor, temporary_name = tempfile.mkstemp(
             prefix=".MEMORY.", suffix=".tmp", dir=directory
         )

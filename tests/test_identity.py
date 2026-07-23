@@ -696,6 +696,24 @@ def test_trust_confirmation_summary_masks_controls_and_is_bounded():
     assert "preview truncated" in bounded
 
 
+def test_resolve_project_content_trust_reuses_matching_double_digest_without_confirming(tmp_path):
+    common = dict(
+        allowed_root=str(tmp_path / "root"),
+        raw_content_digest="a" * 64,
+        effective_input_digest="b" * 64,
+        trust_record_path=str(tmp_path / "trust.json"),
+        summary="review-python — Use when reviewing Python.",
+        diagnostic=None,
+        diagnostic_prefix="skill",
+    )
+
+    assert identity_module.resolve_project_content_trust(**common, confirmer=lambda _request: True)
+    assert identity_module.resolve_project_content_trust(
+        **common,
+        confirmer=lambda _request: pytest.fail("already-approved content must not prompt"),
+    )
+
+
 def test_resolve_project_trust_decision_table(tmp_path):
     home = str(tmp_path / "home")
     root = str(tmp_path / "root")

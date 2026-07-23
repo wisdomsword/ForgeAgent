@@ -114,8 +114,10 @@ def resolve_effective_model_id(
     if available is None:
         return logical_id  # discovery unavailable; use the logical id unchanged
 
-    effective = logical_id if logical_id in available else (
-        _pick_dated_snapshot(logical_id, available) or logical_id
+    effective = (
+        logical_id
+        if logical_id in available
+        else (_pick_dated_snapshot(logical_id, available) or logical_id)
     )
 
     provider_overrides[logical_id] = effective

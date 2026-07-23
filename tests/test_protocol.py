@@ -6,12 +6,16 @@ processor (M3), not the parser — the parser only validates the Edit argument s
 That runtime assertion is deferred to M3; here we assert the schema parses.
 """
 
+import pytest
+from pydantic import ValidationError
+
 from forgeagent.models import NativeToolCall
 from forgeagent.protocol import (
     EditArgs,
     ExecArgs,
     MemoryCandidate,
     ParseErrorType,
+    SkillArgs,
     ToolCallSource,
     parse,
 )
@@ -38,6 +42,15 @@ def test_edit_happy_path():
     assert len(result.tool_calls) == 1
     assert isinstance(result.tool_calls[0].arguments, EditArgs)
     assert result.tool_calls[0].arguments.replace_all is False
+
+
+def test_skill_args_accepts_catalog_name_and_declared_section():
+    assert SkillArgs(name="review-python").section == "full"
+    assert SkillArgs(name="review-python", section="failure_branches").section == "failure_branches"
+    with pytest.raises(ValidationError):
+        SkillArgs(name="../review-python")
+    with pytest.raises(ValidationError):
+        SkillArgs(name="review-python", section="trigger")
 
 
 def test_code_block_happy_path():
@@ -123,9 +136,7 @@ def test_front_matter_absent_parses_body():
 
 def test_memory_marker_is_extracted_and_removed_from_body():
     text = (
-        'answer '
-        '<!-- Memory: {"scope":"project","kind":"fact",'
-        '"key":"editor","content":"vim"} -->'
+        'answer <!-- Memory: {"scope":"project","kind":"fact","key":"editor","content":"vim"} -->'
     )
     result = parse(text)
     assert not result.errors

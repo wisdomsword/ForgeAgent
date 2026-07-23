@@ -10,6 +10,7 @@ from forgeagent.identity import ApprovedIdentity
 from forgeagent.memory import MemoryManager
 from forgeagent.models import AssistantMessage, StreamEvent, StreamEventKind, TokenUsage
 from forgeagent.protocol import MemoryCandidate
+from forgeagent.skills import SkillDefinition, SkillRegistry
 from forgeagent.step import Termination
 from forgeagent.task import Task, TaskStatus
 
@@ -27,15 +28,17 @@ def _done() -> str:
 
 
 class _RecordingTaskClient(MockClient):
-    """Capture the messages forwarded on the first completion call."""
+    """Capture the messages forwarded on each completion call."""
 
     def __init__(self, script):
         super().__init__(script=script)
         self.first_messages = None
+        self.requests = []
 
     def complete(self, messages, params=None):
         if self.first_messages is None:
             self.first_messages = list(messages)
+        self.requests.append(list(messages))
         return super().complete(messages, params)
 
 
@@ -56,6 +59,21 @@ class _RecordingPolicy:
         view = list(messages)
         self.views.append(view)
         return view
+
+
+def _registry_with_unique_skill(marker: str = "SKILL-BODY-UNIQUE") -> SkillRegistry:
+    return SkillRegistry(
+        {
+            "review-python": SkillDefinition(
+                name="review-python",
+                trigger="Use when reviewing Python.",
+                steps=f"1. {marker}",
+                failure_branches="Stop when the diff is unavailable.",
+                completion_criteria="All findings are recorded.",
+                source="user",
+            )
+        }
+    )
 
 
 def test_task_completes_normally():
@@ -126,8 +144,7 @@ def test_task_exposes_disabled_memory_candidate_result(tmp_path):
         MockClient(
             script=[
                 _reply(
-                    _done()
-                    + '\n<!-- Memory: {"scope":"session","kind":"preference",'
+                    _done() + '\n<!-- Memory: {"scope":"session","kind":"preference",'
                     '"key":"formatter","content":"ruff"} -->'
                 )
             ]
@@ -197,8 +214,7 @@ def test_task_applies_project_memory_and_next_task_receives_it(tmp_path):
         MockClient(
             script=[
                 _reply(
-                    _done()
-                    + '\n<!-- Memory: {"scope":"project","kind":"fact",'
+                    _done() + '\n<!-- Memory: {"scope":"project","kind":"fact",'
                     '"key":"editor","content":"nvim"} -->'
                 )
             ]
@@ -214,9 +230,7 @@ def test_task_applies_project_memory_and_next_task_receives_it(tmp_path):
 
 def test_explicit_system_prompt_does_not_mix_memory(tmp_path):
     manager = MemoryManager(str(tmp_path))
-    manager.apply(
-        MemoryCandidate(scope="session", kind="fact", key="editor", content="nvim")
-    )
+    manager.apply(MemoryCandidate(scope="session", kind="fact", key="editor", content="nvim"))
     client = _RecordingTaskClient(script=[_reply(_done())])
     Task(client, system_prompt="explicit", memory_manager=manager).run("goal")
     assert client.first_messages[0].content == "explicit"
@@ -229,8 +243,7 @@ def test_memory_audit_omits_candidate_content(tmp_path):
         MockClient(
             script=[
                 _reply(
-                    _done()
-                    + '\n<!-- Memory: {"scope":"session","kind":"preference",'
+                    _done() + '\n<!-- Memory: {"scope":"session","kind":"preference",'
                     '"key":"format","content":"very-private-value"} -->'
                 )
             ]
@@ -421,6 +434,100 @@ def test_task_default_identity_preserves_mcp_tools_section():
     assert prompt.index("This conversation is driven by ForgeAgent") < prompt.index(
         "MCP TOOLS MARKER"
     )
+
+
+def test_task_catalog_is_after_identity_before_mcp_and_omits_skill_body():
+    class _PromptOnlyMCP:
+        def tools_prompt(self):
+            return "## MCP Tools"
+
+    prompt = Task(
+        MockClient(script=[_reply(_done())]),
+        identity=ApprovedIdentity(
+            soul=None,
+            user=None,
+            project_agents=None,
+            memory="A MEMORY FACT",
+        ),
+        skills=_registry_with_unique_skill(),
+        mcp=_PromptOnlyMCP(),
+    )._build_system_prompt()
+
+    assert "review-python — Use when reviewing Python." in prompt
+    assert "SKILL-BODY-UNIQUE" not in prompt
+    assert (
+        prompt.index("## Project Memory")
+        < prompt.index("## Available Skills")
+        < prompt.index("## MCP Tools")
+    )
+
+
+def test_loaded_skill_feedback_masks_current_environment_secret(tmp_path, monkeypatch):
+    secret = "task-skill-secret-value"
+    marker = "SKILL-BODY-NONSECRET-MARKER"
+    monkeypatch.setenv("FORGEAGENT_TASK_SKILL_SECRET", secret)
+    skill_file = tmp_path / "home" / ".forgeagent" / "skills" / "review-python" / "SKILL.md"
+    skill_file.parent.mkdir(parents=True)
+    skill_file.write_text(
+        f"""---
+name: review-python
+trigger: Use when reviewing Python.
+---
+
+## Steps
+
+1. {marker}: {secret}
+
+## Failure Branches
+
+- Stop when the diff is unavailable.
+
+## Completion Criteria
+
+- All findings are recorded.
+""",
+        encoding="utf-8",
+    )
+    skills = SkillRegistry.load(
+        home=str(tmp_path / "home"),
+        allowed_root=str(tmp_path / "project"),
+        allow_project=False,
+    )
+    client = _RecordingTaskClient(
+        script=[
+            _reply(_tool_call("Skill", name="review-python")),
+            _reply(_done()),
+        ]
+    )
+
+    outcome = Task(client, skills=skills).run("review this")
+
+    first_request = client.requests[0][0].content
+    assert marker not in first_request
+    assert secret not in first_request
+    feedback = client.requests[1][-1].content
+    assert secret not in feedback
+    assert "***REDACTED***" in feedback
+    assert marker in feedback
+    assert outcome.status.completed is True
+
+
+def test_no_skills_keeps_existing_prompt_and_reports_unknown_skill_call():
+    baseline = Task(MockClient(script=[_reply(_done())]))._build_system_prompt()
+    client = _RecordingTaskClient(
+        script=[
+            _reply(_tool_call("Skill", name="review-python")),
+            _reply(_done()),
+        ]
+    )
+
+    outcome = Task(client, skills=None).run("review this")
+
+    assert (
+        Task(MockClient(script=[_reply(_done())]), skills=None)._build_system_prompt() == baseline
+    )
+    assert "Unknown or missing tool name" in client.requests[1][-1].content
+    assert outcome.status.completed is True
 
 
 def test_task_no_identity_no_system_prompt_touches_no_files(monkeypatch):

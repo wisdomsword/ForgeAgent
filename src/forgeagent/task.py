@@ -25,6 +25,7 @@ from .mcp_manager import MCPManager
 from .memory import MemoryManager, MemoryResult
 from .models import GenerationParams, ImageItem, Message, Role, StreamEventKind, TextItem
 from .runtime import Runtime
+from .skills import SkillRegistry
 from .step import RoundResult, Step, Termination
 from .tools import Asker, Confirmer, Tier
 
@@ -101,6 +102,7 @@ class Task:
         context_config: ContextConfig | None = None,
         context_policy: ContextPolicy | None = None,
         memory_manager: MemoryManager | None = None,
+        skills: SkillRegistry | None = None,
     ):
         self._client = client
         self._tier = tier
@@ -132,6 +134,7 @@ class Task:
         self._audit_sink = audit_sink
         self._task_id = task_id
         self._memory_manager = memory_manager
+        self._skills = skills
         self._context_policy = context_policy or SlidingWindowContextPolicy(
             client.capability,
             params,
@@ -147,8 +150,7 @@ class Task:
             backend_close()
 
     def _build_system_prompt(self) -> str:
-        """Base prompt plus, when MCP servers are connected, the MCP tools section — so
-        the model knows which servers/tools exist (eager discovery, docs/m7 §3.4)."""
+        """Base prompt followed by the optional Skill catalog and MCP tools section."""
         if self._system_prompt is not None:
             base = self._system_prompt
         else:
@@ -163,12 +165,13 @@ class Task:
                     memory=self._memory_manager.render() or None,
                 )
             base = compose_system_prompt(identity)
-        if self._mcp is None:
-            return base
-        tools_section = self._mcp.tools_prompt()
-        if not tools_section:
-            return base
-        return f"{base}\n\n{tools_section}"
+        sections = [base]
+        catalog = self._skills.catalog_prompt() if self._skills is not None else ""
+        if catalog:
+            sections.append(catalog)
+        if self._mcp is not None and (tools_section := self._mcp.tools_prompt()):
+            sections.append(tools_section)
+        return "\n\n".join(sections)
 
     def run(
         self,
@@ -212,6 +215,7 @@ class Task:
             audit_sink=self._audit_sink,
             task_id=self._task_id,
             context_policy=self._context_policy,
+            skills=self._skills,
         )
         rounds = step.run(messages)
         status = self._derive_status(rounds)

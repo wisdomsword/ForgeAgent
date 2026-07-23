@@ -37,11 +37,13 @@ from .protocol import (
     FileReadArgs,
     FileWriteArgs,
     MCPArgs,
+    SkillArgs,
     SurveyArgs,
     WebFetchArgs,
 )
 from .runtime import Runtime
 from .secret_policy import mask_secrets, sensitive_env_values
+from .skills import SkillRegistry
 from .ssrf_guard import SSRFGuardError, guarded_urlopen
 
 if TYPE_CHECKING:
@@ -376,6 +378,33 @@ class SurveyTool(Tool):
         )
 
 
+class SkillTool(Tool):
+    """Read a validated skill section from the immutable registry snapshot."""
+
+    name = "Skill"
+    args_model = SkillArgs
+    risk_level = "low"
+
+    def __init__(self, skills: SkillRegistry) -> None:
+        self._skills = skills
+
+    def run(self, args: BaseModel, ctx: ToolContext) -> ToolOutcome:
+        assert isinstance(args, SkillArgs)
+        detail = self._skills.read(args.name, args.section)
+        if detail is None:
+            return ToolOutcome(tool=self.name, success=False, detail="Skill is unavailable")
+        return ToolOutcome(
+            tool=self.name,
+            success=True,
+            detail=detail,
+            continuation=(
+                "Skill result truncated; read steps, failure_branches, or completion_criteria "
+                "by name."
+            ),
+            truncation_mode="head",
+        )
+
+
 class MCPTool(Tool):
     """Call a tool on an external MCP server, routed by {server, tool}.
 
@@ -706,7 +735,9 @@ class ToolRegistry:
         return {name: tool.args_model for name, tool in self._tools.items()}
 
 
-def default_registry(*, with_mcp: bool = False) -> ToolRegistry:
+def default_registry(
+    *, with_mcp: bool = False, skills: SkillRegistry | None = None
+) -> ToolRegistry:
     """The built-in tool set: Exec + Edit + Survey + WebFetch + FileRead/Write/List,
     plus MCP when `with_mcp` is set.
 
@@ -723,6 +754,8 @@ def default_registry(*, with_mcp: bool = False) -> ToolRegistry:
     registry.register(FileReadTool())
     registry.register(FileWriteTool())
     registry.register(FileListTool())
+    if skills is not None and skills.catalog_prompt():
+        registry.register(SkillTool(skills))
     if with_mcp:
         registry.register(MCPTool())
     return registry

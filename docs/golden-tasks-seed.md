@@ -23,6 +23,15 @@ uv run python -m tests.golden.runner --real-model claude-sonnet-5 \
 
 runner 成功退出 `0`，任一已执行场景失败退出 `1`，manifest、凭证/模型配置或报告目录预检失败退出 `2`。离线和真实模式都生成机器可读 `results.json` 与人类可读 `report.md`；真实运行时报告只包含所选五项。
 
+## M19 Skill progressive-loading candidate
+
+This offline candidate is deliberately separate from the trusted 20-item core. Its fixture is
+a local `SKILL.md` equivalent named `review-python`, with a first-round `Skill` tool call. The
+initial prompt must advertise only the catalog, while the required `UNIQUE-SKILL-STEP` fixture
+body appears in the next-round tool feedback. Its no-Skill counterpart uses the same scripted
+call but must advertise neither the catalog nor a registered `Skill` tool; both scripted tasks
+complete through the normal two-round Task semantics.
+
 ## 历史候选目录
 
 > 配比来源：ACTION_PLAN.md §六.5 已裁决的分布——40% 文件/数据处理、25% Python 执行与 sandbox 边界、20% 代码修改/小型重构、10% 网络抓取或外部 API（优先 mock）、5% 系统查询/环境检查。

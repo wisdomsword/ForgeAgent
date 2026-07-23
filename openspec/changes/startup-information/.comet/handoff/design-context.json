@@ -1,0 +1,16 @@
+{
+  "change": "startup-information",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "6af606c3e46106024517c05dab0cdd2a758bf1b2808e0e25af1d05653cb9964d",
+  "files": [
+    { "path": "openspec/changes/startup-information/proposal.md", "sha256": "76f55da6f0583fb45d3269d2ce5de7ee103aa7164cb69a12c13d3ddac83fe8ac" },
+    { "path": "openspec/changes/startup-information/design.md", "sha256": "8b9b94fb304d2d580a30d0cf0b5d705a0cfa9032806b74deb594cab431900e5e" },
+    { "path": "openspec/changes/startup-information/tasks.md", "sha256": "fb716061b05c0b0f54560f81adec9a3eb9ce86610e7d24438d009ec0a4299a5e" },
+    { "path": "openspec/changes/startup-information/specs/mcp-resilience/spec.md", "sha256": "f1628639facbb9853b382490e03b785584721ef7730f63a00ba558af35e30cad" },
+    { "path": "openspec/changes/startup-information/specs/repl-interactive-input/spec.md", "sha256": "7b62853d7dd7f5b478149b90bdedf5dd9026c198179d3ef43a1776014e7182be" },
+    { "path": "openspec/changes/startup-information/specs/repl-startup-information/spec.md", "sha256": "d6be03e4e5633bb4bc7ac5f950a61876a572e4cd2968f5215d6caf372d47d767" }
+  ]
+}

@@ -15,6 +15,7 @@ import sys
 import time
 import urllib.request
 import urllib.response
+from dataclasses import dataclass
 from email.message import Message as EmailMessage
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -37,6 +38,7 @@ from forgeagent.models import (
 from forgeagent.policy import CodeAnalyzer
 from forgeagent.protocol import EditArgs, ExecArgs, FileWriteArgs, WebFetchArgs, parse
 from forgeagent.runtime import Runtime
+from forgeagent.skills import SkillDefinition, SkillRegistry
 from forgeagent.ssrf_guard import SSRFGuardError, guarded_urlopen
 from forgeagent.tools import (
     CodeBlockStore,
@@ -92,6 +94,73 @@ def _edit(name: str, old: str, new: str) -> str:
 
 def _done() -> str:
     return "---\ntask_status:\n  completed: true\n  confidence: 0.95\n---\ndone"
+
+
+@dataclass(frozen=True)
+class CandidateResult:
+    passed: bool
+    first_request: str
+    second_request: str
+    feedback: str
+    round_count: int
+
+
+def _request_text(messages: list[Message]) -> str:
+    return "\n".join(message.content for message in messages if isinstance(message.content, str))
+
+
+def _feedback_text(messages: list[Message]) -> str:
+    content = messages[-1].content
+    return content if isinstance(content, str) else ""
+
+
+def _skill_call(name: str) -> str:
+    return _tool_call("Skill", {"name": name})
+
+
+def _registry_with_skill(marker: str) -> SkillRegistry:
+    return SkillRegistry(
+        {
+            "review-python": SkillDefinition(
+                name="review-python",
+                trigger="Use when reviewing Python.",
+                steps=f"1. {marker}",
+                failure_branches="Stop when the diff is unavailable.",
+                completion_criteria="All findings are recorded.",
+                source="user",
+            )
+        }
+    )
+
+
+def _candidate_result(client: _RecordingMockClient, outcome) -> CandidateResult:
+    return CandidateResult(
+        passed=outcome.status.completed,
+        first_request=_request_text(client.messages_by_call[0]),
+        second_request=_request_text(client.messages_by_call[1]),
+        feedback=_feedback_text(client.messages_by_call[1]),
+        round_count=len(outcome.rounds),
+    )
+
+
+def run_skill_candidate(tmp_path: Path) -> CandidateResult:
+    from forgeagent.task import Task
+
+    client = _RecordingMockClient(script=[_reply(_skill_call("review-python")), _reply(_done())])
+    outcome = Task(
+        client,
+        skills=_registry_with_skill("UNIQUE-SKILL-STEP"),
+        allowed_root=str(tmp_path),
+    ).run("review the change")
+    return _candidate_result(client, outcome)
+
+
+def run_no_skill_control(tmp_path: Path) -> CandidateResult:
+    from forgeagent.task import Task
+
+    client = _RecordingMockClient(script=[_reply(_skill_call("review-python")), _reply(_done())])
+    outcome = Task(client, allowed_root=str(tmp_path)).run("review the change")
+    return _candidate_result(client, outcome)
 
 
 def _run_task(workdir: Path, client: ModelClient, goal: str, *, backend=None):

@@ -1,0 +1,8 @@
+{
+  "openspec_proposal": "openspec/changes/startup-information/proposal.md",
+  "openspec_design": "openspec/changes/startup-information/design.md",
+  "openspec_tasks": "openspec/changes/startup-information/tasks.md",
+  "openspec_delta_spec": "openspec/changes/startup-information/specs/mcp-resilience/spec.md",
+  "handoff_context": "openspec/changes/startup-information/.comet/handoff/design-context.json",
+  "handoff_markdown": "openspec/changes/startup-information/.comet/handoff/design-context.md"
+}

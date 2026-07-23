@@ -36,7 +36,8 @@ by that tool's Pydantic argument model. Invalid JSON, unknown/missing names, and
 schema failures produce `ParseError`, not an exception or silent drop.
 
 The default registry contains `Exec`, `Edit`, `Survey`, `WebFetch`, `FileRead`,
-`FileWrite`, and `FileList`. `MCP` is registered only when an MCP manager is
+`FileWrite`, and `FileList`. `Skill` is registered when the immutable Skill snapshot
+has at least one validated entry. `MCP` is registered only when an MCP manager is
 configured. The registry is the single source of truth for parser schemas and
 runtime dispatch. `SubTask` is not a protocol tool.
 
@@ -72,6 +73,7 @@ recoverable `ParseError`. Users can submit the same structure through the REPL
 | `Exec` | `name: str | None`, `code: str | None`, `language: "python"`; at least one of `name` or `code` is required. Inline `code` creates/updates the named block; without `code`, an existing block is executed. |
 | `Edit` | `name: str`, non-empty `old: str`, `new: str`, `replace_all: bool = false`. Missing old text or multiple matches without `replace_all` are tool failures. |
 | `Survey` | non-empty `question: str`, optional `options: list[str]`. Without an asker or when no interactive channel exists, it returns a terminal `needs_info` outcome. |
+| `Skill` | `name: str`; optional `section: "full" | "steps" | "failure_branches" | "completion_criteria" = "full"`. Reads only a validated entry in the current immutable Skill snapshot. Unknown names or unavailable sections are recoverable tool failures. |
 | `WebFetch` | `url: str`; GET only, HTTP(S) only, no model-supplied method or headers. In restricted/container it requires confirmation. |
 | `FileRead` | `path: str`; canonicalized under `allowed_root`, then secret-masked before feedback. |
 | `FileWrite` | `path: str`, `content: str`; canonicalized under `allowed_root`, writes unmasked content, and requires confirmation in restricted/container. |
@@ -81,6 +83,19 @@ recoverable `ParseError`. Users can submit the same structure through the REPL
 Tool failures become `ToolOutcome(success=False)` and are fed back to the model.
 WebFetch/File tool failures use fixed text where a URL, host, absolute path, or
 exception could disclose sensitive information.
+
+The `Skill` text form follows the same marker grammar. For example, this reads only
+the failure branch of a known Skill:
+
+```markdown
+<!-- ToolCall: {"id":"call-skill-1","name":"Skill","arguments":{"name":"review-python","section":"failure_branches"}} -->
+```
+
+The Skill portion of the initial system prompt has only a bounded catalog of Skill
+names and one-line triggers. Full documents are available only through this read-only tool; a truncated
+full result directs the model to request `steps`, `failure_branches`, or
+`completion_criteria` by name. A Skill document supplies model guidance only: it
+does not change confirmation, sandbox, audit, or the two-stage completion rules.
 
 ## Front matter and recoverable parsing
 

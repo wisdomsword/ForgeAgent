@@ -105,9 +105,7 @@ class _RaisingResponse(_FakeResponse):
 # --- WebFetchTool (M10 Phase 3) ----------------------------------------------
 
 
-def test_webfetch_success_reports_continuation_after_saving_artifact(
-    tmp_path, monkeypatch
-):
+def test_webfetch_success_reports_continuation_after_saving_artifact(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "forgeagent.tools.guarded_urlopen",
         lambda url, **kw: _FakeResponse(b"hello supersecretvalue123 world", "text/plain"),
