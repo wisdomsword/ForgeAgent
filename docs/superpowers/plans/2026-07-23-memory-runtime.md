@@ -37,7 +37,7 @@ base-ref: 840f649821b1c5440ee22b43b7ee213c4d44f8b6
 - `MemoryManager(allowed_root: str, *, audit_sink: AuditSink | None = None, enabled: bool = True)`。
 - `MemoryManager.load() -> None`、`apply(candidate: MemoryCandidate, task_id: str | None = None) -> MemoryResult`、`render() -> str`、`disable() -> None`。
 
-- [ ] **步骤 1：写失败测试**
+- [x] **步骤 1：写失败测试**
 
 ```python
 def test_parse_memory_marker_and_remove_from_body():
@@ -53,10 +53,10 @@ def test_procedure_candidate_is_rejected_without_write(tmp_path):
     assert not (tmp_path / ".forgeagent" / "MEMORY.md").exists()
 ```
 
-- [ ] **步骤 2：运行 RED**：`uv run pytest -q tests/test_protocol.py tests/test_memory.py -k memory`，预期因符号不存在失败。
-- [ ] **步骤 3：实现最小协议与 manager**：增加 Pydantic 模型、Memory 正则标记、解析错误复用 `ParseError`；manager 实现 key/content 上限、procedure/注入/secret/控制字符拒绝、受控 Markdown、session 字典和 `os.replace` 原子写入。
-- [ ] **步骤 4：运行 GREEN/ruff**：`uv run pytest -q tests/test_protocol.py tests/test_memory.py -k memory && uv run ruff check src/forgeagent/protocol.py src/forgeagent/memory.py tests/test_memory.py`。
-- [ ] **步骤 5：提交**：`git add src/forgeagent/protocol.py src/forgeagent/memory.py tests/test_protocol.py tests/test_memory.py && git commit -m "feat: add deterministic memory core"`。
+- [x] **步骤 2：运行 RED**：`uv run pytest -q tests/test_protocol.py tests/test_memory.py -k memory`，预期因符号不存在失败。
+- [x] **步骤 3：实现最小协议与 manager**：增加 Pydantic 模型、Memory 正则标记、解析错误复用 `ParseError`；manager 实现 key/content 上限、procedure/注入/secret/控制字符拒绝、受控 Markdown、session 字典和 `os.replace` 原子写入。
+- [x] **步骤 4：运行 GREEN/ruff**：`uv run pytest -q tests/test_protocol.py tests/test_memory.py -k memory && uv run ruff check src/forgeagent/protocol.py src/forgeagent/memory.py tests/test_memory.py`。
+- [x] **步骤 5：提交**：`git add src/forgeagent/protocol.py src/forgeagent/memory.py tests/test_protocol.py tests/test_memory.py && git commit -m "feat: add deterministic memory core"`。
 
 ### Task 2：Task/Step 与 Identity 注入、生命周期审计
 
@@ -66,11 +66,11 @@ def test_procedure_candidate_is_rejected_without_write(tmp_path):
 
 **接口：** Task 接收 `memory_manager: MemoryManager | None = None`；Task 结束后按 round 候选调用 `manager.apply`，system prompt 使用同一次 bounded snapshot；显式 `system_prompt` 仍短路 identity。
 
-- [ ] **步骤 1：写失败测试**：RecordingClient 断言第一 Task 的 project 候选进入第二 Task 的 system message；session 候选不落盘；audit event 不含 content。
-- [ ] **步骤 2：运行 RED**：`uv run pytest -q tests/test_task.py tests/test_mock_replay_e2e.py -k memory`，预期 Task 尚不接受 manager。
-- [ ] **步骤 3：实现装配**：Task 读取 manager.render() 合成 `ApprovedIdentity.memory`；Step 将 `ParseResult.memory_candidates` 交回 Task；audit 使用 `emit_audit` 写 `memory.*` 事件；不改变 Termination 或 HTTP projection。
-- [ ] **步骤 4：运行 GREEN**：`uv run pytest -q tests/test_task.py tests/test_step.py tests/test_identity.py tests/test_audit.py tests/test_mock_replay_e2e.py -k 'memory or audit'`。
-- [ ] **步骤 5：提交**：`git add src/forgeagent/task.py src/forgeagent/step.py src/forgeagent/identity.py src/forgeagent/audit.py tests && git commit -m "feat: integrate memory with task lifecycle"`。
+- [x] **步骤 1：写失败测试**：RecordingClient 断言第一 Task 的 project 候选进入第二 Task 的 system message；session 候选不落盘；audit event 不含 content。
+- [x] **步骤 2：运行 RED**：`uv run pytest -q tests/test_task.py tests/test_mock_replay_e2e.py -k memory`，预期 Task 尚不接受 manager。
+- [x] **步骤 3：实现装配**：Task 读取 manager.render() 合成 `ApprovedIdentity.memory`；Step 将 `ParseResult.memory_candidates` 交回 Task；audit 使用 `emit_audit` 写 `memory.*` 事件；不改变 Termination 或 HTTP projection。
+- [x] **步骤 4：运行 GREEN**：`uv run pytest -q tests/test_task.py tests/test_step.py tests/test_identity.py tests/test_audit.py tests/test_mock_replay_e2e.py -k 'memory or audit'`。
+- [x] **步骤 5：提交**：`git add src/forgeagent/task.py src/forgeagent/step.py src/forgeagent/identity.py src/forgeagent/audit.py tests && git commit -m "feat: integrate memory with task lifecycle"`。
 
 ### Task 3：CLI/HTTP 控制与配置
 
@@ -78,11 +78,11 @@ def test_procedure_candidate_is_rejected_without_write(tmp_path):
 - 修改：`src/forgeagent/cli.py`、`src/forgeagent/http_task_service.py`、`src/forgeagent/headless.py`
 - 测试：`tests/test_cli.py`、`tests/test_http_task_service.py`、`tests/test_headless.py`
 
-- [ ] **步骤 1：写失败测试**：REPL 驱动 `/remember`、`/memory`、`/reload`；`--no-memory` 下 prompt 不含项目记忆；HTTP 连续任务证明没有 session 泄漏。
-- [ ] **步骤 2：运行 RED**：`uv run pytest -q tests/test_cli.py tests/test_http_task_service.py -k memory`。
-- [ ] **步骤 3：实现入口装配**：增加 `/memory`/`/remember` usage 与 handler；REPL 持有 manager 并在 reload 时事务化刷新；parser 增加 `--no-memory`；HTTP 每任务创建 project-only manager，不增加请求/响应字段。
-- [ ] **步骤 4：运行 GREEN/ruff**：`uv run pytest -q tests/test_cli.py tests/test_http_task_service.py tests/test_headless.py -k memory && uv run ruff check src/forgeagent/cli.py src/forgeagent/http_task_service.py src/forgeagent/headless.py`。
-- [ ] **步骤 5：提交**：`git add src/forgeagent/cli.py src/forgeagent/http_task_service.py src/forgeagent/headless.py tests/test_cli.py tests/test_http_task_service.py tests/test_headless.py && git commit -m "feat: add memory controls to cli and http"`。
+- [x] **步骤 1：写失败测试**：REPL 驱动 `/remember`、`/memory`、`/reload`；`--no-memory` 下 prompt 不含项目记忆；HTTP 连续任务证明没有 session 泄漏。
+- [x] **步骤 2：运行 RED**：`uv run pytest -q tests/test_cli.py tests/test_http_task_service.py -k memory`。
+- [x] **步骤 3：实现入口装配**：增加 `/memory`/`/remember` usage 与 handler；REPL 持有 manager 并在 reload 时事务化刷新；parser 增加 `--no-memory`；HTTP 每任务创建 project-only manager，不增加请求/响应字段。
+- [x] **步骤 4：运行 GREEN/ruff**：`uv run pytest -q tests/test_cli.py tests/test_http_task_service.py tests/test_headless.py -k memory && uv run ruff check src/forgeagent/cli.py src/forgeagent/http_task_service.py src/forgeagent/headless.py`。
+- [x] **步骤 5：提交**：`git add src/forgeagent/cli.py src/forgeagent/http_task_service.py src/forgeagent/headless.py tests/test_cli.py tests/test_http_task_service.py tests/test_headless.py && git commit -m "feat: add memory controls to cli and http"`。
 
 ### Task 4：文档、golden 与回归
 
@@ -90,17 +90,17 @@ def test_procedure_candidate_is_rejected_without_write(tmp_path):
 - 修改：`docs/text-protocol-spec.md`、`docs/threat-model.md`、`README.md`、`tests/golden/cases.py`、`tests/golden/manifest.py`
 - 测试：`tests/test_golden_candidates_memory.py`（新增）
 
-- [ ] **步骤 1：补文档与候选**：说明 Memory 标记、准入拒绝、Skill 分流、投毒边界和 `--no-memory`；新增命中/未命中/拒绝候选但不提前加入 verified manifest。
-- [ ] **步骤 2：运行定向验证**：`uv run pytest -q tests/test_golden_candidates_memory.py tests/test_golden_runner.py`。
-- [ ] **步骤 3：运行全量验证**：`uv run pytest -q`、`uv run ruff check .`、`uv run python -m tests.golden.runner`、`openspec validate memory-runtime --strict`、`git diff --check`。
-- [ ] **步骤 4：提交**：`git add docs README.md tests/golden tests/test_golden_candidates_memory.py && git commit -m "docs: document memory runtime boundaries"`。
+- [x] **步骤 1：补文档与候选**：说明 Memory 标记、准入拒绝、Skill 分流、投毒边界和 `--no-memory`；新增命中/未命中/拒绝候选但不提前加入 verified manifest。
+- [x] **步骤 2：运行定向验证**：`uv run pytest -q tests/test_golden_candidates_memory.py tests/test_golden_runner.py`。
+- [x] **步骤 3：运行全量验证**：`uv run pytest -q`、`uv run ruff check .`、`uv run python -m tests.golden.runner`、`openspec validate memory-runtime --strict`、`git diff --check`。
+- [x] **步骤 4：提交**：`git add docs README.md tests/golden tests/test_golden_candidates_memory.py && git commit -m "docs: document memory runtime boundaries"`。
 
 ### Task 5：终审与 Comet 收尾
 
-- [ ] **步骤 1：按 `requesting-code-review` 做一次 whole-change 审查**：检查 scope、prompt 顺序、原子写入、secret masking、HTTP/session 隔离和 M15/M17 回归；Critical 必须修复。
-- [ ] **步骤 2：若审查或全量验证发现失败，按 systematic-debugging 追根因，增加最小回归测试并修复后重跑受影响命令。**
-- [ ] **步骤 3：勾选 `openspec/changes/memory-runtime/tasks.md` 全部完成，写验证报告和 `milestones/milestone_018.md`，更新 `milestones/latest`。
-- [ ] **步骤 4：运行 `node .agents/skills/comet/scripts/comet-guard.mjs memory-runtime build --apply`，随后进入 verify。
+- [x] **步骤 1：按 `requesting-code-review` 做一次 whole-change 审查**：检查 scope、prompt 顺序、原子写入、secret masking、HTTP/session 隔离和 M15/M17 回归；Critical 必须修复。
+- [x] **步骤 2：若审查或全量验证发现失败，按 systematic-debugging 追根因，增加最小回归测试并修复后重跑受影响命令。**
+- [x] **步骤 3：勾选 `openspec/changes/memory-runtime/tasks.md` 全部完成，写验证报告和 `milestones/milestone_018.md`，更新 `milestones/latest`。
+- [x] **步骤 4：运行 `node .agents/skills/comet/scripts/comet-guard.mjs memory-runtime build --apply`，随后进入 verify。
 
 ## 计划自评审
 
