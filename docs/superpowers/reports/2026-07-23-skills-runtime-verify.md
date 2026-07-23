@@ -42,6 +42,8 @@ change 可归档。
 - `openspec validate skills-runtime --strict`：`Change 'skills-runtime' is valid`。
 - `uv build --out-dir /tmp/forgeagent-m19-final-build`：sdist 与 wheel 均成功生成。
 - `git diff --check`：通过。
+- 归档后 `openspec validate --all --strict`：`12 passed, 0 failed`；active change 列表为空，
+  两份主规格均未残留 delta-only 标题。
 
 ## 两轮 whole-change 自审
 

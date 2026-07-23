@@ -2,6 +2,7 @@
 change: skills-runtime
 design-doc: docs/superpowers/specs/2026-07-23-skills-runtime-design.md
 base-ref: ff7686d79df0b749ef9de76db5b361934beafe47
+archived-with: 2026-07-23-skills-runtime
 ---
 
 # M19 Skills Runtime Implementation Plan
@@ -52,6 +53,7 @@ reader 和显式输入函数保持原行为，不写入持久历史。下方英�
 | `tests/test_golden_candidates_skills.py`, `tests/golden/cases.py` | Offline progressive-loading golden candidate without changing the verified-core set. |
 | `README.md`, `docs/text-protocol-spec.md`, `docs/threat-model.md`, `ACTION_PLAN.md` | Public contract, threat boundary, and M19 status documentation. |
 
+archived-with: 2026-07-23-skills-runtime
 ---
 
 ### Task 1: Build the immutable Skill parser and deterministic discovery snapshot
@@ -791,9 +793,11 @@ Expected: no complete five-part runtime contract and no M19-completed status are
 - [x] **Step 3: Write the precise public contract and then run all validation**
 
 ```markdown
+archived-with: 2026-07-23-skills-runtime
 ---
 name: review-python
 trigger: Use when reviewing Python changes before completion.
+archived-with: 2026-07-23-skills-runtime
 ---
 
 ## Steps
@@ -856,3 +860,4 @@ First review verifies all delta scenarios have a focused test and no content/abs
 - Type consistency: `SkillDefinition`, `SkillRegistry`, `SkillArgs`, `SkillTool`, `Task.skills`, `Step.skills`, and `default_registry(skills=registry)` use the same names and compatible optional types throughout.
 
 Plan complete and saved to `docs/superpowers/plans/2026-07-23-skills-runtime.md`. Execution options: use `subagent-driven-development` for one fresh implementer and review gate per task, or `executing-plans` for inline task batches with checkpoints.
+

@@ -2,6 +2,8 @@
 comet_change: skills-runtime
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-07-23-skills-runtime
+status: final
 ---
 
 # M19 Skills Runtime 技术设计
@@ -36,9 +38,13 @@ M18 已把程序性 Memory 候选拒绝为 `procedure_requires_Skill`；M19 只�
 每个 Skill 只允许以下布局：
 
 ```markdown
+archived-with: 2026-07-23-skills-runtime
+status: final
 ---
 name: review-python
 trigger: Use when reviewing Python changes before completion.
+archived-with: 2026-07-23-skills-runtime
+status: final
 ---
 
 ## Steps
@@ -288,3 +294,4 @@ WordCompleter(
 5. 更新 golden、README、协议和威胁模型，完成全量验证与两轮 whole-change 自审。
 
 回滚删除 Skills 装配和 prompt_toolkit 即恢复旧行为；Skill 文件与独立 trust 记录均是惰性数据，不影响旧版本。没有数据库或不可逆迁移。
+
