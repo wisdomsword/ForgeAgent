@@ -101,11 +101,17 @@ class CandidateResult:
     passed: bool
     first_request: str
     second_request: str
+    feedback: str
     round_count: int
 
 
 def _request_text(messages: list[Message]) -> str:
     return "\n".join(message.content for message in messages if isinstance(message.content, str))
+
+
+def _feedback_text(messages: list[Message]) -> str:
+    content = messages[-1].content
+    return content if isinstance(content, str) else ""
 
 
 def _skill_call(name: str) -> str:
@@ -132,6 +138,7 @@ def _candidate_result(client: _RecordingMockClient, outcome) -> CandidateResult:
         passed=outcome.status.completed,
         first_request=_request_text(client.messages_by_call[0]),
         second_request=_request_text(client.messages_by_call[1]),
+        feedback=_feedback_text(client.messages_by_call[1]),
         round_count=len(outcome.rounds),
     )
 

@@ -10,9 +10,12 @@ def test_skill_candidate_reads_catalog_then_uses_skill_feedback(tmp_path):
 
     assert result.passed is True
     assert result.round_count == 2
-    assert "Skill" in result.first_request
+    assert "## Available Skills" in result.first_request
+    assert "- review-python — Use when reviewing Python." in result.first_request
     assert "UNIQUE-SKILL-STEP" not in result.first_request
+    assert "[Skill None]" in result.feedback
     assert "UNIQUE-SKILL-STEP" in result.second_request
+    assert "UNIQUE-SKILL-STEP" in result.feedback
 
 
 def test_no_skill_control_never_advertises_or_registers_skill(tmp_path):
@@ -22,3 +25,5 @@ def test_no_skill_control_never_advertises_or_registers_skill(tmp_path):
     assert result.round_count == 2
     assert "## Available Skills" not in result.first_request
     assert '"name":"Skill"' not in result.first_request
+    assert "Unknown or missing tool name" in result.second_request
+    assert "Unknown or missing tool name" in result.feedback
