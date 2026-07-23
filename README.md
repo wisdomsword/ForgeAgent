@@ -9,7 +9,8 @@
 渐进加载的 Skill，REPL 同时支持斜杠动态补全和当前会话历史。收尾记录见
 [`milestone_017.md`](milestones/milestone_017.md)、[`milestone_018.md`](milestones/milestone_018.md)
 和 [`milestone_019.md`](milestones/milestone_019.md)。M19 已通过无 API Key、无网络的本地
-人类验收；下一个计划里程碑为 M20 Eval。
+人类验收；归档后补充的 Startup-Information 已完成真实 TTY 启动标识、能力摘要、MCP
+脱敏诊断和非 TTY 零启动噪声，并作为独立 OpenSpec change 归档。下一个计划里程碑为 M20 Eval。
 
 ## 安装
 
@@ -130,6 +131,15 @@ uv run --offline python scripts/m19-skills-human-smoke.py
 
 该命令必须在真实交互终端运行；它使用临时 HOME/项目和确定性客户端，隔离密钥形态
 环境变量，退出后自动恢复并清理，不会读取或修改真实 `~/.forgeagent`。
+
+### M19 归档后补充：Startup-Information
+
+真实交互式 REPL 在初始化期间显示可清理的七色 ASCII Logo，完成后只保留模型、sandbox、
+项目根目录和 enabled MCP 实际可用数摘要；`NO_COLOR` 降级为静态单色标识。MCP 子进程
+stderr 按 server generation 隔离并限制为 8 KiB，只映射为固定、脱敏的诊断字段。
+非 TTY、显式 reader、`run` 和 `serve` 不显示启动 UI；管道只输入 `quit` 时 stdout/stderr
+保持零字节。完整证据见
+[`2026-07-23-startup-information-verify.md`](docs/superpowers/reports/2026-07-23-startup-information-verify.md)。
 
 ## 配置（API key 与端点）
 
