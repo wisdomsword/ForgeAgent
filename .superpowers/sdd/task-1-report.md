@@ -70,4 +70,46 @@ All checks passed!
 
 ## Commit
 
-Pending commit: `feat: add bounded MCP startup diagnostics`
+`e7e8240` - `feat: add bounded MCP startup diagnostics`
+
+## Review Fix Verification
+
+Applied the first-review Critical/Important fixes in `src/forgeagent/mcp_manager.py`
+and expanded lifecycle coverage in `tests/test_mcp_manager.py`.
+
+### RED
+
+The new wording, capture-entry, stop/disable/timeout, hostile-exception, and
+lifecycle-log tests were run before the production fixes:
+
+```text
+uv run pytest tests/test_mcp_manager.py -q -k 'capture_entry_failure or capture_entry_setup_failure or holder_failure_after_stop or holder_failure_after_disable or diagnostics_never_publish'
+5 failed, 197 deselected
+
+uv run pytest tests/test_mcp_manager.py -q -k 'call_failure_never_exposes or call_facade_failure or lifecycle_result_observation or holder_finalizer_log or active_call_failure or call_tool_isolates_sdk_control or call_outer_timeout or lifecycle_fallback_start_failure or server_status_masks_secret or required_failures_mask_secret or holder_task_creation_and_cleanup'
+16 failed, 195 deselected
+```
+
+The failures were the expected pre-fix assertions: old Docker impact prose,
+unclosed capture descriptors, late failure overwriting timeout/disabled state,
+exception text/types in status and feedback, and exception types in lifecycle
+logs.
+
+### GREEN
+
+```text
+uv run pytest tests/test_mcp_manager.py -q -k 'bounded_stderr_capture or diagnostics or generation or close_terminates_child_processes or capture_entry or holder_failure_after_stop or holder_failure_after_disable or disable_with_stdio_teardown_error or call_failure_never_exposes or call_facade_failure or lifecycle_result_observation or holder_finalizer_log or holder_cancellation_releases_capture or holder_failure_releases_capture'
+30 passed, 182 deselected in 1.15s
+
+uv run pytest tests/test_mcp_manager.py -q
+211 passed, 1 skipped in 5.95s
+
+uv run ruff check src/forgeagent/mcp_manager.py tests/test_mcp_manager.py
+All checks passed!
+```
+
+The fixes make capture pipe/thread setup exception-safe, gate failure
+publication on the active enabled unstopped generation, use the required fixed
+Docker impact wording, collapse call/status/log exception projections to fixed
+sanitized categories, and exercise real holder success/failure/cancellation,
+timeout, disable teardown, and stale-generation finalizer paths.

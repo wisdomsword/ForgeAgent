@@ -262,8 +262,226 @@ def test_diagnostics_never_publish_raw_stderr_or_secret(monkeypatch):
     _fail_generation(manager, "github", b"docker.sock top-secret /private/path")
     diagnostic = manager.diagnostics()[0]
     assert diagnostic.reason == "Docker is not running"
+    assert diagnostic.impact == "Only this configured integration is disabled"
+    assert diagnostic.action == "Start Docker or disable this server"
     assert "top-secret" not in repr(diagnostic)
     assert "/private/path" not in repr(diagnostic)
+
+
+def test_capture_entry_failure_is_closed_and_marks_holder_unavailable(monkeypatch):
+    manager = MCPManager({"github": MCPServerConfig(command="fixture")})
+
+    class BrokenCapture(_BoundedStderrCapture):
+        def __enter__(self):
+            raise OSError("capture setup /private/path")
+
+    monkeypatch.setattr(mcp_manager_module, "_BoundedStderrCapture", BrokenCapture)
+
+    async def run() -> None:
+        ready = manager._start_holder("github")
+        await asyncio.wait_for(ready.wait(), timeout=0.2)
+        generation, holder, _stop = manager._holders["github"]
+        await holder
+        assert generation == manager._states["github"].generation
+
+    asyncio.run(run())
+
+    assert manager.server_status()["github"] == "unavailable: startup_failed"
+    assert manager._states["github"].diagnostic_code == "startup_failed"
+
+
+def test_capture_entry_setup_failure_closes_both_pipe_descriptors(monkeypatch):
+    read_fd, write_fd = os.pipe()
+
+    class BrokenThread(threading.Thread):
+        def start(self):
+            raise OSError("reader setup /private/path")
+
+    monkeypatch.setattr(mcp_manager_module.os, "pipe", lambda: (read_fd, write_fd))
+    monkeypatch.setattr(mcp_manager_module.threading, "Thread", BrokenThread)
+    capture = _BoundedStderrCapture()
+
+    with pytest.raises(OSError):
+        capture.__enter__()
+
+    for fd in (read_fd, write_fd):
+        with pytest.raises(OSError):
+            os.fstat(fd)
+
+
+def test_holder_failure_after_stop_preserves_timeout_diagnostic(monkeypatch):
+    import mcp
+    import mcp.client.stdio as mcp_stdio
+
+    manager = MCPManager(
+        {"github": MCPServerConfig(command="fixture")},
+        connect_timeout=0.01,
+    )
+    release = asyncio.Event()
+
+    class FakeSession:
+        def __init__(self, *_args):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_exc_info):
+            return None
+
+        async def initialize(self):
+            await release.wait()
+            raise RuntimeError("late startup /private/path")
+
+        async def list_tools(self):
+            raise AssertionError("list_tools must not run")
+
+    class FakeStdioClient:
+        def __init__(self, errlog):
+            self.errlog = errlog
+
+        async def __aenter__(self):
+            return object(), object()
+
+        async def __aexit__(self, *_exc_info):
+            return None
+
+    monkeypatch.setattr(mcp, "ClientSession", FakeSession)
+    monkeypatch.setattr(
+        mcp_stdio,
+        "stdio_client",
+        lambda _params, *, errlog: FakeStdioClient(errlog),
+    )
+
+    async def run() -> None:
+        await manager._start_holders(["github"])
+        generation, holder, stop = manager._holders["github"]
+        state = manager._states["github"]
+        assert state.status == "unavailable: connect timeout"
+        assert state.diagnostic_code == "timeout"
+        assert stop.is_set()
+        release.set()
+        await holder
+        assert generation == state.generation
+
+    asyncio.run(run())
+
+    assert manager.server_status()["github"] == "unavailable: connect timeout"
+    assert manager._states["github"].diagnostic_code == "timeout"
+
+
+def test_holder_failure_after_disable_preserves_disabled_status(monkeypatch):
+    import mcp
+    import mcp.client.stdio as mcp_stdio
+
+    manager = MCPManager({"github": MCPServerConfig(command="fixture")})
+    release = asyncio.Event()
+
+    class FakeSession:
+        def __init__(self, *_args):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_exc_info):
+            return None
+
+        async def initialize(self):
+            await release.wait()
+            raise RuntimeError("late disable /private/path")
+
+        async def list_tools(self):
+            raise AssertionError("list_tools must not run")
+
+    class FakeStdioClient:
+        def __init__(self, errlog):
+            self.errlog = errlog
+
+        async def __aenter__(self):
+            return object(), object()
+
+        async def __aexit__(self, *_exc_info):
+            return None
+
+    monkeypatch.setattr(mcp, "ClientSession", FakeSession)
+    monkeypatch.setattr(
+        mcp_stdio,
+        "stdio_client",
+        lambda _params, *, errlog: FakeStdioClient(errlog),
+    )
+
+    async def run() -> None:
+        manager._start_holder("github")
+        _generation, holder, _stop = manager._holders["github"]
+        await asyncio.sleep(0)
+        disable_task = asyncio.create_task(manager._disable_on_loop("github"))
+        await asyncio.sleep(0)
+        assert manager._states["github"].status == "unavailable: disabled"
+        release.set()
+        await disable_task
+        await asyncio.gather(holder, return_exceptions=True)
+
+    asyncio.run(run())
+
+    assert manager.server_status()["github"] == "unavailable: disabled"
+    assert manager._states["github"].diagnostic_code is None
+
+
+def test_disable_with_stdio_teardown_error_preserves_disabled_status(monkeypatch):
+    import mcp
+    import mcp.client.stdio as mcp_stdio
+
+    manager = MCPManager({"github": MCPServerConfig(command="fixture")})
+
+    class FakeToolList:
+        tools = []
+
+    class FakeSession:
+        def __init__(self, *_args):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_exc_info):
+            return None
+
+        async def initialize(self):
+            return None
+
+        async def list_tools(self):
+            return FakeToolList()
+
+    class FakeStdioClient:
+        def __init__(self, errlog):
+            self.errlog = errlog
+
+        async def __aenter__(self):
+            return object(), object()
+
+        async def __aexit__(self, *_exc_info):
+            raise RuntimeError("teardown /private/path --token=value")
+
+    monkeypatch.setattr(mcp, "ClientSession", FakeSession)
+    monkeypatch.setattr(
+        mcp_stdio,
+        "stdio_client",
+        lambda _params, *, errlog: FakeStdioClient(errlog),
+    )
+
+    async def run() -> None:
+        ready = manager._start_holder("github")
+        await ready.wait()
+        assert manager._states["github"].status == "available"
+        await manager._disable_on_loop("github")
+
+    asyncio.run(run())
+
+    assert manager.server_status()["github"] == "unavailable: disabled"
+    assert manager._states["github"].diagnostic_code is None
+    assert manager._holders == {}
+    assert manager._sessions == {}
 
 
 def test_diagnostics_projection_is_deterministic_and_includes_disabled_servers():
@@ -300,29 +518,95 @@ def test_disable_without_loop_clears_previous_startup_diagnostics():
     assert diagnostic.action is None
 
 
-def test_old_generation_failure_cannot_overwrite_replacement_diagnostic(monkeypatch):
+def test_old_real_holder_and_finalizer_cannot_overwrite_replacement_diagnostic(monkeypatch):
+    import mcp
+    import mcp.client.stdio as mcp_stdio
+
     manager = MCPManager({"github": MCPServerConfig(command="fixture")})
-    state = manager._states["github"]
-    state.generation = 1
-    first = _BoundedStderrCapture()
-    with first:
-        first.stream.write("Cannot connect to docker.sock")
-        first.stream.flush()
-    manager._publish_unavailable("github", generation=1, capture=first)
-    state.generation = 2
-    state.status = "available"
-    state.tools = [_tool("github")]
-    state.diagnostic_code = None
-    before = manager.diagnostics()
-    stale = _BoundedStderrCapture()
-    with stale:
-        stale.stream.write("docker daemon is not running")
-        stale.stream.flush()
-    manager._publish_unavailable("github", generation=1, capture=stale)
-    assert state.status == "available"
-    assert state.tools == [_tool("github")]
-    assert state.diagnostic_code is None
-    assert manager.diagnostics() == before
+    replacement_readies = []
+    invocations = 0
+    real_publish = manager._publish_unavailable
+
+    class FakeTool:
+        name = "echo"
+        description = "Echo"
+        inputSchema = {}
+
+    class FakeToolList:
+        tools = [FakeTool()]
+
+    class FakeSession:
+        def __init__(self, *_args):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_exc_info):
+            return None
+
+        async def initialize(self):
+            return None
+
+        async def list_tools(self):
+            return FakeToolList()
+
+    class FakeStdioClient:
+        def __init__(self, ordinal, errlog):
+            self.ordinal = ordinal
+            self.errlog = errlog
+
+        async def __aenter__(self):
+            if self.ordinal == 1:
+                self.errlog.write("Cannot connect to docker.sock /private/path")
+                self.errlog.flush()
+                raise RuntimeError("generation one failed /private/path")
+            return object(), object()
+
+        async def __aexit__(self, *_exc_info):
+            return None
+
+    def stdio_factory(_params, *, errlog):
+        nonlocal invocations
+        invocations += 1
+        return FakeStdioClient(invocations, errlog)
+
+    def publish_and_replace(name, generation, capture):
+        real_publish(name, generation, capture)
+        replacement_readies.append(manager._start_holder(name))
+
+    monkeypatch.setattr(mcp, "ClientSession", FakeSession)
+    monkeypatch.setattr(mcp_stdio, "stdio_client", stdio_factory)
+    monkeypatch.setattr(manager, "_publish_unavailable", publish_and_replace)
+
+    async def run() -> None:
+        first_ready = manager._start_holder("github")
+        first_generation, first_holder, _first_stop = manager._holders["github"]
+        await first_ready.wait()
+        assert first_generation == 1
+        assert len(replacement_readies) == 1
+        await replacement_readies[0].wait()
+        second_generation, second_holder, second_stop = manager._holders["github"]
+        assert second_generation == 2
+        state = manager._states["github"]
+        assert state.status == "available"
+        assert state.tools == [_tool("github")]
+        assert state.diagnostic_code is None
+        before = manager.diagnostics()
+
+        await first_holder
+        manager._finalize_holder_slot("github", first_generation, first_holder)
+        await asyncio.sleep(0)
+
+        assert manager._holders["github"][1] is second_holder
+        assert state.status == "available"
+        assert state.tools == [_tool("github")]
+        assert state.diagnostic_code is None
+        assert manager.diagnostics() == before
+        second_stop.set()
+        await second_holder
+
+    asyncio.run(run())
 
 
 def test_capture_clear_and_close_are_idempotent_and_reader_is_daemon():
@@ -402,6 +686,117 @@ def test_holder_passes_capture_to_stdio_and_releases_it_after_success(monkeypatc
 
     asyncio.run(run_holder())
 
+    assert len(captures) == 1
+    assert captures[0].text() == ""
+    assert captures[0]._reader is not None
+    assert captures[0]._reader.is_alive() is False
+
+
+def test_holder_failure_releases_capture_reader_and_publishes_fixed_status(monkeypatch):
+    import mcp.client.stdio as mcp_stdio
+
+    manager = MCPManager({"github": MCPServerConfig(command="fixture")})
+    captures = []
+    real_capture = _BoundedStderrCapture
+
+    def capture_factory():
+        capture = real_capture()
+        captures.append(capture)
+        return capture
+
+    class FakeStdioClient:
+        def __init__(self, errlog):
+            self.errlog = errlog
+
+        async def __aenter__(self):
+            self.errlog.write("hostile startup /private/path")
+            self.errlog.flush()
+            raise RuntimeError("hostile startup /private/path")
+
+        async def __aexit__(self, *_exc_info):
+            return None
+
+    monkeypatch.setattr(mcp_manager_module, "_BoundedStderrCapture", capture_factory)
+    monkeypatch.setattr(
+        mcp_stdio,
+        "stdio_client",
+        lambda _params, *, errlog: FakeStdioClient(errlog),
+    )
+
+    async def run() -> None:
+        ready = manager._start_holder("github")
+        _generation, holder, _stop = manager._holders["github"]
+        await ready.wait()
+        await holder
+        await asyncio.sleep(0)
+
+    asyncio.run(run())
+
+    assert manager.server_status()["github"] == "unavailable: startup_failed"
+    assert manager._states["github"].diagnostic_code == "startup_failed"
+    assert len(captures) == 1
+    assert captures[0].text() == ""
+    assert captures[0]._reader is not None
+    assert captures[0]._reader.is_alive() is False
+
+
+def test_holder_cancellation_releases_capture_reader_without_failure_publication(monkeypatch):
+    import mcp
+    import mcp.client.stdio as mcp_stdio
+
+    manager = MCPManager({"github": MCPServerConfig(command="fixture")})
+    captures = []
+    real_capture = _BoundedStderrCapture
+
+    def capture_factory():
+        capture = real_capture()
+        captures.append(capture)
+        return capture
+
+    class FakeSession:
+        def __init__(self, *_args):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_exc_info):
+            return None
+
+        async def initialize(self):
+            await asyncio.Event().wait()
+
+    class FakeStdioClient:
+        def __init__(self, errlog):
+            self.errlog = errlog
+
+        async def __aenter__(self):
+            self.errlog.write("cancelled startup /private/path")
+            self.errlog.flush()
+            return object(), object()
+
+        async def __aexit__(self, *_exc_info):
+            return None
+
+    monkeypatch.setattr(mcp_manager_module, "_BoundedStderrCapture", capture_factory)
+    monkeypatch.setattr(mcp, "ClientSession", FakeSession)
+    monkeypatch.setattr(
+        mcp_stdio,
+        "stdio_client",
+        lambda _params, *, errlog: FakeStdioClient(errlog),
+    )
+
+    async def run() -> None:
+        manager._start_holder("github")
+        _generation, holder, _stop = manager._holders["github"]
+        await asyncio.sleep(0)
+        holder.cancel()
+        await asyncio.gather(holder, return_exceptions=True)
+        await asyncio.sleep(0)
+
+    asyncio.run(run())
+
+    assert manager._states["github"].diagnostic_code is None
     assert len(captures) == 1
     assert captures[0].text() == ""
     assert captures[0]._reader is not None
@@ -572,7 +967,7 @@ def test_required_failures_mask_secret_bearing_status(monkeypatch):
     mgr = MCPManager({"required": MCPServerConfig(command="unused", args=[], required=True)})
     mgr._states["required"].status = f"unavailable: RuntimeError: {secret}"
 
-    assert mgr.required_failures() == {"required": "unavailable: RuntimeError"}
+    assert mgr.required_failures() == {"required": "unavailable"}
 
 
 @pytest.mark.parametrize(
@@ -1285,7 +1680,7 @@ def test_enable_facade_timeout_delivers_intent_and_closes_cleanly(monkeypatch):
     "facade_error",
     [concurrent.futures.TimeoutError(), concurrent.futures.CancelledError()],
 )
-def test_lifecycle_fallback_start_failure_reports_fixed_type(monkeypatch, caplog, facade_error):
+def test_lifecycle_fallback_start_failure_uses_fixed_log(monkeypatch, caplog, facade_error):
     mgr = MCPManager({})
     future = _FutureProbe(error=facade_error)
 
@@ -1308,8 +1703,40 @@ def test_lifecycle_fallback_start_failure_reports_fixed_type(monkeypatch, caplog
     with pytest.raises(type(facade_error)):
         mgr._submit(asyncio.sleep(0), timeout=0.01)
 
-    assert "MCP lifecycle operation start failed: RuntimeError" in caplog.text
+    assert "MCP lifecycle operation start failed" in caplog.text
+    assert "RuntimeError" not in caplog.text
     assert "no running event loop" not in caplog.text
+
+
+def test_lifecycle_result_observation_log_never_exposes_exception(caplog):
+    mgr = MCPManager({})
+
+    class HostileFailure(RuntimeError):
+        pass
+
+    failure = HostileFailure("hostile-secret /private/path --token=value")
+
+    class BrokenTask:
+        @staticmethod
+        def cancelled() -> bool:
+            return False
+
+        @staticmethod
+        def exception():
+            raise failure
+
+    task = BrokenTask()
+    mgr._lifecycle_tasks.add(task)
+    caplog.set_level(logging.WARNING, logger="forgeagent.mcp_manager")
+
+    mgr._consume_owned_operation_result(task)
+
+    assert "MCP lifecycle result observation failed" in caplog.text
+    assert "HostileFailure" not in caplog.text
+    assert "hostile-secret" not in caplog.text
+    assert "/private/path" not in caplog.text
+    assert "--token=value" not in caplog.text
+    failure.__traceback__ = None
 
 
 def test_server_status_masks_secret_bearing_exception_text(monkeypatch):
@@ -1321,7 +1748,7 @@ def test_server_status_masks_secret_bearing_exception_text(monkeypatch):
     status = mgr.server_status()["optional"]
 
     assert secret not in status
-    assert status == "unavailable: RuntimeError"
+    assert status == "unavailable"
 
 
 def test_tools_prompt_groups_by_server_and_flags_external():
@@ -4371,11 +4798,42 @@ def test_holder_task_creation_and_cleanup_errors_remain_fixed_unavailable(
     assert mgr._holders == {}
     assert mgr.server_status()["pending"] == "unavailable: startup_failed"
     assert mgr._states["pending"].diagnostic_code == "startup_failed"
-    assert "MCP holder coroutine cleanup failed: OSError" in caplog.text
+    assert "MCP holder coroutine cleanup failed" in caplog.text
+    assert "OSError" not in caplog.text
     assert "create task secret" not in caplog.text
     assert "cleanup secret" not in caplog.text
     creation_error.__traceback__ = None
     cleanup_error.__traceback__ = None
+
+
+def test_holder_finalizer_log_never_exposes_exception(monkeypatch, caplog):
+    mgr = MCPManager({"pending": MCPServerConfig(command="unused")})
+
+    class HostileFailure(RuntimeError):
+        pass
+
+    failure = HostileFailure("hostile-secret /private/path --token=value")
+
+    async def failed_holder(*_args) -> None:
+        raise failure
+
+    monkeypatch.setattr(mgr, "_holder", failed_holder)
+    caplog.set_level(logging.DEBUG, logger="forgeagent.mcp_manager")
+
+    async def run() -> None:
+        mgr._start_holder("pending")
+        _generation, holder, _stop = mgr._holders["pending"]
+        await asyncio.gather(holder, return_exceptions=True)
+        await asyncio.sleep(0)
+
+    asyncio.run(run())
+
+    assert "MCP holder ended with failure for server pending generation 1" in caplog.text
+    assert "HostileFailure" not in caplog.text
+    assert "hostile-secret" not in caplog.text
+    assert "/private/path" not in caplog.text
+    assert "--token=value" not in caplog.text
+    failure.__traceback__ = None
 
 
 def test_close_first_does_not_allocate_holder_generation(monkeypatch):
@@ -4712,7 +5170,7 @@ def test_active_call_failure_finalizes_without_implicit_restart(monkeypatch):
 
         assert result == {
             "ok": False,
-            "text": "MCP call failed: RuntimeError: ***REDACTED***",
+            "text": "MCP call failed",
         }
         assert mgr._states["pending"].tearing_down_generation == generation
         assert mgr._states["pending"].restart_after_generation is None
@@ -4722,12 +5180,83 @@ def test_active_call_failure_finalizes_without_implicit_restart(monkeypatch):
         assert mgr._states["pending"].generation == generation
         assert mgr._states["pending"].tearing_down_generation is None
         assert mgr._states["pending"].restart_after_generation is None
-        assert mgr.server_status()["pending"] == "unavailable: RuntimeError"
+        assert mgr.server_status()["pending"] == "unavailable: startup_failed"
         assert mgr._holders == {}
         assert mgr._sessions == {}
         assert mgr.list_tools() == []
 
     asyncio.run(fail_active_call())
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        RuntimeError("hostile-secret /private/path --token=value"),
+        ExceptionGroup(
+            "hostile-group /private/path",
+            [ValueError("hostile-secret"), OSError("--token=value")],
+        ),
+        KeyboardInterrupt("hostile-secret /private/path"),
+        SystemExit("--token=value"),
+    ],
+)
+def test_call_failure_never_exposes_exception_in_feedback_or_status(failure):
+    mgr = MCPManager({"pending": MCPServerConfig(command="unused")})
+
+    async def fail_call() -> None:
+        stop = asyncio.Event()
+        holder = asyncio.create_task(_park_until(stop))
+        state = mgr._states["pending"]
+        state.generation = 1
+        state.status = "available"
+        state.tools = [_tool()]
+        mgr._holders["pending"] = (1, holder, stop)
+        mgr._sessions["pending"] = (1, _SessionProbe("unused", error=failure))
+        try:
+            result = await mgr._call_tool_on_loop("pending", "echo", {})
+            assert result == {"ok": False, "text": "MCP call failed"}
+            assert mgr.server_status() == {"pending": "unavailable: startup_failed"}
+            assert "hostile" not in repr(result)
+            assert "/private/path" not in repr(result)
+            assert "--token=value" not in repr(result)
+            assert type(failure).__name__ not in repr(result)
+        finally:
+            stop.set()
+            await asyncio.gather(holder, return_exceptions=True)
+
+    try:
+        asyncio.run(fail_call())
+    finally:
+        failure.__traceback__ = None
+
+
+def test_call_facade_failure_never_exposes_exception(monkeypatch):
+    mgr = MCPManager({"pending": MCPServerConfig(command="unused")})
+    mgr._loop = object()
+
+    class HostileFailure(RuntimeError):
+        pass
+
+    failure = HostileFailure("hostile-secret /private/path --token=value")
+
+    def reject(coro, *_args, **_kwargs):
+        coro.close()
+        raise failure
+
+    monkeypatch.setattr(
+        mgr,
+        "_submit",
+        reject,
+    )
+
+    result = mgr.call_tool("pending", "echo", {})
+
+    assert result == {"ok": False, "text": "MCP call failed"}
+    assert "HostileFailure" not in repr(result)
+    assert "hostile-secret" not in repr(result)
+    assert "/private/path" not in repr(result)
+    assert "--token=value" not in repr(result)
+    failure.__traceback__ = None
 
 
 def test_call_tool_on_loop_preserves_cancellation():
@@ -4864,7 +5393,7 @@ def test_call_tool_isolates_sdk_control_on_real_loop(monkeypatch, control):
     try:
         assert result == {
             "ok": False,
-            "text": f"MCP call failed: {type(control).__name__}",
+            "text": "MCP call failed",
         }
         assert "SDK control secret" not in result["text"]
         assert loop_survived is True
@@ -4876,7 +5405,7 @@ def test_call_tool_isolates_sdk_control_on_real_loop(monkeypatch, control):
                 "generation": generation,
                 "tearing_down": generation,
                 "restart_after": None,
-                "status": f"unavailable: {type(control).__name__}",
+                "status": "unavailable: startup_failed",
                 "session_present": False,
                 "tools": [],
             }
@@ -4885,7 +5414,7 @@ def test_call_tool_isolates_sdk_control_on_real_loop(monkeypatch, control):
         assert state.generation == generation
         assert state.tearing_down_generation is None
         assert state.restart_after_generation is None
-        assert mgr.server_status()["pending"] == f"unavailable: {type(control).__name__}"
+        assert mgr.server_status()["pending"] == "unavailable: startup_failed"
         assert mgr._holders == {}
         assert mgr._sessions == {}
         assert mgr.list_tools() == []
@@ -4919,7 +5448,7 @@ def test_call_outer_timeout_returns_structured_failure_without_invalidating_sess
     result = mgr.call_tool("pending", "echo", {})
 
     assert result["ok"] is False
-    assert "MCP call failed: TimeoutError" in result["text"]
+    assert result == {"ok": False, "text": "MCP call failed"}
     assert future.cancel_calls == 0
     assert mgr._sessions["pending"] == (1, session)
 
