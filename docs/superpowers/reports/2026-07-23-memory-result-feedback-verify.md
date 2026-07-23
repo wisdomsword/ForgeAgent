@@ -16,12 +16,33 @@ status: passed
 
 - TDD RED：缺少 `memory_results`、CLI 缺少 `memory disabled`、KeyboardInterrupt 冒泡。
 - 定向 GREEN：`3 passed`；相关 Task/CLI/HTTP 回归：`67 passed`。
-- 全量：`1378 passed, 11 skipped in 99.90s`。
+- 沙箱内首轮全量测试：`1354 passed, 23 skipped, 12 failed`；其中 11 项均因 loopback
+  端口绑定被拒绝，1 项因沙箱内 `uv build` 子进程失败。未据此修改业务代码。
+- 允许 loopback 与构建访问后，以同一命令复跑全量：
+  `1378 passed, 11 skipped in 84.49s`。
 - `ruff check .`、`openspec validate memory-result-feedback --strict`、`git diff --check` 通过。
 - `uv build` 成功生成 sdist 与 wheel。
 
-## 评审
+## 完整验证
+
+| 维度 | 结果 |
+| --- | --- |
+| 完整性 | 3/3 tasks 完成；1/1 modified requirement 已实现 |
+| 正确性 | 4/4 scenarios 有实现与测试证据 |
+| 一致性 | hotfix design、M18 技术设计、runtime-memory delta 与实现一致 |
+
+- Task 通过 `TaskOutcome.memory_results` 暴露每个候选结果，CLI 在原响应之后渲染权威状态。
+- `--no-memory` 场景验证 disabled 结果、无候选 content 输出、无 session/project 写入。
+- Ctrl-C 仅在 REPL `read_line()` 边界捕获，任务和清理期间的中断语义未改变。
+- 关联技术设计可定位：`docs/superpowers/specs/2026-07-23-memory-runtime-design.md`。
+- CRITICAL、WARNING、SUGGESTION：均无。
+
+## 两轮自评审
 
 - 结果输出仅包含 status/scope/key/reason，不包含候选 content。
+- key 受 `[a-z0-9][a-z0-9._-]{0,79}` 约束，不会形成 Rich markup 注入。
 - HTTP 继续使用既有 TaskRecord 投影，响应 schema 不变。
 - 不增加 LLM round，不改变 Task completed/solved 语义。
+- hotfix 已作为本地提交集成在 `main`，无需创建临时分支或执行额外合并；未推送远端。
+
+最终结论：全部检查通过，可以归档。

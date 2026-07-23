@@ -19,7 +19,7 @@ TBD - created by archiving change memory-runtime. Update Purpose after archive.
 - **THEN** 解析结果包含结构化错误，MEMORY.md 与会话状态均不发生变化
 
 ### Requirement: 确定性准入与程序性分流
-系统 SHALL 只准入陈述性事实、用户偏好和已确认决策；`kind=procedure` 的候选 MUST 被拒绝并反馈“请沉淀为 Skill”。候选内容 MUST 经过长度、控制字符、敏感环境值和明显提示注入指令检查；任一检查失败 MUST 拒绝候选。系统 MUST NOT 使用向量相似度、置信度模型或额外 LLM 调用决定准入。
+系统 SHALL 只准入陈述性事实、用户偏好和已确认决策；`kind=procedure` 的候选 MUST 被拒绝并反馈“请沉淀为 Skill”。候选内容 MUST 经过长度、控制字符、敏感环境值和明显提示注入指令检查；任一检查失败 MUST 拒绝候选。系统 MUST NOT 使用向量相似度、置信度模型或额外 LLM 调用决定准入。Task MUST 暴露每个模型候选的结构化准入结果，CLI SHALL 在任务输出中展示该权威结果且不得回显候选原文。
 
 #### Scenario: 陈述性事实准入
 - **WHEN** 候选 kind 为 fact、内容通过边界检查且 key 有效
@@ -32,6 +32,10 @@ TBD - created by archiving change memory-runtime. Update Purpose after archive.
 #### Scenario: 提示注入候选拒绝
 - **WHEN** 候选内容包含要求忽略系统协议、泄露 secret 或执行越权动作的指令
 - **THEN** 候选被拒绝且拒绝反馈不回显敏感原文
+
+#### Scenario: 禁用记忆时纠正模型声明
+- **WHEN** `--no-memory` 模式下模型响应包含合法 Memory 候选并声称已记住
+- **THEN** Task 返回 disabled 结果，CLI 展示 `memory disabled`，且 session 与 project 存储不变
 
 ### Requirement: 会话与项目两级作用域
 系统 SHALL 维护两个互不混淆的作用域：session 记忆仅在当前 REPL 进程内跨 Task 生效且不得落盘，project 记忆写入当前 `allowed_root/.forgeagent/MEMORY.md` 并在后续任务的身份组合中整体注入。HTTP/headless 每个任务只加载项目级记忆，不得共享其他任务的会话级状态。`--no-memory` MUST 同时阻止两级记忆的加载、注入和候选写入。
