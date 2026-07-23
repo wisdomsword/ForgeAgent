@@ -113,3 +113,58 @@ publication on the active enabled unstopped generation, use the required fixed
 Docker impact wording, collapse call/status/log exception projections to fixed
 sanitized categories, and exercise real holder success/failure/cancellation,
 timeout, disable teardown, and stale-generation finalizer paths.
+
+## Re-review Round 2: lifecycle log boundary
+
+### Scope
+
+Updated only `src/forgeagent/mcp_manager.py` and `tests/test_mcp_manager.py`.
+Every MCP startup, shutdown, rollback, drain, retry, close, finalization, and
+holder lifecycle logger now emits fixed text plus already-safe public server
+labels where needed. Exception objects remain available for process-control
+selection and cleanup ordering, but no exception type, raw exception text,
+`ExceptionGroup`, path, argument, or secret is formatted into a log record.
+
+### RED
+
+Strengthened the existing positive exception-type log assertions with hostile
+custom exceptions, `ExceptionGroup`, secret values, an absolute path, and
+argument fragments. Before the production change:
+
+```text
+uv run pytest tests/test_mcp_manager.py -q -k 'connect_startup_rollback_retries_stopped_loop_close or close_submission_error_propagates_facade_cleanup_control_exception or close_submission_control_exception_remains_authoritative_over_facade_cleanup or close_submission_and_facade_cleanup_errors_remain_public_no_throw or close_submission_and_fallback_errors_remain_public_no_throw or close_retains_resources_when_loop_close_fails_and_retries'
+10 failed, 202 deselected in 0.62s
+```
+
+The failures showed the expected old `KeyboardInterrupt`, `SystemExit`,
+`RuntimeError`, custom exception, and `ExceptionGroup` suffixes in lifecycle
+logs.
+
+### GREEN
+
+```text
+uv run pytest tests/test_mcp_manager.py -q -k 'fixed_log or log_never_exposes or startup_rollback_retries_stopped_loop_close or close_submission_error_propagates_facade_cleanup_control_exception or close_submission_control_exception_remains_authoritative_over_facade_cleanup or close_submission_and_facade_cleanup_errors_remain_public_no_throw or close_submission_and_fallback_errors_remain_public_no_throw or close_retains_resources_when_loop_close_fails_and_retries or holder_finalizer_log or lifecycle_result_observation_log'
+14 passed, 198 deselected in 0.28s
+
+uv run pytest tests/test_mcp_manager.py -q
+211 passed, 1 skipped in 6.43s
+
+uv run ruff check src/forgeagent/mcp_manager.py tests/test_mcp_manager.py
+All checks passed!
+
+uv run ruff format --check src/forgeagent/mcp_manager.py tests/test_mcp_manager.py
+2 files already formatted
+```
+
+Additional static scans found no `type(...).__name__`, `logger.exception`,
+`exc_info`, or `stack_info` usage in `mcp_manager.py`; `git diff --check` was
+clean.
+
+### Risk signals
+
+- Process-control selection and bounded cleanup still retain the original
+  exception objects internally; only their logger projection changed.
+- Public server labels and shutdown pending names remain in logs because they
+  are manager-owned, sanitized identifiers required for lifecycle diagnosis.
+- No new dependency, configuration surface, logger helper, or abstraction was
+  introduced.

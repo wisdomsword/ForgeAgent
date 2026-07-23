@@ -2768,6 +2768,10 @@ def test_connect_gate_release_before_set_preserves_exception_and_stops_worker(mo
 def test_connect_startup_rollback_retries_stopped_loop_close(monkeypatch, caplog):
     secret = "startup-loop-close-secret"
     primary = KeyboardInterrupt()
+    close_failure = ExceptionGroup(
+        "hostile-group /private/path --token=value",
+        [OSError(secret)],
+    )
     mgr = MCPManager(
         {"pending": MCPServerConfig(command="unused")},
         thread_join_timeout=0.2,
@@ -2786,7 +2790,7 @@ def test_connect_startup_rollback_retries_stopped_loop_close(monkeypatch, caplog
         def close(self) -> None:
             self.close_calls += 1
             if self.close_calls == 1:
-                raise OSError(f"close failed: {secret}")
+                raise close_failure
             real_loop.close()
 
     class NeverReleasedGate:
@@ -2819,8 +2823,16 @@ def test_connect_startup_rollback_retries_stopped_loop_close(monkeypatch, caplog
         assert mgr._thread is not None and not mgr._thread.is_alive()
         assert mgr._shutdown_complete.is_set()
         assert loop.close_calls == 1
-        assert "MCP loop cleanup after start failure failed: OSError" in caplog.text
-        assert secret not in caplog.text
+        assert "MCP loop cleanup after start failure failed" in caplog.messages
+        for forbidden in (
+            "ExceptionGroup",
+            "OSError",
+            "hostile-group",
+            secret,
+            "/private/path",
+            "--token=value",
+        ):
+            assert forbidden not in caplog.text
 
         assert mgr.close() is None
 
@@ -2830,6 +2842,7 @@ def test_connect_startup_rollback_retries_stopped_loop_close(monkeypatch, caplog
         assert mgr._thread is None
     finally:
         primary.__traceback__ = None
+        close_failure.__traceback__ = None
         if mgr._thread is not None and mgr._thread.is_alive():
             real_loop.call_soon_threadsafe(real_loop.stop)
             mgr._thread.join(timeout=1)
@@ -3338,7 +3351,10 @@ def test_close_submission_control_exception_survives_fallback_cleanup_error(monk
 
 @pytest.mark.parametrize(
     "cleanup",
-    [KeyboardInterrupt("facade cleanup secret"), SystemExit("facade cleanup secret")],
+    [
+        KeyboardInterrupt("facade cleanup secret /private/path --token=value"),
+        SystemExit("facade cleanup secret /private/path --token=value"),
+    ],
 )
 def test_close_submission_error_propagates_facade_cleanup_control_exception(
     monkeypatch,
@@ -3375,9 +3391,15 @@ def test_close_submission_error_propagates_facade_cleanup_control_exception(
         assert not mgr._shutdown_complete.is_set()
         assert mgr._loop is loop
         assert mgr._thread is thread
-        assert "MCP shutdown facade cleanup failed: " + type(cleanup).__name__ in caplog.text
-        assert "submission secret" not in caplog.text
-        assert "facade cleanup secret" not in caplog.text
+        assert "MCP shutdown facade cleanup failed" in caplog.messages
+        for forbidden in (
+            type(cleanup).__name__,
+            "submission secret",
+            "facade cleanup secret",
+            "/private/path",
+            "--token=value",
+        ):
+            assert forbidden not in caplog.text
     finally:
         primary.__traceback__ = None
         cleanup.__traceback__ = None
@@ -3388,10 +3410,22 @@ def test_close_submission_error_propagates_facade_cleanup_control_exception(
 @pytest.mark.parametrize(
     ("primary", "cleanup"),
     [
-        (KeyboardInterrupt("primary secret"), SystemExit("facade cleanup secret")),
-        (KeyboardInterrupt("primary secret"), RuntimeError("facade cleanup secret")),
-        (SystemExit("primary secret"), KeyboardInterrupt("facade cleanup secret")),
-        (SystemExit("primary secret"), RuntimeError("facade cleanup secret")),
+        (
+            KeyboardInterrupt("primary secret /private/path --primary=value"),
+            SystemExit("facade cleanup secret /private/path --token=value"),
+        ),
+        (
+            KeyboardInterrupt("primary secret /private/path --primary=value"),
+            RuntimeError("facade cleanup secret /private/path --token=value"),
+        ),
+        (
+            SystemExit("primary secret /private/path --primary=value"),
+            KeyboardInterrupt("facade cleanup secret /private/path --token=value"),
+        ),
+        (
+            SystemExit("primary secret /private/path --primary=value"),
+            RuntimeError("facade cleanup secret /private/path --token=value"),
+        ),
     ],
 )
 def test_close_submission_control_exception_remains_authoritative_over_facade_cleanup(
@@ -3426,9 +3460,16 @@ def test_close_submission_control_exception_remains_authoritative_over_facade_cl
         assert shutdown_coro.close_calls == 1
         assert len(retry_calls) == 2
         assert len(thread.join_timeouts) == 1
-        assert "MCP shutdown facade cleanup failed: " + type(cleanup).__name__ in caplog.text
-        assert "primary secret" not in caplog.text
-        assert "facade cleanup secret" not in caplog.text
+        assert "MCP shutdown facade cleanup failed" in caplog.messages
+        for forbidden in (
+            type(cleanup).__name__,
+            "primary secret",
+            "facade cleanup secret",
+            "/private/path",
+            "--primary=value",
+            "--token=value",
+        ):
+            assert forbidden not in caplog.text
     finally:
         primary.__traceback__ = None
         cleanup.__traceback__ = None
@@ -3441,8 +3482,15 @@ def test_close_submission_and_facade_cleanup_errors_remain_public_no_throw(
     caplog,
 ):
     mgr = MCPManager({}, shutdown_timeout=0.03, thread_join_timeout=0.02)
-    primary = RuntimeError("submission secret")
-    cleanup = OSError("facade cleanup secret")
+
+    class HostileSubmissionFailure(RuntimeError):
+        pass
+
+    primary = HostileSubmissionFailure("submission secret /private/path --primary=value")
+    cleanup = ExceptionGroup(
+        "facade cleanup secret /private/path --token=value",
+        [OSError("nested cleanup secret")],
+    )
     loop = _LoopProbe()
     thread = _ThreadProbe(alive=True, alive_results=[True, False])
     shutdown_coro = _CloseProbe(cleanup)
@@ -3469,10 +3517,20 @@ def test_close_submission_and_facade_cleanup_errors_remain_public_no_throw(
         assert not mgr._shutdown_complete.is_set()
         assert mgr._loop is loop
         assert mgr._thread is thread
-        assert "MCP shutdown facade cleanup failed: OSError" in caplog.text
-        assert "MCP shutdown failed: RuntimeError" in caplog.text
-        assert "submission secret" not in caplog.text
-        assert "facade cleanup secret" not in caplog.text
+        assert "MCP shutdown facade cleanup failed" in caplog.messages
+        assert "MCP shutdown failed" in caplog.messages
+        for forbidden in (
+            "HostileSubmissionFailure",
+            "ExceptionGroup",
+            "OSError",
+            "submission secret",
+            "facade cleanup secret",
+            "nested cleanup secret",
+            "/private/path",
+            "--primary=value",
+            "--token=value",
+        ):
+            assert forbidden not in caplog.text
     finally:
         primary.__traceback__ = None
         cleanup.__traceback__ = None
@@ -3553,8 +3611,15 @@ def test_close_submission_and_fallback_errors_remain_public_no_throw(monkeypatch
         shutdown_timeout=0.03,
         thread_join_timeout=0.02,
     )
-    primary = RuntimeError("submission secret")
-    fallback = OSError("fallback secret")
+
+    class HostileSubmissionFailure(RuntimeError):
+        pass
+
+    primary = HostileSubmissionFailure("submission secret /private/path --primary=value")
+    fallback = ExceptionGroup(
+        "fallback secret /private/path --token=value",
+        [OSError("nested fallback secret")],
+    )
     loop = _LoopProbe()
     thread = _ThreadProbe(alive=True, alive_results=[True, False])
     holder_slot = (1, object(), object())
@@ -3587,10 +3652,20 @@ def test_close_submission_and_fallback_errors_remain_public_no_throw(monkeypatch
         assert mgr._sessions == {"pending": session_slot}
         assert mgr._loop is loop
         assert mgr._thread is thread
-        assert "MCP shutdown fallback cleanup failed: OSError" in caplog.text
-        assert "MCP shutdown failed: RuntimeError" in caplog.text
-        assert "submission secret" not in caplog.text
-        assert "fallback secret" not in caplog.text
+        assert "MCP shutdown fallback cleanup failed" in caplog.messages
+        assert "MCP shutdown failed" in caplog.messages
+        for forbidden in (
+            "HostileSubmissionFailure",
+            "ExceptionGroup",
+            "OSError",
+            "submission secret",
+            "fallback secret",
+            "nested fallback secret",
+            "/private/path",
+            "--primary=value",
+            "--token=value",
+        ):
+            assert forbidden not in caplog.text
     finally:
         primary.__traceback__ = None
         fallback.__traceback__ = None
@@ -3770,21 +3845,31 @@ def test_close_consumes_shutdown_completion_that_arrives_during_join(monkeypatch
 
 def test_close_retains_resources_when_loop_close_fails_and_retries(monkeypatch, caplog):
     secret = "internal-shutdown-secret"
+
+    class HostileShutdownFailure(RuntimeError):
+        pass
+
+    join_failure = ExceptionGroup(
+        "join hostile group /private/path --join=value",
+        [OSError(secret)],
+    )
     mgr = MCPManager(
         {"pending": MCPServerConfig(command="unused")},
         shutdown_timeout=0.03,
         thread_join_timeout=0.02,
     )
     loop = _LoopProbe(
-        stop_error=RuntimeError(f"stop {secret}"),
-        close_error=OSError(f"close {secret}"),
+        stop_error=HostileShutdownFailure(f"stop {secret} /private/path --stop=value"),
+        close_error=HostileShutdownFailure(f"close {secret} /private/path --close=value"),
     )
     thread = _ThreadProbe(
         alive=True,
         alive_results=[True, False],
-        join_error=RuntimeError(f"join {secret}"),
+        join_error=join_failure,
     )
-    future = _FutureProbe(error=RuntimeError(f"future {secret}"))
+    future = _FutureProbe(
+        error=HostileShutdownFailure(f"future {secret} /private/path --future=value")
+    )
     holder_slot = (1, object(), object())
     session_slot = (1, object())
     mgr._loop = loop
@@ -3812,11 +3897,22 @@ def test_close_retains_resources_when_loop_close_fails_and_retries(monkeypatch, 
     assert mgr._sessions == {"pending": session_slot}
     assert mgr._loop is loop
     assert mgr._thread is thread
-    assert "MCP shutdown failed: RuntimeError" in caplog.text
-    assert "MCP loop stop failed: RuntimeError" in caplog.text
-    assert "MCP loop thread join failed: RuntimeError" in caplog.text
-    assert "MCP loop close failed: OSError" in caplog.text
-    assert secret not in caplog.text
+    assert "MCP shutdown failed" in caplog.messages
+    assert "MCP loop stop failed" in caplog.messages
+    assert "MCP loop thread join failed" in caplog.messages
+    assert "MCP loop close failed" in caplog.messages
+    for forbidden in (
+        "HostileShutdownFailure",
+        "ExceptionGroup",
+        "OSError",
+        secret,
+        "/private/path",
+        "--stop=value",
+        "--join=value",
+        "--close=value",
+        "--future=value",
+    ):
+        assert forbidden not in caplog.text
 
     loop._stop_error = None
     loop._close_error = None
@@ -5602,9 +5698,7 @@ def test_disable_during_holder_initialization_never_publishes_available(monkeypa
             return None
 
     monkeypatch.setattr(mcp, "ClientSession", FakeSession)
-    monkeypatch.setattr(
-        mcp_stdio, "stdio_client", lambda params, *, errlog: FakeStdioClient()
-    )
+    monkeypatch.setattr(mcp_stdio, "stdio_client", lambda params, *, errlog: FakeStdioClient())
 
     async def start_holder() -> asyncio.Event:
         return mgr._start_holder("pending")
@@ -5690,9 +5784,7 @@ def test_real_holder_cancellation_before_ready_sets_ready_and_finalizes(monkeypa
             lifecycle.append("stdio-exit")
 
     monkeypatch.setattr(mcp, "ClientSession", FakeSession)
-    monkeypatch.setattr(
-        mcp_stdio, "stdio_client", lambda params, *, errlog: FakeStdioClient()
-    )
+    monkeypatch.setattr(mcp_stdio, "stdio_client", lambda params, *, errlog: FakeStdioClient())
 
     async def cancel_initializing_holder():
         nonlocal initialize_started, teardown_release, teardown_started
@@ -5788,9 +5880,7 @@ def test_real_holder_session_enter_cancellation_sets_ready_before_stdio_teardown
             lifecycle.append("stdio-exit")
 
     monkeypatch.setattr(mcp, "ClientSession", FakeSession)
-    monkeypatch.setattr(
-        mcp_stdio, "stdio_client", lambda params, *, errlog: FakeStdioClient()
-    )
+    monkeypatch.setattr(mcp_stdio, "stdio_client", lambda params, *, errlog: FakeStdioClient())
 
     async def cancel_session_enter():
         nonlocal session_enter_started, teardown_release, teardown_started
@@ -5924,9 +6014,7 @@ def test_real_holder_cancellation_dominates_teardown(teardown_case, monkeypatch)
             return teardown_case == "stdio-suppress"
 
     monkeypatch.setattr(mcp, "ClientSession", FakeSession)
-    monkeypatch.setattr(
-        mcp_stdio, "stdio_client", lambda params, *, errlog: FakeStdioClient()
-    )
+    monkeypatch.setattr(mcp_stdio, "stdio_client", lambda params, *, errlog: FakeStdioClient())
 
     async def cancel_active_holder():
         loop = asyncio.get_running_loop()
@@ -6025,9 +6113,7 @@ def test_real_holder_cancellation_propagates_and_finalizes_without_replacement(m
             lifecycle.append("stdio-exit")
 
     monkeypatch.setattr(mcp, "ClientSession", FakeSession)
-    monkeypatch.setattr(
-        mcp_stdio, "stdio_client", lambda params, *, errlog: FakeStdioClient()
-    )
+    monkeypatch.setattr(mcp_stdio, "stdio_client", lambda params, *, errlog: FakeStdioClient())
 
     async def cancel_active_holder():
         loop = asyncio.get_running_loop()
