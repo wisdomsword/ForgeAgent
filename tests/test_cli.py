@@ -43,6 +43,7 @@ from forgeagent.models import (
 )
 from forgeagent.protocol import FileListArgs, FileWriteArgs, MCPArgs, ToolCall, WebFetchArgs
 from forgeagent.runtime import Runtime
+from forgeagent.skills import SkillDefinition, SkillRegistry
 from forgeagent.step import RoundResult, Step, Termination
 from forgeagent.task import TaskOutcome, TaskStatus
 from forgeagent.tools import ToolOutcome
@@ -66,6 +67,21 @@ def _factory(script):
 def _console() -> Console:
     # record=True lets us assert on rendered text without a real terminal.
     return Console(record=True, width=100, force_terminal=False)
+
+
+def _registry_with_skill(marker: str = "SKILL-BODY-UNIQUE") -> SkillRegistry:
+    return SkillRegistry(
+        {
+            "review-python": SkillDefinition(
+                name="review-python",
+                trigger="Use when reviewing Python.",
+                steps=marker,
+                failure_branches="Ask for missing context.",
+                completion_criteria="Report findings.",
+                source="user",
+            )
+        }
+    )
 
 
 def test_parser_accepts_no_memory_switch():
@@ -623,6 +639,38 @@ def test_run_once_completes(monkeypatch):
     )
     assert outcome.status.completed is True
     assert "completed" in console.export_text()
+
+
+def test_run_once_threads_supplied_skill_snapshot_to_task(monkeypatch):
+    import forgeagent.cli as cli_module
+
+    captured = {}
+
+    class FakeTask:
+        def __init__(self, **kwargs):
+            captured["skills"] = kwargs["skills"]
+
+        def run(self, goal, *, images=None):
+            return TaskOutcome(
+                status=TaskStatus(completed=True, reason=Termination.COMPLETED), rounds=[]
+            )
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(cli_module, "Task", lambda client, **kwargs: FakeTask(**kwargs))
+    skills = _registry_with_skill()
+
+    run_once(
+        "goal",
+        tier="trusted",
+        model="mock",
+        client_factory=_factory([]),
+        skills=skills,
+    )
+
+    assert captured["skills"] is skills
+    assert captured["skills"].read("review-python") is not None
 
 
 def _exec_call(code: str) -> str:
@@ -1670,6 +1718,71 @@ def test_repl_context_reload_swaps_context_only_after_both_configs_validate(monk
 
     assert "reloaded:" in console.export_text()
     assert seen_contexts == [new_context]
+
+
+def test_repl_reload_swaps_skills_only_after_all_candidates_are_valid(monkeypatch):
+    import forgeagent.cli as cli_module
+
+    old = _registry_with_skill("old skill")
+    new = _registry_with_skill("new skill")
+    inputs = iter(["/reload", "goal", "quit"])
+    observed = []
+    real_run_once = cli_module.run_once
+
+    monkeypatch.setattr(cli_module, "_load_skill_registry", lambda **kwargs: new)
+
+    def record_run_once(*args, **kwargs):
+        observed.append(kwargs["skills"])
+        return real_run_once(*args, **kwargs)
+
+    monkeypatch.setattr(cli_module, "run_once", record_run_once)
+    cli_module.repl(
+        tier="trusted",
+        model="mock",
+        client_factory=_factory([_reply(_done())]),
+        console=_console(),
+        read_line=lambda prompt: next(inputs),
+        confirmation_available=False,
+        use_registry_snapshot=False,
+        skills=old,
+    )
+
+    assert observed == [new]
+    assert observed[0].read("review-python") == new.read("review-python")
+
+
+def test_repl_reload_keeps_existing_skill_snapshot_when_skill_loading_fails(monkeypatch):
+    import forgeagent.cli as cli_module
+
+    old = _registry_with_skill("old skill")
+    inputs = iter(["/reload", "goal", "quit"])
+    observed = []
+    real_run_once = cli_module.run_once
+
+    def fail_load(**kwargs):
+        raise OSError("skill storage unavailable")
+
+    monkeypatch.setattr(cli_module, "_load_skill_registry", fail_load)
+
+    def record_run_once(*args, **kwargs):
+        observed.append(kwargs["skills"])
+        return real_run_once(*args, **kwargs)
+
+    monkeypatch.setattr(cli_module, "run_once", record_run_once)
+    console = _console()
+    cli_module.repl(
+        tier="trusted",
+        model="mock",
+        client_factory=_factory([_reply(_done())]),
+        console=console,
+        read_line=lambda prompt: next(inputs),
+        confirmation_available=False,
+        use_registry_snapshot=False,
+        skills=old,
+    )
+
+    assert observed == [old]
+    assert "reload failed" in console.export_text()
 
 
 def test_repl_reload_rejects_unresolvable_policy_and_keeps_old_registry_pair(monkeypatch):
@@ -2897,6 +3010,39 @@ def test_main_run_no_identity_never_calls_load_identity(monkeypatch):
     assert main(["--no-identity", "run", "goal"], client_factory=_factory([_reply(_done())])) == 0
 
 
+def test_main_run_loads_one_skill_snapshot_and_no_identity_disables_project_discovery(
+    monkeypatch, tmp_path
+):
+    import forgeagent.cli as cli_module
+
+    skills = _registry_with_skill()
+    calls = []
+    seen = []
+    real_run_once = cli_module.run_once
+
+    def load_skills(**kwargs):
+        calls.append(kwargs)
+        return skills
+
+    def record_run_once(*args, **kwargs):
+        seen.append(kwargs["skills"])
+        return real_run_once(*args, **kwargs)
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(cli_module, "_load_skill_registry", load_skills)
+    monkeypatch.setattr(cli_module, "run_once", record_run_once)
+
+    assert main(["--no-identity", "run", "goal"], client_factory=_factory([_reply(_done())])) == 0
+
+    assert len(calls) == 1
+    assert calls[0]["home"] == str(cli_module.Path.home())
+    assert calls[0]["allowed_root"] == str(tmp_path.resolve())
+    assert calls[0]["no_identity"] is True
+    assert calls[0]["confirmer"] is None
+    assert callable(calls[0]["diagnostic"])
+    assert seen == [skills]
+
+
 def test_main_run_headless_strips_project_identity_but_keeps_soul(monkeypatch, tmp_path):
     import forgeagent.cli as cli_module
 
@@ -2978,6 +3124,27 @@ def test_make_console_identity_confirmer_uses_injected_reader_and_plain_text():
     assert "\\x1b" in rendered
 
 
+def test_make_console_skill_confirmer_uses_skill_specific_wording():
+    from forgeagent.cli import make_console_skill_confirmer
+    from forgeagent.identity import IdentityTrustRequest
+
+    prompts = []
+    console = _console()
+    confirmer = make_console_skill_confirmer(
+        console,
+        read_line=lambda prompt: prompts.append(prompt) or "yes",
+    )
+
+    assert (
+        confirmer(IdentityTrustRequest(project_label=".../repo", summary="review-python")) is True
+    )
+
+    rendered = console.export_text()
+    assert "trust project Skills .../repo" in rendered
+    assert "identity" not in rendered
+    assert prompts == ["load these project Skills? [y/N] "]
+
+
 def test_main_default_does_not_create_http_server(monkeypatch):
     import forgeagent.cli as cli_module
     import forgeagent.http_server as http_server_module
@@ -3048,6 +3215,8 @@ def test_serve_builds_server_owned_task_factory_and_closes_in_order(monkeypatch,
     events: list[str] = []
     captured: dict[str, object] = {}
     identity = object()
+    skills = _registry_with_skill("user-only skill")
+    skill_load_calls = []
 
     class FakeMCP:
         def close(self):
@@ -3086,6 +3255,11 @@ def test_serve_builds_server_owned_task_factory_and_closes_in_order(monkeypatch,
     monkeypatch.setattr(cli_module, "build_mcp_manager", lambda console: mcp)
     monkeypatch.setattr(cli_module, "resolve_cli_identity", lambda **kwargs: identity)
     monkeypatch.setattr(
+        cli_module,
+        "_load_skill_registry",
+        lambda **kwargs: skill_load_calls.append(kwargs) or skills,
+    )
+    monkeypatch.setattr(
         http_server_module,
         "create_http_server",
         lambda config, service: FakeServer(),
@@ -3118,9 +3292,16 @@ def test_serve_builds_server_owned_task_factory_and_closes_in_order(monkeypatch,
         assert task._confirmer.is_headless is True
         assert task._memory_manager is not other_task._memory_manager
         assert task._memory_manager.enabled is False
+        assert task._skills is other_task._skills is skills
+        assert task._skills.read("review-python") is not None
+        assert task._skills.read("project-only") is None
     finally:
         task.close()
         other_task.close()
+
+    assert len(skill_load_calls) == 1
+    assert skill_load_calls[0]["confirmer"] is None
+    assert skill_load_calls[0]["no_identity"] is True
 
 
 def test_serve_task_factory_does_not_inherit_mcp_auto_approve(monkeypatch, tmp_path):

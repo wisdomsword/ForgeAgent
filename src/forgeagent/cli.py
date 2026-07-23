@@ -70,6 +70,7 @@ from .models import ImageItem, StreamEventKind, TokenUsage
 from .openai_compatible_client import OpenAICompatibleClient
 from .protocol import FileWriteArgs, MCPArgs, MemoryCandidate, SurveyArgs, WebFetchArgs
 from .secret_policy import REDACTED, is_secret_name, mask_secrets, sensitive_env_values
+from .skills import SkillRegistry
 from .step import RoundResult, Termination
 from .task import Task, TaskOutcome
 from .tools import Asker, Confirmer, Tier
@@ -470,11 +471,48 @@ def make_console_identity_confirmer(
     return _confirm
 
 
+def make_console_skill_confirmer(
+    console: Console, read_line: Callable[[str], str] = input
+) -> IdentityConfirmer:
+    """Build a console trust gate for project-level Skill definitions."""
+
+    def _confirm(request: IdentityTrustRequest) -> bool:
+        heading = Text("trust project Skills", style="bold yellow")
+        heading.append(" ")
+        heading.append(request.project_label)
+        console.print(heading)
+        console.print(request.summary, markup=False)
+        try:
+            answer = read_line("load these project Skills? [y/N] ").strip().lower()
+        except EOFError:
+            return False
+        return answer in {"y", "yes"}
+
+    return _confirm
+
+
 def make_console_identity_diagnostic(console: Console) -> IdentityDiagnostic:
     def _diagnose(message: str) -> None:
         console.print(Text(message))
 
     return _diagnose
+
+
+def _load_skill_registry(
+    *,
+    home: str,
+    allowed_root: str,
+    no_identity: bool,
+    confirmer: IdentityConfirmer | None,
+    diagnostic: IdentityDiagnostic,
+) -> SkillRegistry:
+    return SkillRegistry.load(
+        home=home,
+        allowed_root=allowed_root,
+        allow_project=not no_identity,
+        confirmer=None if no_identity else confirmer,
+        diagnostic=diagnostic,
+    )
 
 
 def resolve_cli_identity(
@@ -540,6 +578,7 @@ def run_once(
     stream: bool = False,
     context_config: ContextConfig | None = None,
     memory_manager: MemoryManager | None = None,
+    skills: SkillRegistry | None = None,
 ) -> TaskOutcome:
     """Run a single goal and render its outcome. Returns the outcome for testing.
 
@@ -579,6 +618,7 @@ def run_once(
             on_stream_text=on_stream_text,
             context_config=resolved_context_config,
             memory_manager=memory_manager,
+            skills=skills,
         )
     except ValueError as exc:
         raise RegistryError(f"Invalid context configuration: {exc}") from exc
@@ -812,6 +852,7 @@ def repl(
     context_config: ContextConfig | None = None,
     registry: Registry | None = None,
     use_registry_snapshot: bool | None = None,
+    skills: SkillRegistry | None = None,
 ) -> None:
     """Interactive loop: read a goal, run it, repeat. Blank line or EOF/quit exits.
 
@@ -847,6 +888,9 @@ def repl(
     )
     allowed_root = str(Path.cwd().resolve())
     identity_diagnostic = make_console_identity_diagnostic(console)
+    skill_confirmer = (
+        make_console_skill_confirmer(console, read_line) if confirmation_available else None
+    )
     identity = resolve_cli_identity(
         no_identity=no_identity,
         allowed_root=allowed_root,
@@ -858,6 +902,13 @@ def repl(
         identity=identity,
         no_memory=no_memory,
         no_identity=no_identity,
+        diagnostic=identity_diagnostic,
+    )
+    current_skills = skills or _load_skill_registry(
+        home=str(Path.home()),
+        allowed_root=allowed_root,
+        no_identity=no_identity,
+        confirmer=skill_confirmer,
         diagnostic=identity_diagnostic,
     )
     mcp = build_mcp_manager(console)
@@ -919,6 +970,7 @@ def repl(
                     stream=stream,
                     context_config=current_context,
                     memory_manager=memory_manager,
+                    skills=current_skills,
                 )
                 continue
             if goal == "/mcp" or goal.startswith("/mcp "):
@@ -936,32 +988,43 @@ def repl(
                     candidate_context = load_context_config()
                     if use_registry_snapshot:
                         _validate_context_policy(model, candidate_registry, candidate_context)
-                except (OSError, RegistryError, ValueError, yaml.YAMLError) as exc:
+                    candidate_identity = resolve_cli_identity(
+                        no_identity=no_identity,
+                        allowed_root=allowed_root,
+                        confirmer=identity_confirmer,
+                        diagnostic=identity_diagnostic,
+                    )
+                    candidate_memory_manager = _make_memory_manager(
+                        allowed_root,
+                        identity=candidate_identity,
+                        no_memory=no_memory,
+                        no_identity=no_identity,
+                        diagnostic=identity_diagnostic,
+                    )
+                    candidate_skills = _load_skill_registry(
+                        home=str(Path.home()),
+                        allowed_root=allowed_root,
+                        no_identity=no_identity,
+                        confirmer=skill_confirmer,
+                        diagnostic=identity_diagnostic,
+                    )
+                except (
+                    IdentityConfigError,
+                    OSError,
+                    RegistryError,
+                    ValueError,
+                    yaml.YAMLError,
+                ) as exc:
                     console.print(f"[red]reload failed[/red]: {exc}")
                     continue
                 current_registry = candidate_registry
                 current_context = candidate_context
+                identity = candidate_identity
+                memory_manager = candidate_memory_manager
+                current_skills = candidate_skills
                 console.print(f"[green]reloaded[/green]: {len(current_registry.models)} models")
                 if not no_identity:
-                    try:
-                        identity = resolve_cli_identity(
-                            no_identity=False,
-                            allowed_root=allowed_root,
-                            confirmer=identity_confirmer,
-                            diagnostic=identity_diagnostic,
-                        )
-                        project_trusted = identity is not None and identity.memory is not None
-                        memory_manager.set_project_access(
-                            not os.path.lexists(Path(allowed_root) / ".forgeagent" / "MEMORY.md")
-                            or project_trusted
-                        )
-                        if project_trusted:
-                            memory_manager.load()
-                        else:
-                            memory_manager.clear_project()
-                        console.print("[green]identity reloaded[/green]")
-                    except IdentityConfigError as exc:
-                        console.print(f"[red]identity reload failed[/red]: {exc}")
+                    console.print("[green]identity reloaded[/green]")
                 continue
             if goal == "/help" or goal.startswith("/help "):
                 _handle_help_command(goal, console)
@@ -986,6 +1049,7 @@ def repl(
                 stream=stream,
                 context_config=current_context,
                 memory_manager=memory_manager,
+                skills=current_skills,
             )
             staged_images = None
     finally:
@@ -1330,6 +1394,13 @@ def serve_http(
         confirmer=None,
         diagnostic=make_console_identity_diagnostic(console),
     )
+    skills = _load_skill_registry(
+        home=str(Path.home()),
+        allowed_root=settings.allowed_root,
+        no_identity=settings.no_identity,
+        confirmer=None,
+        diagnostic=make_console_identity_diagnostic(console),
+    )
     mcp: MCPManager | None = None
     service: TaskService | None = None
     try:
@@ -1356,6 +1427,7 @@ def serve_http(
                 task_id=record.task_id,
                 context_config=settings.service.context_config,
                 memory_manager=memory_manager,
+                skills=skills,
             )
 
         service = TaskService(
@@ -1493,6 +1565,7 @@ def main(
         identity_confirmer = (
             make_console_identity_confirmer(console) if interactive_identity else None
         )
+        skill_confirmer = make_console_skill_confirmer(console) if interactive_identity else None
         identity_diagnostic = make_console_identity_diagnostic(console)
         if args.command == "run":
             context_config = _load_cli_context_config()
@@ -1529,6 +1602,13 @@ def main(
                     no_identity=args.no_identity,
                     diagnostic=identity_diagnostic,
                 )
+                skills = _load_skill_registry(
+                    home=str(Path.home()),
+                    allowed_root=allowed_root,
+                    no_identity=args.no_identity,
+                    confirmer=skill_confirmer,
+                    diagnostic=identity_diagnostic,
+                )
                 outcome = run_once(
                     args.goal,
                     tier=args.tier,
@@ -1544,6 +1624,7 @@ def main(
                     stream=args.stream,
                     context_config=context_config,
                     memory_manager=memory_manager,
+                    skills=skills,
                 )
             finally:
                 if mcp is not None:
