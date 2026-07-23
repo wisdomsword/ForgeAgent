@@ -40,6 +40,7 @@ status: passed
 - 边界 RED：初版全局 seen set 错误跳过 `ruff → black → ruff` 的最后回退。
 - 边界 GREEN：最近值算法返回 `accepted → replaced → replaced`，最终为 ruff。
 - 最终全量：`1381 passed, 11 skipped in 75.97s`。
+- fast-forward 合并至 main 后复跑：`1381 passed, 11 skipped in 74.11s`。
 - 独立 golden：`84 passed in 30.93s`。
 - `ruff check .`、`openspec validate memory-candidate-idempotency --strict`、
   `git diff --check` 通过。

@@ -4,16 +4,7 @@
 TBD - created by archiving change compose-runtime-identity. Update Purpose after archive.
 ## Requirements
 ### Requirement: 分层运行时身份组合
-系统 SHALL 按稳定的语义顺序组合固定 ForgeAgent harness 披露、中性默认或已批准
-SOUL、不可覆盖协议、用户偏好、项目约束和手工记忆，并 SHALL 在组合完成后保留
-现有 MCP 工具描述。固定协议 MUST 向模型公开默认注册表中每个内置工具的协议名称、
-精确参数和适用场景；直接工具匹配目标时 SHALL 指示模型使用对应工具，其余执行型
-目标再使用 Python/Exec。身份文件内容 MUST 仅作为数据插入，不能选择模板、删除
-协议或改变协议顺序。协议不可覆盖保证仅限结构层面：系统保证身份文件内容不能
-修改、删除或移动固定协议字节的位置（Patch 6）；此保证不等于模型语义层的完整
-prompt-injection 防护，模型仍可能响应身份文件中的指令性语义。组合所需包资源
-（system.j2、default_soul.md、protocol.md）缺失时，系统 MUST 报安装损坏，
-MUST NOT 静默回落为不含协议说明的提示词（Patch 5）。
+系统 SHALL 按稳定的语义顺序组合固定 ForgeAgent harness 披露、中性默认或已批准 SOUL、不可覆盖协议、用户偏好、项目约束和手工记忆，并 SHALL 在组合完成后保留现有 MCP 工具描述。固定协议 MUST 向模型公开默认注册表中每个内置工具的协议名称、精确参数和适用场景；直接工具匹配目标时 SHALL 指示模型使用对应工具，其余执行型目标再使用 Python/Exec。固定协议 MUST 说明 `utils` 是执行代码中已注入且无需导入的对象，并 MUST 使用与 Runtime public API 一致的 `utils.set_state(key, value)` 和 `utils.get_state(key)` 调用签名；仅提交 Memory 候选的请求 MUST NOT 要求通过 Exec 记录同一偏好。身份文件内容 MUST 仅作为数据插入，不能选择模板、删除协议或改变协议顺序。协议不可覆盖保证仅限结构层面：系统保证身份文件内容不能修改、删除或移动固定协议字节的位置（Patch 6）；此保证不等于模型语义层的完整 prompt-injection 防护，模型仍可能响应身份文件中的指令性语义。组合所需包资源（system.j2、default_soul.md、protocol.md）缺失时，系统 MUST 报安装损坏，MUST NOT 静默回落为不含协议说明的提示词（Patch 5）。
 
 #### Scenario: 全部可选身份层可用
 - **WHEN** 用户 SOUL、USER 与已确认的项目 AGENTS、MEMORY 均存在
@@ -26,6 +17,10 @@ MUST NOT 静默回落为不含协议说明的提示词（Patch 5）。
 #### Scenario: 无自定义身份时公开全部内置工具
 - **WHEN** Task 使用包内默认身份与默认工具注册表运行
 - **THEN** 固定协议说明 Exec、Edit、Survey、WebFetch、FileRead、FileWrite 和 FileList 的协议名称与精确参数，并指示模型在直接工具匹配目标时使用对应工具
+
+#### Scenario: 固定协议公开准确运行时 API
+- **WHEN** Task 向模型提供默认固定协议
+- **THEN** 协议说明 `utils` 已注入且无需 import，使用 `set_state(key, value)` 位置参数签名，并说明纯记忆请求无需 Exec
 
 ### Requirement: 身份文件来源与缺失行为
 系统 SHALL 从调用时解析的 `~/.forgeagent/SOUL.md` 和 `~/.forgeagent/USER.md` 读取用户级身份，从当前 `allowed_root` 下 `.forgeagent/AGENTS.md` 和 `.forgeagent/MEMORY.md` 读取项目级身份。home 派生路径 MUST NOT 在模块 import 时绑定。SOUL 缺失时 SHALL 使用包内中性默认身份，其他文件缺失时 SHALL 省略对应段；M15 期间系统 MUST NOT 自动写入 MEMORY。所有自动加载身份正文 MUST 在进入确认摘要或模型上下文前应用既有敏感环境值掩码。每个自定义身份文件原始字节 MUST NOT 超过 32 KiB（Patch 1）；四个身份段掩码后有效内容合计 MUST NOT 超过 96 KiB。SOUL 或 USER 单文件超限，或其组合使有效合计超限时，系统 MUST 报配置错误并拒绝继续组合；AGENTS 或 MEMORY 超限或使合计超限时，系统 SHALL 剥离相应项目段并输出脱敏诊断后继续任务。系统 MUST NOT 截断任何身份文件（截断身份或约束内容会产生不可预测语义）。
