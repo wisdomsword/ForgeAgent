@@ -623,26 +623,26 @@ def test_capture_clear_and_close_are_idempotent_and_reader_is_daemon():
     assert reader.is_alive() is False
 
 
-def test_capture_close_does_not_wait_for_duplicated_writer():
+def test_capture_close_returns_before_duplicated_writer_reaches_eof():
     capture = _BoundedStderrCapture()
     capture.__enter__()
     assert capture.stream is not None
     duplicate_writer = os.dup(capture.stream.fileno())
     reader = capture._reader
     assert reader is not None
-    closer = threading.Thread(target=capture.close)
-
     try:
-        closer.start()
-        closer.join(timeout=0.2)
+        close_started = time.monotonic()
+        capture.close()
 
-        assert closer.is_alive() is False
-        assert reader.is_alive() is False
-        assert capture._read_fd is None
+        assert time.monotonic() - close_started < 0.2
+        assert reader.is_alive() is True
+        assert capture._read_fd is not None
     finally:
         os.close(duplicate_writer)
-        closer.join(timeout=1)
-        capture.close()
+        reader.join(timeout=1)
+
+    assert reader.is_alive() is False
+    assert capture._read_fd is None
 
 
 def test_holder_passes_capture_to_stdio_and_releases_it_after_success(monkeypatch):
