@@ -8,4 +8,4 @@
 
 ## 3. 验证
 
-- [ ] 3.1 运行定向测试、golden、全量 pytest、ruff、构建、OpenSpec strict 和两轮自评审，完成提交与归档
+- [x] 3.1 运行定向测试、golden、全量 pytest、ruff、构建、OpenSpec strict 和两轮自评审，完成提交与归档
