@@ -21,7 +21,7 @@
 
 ## 5. 文档、评审与验证
 
-- [ ] 5.1 更新 README 与相关 CLI/MCP 文档，记录交互/非交互输出契约、`/mcp` 诊断和无新依赖/权限边界
-- [ ] 5.2 运行受影响测试、完整 pytest、ruff check/format、golden 20/20、OpenSpec strict、package build 和 diff check
+- [x] 5.1 更新 README 与相关 CLI/MCP 文档，记录交互/非交互输出契约、`/mcp` 诊断和无新依赖/权限边界
+- [x] 5.2 运行受影响测试、完整 pytest、ruff check/format、golden 20/20、OpenSpec strict、package build 和 diff check
 - [ ] 5.3 完成两轮 whole-change 自审和独立代码评审，立即修复发现并重跑相关与完整验证
 - [ ] 5.4 产出本 change 验证报告，执行 Comet verify/archive，并确认所有既存 dirty 路径未进入本 change 提交

@@ -405,23 +405,23 @@ git commit -m "fix: silence noninteractive startup output"
 - Consumes: final behavior from Tasks 1-4.
 - Produces: user documentation that distinguishes real-interactive REPL from non-TTY/script paths; verification report containing literal command outcomes and the human TTY smoke result.
 
-- [ ] **Step 1: Write the final contractual output assertion before editing prose**
+- [x] **Step 1: Write the final contractual output assertion before editing prose**
 
 In `tests/test_cli.py`, add `test_mcp_diagnostic_uses_only_fixed_public_labels`: make a diagnostic whose internal source includes `docker.sock`, an exception class name and a secret; invoke bare `/mcp`; assert output contains `Status`, `Tools`, `Reason`, `Impact`, `Action` and `Docker is not running`, while every internal value is absent. Do not assert animation ANSI escape sequences in documentation or tests.
 
-- [ ] **Step 2: Run the acceptance check**
+- [x] **Step 2: Run the acceptance check**
 
 Run: `uv run pytest tests/test_cli.py -q -k "startup_summary or mcp_command"`
 
 Expected: PASS before documentation edits because behavior is already complete; this confirms docs will describe proven output rather than prescribe unimplemented behavior.
 
-- [ ] **Step 3: Update docs and verification report with exact scope**
+- [x] **Step 3: Update docs and verification report with exact scope**
 
 In `README.md`, document that the logo/summary is real-TTY REPL only; `printf 'quit\\n' | forgeagent` intentionally produces no startup bytes; task result output remains available on non-TTY goal input; `/mcp` shows bounded safe diagnostics. In the MCP section, describe Docker only as an optional configured integration runtime, never a ForgeAgent prerequisite. In `docs/m7-tools-mcp-survey.md`, update the current runtime addendum with per-generation stderr isolation and no raw child-error exposure.
 
 Mark only completed implementation tasks in `openspec/changes/startup-information/tasks.md`; do not alter requirements. Create the report with each command, exit status, relevant count, environment limitations, human smoke observations, review findings/fixes, and an explicit dirty-path audit against the Global Constraints list.
 
-- [ ] **Step 4: Run final automated verification**
+- [x] **Step 4: Run final automated verification**
 
 Run:
 
@@ -439,7 +439,7 @@ git status --short
 
 Expected: focused and full pytest pass; Ruff reports no diagnostics and no formatting changes; golden core reports exactly `20/20`; OpenSpec prints `Change 'startup-information' is valid`; build emits wheel and sdist; diff check is empty; status has no changes outside this change plus the pre-existing dirty paths declared above. The obsolete `scripts/run_golden_core.py` entrypoint is absent; use the module runner above. Record actual output rather than treating an unavailable build backend/network as a pass.
 
-- [ ] **Step 5: Run the human interactive smoke before final commit**
+- [x] **Step 5: Run the human interactive smoke before final commit**
 
 In a real terminal, run `uv run forgeagent` with one available fixture MCP and then with one configured optional failure. Confirm: transient animation is visible; static logo and one summary appear; optional message is one line; prompt does not overlap a Live refresh; `/mcp` exposes only fixed fields; identity/skill confirmation pauses input safely; Ctrl-C/quit restores cursor and leaves no background refresh. Repeat `printf 'quit\\n' | uv run forgeagent` and record zero bytes for both streams.
 

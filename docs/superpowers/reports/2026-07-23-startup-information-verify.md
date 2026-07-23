@@ -51,8 +51,10 @@ Task 5 的文档、`/mcp` public-label 负向回归、G355 golden 对齐和验�
 
 - `TERM=dumb`/`NO_COLOR=1` 的 TTY 输出一次静态 ASCII 标识，随后显示 `Ready | MCP 0/2`、固定字段的 filesystem/Docker 降级摘要和 `forge> `；输入 `quit` 后退出状态为 `0`。
 - `TERM=xterm-256color` 且未设置 `NO_COLOR` 时观察到 ANSI 七色动态 Logo 帧，动画结束后显示同一摘要和提示符；输入 `quit` 后退出状态为 `0`。
-- 该 smoke 使用配置中的 filesystem 与 github optional servers，因此 Docker 未运行只产生脱敏的固定摘要，不阻塞 REPL。
-- 尚未在本次 smoke 中覆盖可用 MCP、动画暂停确认和 Ctrl-C；管道零启动字节仍由自动化 black-box/golden 覆盖。
+- 使用 `tests/mcp_fixture_server.py` 的 normal 模式与隔离 HOME 启动时，摘要显示 `MCP 1/1`；bare `/mcp` 显示 `fixture`、`Status: available`、`Tools: 2`，随后 `quit` 退出状态为 `0`。
+- 在临时项目放置 `.forgeagent/AGENTS.md` 后，动态 Logo 在 `trust project identity` 确认出现前停止刷新；回答 `n` 后动画从 `Loading identity` 恢复到 `Connecting MCP services`，未与输入提示重叠。
+- 在完成启动后的 `forge> ` 提示符发送 Ctrl-C，进程退出状态为 `0`，终端光标与 bracketed-paste 状态均由 prompt-toolkit/Rich 清理序列恢复，无后台刷新残留。
+- optional-failure smoke 使用配置中的 filesystem 与 github servers，因此 Docker 未运行只产生脱敏的固定摘要，不阻塞 REPL。管道零启动字节由自动化 black-box/golden 覆盖。
 
 ## Dirty-path 审计
 
