@@ -72,6 +72,13 @@ class SurveyArgs(BaseModel):
     options: list[str] | None = None
 
 
+class SkillArgs(BaseModel):
+    """Read one validated section of a discovered skill."""
+
+    name: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,63}$")
+    section: Literal["full", "steps", "failure_branches", "completion_criteria"] = "full"
+
+
 class MCPArgs(BaseModel):
     """MCP tool arguments: call a `tool` on a named `server` with `arguments`.
 
@@ -349,8 +356,13 @@ def _parse_tool_calls(
             continue
         call_id = data.get("id") or uuid4().hex
         _build_tool_call(
-            data.get("name"), call_id, data.get("arguments", {}),
-            ToolCallSource.TEXT, raw, result, tool_schemas,
+            data.get("name"),
+            call_id,
+            data.get("arguments", {}),
+            ToolCallSource.TEXT,
+            raw,
+            result,
+            tool_schemas,
         )
 
 
@@ -402,8 +414,13 @@ def _parse_native_tool_calls(
             )
             continue
         _build_tool_call(
-            call.name, call.id, arguments, ToolCallSource.OPENAI,
-            call.arguments, result, tool_schemas,
+            call.name,
+            call.id,
+            arguments,
+            ToolCallSource.OPENAI,
+            call.arguments,
+            result,
+            tool_schemas,
         )
 
 

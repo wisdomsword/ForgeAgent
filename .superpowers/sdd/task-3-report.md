@@ -1,57 +1,60 @@
-# Task 3 Report: Runtime Identity Trust Persistence
+# Task 3 Report: Read-Only Skill Protocol and Conditional Registration
 
 ## Implementation
 
-- Added versioned trust-record primitives to `src/forgeagent/identity.py`:
-  strict v1 JSON validation, absent versus unusable distinction, atomic sibling-temp
-  writes, and last-writer-wins approval merging.
-- Added `IdentityTrustRequest`, bounded control-character-safe confirmation summaries,
-  project-label masking, and `resolve_project_trust` with digest-bound reuse,
-  headless rejection, confirmation, malformed-record preservation, and memory-only
-  fallback when persistence fails.
-- Added focused behavioral coverage in `tests/test_identity.py`, including invalid
-  encoding/unknown fields, decision-table rows, atomic merge, and persistence failure.
+- Added `SkillArgs` to the dynamic protocol schemas. Names use the required
+  non-path-like pattern and sections are limited to `full`, `steps`,
+  `failure_branches`, and `completion_criteria`.
+- Added low-risk `SkillTool`, which reads one immutable `SkillRegistry` section
+  and exposes the existing bounded-feedback fields (`continuation` and
+  `truncation_mode="head"`). Unknown valid names return the recoverable
+  `Skill is unavailable` outcome.
+- Extended `default_registry` with an optional `skills` snapshot. `Skill` is
+  registered only when that snapshot has a non-empty catalog, so existing
+  parsing behavior is unchanged without a registry.
 
 ## TDD Evidence
 
-- RED: `UV_CACHE_DIR=/tmp/forgeagent-uv-cache rtk uv run pytest -q tests/test_identity.py -k 'trust_record or trust_confirmation or resolve_project_trust or malformed_trust or persistence_failure'`
-  failed 5 tests with missing Task 3 APIs.
-- GREEN: same focused command passed `5 passed, 37 deselected`.
-- Additional RED/GREEN cycle for invalid UTF-8 and unknown schema/version fields:
-  one expected failure, then `2 passed, 41 deselected` after the strict validation fix.
+- RED: `rtk uv --cache-dir /tmp/forgeagent-m19-uv-cache run pytest tests/test_protocol.py tests/test_tools.py -k skill -v`
+  failed during collection exactly because `SkillArgs` did not exist in
+  `forgeagent.protocol` (and therefore `SkillTool` could not yet be imported).
+- GREEN: the same command passed: `4 passed, 53 deselected`.
+- Full changed-module coverage:
+  `rtk uv --cache-dir /tmp/forgeagent-m19-uv-cache run pytest tests/test_protocol.py tests/test_tools.py -q`
+  passed: `57 passed in 0.09s`.
 
 ## Verification
 
-- `UV_CACHE_DIR=/tmp/forgeagent-uv-cache rtk uv run ruff check src/forgeagent/identity.py tests/test_identity.py`: passed.
-- `UV_CACHE_DIR=/tmp/forgeagent-uv-cache rtk uv run ruff format --check src/forgeagent/identity.py tests/test_identity.py`: passed.
-- `UV_CACHE_DIR=/tmp/forgeagent-uv-cache rtk uv run pytest -q`: **929 passed, 13 skipped**.
+- `rtk uv --cache-dir /tmp/forgeagent-m19-uv-cache run ruff check src/forgeagent/protocol.py src/forgeagent/tools.py tests/test_protocol.py tests/test_tools.py`: passed.
+- `rtk uv --cache-dir /tmp/forgeagent-m19-uv-cache run ruff format --check src/forgeagent/protocol.py src/forgeagent/tools.py tests/test_protocol.py tests/test_tools.py`: passed (`4 files already formatted`).
+- `rtk git diff --check`: passed.
+- Full suite: `rtk uv --cache-dir /tmp/forgeagent-m19-uv-cache run pytest -q`
+  completed with `1379 passed, 23 skipped, 13 failed in 65.04s`.
+  The failures are unrelated sandbox constraints: eleven M16 blackbox tests and
+  one golden-runner test cannot allocate loopback ports (`PermissionError:
+  Operation not permitted`); the packaging test's nested `uv build` exits 2.
+  The failures do not involve the Skill protocol or tool modules.
 
-## Security-sensitive self-review
+## Self-Review
 
-- Security-sensitive trust boundary: records are schema-validated; malformed,
-  unknown-version, unreadable, or invalid-encoding files are never overwritten.
-- Public API: `resolve_project_trust` and request model preserve user-level identity,
-  strip unconfirmed project content, and use one in-memory snapshot after approval.
-- Persistence/atomic write: sibling temporary file plus `os.replace`; write failure
-  reports memory-only approval and forces reconfirmation on a later call.
-- Cross-module impact: only identity APIs and their tests changed; no dependency or
-  manager/factory/configuration additions.
-- Diff size: implementation is 202 added lines plus focused tests; no unrelated
-  source files were changed.
+- No filesystem paths, confirmation handling, audit-content handling, parser
+  branches, Task/Step wiring, dependencies, or new abstractions were added.
+- `SkillTool` is `low` risk and only delegates to the immutable registry read
+  API. It does not touch `ToolContext` capabilities.
+- Tests cover malformed names and undeclared sections, normal section reads,
+  recoverable unknown names, empty-registry omission, conditional parser
+  validation, and continuation metadata.
 
-## Review-Fix Closeout (2026-07-21)
+## Files
 
-- RED: with the dangling-symlink guard removed, the new regression failed because
-  `_load_trust_record` returned `None` and allowed replacement (`1 failed, 43
-  deselected`).
-- GREEN: restoring the `os.path.lexists` guard passed the regression and trust
-  suite (`7 passed, 37 deselected`).
-- Full identity module: `44 passed`.
-- Ruff check: passed.
-- Ruff format check: `2 files already formatted`.
+- `src/forgeagent/protocol.py`
+- `src/forgeagent/tools.py`
+- `tests/test_protocol.py`
+- `tests/test_tools.py`
+- `.superpowers/sdd/task-3-report.md`
 
-Review-fix commit SHA: `c861f27510f5c13257bd7d757449f64fc724c1d8`.
+## Concern
 
-## Commit
-
-Commit SHA: `8074f8cb9ddf4c993434ebdff481df83db393f83`
+The full suite cannot pass inside this sandbox because loopback binding is not
+permitted and nested packaging builds fail there. The focused protocol/tool
+suites and all static checks pass.
