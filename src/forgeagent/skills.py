@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import stat
@@ -13,6 +14,7 @@ from typing import TYPE_CHECKING, Literal
 
 import yaml
 
+from forgeagent.identity import resolve_project_content_trust
 from forgeagent.secret_policy import mask_secrets, sensitive_env_values
 
 if TYPE_CHECKING:
@@ -22,6 +24,10 @@ if TYPE_CHECKING:
 _MAX_SKILL_BYTES = 32 * 1024
 _MAX_CATALOG_BYTES = 16 * 1024
 _MAX_CATALOG_ENTRIES = 64
+_MAX_TRUST_SUMMARY_BYTES = 8 * 1024
+_RAW_DIGEST_DOMAIN = b"forgeagent-skills-raw-content-digest-v1\x00"
+_EFFECTIVE_DIGEST_DOMAIN = b"forgeagent-skills-effective-input-digest-v1\x00"
+_TRUST_SUMMARY_TRUNCATION = "\n...[summary truncated; approval remains bound to the full digest]"
 _SKILL_NAME_RE = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
 _FRONT_MATTER_RE = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n(.*)\Z", re.DOTALL)
 _HEADING_RE = re.compile(r"^## ([^\r\n]+)\s*$")
@@ -63,18 +69,47 @@ class SkillRegistry:
         trust_record_path: str | None = None,
         diagnostic: Callable[[str], None] | None = None,
     ) -> SkillRegistry:
-        """Load the user-level snapshot.
-
-        Project skills require an identity confirmation flow and are intentionally deferred
-        until that trust boundary is added.
-        """
-        del allowed_root, confirmer, allow_project, trust_record_path
+        """Load a user snapshot with an approved project-Skill overlay."""
         user = _discover(
             Path(home) / ".forgeagent" / "skills",
             source="user",
             diagnostic=diagnostic,
         )
-        return cls(_bounded_catalog(user, diagnostic=diagnostic))
+        if not allow_project:
+            return cls(_bounded_catalog(user, diagnostic=diagnostic))
+
+        project_raw_documents: dict[str, bytes] = {}
+        project = _discover(
+            Path(allowed_root) / ".forgeagent" / "skills",
+            source="project",
+            diagnostic=diagnostic,
+            raw_documents=project_raw_documents,
+        )
+        if not project:
+            return cls(_bounded_catalog(user, diagnostic=diagnostic))
+
+        record_path = trust_record_path or os.path.join(
+            home, ".forgeagent", "skills-trust.json"
+        )
+        if not resolve_project_content_trust(
+            allowed_root=allowed_root,
+            raw_content_digest=_content_digest(_RAW_DIGEST_DOMAIN, project_raw_documents),
+            effective_input_digest=_content_digest(
+                _EFFECTIVE_DIGEST_DOMAIN,
+                {
+                    name: _render_full_skill(definition).encode("utf-8")
+                    for name, definition in project.items()
+                },
+            ),
+            trust_record_path=record_path,
+            confirmer=confirmer,
+            summary=_project_trust_summary(project),
+            diagnostic=diagnostic,
+            diagnostic_prefix="skill",
+        ):
+            return cls(_bounded_catalog(user, diagnostic=diagnostic))
+
+        return cls(_bounded_catalog({**user, **project}, diagnostic=diagnostic))
 
     def catalog_prompt(self) -> str:
         """Return the fixed, bounded catalog prompt for this snapshot."""
@@ -106,6 +141,7 @@ def _discover(
     *,
     source: Literal["user", "project"],
     diagnostic: Callable[[str], None] | None,
+    raw_documents: dict[str, bytes] | None = None,
 ) -> dict[str, SkillDefinition]:
     root_real = _real_directory(root)
     if root_real is None:
@@ -129,9 +165,10 @@ def _discover(
             _emit_ignored(diagnostic, "invalid format", directory_name)
             continue
         try:
-            if os.stat(skill_real).st_size > _MAX_SKILL_BYTES:
+            raw_document = Path(skill_real).read_bytes()
+            if len(raw_document) > _MAX_SKILL_BYTES:
                 raise ValueError("invalid format")
-            document = Path(skill_real).read_text(encoding="utf-8")
+            document = raw_document.decode("utf-8")
             definition = _parse_document(document, source=source, expected_name=directory_name)
         except (OSError, UnicodeDecodeError, yaml.YAMLError):
             _emit_ignored(diagnostic, "invalid format", directory_name)
@@ -139,8 +176,32 @@ def _discover(
         except ValueError as error:
             _emit_ignored(diagnostic, str(error), directory_name)
             continue
-        definitions.setdefault(definition.name, definition)
+        if definition.name not in definitions:
+            definitions[definition.name] = definition
+            if raw_documents is not None:
+                raw_documents[definition.name] = raw_document
     return definitions
+
+
+def _content_digest(domain: bytes, documents: Mapping[str, bytes]) -> str:
+    hasher = hashlib.sha256()
+    hasher.update(domain)
+    for name in sorted(documents):
+        encoded = name.encode("utf-8") + b"\x00" + documents[name]
+        hasher.update(len(encoded).to_bytes(8, "big"))
+        hasher.update(encoded)
+    return hasher.hexdigest()
+
+
+def _project_trust_summary(definitions: Mapping[str, SkillDefinition]) -> str:
+    summary = "\n".join(
+        f"{definition.name} — {definition.trigger}" for definition in definitions.values()
+    )
+    if len(summary.encode("utf-8")) <= _MAX_TRUST_SUMMARY_BYTES:
+        return summary
+    available = _MAX_TRUST_SUMMARY_BYTES - len(_TRUST_SUMMARY_TRUNCATION.encode("utf-8"))
+    truncated = summary.encode("utf-8")[:available].decode("utf-8", errors="ignore")
+    return truncated + _TRUST_SUMMARY_TRUNCATION
 
 
 def _real_directory(path: Path) -> str | None:

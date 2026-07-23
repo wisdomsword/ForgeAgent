@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import FrozenInstanceError
 
@@ -80,12 +81,16 @@ def _empty_failure_branches() -> str:
 
 def _write_raw_skill(home, directory_name: str, document: str) -> None:
     destination = home / ".forgeagent" / "skills" / directory_name
-    destination.mkdir(parents=True)
+    destination.mkdir(parents=True, exist_ok=True)
     (destination / "SKILL.md").write_text(document, encoding="utf-8")
 
 
 def _write_skill(home, name: str, *, trigger: str) -> None:
     _write_raw_skill(home, name, _skill_document(name=name, trigger=trigger))
+
+
+def _write_project_skill(root, name: str, *, trigger: str) -> None:
+    _write_skill(root, name, trigger=trigger)
 
 
 def _skill_document_with_raw_size(size: int) -> str:
@@ -208,3 +213,149 @@ def test_catalog_uses_sorted_prefix_when_count_or_bytes_exceed_limit(tmp_path):
     assert len(names) <= 64
     assert len(registry.catalog_prompt().encode()) <= 16 * 1024
     assert diagnostics.count("skill catalog truncated") == 1
+
+
+def test_project_skills_override_only_after_approval_and_reuse_double_digest(tmp_path):
+    home, root = tmp_path / "home", tmp_path / "root"
+    _write_skill(home, "review-python", trigger="user trigger")
+    _write_project_skill(root, "review-python", trigger="project trigger")
+    approvals = []
+    trust_record_path = tmp_path / "skills-trust.json"
+
+    registry = SkillRegistry.load(
+        home=str(home),
+        allowed_root=str(root),
+        confirmer=lambda request: approvals.append(request) or True,
+        trust_record_path=str(trust_record_path),
+    )
+
+    assert registry.catalog_prompt().endswith("review-python — project trigger")
+    assert len(approvals) == 1
+    unchanged = SkillRegistry.load(
+        home=str(home),
+        allowed_root=str(root),
+        confirmer=lambda _request: pytest.fail("unchanged project skills must not prompt"),
+        trust_record_path=str(trust_record_path),
+    )
+    assert unchanged.read("review-python") == registry.read("review-python")
+    record = json.loads(trust_record_path.read_text(encoding="utf-8"))
+    assert record["version"] == 1 and len(record["projects"]) == 1
+
+
+def test_project_skill_reconfirmation_detects_raw_and_effective_digest_changes(
+    tmp_path, monkeypatch
+):
+    home, root = tmp_path / "home", tmp_path / "root"
+    _write_skill(home, "review-python", trigger="user trigger")
+    trust_record_path = tmp_path / "skills-trust.json"
+    monkeypatch.setenv("PROJECT_TOKEN", "first-secret")
+    _write_project_skill(root, "review-python", trigger="Use first-secret.")
+
+    SkillRegistry.load(
+        home=str(home),
+        allowed_root=str(root),
+        confirmer=lambda _request: True,
+        trust_record_path=str(trust_record_path),
+    )
+    monkeypatch.setenv("PROJECT_TOKEN", "second-secret")
+    _write_project_skill(root, "review-python", trigger="Use second-secret.")
+    raw_changed = []
+    registry = SkillRegistry.load(
+        home=str(home),
+        allowed_root=str(root),
+        confirmer=lambda request: raw_changed.append(request) or False,
+        trust_record_path=str(trust_record_path),
+    )
+    assert raw_changed and registry.catalog_prompt().endswith("review-python — user trigger")
+
+    SkillRegistry.load(
+        home=str(home),
+        allowed_root=str(root),
+        confirmer=lambda _request: True,
+        trust_record_path=str(trust_record_path),
+    )
+    monkeypatch.delenv("PROJECT_TOKEN")
+    effective_changed = []
+    registry = SkillRegistry.load(
+        home=str(home),
+        allowed_root=str(root),
+        confirmer=lambda request: effective_changed.append(request) or False,
+        trust_record_path=str(trust_record_path),
+    )
+    assert effective_changed and registry.catalog_prompt().endswith("review-python — user trigger")
+
+
+def test_unapproved_or_unwritable_project_skill_keeps_user_definition(tmp_path, monkeypatch):
+    home, root = tmp_path / "home", tmp_path / "root"
+    _write_skill(home, "review-python", trigger="user trigger")
+    _write_project_skill(root, "review-python", trigger="project trigger")
+
+    registry = SkillRegistry.load(home=str(home), allowed_root=str(root), confirmer=None)
+    assert registry.catalog_prompt().endswith("review-python — user trigger")
+
+    import forgeagent.identity as identity_module
+
+    monkeypatch.setattr(
+        identity_module,
+        "_atomic_write_trust_record",
+        lambda *_args: (_ for _ in ()).throw(PermissionError("no")),
+    )
+    diagnostics = []
+    registry = SkillRegistry.load(
+        home=str(home),
+        allowed_root=str(root),
+        confirmer=lambda _request: True,
+        diagnostic=diagnostics.append,
+    )
+    assert registry.catalog_prompt().endswith("review-python — project trigger")
+    assert diagnostics == ["skill trust record unavailable"]
+
+
+def test_unusable_project_skill_record_is_never_overwritten_after_approval(tmp_path):
+    home, root = tmp_path / "home", tmp_path / "root"
+    _write_skill(home, "review-python", trigger="user trigger")
+    _write_project_skill(root, "review-python", trigger="project trigger")
+    trust_record_path = tmp_path / "skills-trust.json"
+    original = "{corrupted"
+    trust_record_path.write_text(original, encoding="utf-8")
+    diagnostics = []
+
+    registry = SkillRegistry.load(
+        home=str(home),
+        allowed_root=str(root),
+        confirmer=lambda _request: True,
+        trust_record_path=str(trust_record_path),
+        diagnostic=diagnostics.append,
+    )
+
+    assert registry.catalog_prompt().endswith("review-python — project trigger")
+    assert trust_record_path.read_text(encoding="utf-8") == original
+    assert diagnostics == ["skill trust record ignored: _UnusableTrustRecordError"]
+
+
+def test_trusted_project_snapshot_overlays_complete_mapping_and_bounds_masked_summary(
+    tmp_path, monkeypatch
+):
+    home, root = tmp_path / "home", tmp_path / "root"
+    _write_skill(home, "review-python", trigger="user review")
+    _write_skill(home, "user-only", trigger="user only")
+    monkeypatch.setenv("PROJECT_TOKEN", "summary-secret")
+    for index in range(3):
+        name = ("review-python" if index == 0 else f"project-{index}")
+        _write_project_skill(root, name, trigger=f"summary-secret {'x' * 4090}")
+    approvals = []
+
+    registry = SkillRegistry.load(
+        home=str(home),
+        allowed_root=str(root),
+        confirmer=lambda request: approvals.append(request) or True,
+    )
+
+    assert registry.read("user-only") is not None
+    assert registry.catalog_prompt().count("review-python") == 1
+    assert "project-1" in registry.catalog_prompt() and "project-2" in registry.catalog_prompt()
+    assert len(approvals) == 1
+    summary = approvals[0].summary
+    assert "summary-secret" not in summary
+    assert len(summary.encode()) <= 8 * 1024
+    assert "summary truncated" in summary

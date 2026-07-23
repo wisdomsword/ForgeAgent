@@ -299,6 +299,49 @@ def _trust_request_summary(agents: str | None, memory: str | None) -> str:
     return "\n\n".join(sections)
 
 
+def resolve_project_content_trust(
+    *,
+    allowed_root: str,
+    raw_content_digest: str,
+    effective_input_digest: str,
+    trust_record_path: str,
+    confirmer: IdentityConfirmer | None,
+    summary: str,
+    diagnostic: IdentityDiagnostic | None,
+    diagnostic_prefix: str,
+) -> bool:
+    """Return whether content matching a project's double digest is trusted."""
+    project_id = canonical_project_id_digest(allowed_root)
+    record_was_unusable = False
+    try:
+        record = _load_trust_record(trust_record_path)
+    except _UnusableTrustRecordError as exc:
+        record = None
+        record_was_unusable = True
+        _emit_identity_diagnostic(
+            diagnostic, f"{diagnostic_prefix} trust record ignored: {type(exc).__name__}"
+        )
+
+    existing_entry = record["projects"].get(project_id) if record is not None else None
+    if (
+        existing_entry is not None
+        and existing_entry.get("raw_content_digest") == raw_content_digest
+        and existing_entry.get("effective_input_digest") == effective_input_digest
+    ):
+        return True
+
+    if confirmer is None or not confirmer(
+        IdentityTrustRequest(project_label=_project_label(allowed_root), summary=summary)
+    ):
+        return False
+
+    if not record_was_unusable and not _record_approval(
+        trust_record_path, project_id, raw_content_digest, effective_input_digest
+    ):
+        _emit_identity_diagnostic(diagnostic, f"{diagnostic_prefix} trust record unavailable")
+    return True
+
+
 def resolve_project_trust(
     snapshot: IdentitySnapshot,
     allowed_root: str,
@@ -312,44 +355,28 @@ def resolve_project_trust(
     if snapshot.agents is None and snapshot.memory is None:
         return ApprovedIdentity(snapshot.soul, snapshot.user, None, None)
 
-    record_path = trust_record_path or default_trust_record_path(home)
-    project_id = canonical_project_id_digest(allowed_root)
-    record_was_unusable = False
-    try:
-        record = _load_trust_record(record_path)
-    except _UnusableTrustRecordError as exc:
-        record = None
-        record_was_unusable = True
-        _emit_identity_diagnostic(
-            diagnostic, f"identity trust record ignored: {type(exc).__name__}"
-        )
-
-    existing_entry = record["projects"].get(project_id) if record is not None else None
-    digests_match = (
-        existing_entry is not None
-        and existing_entry.get("raw_content_digest") == snapshot.raw_content_digest
-        and existing_entry.get("effective_input_digest") == snapshot.effective_input_digest
-    )
-    if digests_match:
-        return ApprovedIdentity(snapshot.soul, snapshot.user, snapshot.agents, snapshot.memory)
-
     stripped = ApprovedIdentity(snapshot.soul, snapshot.user, None, None)
-    if confirmer is None or not confirmer(
-        IdentityTrustRequest(
-            project_label=_project_label(allowed_root),
-            summary=_trust_request_summary(snapshot.agents, snapshot.memory),
-        )
-    ):
-        return stripped
+    record_path = trust_record_path or default_trust_record_path(home)
 
-    if not record_was_unusable:
-        persisted = _record_approval(
-            record_path, project_id, snapshot.raw_content_digest, snapshot.effective_input_digest
-        )
-        if not persisted:
+    def _identity_diagnostic(message: str) -> None:
+        if message == "identity trust record unavailable":
             _emit_identity_diagnostic(
                 diagnostic, "identity trust approval is memory-only: persistence failed"
             )
+        else:
+            _emit_identity_diagnostic(diagnostic, message)
+
+    if not resolve_project_content_trust(
+        allowed_root=allowed_root,
+        raw_content_digest=snapshot.raw_content_digest,
+        effective_input_digest=snapshot.effective_input_digest,
+        trust_record_path=record_path,
+        confirmer=confirmer,
+        summary=_trust_request_summary(snapshot.agents, snapshot.memory),
+        diagnostic=_identity_diagnostic,
+        diagnostic_prefix="identity",
+    ):
+        return stripped
     return ApprovedIdentity(snapshot.soul, snapshot.user, snapshot.agents, snapshot.memory)
 
 
