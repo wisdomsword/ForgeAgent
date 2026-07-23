@@ -70,7 +70,9 @@ Memory 只保存经过确定性准入的事实、偏好和决策。程序性做�
 
 交互式终端中的 REPL 会在输入 `/` 时即时显示 slash 指令，并随继续输入过滤候选；可用键盘选择候选。上下方向键只回放当前进程内的会话输入，ForgeAgent 不会把 REPL 历史写入文件。测试注入 reader 和非 TTY 输入仍沿用普通输入路径。
 
-启动 Logo 和摘要只属于真实交互式 REPL：必须使用默认 reader，且 stdin 与 stdout 都是 TTY。初始化完成后会显示纯 ASCII Logo，以及所选模型、sandbox 档位、项目根目录和已启用 MCP 的可用数；可选 MCP 故障只显示一行固定、脱敏的降级信息。非 TTY、`run`、`serve`、CI、`TERM=dumb` 或禁用颜色时不会输出交互式 Logo、banner 或 goal prompt；其中 `printf 'quit\\n' | uv run forgeagent` 会让 stdout 和 stderr 都保持零字节，而管道输入的实际任务结果仍会输出。
+启动摘要只属于真实交互式 REPL：必须使用默认 reader，且 stdin 与 stdout 都是 TTY。初始化完成后会显示所选模型、sandbox 档位、项目根目录和已启用 MCP 的可用数；可选 MCP 故障只显示一行固定、脱敏的降级信息。支持颜色、且不在 `CI`/`TERM=dumb` 等降级环境时，初始化期间显示瞬态的彩色动画 Logo；`NO_COLOR`、`console.no_color` 或无颜色系统只关闭动画和 ANSI 颜色，真实交互式 REPL 仍显示一次静态、单色标识和启动摘要。`CI`、`TERM=dumb` 与非 TTY 路径不显示该标识或动画；`run` 和 `serve` 也不进入 REPL 启动界面。
+
+目标提示符 `forge> ` 与动画/标识是独立条件：只要仍是默认 reader 加 stdin/stdout 双 TTY 的 REPL，`CI`、`TERM=dumb` 或 `NO_COLOR` 不会抑制它；只有非 TTY 或显式注入 reader 的路径使用空提示符。`printf 'quit\\n' | uv run forgeagent` 因而让 stdout 和 stderr 都保持零启动字节，而管道输入的实际任务结果仍会输出。
 
 ## Skills（可验证的程序性知识）
 
