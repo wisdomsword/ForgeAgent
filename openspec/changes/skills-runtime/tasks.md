@@ -17,10 +17,10 @@
 ## 4. Golden 与文档
 
 - [x] 4.1 增加离线 golden Skill 注入候选和渐进加载上下文体积断言，保持既有 20 项 verified core 不变
-- [ ] 4.2 更新 README、SKILL.md 示例、文本协议、威胁模型与 ACTION_PLAN M19 状态
+- [x] 4.2 更新 README、SKILL.md 示例、文本协议、威胁模型与 ACTION_PLAN M19 状态
 
 ## 5. 评审与验证
 
-- [ ] 5.1 运行受影响测试、完整 pytest、ruff、golden 20/20、OpenSpec strict、package build 与 diff check
-- [ ] 5.2 完成两轮 whole-change 自审，立即修复发现的问题并重跑相关与完整验证
-- [ ] 5.3 产出 M19 验证报告和里程碑文件，执行 Comet verify/archive 并提交主线可合并历史
+- [x] 5.1 运行受影响测试、完整 pytest、ruff、golden 20/20、OpenSpec strict、package build 与 diff check
+- [x] 5.2 完成两轮 whole-change 自审，立即修复发现的问题并重跑相关与完整验证
+- [x] 5.3 产出 M19 验证报告和里程碑文件，执行 Comet verify/archive 并提交主线可合并历史

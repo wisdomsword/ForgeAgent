@@ -761,7 +761,7 @@ git commit -m "test: cover progressive skill loading"
 - Consumes: final public contract from Tasks 1-7.
 - Produces: user-facing SKILL.md example, `Skill` ToolCall syntax, updated project-input threat model, and M19 implementation status; no executable interface.
 
-- [ ] **Step 1: Add a documentation acceptance checklist before editing prose**
+- [x] **Step 1: Add a documentation acceptance checklist before editing prose**
 
 ```text
 README: shows exact five-part SKILL.md and states user/project roots.
@@ -770,13 +770,13 @@ Threat model: names project Skills as confirmation-bound project input, secret m
 ACTION_PLAN: records M19 only after all verification commands in this task pass.
 ```
 
-- [ ] **Step 2: Verify the checklist is currently unmet**
+- [x] **Step 2: Verify the checklist is currently unmet**
 
 Run: `rg -n 'SKILL.md|"name":"Skill"|skills-trust.json|M19.*已完成' README.md docs/text-protocol-spec.md docs/threat-model.md ACTION_PLAN.md`
 
 Expected: no complete five-part runtime contract and no M19-completed status are present before this task.
 
-- [ ] **Step 3: Write the precise public contract and then run all validation**
+- [x] **Step 3: Write the precise public contract and then run all validation**
 
 ```markdown
 ---
@@ -799,7 +799,7 @@ trigger: Use when reviewing Python changes before completion.
 
 Document `<home>/.forgeagent/skills/` and `<project>/.forgeagent/skills/`, the independent `skills-trust.json` double-digest approval, the `Skill` arguments `name` and `section`, the bounded catalog/full-content split, and the fact that a Skill cannot grant tool or sandbox permissions. Update `ACTION_PLAN.md` only with the verified implementation summary and exact validation result after Step 4 succeeds.
 
-- [ ] **Step 4: Execute the completion gate and record exact outcomes**
+- [x] **Step 4: Execute the completion gate and record exact outcomes**
 
 Run separately:
 
@@ -813,7 +813,7 @@ Run separately:
 
 Expected: full pytest PASS; ruff reports no diagnostics/format changes; golden core is `20/20`; OpenSpec strict validation PASS; `uv build` emits wheel and sdist; `git diff --check` emits no whitespace errors.
 
-- [ ] **Step 5: Perform two whole-change review passes and commit the documentation only when clean**
+- [x] **Step 5: Perform two whole-change review passes and commit the documentation only when clean**
 
 ```bash
 git diff --check
