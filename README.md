@@ -84,11 +84,11 @@ trigger: Use when reviewing Python changes before completion.
 
 1. Inspect the diff and affected call paths.
 
-## Failure branches
+## Failure Branches
 
 - If focused tests fail, report the exact failure and stop completion.
 
-## Completion criteria
+## Completion Criteria
 
 - Findings are resolved or explicitly reported.
 ```
@@ -102,15 +102,27 @@ trigger: Use when reviewing Python changes before completion.
 Skill 输入，但不关闭用户 Skill。
 
 初始系统提示词中的 Skill 段只包含按名称稳定排序、数量和字节均受限的 `name — trigger` 目录，
-不包含 Steps、Failure branches 或 Completion criteria 正文。模型根据 trigger 自主决定是否调用
+不包含 Steps、Failure Branches 或 Completion Criteria 正文。模型根据 trigger 自主决定是否调用
 只读 `Skill` 工具读取全文或某个段落；不存在的名称会作为可恢复的工具失败反馈返回。交互
 CLI 可以进行项目 Skill 确认和 `/reload` 快照替换；headless HTTP 没有确认通道，只使用用户
 Skill 及已预先批准、双摘要仍匹配的项目 Skill。每个 CLI 会话和 HTTP 服务启动时取得一个
 不可变 Skill 快照，HTTP Task 不共享可变的 Skill 执行状态。
 
-Skill 的 Steps、Failure branches 和 Completion criteria 只是给模型的执行指导。它们不能
+Skill 的 Steps、Failure Branches 和 Completion Criteria 只是给模型的执行指导。它们不能
 授予工具权限、绕过 sandbox、跳过确认，或直接把 Task 标记为完成；现有工具确认、审计与
 两阶段完成判定保持不变。
+
+### M19 本地人类验收
+
+不配置 API Key、也不访问网络即可验证项目 Skill 信任、渐进加载、`/reload`、斜杠
+候选和当前会话方向键历史：
+
+```bash
+uv run --offline python scripts/m19-skills-human-smoke.py
+```
+
+该命令必须在真实交互终端运行；它使用临时 HOME/项目和确定性客户端，隔离密钥形态
+环境变量，退出后自动恢复并清理，不会读取或修改真实 `~/.forgeagent`。
 
 ## 配置（API key 与端点）
 

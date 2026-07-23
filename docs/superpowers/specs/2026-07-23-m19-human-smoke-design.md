@@ -1,6 +1,6 @@
 ---
 role: technical-design
-status: proposed
+status: final
 ---
 
 # M19 本地确定性人类验收设计
@@ -14,7 +14,7 @@ status: proposed
 唯一入口：
 
 ```bash
-uv run python scripts/m19-skills-human-smoke.py
+uv run --offline python scripts/m19-skills-human-smoke.py
 ```
 
 ## 范围边界
@@ -25,7 +25,7 @@ uv run python scripts/m19-skills-human-smoke.py
 明确不做：
 
 - 不启动本地 HTTP 模型服务，不验证 OpenAI/Anthropic SDK 传输层。
-- 不读取、覆盖或输出真实 `~/.forgeagent` 配置及 API Key。
+- 不读取或覆盖真实 `~/.forgeagent` 配置；不解析、使用、输出或传输 API Key。
 - 不增加 ForgeAgent 产品命令、测试专用产品分支或持久 REPL 历史。
 - 不自动伪造斜杠菜单与方向键结论；这两项必须由人类观察后确认。
 
@@ -39,8 +39,9 @@ uv run python scripts/m19-skills-human-smoke.py
 - 同名项目级 Skill V1，带 `PROJECT_SKILL_V1` marker。
 - 运行过程中写入的项目级 Skill V2，带 `PROJECT_SKILL_V2` marker。
 
-退出时无论成功、失败或 Ctrl-C 都清理临时目录。真实 HOME 仅保存在进程内用于恢复，
-不写入任何内容。
+调用生产 Skill/Task 路径前，脚本会暂时移除名称命中密钥规则的环境变量，避免掩码初始化
+枚举真实密钥值。这些变量只作为不透明值在进程内暂存，不输出、不传给生产验收路径，
+退出时精确恢复。无论成功、失败或 Ctrl-C 都清理临时目录；真实 HOME 仅在进程内保存用于恢复。
 
 ### 确定性客户端
 

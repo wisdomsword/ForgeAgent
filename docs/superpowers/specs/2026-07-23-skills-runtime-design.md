@@ -52,11 +52,11 @@ status: final
 1. Inspect the diff and affected call paths.
 2. Run focused tests.
 
-## Failure branches
+## Failure Branches
 
 - If tests fail, report the exact failure and stop completion.
 
-## Completion criteria
+## Completion Criteria
 
 - Findings are resolved or explicitly reported.
 - Focused tests pass.
@@ -189,7 +189,7 @@ class SkillArgs(BaseModel):
 
 宿主不解释 `steps` 或 `failure_branches`。模型读到全文后调用 Exec/Edit/File/MCP 等现有工具；工具失败仍成为下一轮反馈，模型同时能从上一轮 Skill tool outcome 获得失败分支声明，并选择停止或降级。
 
-Skill 的 completion criteria 只是模型检查表，不能直接设置 `completed=true`。现有“工具同轮反馈优先、后续轮才可完成”的两阶段规则、确认门和 sandbox 不变。这样既兑现失败分支语义，又不引入不可验证的第二状态机。
+Skill 的 Completion Criteria 只是模型检查表，不能直接设置 `completed=true`。现有“工具同轮反馈优先、后续轮才可完成”的两阶段规则、确认门和 sandbox 不变。这样既兑现失败分支语义，又不引入不可验证的第二状态机。
 
 ## 5. CLI 与 HTTP 生命周期
 
@@ -268,7 +268,7 @@ WordCompleter(
 - `SkillArgs` 有效/无效输入、full/单段读取和 ToolRegistry 条件注册。
 - `SkillTool` 成功、未知名称和不触发 confirmer。
 - 首轮 system message 只含 name/trigger，不含步骤唯一标记；模型调用 Skill 后下一轮反馈含全文。
-- Skill 后续工具失败仍可修正；Skill completion criteria 不使同轮工具调用直接完成。
+- Skill 后续工具失败仍可修正；Skill Completion Criteria 不使同轮工具调用直接完成。
 - 无 Skills 时 system prompt 与既有基线一致。
 
 ### 8.3 CLI/HTTP
@@ -294,4 +294,3 @@ WordCompleter(
 5. 更新 golden、README、协议和威胁模型，完成全量验证与两轮 whole-change 自审。
 
 回滚删除 Skills 装配和 prompt_toolkit 即恢复旧行为；Skill 文件与独立 trust 记录均是惰性数据，不影响旧版本。没有数据库或不可逆迁移。
-

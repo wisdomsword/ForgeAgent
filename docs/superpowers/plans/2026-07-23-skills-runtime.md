@@ -804,11 +804,11 @@ archived-with: 2026-07-23-skills-runtime
 
 1. Inspect the diff and affected call paths.
 
-## Failure branches
+## Failure Branches
 
 - If focused tests fail, report the exact failure and stop completion.
 
-## Completion criteria
+## Completion Criteria
 
 - Findings are resolved or explicitly reported.
 ```
@@ -860,4 +860,3 @@ First review verifies all delta scenarios have a focused test and no content/abs
 - Type consistency: `SkillDefinition`, `SkillRegistry`, `SkillArgs`, `SkillTool`, `Task.skills`, `Step.skills`, and `default_registry(skills=registry)` use the same names and compatible optional types throughout.
 
 Plan complete and saved to `docs/superpowers/plans/2026-07-23-skills-runtime.md`. Execution options: use `subagent-driven-development` for one fresh implementer and review gate per task, or `executing-plans` for inline task batches with checkpoints.
-
