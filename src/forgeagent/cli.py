@@ -1001,6 +1001,7 @@ def repl(
                         no_identity=no_identity,
                         diagnostic=identity_diagnostic,
                     )
+                    candidate_memory_manager.copy_session_from(memory_manager)
                     candidate_skills = _load_skill_registry(
                         home=str(Path.home()),
                         allowed_root=allowed_root,

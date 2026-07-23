@@ -1785,6 +1785,39 @@ def test_repl_reload_keeps_existing_skill_snapshot_when_skill_loading_fails(monk
     assert "reload failed" in console.export_text()
 
 
+def test_repl_reload_preserves_session_memory_while_reloading_project_memory_access(
+    monkeypatch, tmp_path
+):
+    import forgeagent.cli as cli_module
+
+    project_memory = tmp_path / ".forgeagent" / "MEMORY.md"
+    project_memory.parent.mkdir()
+    project_memory.write_text(
+        "<!-- forgeagent-memory-v1 -->\n- language: python\n",
+        encoding="utf-8",
+    )
+    identities = iter([None, SimpleNamespace(memory="trusted project memory")])
+    inputs = iter(["/remember session editor=nvim", "/reload", "/memory", "quit"])
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(cli_module, "resolve_cli_identity", lambda **kwargs: next(identities))
+
+    console = _console()
+    cli_module.repl(
+        tier="trusted",
+        model="mock",
+        client_factory=_factory([]),
+        console=console,
+        read_line=lambda prompt: next(inputs),
+        confirmation_available=False,
+        use_registry_snapshot=False,
+    )
+
+    rendered = console.export_text()
+    assert "editor: nvim" in rendered
+    assert "language: python" in rendered
+
+
 def test_repl_reload_rejects_unresolvable_policy_and_keeps_old_registry_pair(monkeypatch):
     import forgeagent.cli as cli_module
     from forgeagent.context import ContextConfig
