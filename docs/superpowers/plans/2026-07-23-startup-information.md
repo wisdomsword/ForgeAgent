@@ -443,7 +443,7 @@ Expected: focused and full pytest pass; Ruff reports no diagnostics and no forma
 
 In a real terminal, run `uv run forgeagent` with one available fixture MCP and then with one configured optional failure. Confirm: transient animation is visible; static logo and one summary appear; optional message is one line; prompt does not overlap a Live refresh; `/mcp` exposes only fixed fields; identity/skill confirmation pauses input safely; Ctrl-C/quit restores cursor and leaves no background refresh. Repeat `printf 'quit\\n' | uv run forgeagent` and record zero bytes for both streams.
 
-- [ ] **Step 6: Perform two review passes and commit the completed change**
+- [x] **Step 6: Perform two review passes and commit the completed change**
 
 First compare every requirement/scenario in `openspec/changes/startup-information/specs/*/spec.md` to Tasks 1-5 and their test evidence. Second inspect the final diff for raw exception interpolation, capture/reader leaks, old-generation publication, Rich markup injection, disabled-server denominator mistakes, unexpected non-TTY output, and accidental pre-existing files. Fix each finding with a focused test and rerun the affected test plus the complete command block above.
 

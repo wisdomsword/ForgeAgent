@@ -29,8 +29,11 @@ Task 5 的文档、`/mcp` public-label 负向回归、G355 golden 对齐和验�
 | `uv run pytest tests/test_cli.py -q -k "startup_summary or mcp_command"` | `0`；`14 passed, 225 deselected`。 |
 | `uv run pytest tests/test_mcp_manager.py tests/test_cli.py tests/test_cli_startup_blackbox.py -q` | `0`；`455 passed, 1 skipped`。 |
 | `uv run pytest tests/test_http_server.py -q -k "serve_real_client_uses_one_validated_registry_snapshot_for_tasks or serve_task_factory_passes_only_server_context_to_task"` | `0`；`2 passed, 64 deselected`。 |
-| `uv run pytest -q` | `0`；`1486 passed, 11 skipped in 80.56s`。 |
+| `UV_CACHE_DIR=/tmp/forgeagent-startup-information-uv-cache uv run pytest -q` | `0`（允许 loopback/build 子进程的环境）；`1489 passed, 11 skipped in 71.72s`。受限 sandbox 的首次运行另有 12 个环境型失败（11 个 loopback allocation、1 个子进程 `uv build`），不属于本 change 断言；在允许网络/loopback 的环境重跑通过。 |
 | `uv run pytest tests/test_golden_runner.py -q`（G355 对齐后） | `0`；`78 passed in 29.55s`。 |
+| `UV_CACHE_DIR=/tmp/forgeagent-startup-information-uv-cache uv run pytest -q`（最终修复后） | `0`；`1489 passed, 11 skipped in 71.72s`。 |
+| `uv run pytest -q tests/test_mcp_manager.py`（最终修复独立复审） | `0`；`187 passed, 1 skipped`。 |
+| `uv run ruff check src/forgeagent/mcp_manager.py tests/test_mcp_manager.py` / `uv run ruff format --check src/forgeagent/mcp_manager.py tests/test_mcp_manager.py` | `0`；均通过。 |
 | `uv run ruff check .` | `0`；`All checks passed!`。 |
 | `uv run ruff format --check .` | `0`；`81 files already formatted`。 |
 | `openspec validate startup-information --strict` | `0`；`Change 'startup-information' is valid`。 |
@@ -43,7 +46,9 @@ Task 5 的文档、`/mcp` public-label 负向回归、G355 golden 对齐和验�
 
 第一轮按三个 canonical spec 对照 Task 1-4 证据：stderr sink 与 generation 发布隔离、required/optional 生命周期、注入 reader/non-TTY 零启动输出、TTY Logo 生命周期、实际 MCP enabled denominator、固定 `/mcp` 诊断字段均已有实现和 focused 回归；本 Task 5 只补最后的 public-label 负向断言与文档。
 
-第二轮检查最终 diff：未发现 raw exception、child stderr、命令/参数/环境、secret 插值；未触碰 Rich markup、capture reader 生命周期、旧 generation 发布、disabled denominator、production code 或 pre-existing dirty path。复审发现 README 把颜色降级与非 TTY prompt 抑制混为一谈，现已明确动画/静态标识与 `forge> ` 的独立条件；同时以新输出目录的实际 golden `20/20` 结果替换旧的最终通过主张。
+第二轮检查最终 diff：未发现 raw exception、child stderr、命令/参数/环境、secret 插值；未触碰 Rich markup、旧 generation 发布、disabled denominator 或 pre-existing dirty path。发现 `_BoundedStderrCapture.close()` 对继承写端无界等待，以及运行时 holder/call failure 缺少固定诊断投影；新增回归并修复为有界 join、跨平台 blocking pipe reader 和 `startup_failed` public diagnostic。复审还发现 README 把颜色降级与非 TTY prompt 抑制混为一谈，现已明确动画/静态标识与 `forge> ` 的独立条件；同时以新输出目录的实际 golden `20/20` 结果替换旧的最终通过主张。
+
+最终独立代码评审（覆盖整个 change）确认：generation ownership、public diagnostic masking、enabled-only denominator、非 TTY 零输出和 Rich markup 隔离均无阻塞问题；修复后的 stderr reader 在 Windows 使用 blocking pipe-compatible `os.read()`，close 只做有界 join，重复 writer 回归明确 reader 可延迟退出。
 
 ## 人工 TTY smoke
 
