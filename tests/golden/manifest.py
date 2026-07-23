@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import hashlib
+import json
+import re
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -35,6 +38,10 @@ class GoldenCheckError(Exception):
     """A scenario's explicit machine-check failure."""
 
 
+class GoldenPreflightError(Exception):
+    """The manifest, selected model, or report destination cannot be used."""
+
+
 GOLDEN_SCENARIOS: tuple[GoldenScenario, ...] = (
     GoldenScenario("G01", "CSV summary", cases.run_g01_offline, cases.run_g01_real),
     GoldenScenario("G03", "JSON structure transform", cases.run_g03_offline, cases.run_g03_real),
@@ -57,3 +64,56 @@ GOLDEN_SCENARIOS: tuple[GoldenScenario, ...] = (
     GoldenScenario("G333", "File boundary", cases.run_g333_offline),
     GoldenScenario("G355", "MCP slash command", cases.run_g355_offline),
 )
+
+_BASELINE_SCHEMA = "forgeagent.golden-manifest.v1"
+_FINGERPRINT = re.compile(r"[0-9a-f]{64}")
+
+
+def _fingerprint_rows(rows: Sequence[tuple[str, str, bool]]) -> str:
+    payload = [
+        {"scenario_id": scenario_id, "title": title, "run_real": run_real}
+        for scenario_id, title, run_real in rows
+    ]
+    encoded = json.dumps(payload, ensure_ascii=True, separators=(",", ":"), allow_nan=False)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def manifest_fingerprint(scenarios: Sequence[GoldenScenario] = GOLDEN_SCENARIOS) -> str:
+    """Return the canonical digest of the approved manifest identity fields."""
+    rows = tuple(
+        (item.scenario_id, item.title, item.run_real is not None) for item in scenarios
+    )
+    return _fingerprint_rows(rows)
+
+
+def load_manifest_baseline(path: Path | None = None) -> tuple[tuple[str, str, bool], ...]:
+    """Load and authenticate the checked-in canonical scenario identity list."""
+    try:
+        payload = json.loads(
+            (path or Path(__file__).with_name("manifest_baseline.json")).read_text(
+                encoding="utf-8"
+            )
+        )
+        if type(payload) is not dict or set(payload) != {"schema", "scenarios", "fingerprint"}:
+            raise ValueError
+        if payload["schema"] != _BASELINE_SCHEMA or not _FINGERPRINT.fullmatch(
+            payload["fingerprint"]
+        ):
+            raise ValueError
+        scenarios = payload["scenarios"]
+        if type(scenarios) is not list or len(scenarios) != 20:
+            raise ValueError
+        rows = tuple(
+            (row["scenario_id"], row["title"], row["run_real"])
+            for row in scenarios
+            if type(row) is dict
+            and set(row) == {"scenario_id", "title", "run_real"}
+            and type(row["scenario_id"]) is str
+            and type(row["title"]) is str
+            and type(row["run_real"]) is bool
+        )
+        if len(rows) != len(scenarios) or _fingerprint_rows(rows) != payload["fingerprint"]:
+            raise ValueError
+        return rows
+    except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise GoldenPreflightError("golden manifest canonical baseline mismatch") from exc

@@ -9,6 +9,7 @@ import subprocess
 import sys
 import time
 from collections import Counter
+from dataclasses import replace
 from enum import IntEnum
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -19,7 +20,14 @@ from forgeagent.client import MockClient
 from forgeagent.models import ClientError
 from forgeagent.runtime import Runtime
 from tests.golden import cases
-from tests.golden.manifest import GOLDEN_SCENARIOS, GoldenCheckError, GoldenEvidence, GoldenScenario
+from tests.golden.manifest import (
+    GOLDEN_SCENARIOS,
+    GoldenCheckError,
+    GoldenEvidence,
+    GoldenScenario,
+    load_manifest_baseline,
+    manifest_fingerprint,
+)
 from tests.golden.runner import (
     EXPECTED_IDS,
     EXPECTED_REAL_IDS,
@@ -408,6 +416,65 @@ def test_manifest_has_exactly_the_approved_offline_and_real_ids():
         )
         == EXPECTED_REAL_IDS
     )
+
+
+def _baseline_payload() -> dict[str, object]:
+    path = Path(__file__).with_name("golden") / "manifest_baseline.json"
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda items: items[1:],
+        lambda items: (*items[:1], replace(items[1], title="lowered"), *items[2:]),
+        lambda items: (*items[:1], replace(items[1], run_real=None), *items[2:]),
+        lambda items: tuple(reversed(items)),
+    ],
+)
+def test_validate_manifest_rejects_canonical_baseline_drift(mutate):
+    with pytest.raises(GoldenPreflightError, match="canonical baseline"):
+        validate_manifest(mutate(GOLDEN_SCENARIOS))
+
+
+def test_manifest_fingerprint_matches_checked_in_baseline():
+    assert manifest_fingerprint() == _baseline_payload()["fingerprint"]
+
+
+def test_validate_manifest_accepts_the_unmodified_canonical_baseline():
+    validate_manifest(GOLDEN_SCENARIOS)
+
+
+def test_load_manifest_baseline_rejects_malformed_or_mismatched_payload(tmp_path):
+    malformed = tmp_path / "malformed.json"
+    malformed.write_text('{"schema": "wrong"}', encoding="utf-8")
+    mismatched = tmp_path / "mismatched.json"
+    mismatched.write_text(
+        json.dumps(
+            {
+                "schema": "forgeagent.golden-manifest.v1",
+                "scenarios": _baseline_payload()["scenarios"],
+                "fingerprint": "0" * 64,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    for path in (malformed, mismatched):
+        with pytest.raises(GoldenPreflightError, match="canonical baseline"):
+            load_manifest_baseline(path)
+
+
+def test_malformed_baseline_preflight_does_not_create_an_output_directory(tmp_path, monkeypatch):
+    output_dir = tmp_path / "not-created"
+
+    def malformed_baseline():
+        raise GoldenPreflightError("golden manifest canonical baseline mismatch")
+
+    monkeypatch.setattr("tests.golden.runner.load_manifest_baseline", malformed_baseline)
+
+    assert main(["--output-dir", str(output_dir)]) == 2
+    assert not output_dir.exists()
 
 
 def test_golden_candidate_catalog_rejects_duplicate_missing_extra_and_misnumbered_headings():
@@ -981,11 +1048,7 @@ def test_manifest_preflight_rejects_duplicates_additions_and_catalog_prefix_matc
         ),
         encoding="utf-8",
     )
-    scenarios = tuple(
-        _scenario(scenario_id, real=scenario_id in EXPECTED_REAL_IDS)
-        for scenario_id in EXPECTED_IDS
-    )
-    validate_manifest(scenarios, catalog_path=complete_catalog)
+    validate_manifest(GOLDEN_SCENARIOS, catalog_path=complete_catalog)
 
 
 def test_manifest_preflight_rejects_coverage_reference_without_g01_definition(tmp_path):
@@ -999,13 +1062,8 @@ def test_manifest_preflight_rejects_coverage_reference_without_g01_definition(tm
         coverage_matrix + core_headings + "\n" + candidate_table,
         encoding="utf-8",
     )
-    scenarios = tuple(
-        _scenario(scenario_id, real=scenario_id in EXPECTED_REAL_IDS)
-        for scenario_id in EXPECTED_IDS
-    )
-
     with pytest.raises(GoldenPreflightError, match="missing G01"):
-        validate_manifest(scenarios, catalog_path=catalog)
+        validate_manifest(GOLDEN_SCENARIOS, catalog_path=catalog)
 
 
 def test_run_suite_returns_success_and_failure_exit_codes_and_shared_summary(tmp_path):

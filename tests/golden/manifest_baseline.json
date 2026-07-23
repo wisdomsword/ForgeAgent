@@ -1,0 +1,26 @@
+{
+  "schema": "forgeagent.golden-manifest.v1",
+  "scenarios": [
+    {"scenario_id": "G01", "title": "CSV summary", "run_real": true},
+    {"scenario_id": "G03", "title": "JSON structure transform", "run_real": true},
+    {"scenario_id": "G05", "title": "Cross-block state", "run_real": false},
+    {"scenario_id": "G06", "title": "Restricted denial", "run_real": false},
+    {"scenario_id": "G08", "title": "Bug fix", "run_real": true},
+    {"scenario_id": "G11", "title": "Merge and deduplicate", "run_real": true},
+    {"scenario_id": "G13", "title": "Error feedback loop", "run_real": false},
+    {"scenario_id": "G14", "title": "Restricted timeout", "run_real": false},
+    {"scenario_id": "G15", "title": "Incremental edit", "run_real": false},
+    {"scenario_id": "G17", "title": "Two-file key join", "run_real": false},
+    {"scenario_id": "G27", "title": "Fix regression with edit chain", "run_real": false},
+    {"scenario_id": "G43", "title": "Text word-frequency Top-N", "run_real": true},
+    {"scenario_id": "G58", "title": "Restricted out-of-root read", "run_real": false},
+    {"scenario_id": "G59", "title": "Restricted out-of-root write", "run_real": false},
+    {"scenario_id": "G324", "title": "FileWrite out-of-root rejection", "run_real": false},
+    {"scenario_id": "G329", "title": "Confirmed WebFetch policy", "run_real": false},
+    {"scenario_id": "G330", "title": "Redirect boundary", "run_real": false},
+    {"scenario_id": "G332", "title": "WebFetch no-channel", "run_real": false},
+    {"scenario_id": "G333", "title": "File boundary", "run_real": false},
+    {"scenario_id": "G355", "title": "MCP slash command", "run_real": false}
+  ],
+  "fingerprint": "4b16cd26437bdd4a565821f1623bc438957e6ba4d5c0867fa4da48459ab3a680"
+}

@@ -17,6 +17,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from .manifest import (
+    GoldenPreflightError,
+    _fingerprint_rows,
+    load_manifest_baseline,
+    manifest_fingerprint,
+)
+
 if TYPE_CHECKING:
     from forgeagent.client import ModelClient
 
@@ -57,10 +64,6 @@ _CANDIDATE_ID = re.compile(
     r"G(?:3[1-9]|[4-9][0-9]|[12][0-9]{2}|3[0-7][0-9]|38[0-9]|39[0-9]|"
     r"4(?:0[0-9]|1[0-9]|20))"
 )
-
-
-class GoldenPreflightError(Exception):
-    """The manifest, selected model, or report destination cannot be used."""
 
 
 @dataclass(frozen=True)
@@ -133,6 +136,12 @@ def validate_manifest(
     scenarios: Sequence[GoldenScenario], *, catalog_path: Path | None = None
 ) -> None:
     """Reject any manifest drift before a scenario or report directory is created."""
+    try:
+        baseline = load_manifest_baseline()
+        if manifest_fingerprint(scenarios) != _fingerprint_rows(baseline):
+            raise ValueError
+    except (GoldenPreflightError, ValueError):
+        raise GoldenPreflightError("golden manifest canonical baseline mismatch") from None
     identifiers = tuple(scenario.scenario_id for scenario in scenarios)
     identifier_set = frozenset(identifiers)
     real_identifiers = frozenset(
