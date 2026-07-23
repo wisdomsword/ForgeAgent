@@ -150,7 +150,7 @@ git commit -m "feat: add bounded MCP startup diagnostics"
 - Consumes: Task 1 `MCPManager.diagnostics()`, existing `Console`, `Live`, identity/skill confirmer factories, and `Tier`.
 - Produces: `_StartupDisplay(console: Console)`, `start(stage: str) -> None`, `set_stage(stage: str) -> None`, `pause() -> None`, `resume() -> None`, `stop() -> None`; `_interactive_repl(console, read_line_is_default) -> bool`.
 
-- [ ] **Step 1: Write failing display lifecycle and rendering tests**
+- [x] **Step 1: Write failing display lifecycle and rendering tests**
 
 Use a fake terminal `Console(force_terminal=True, width=100)`, a fake monotonic clock, and a `Live` factory recorder. Assert real TTY + default reader starts exactly one 8 FPS Live; seven phase frames use `red`, `yellow`, `green`, `cyan`, `blue`, `magenta`, `bright_magenta`; narrow width renders only `ForgeAgent`; `NO_COLOR`, `TERM=dumb`, CI and `console.color_system is None` do not construct animated Live. Test pause before identity/skill confirmation, resume after successful answer, and `finally` cleanup on `KeyboardInterrupt` and a startup exception.
 
@@ -175,13 +175,13 @@ def test_startup_display_narrow_terminal_is_single_line(monkeypatch):
     assert display.logo_renderable().plain == "ForgeAgent"
 ```
 
-- [ ] **Step 2: Run display tests to verify RED**
+- [x] **Step 2: Run display tests to verify RED**
 
 Run: `uv run pytest tests/test_cli.py -q -k "startup_display or startup_renderer or startup_logo"`
 
 Expected: FAIL because `_StartupDisplay` and `_interactive_repl` do not exist.
 
-- [ ] **Step 3: Implement minimal private renderer and confirmation adapter**
+- [x] **Step 3: Implement minimal private renderer and confirmation adapter**
 
 Add only private CLI helpers. The predicate must be exact and called once after reader selection:
 
@@ -202,13 +202,13 @@ def _startup_ui_available(console: Console) -> bool:
 
 Wrap the existing confirmer calls with a small context manager that invokes `display.pause()` before `read_line` and resumes only if initialization continues. Preserve EOF/KeyboardInterrupt behavior by re-raising them after cleanup. Do not alter injected-reader semantics or create a `PromptSession` in that path.
 
-- [ ] **Step 4: Run renderer tests and existing reader regression**
+- [x] **Step 4: Run renderer tests and existing reader regression**
 
 Run: `uv run pytest tests/test_cli.py -q -k "startup_display or startup_renderer or startup_logo or repl_explicit_reader_never_constructs_prompt_session or repl_exits_cleanly_on_keyboard_interrupt"`
 
 Expected: PASS; no Live instance exists for explicit reader/non-TTY/no-color paths and every started fake Live is stopped.
 
-- [ ] **Step 5: Commit the renderer lifecycle**
+- [x] **Step 5: Commit the renderer lifecycle**
 
 ```bash
 git add src/forgeagent/cli.py tests/test_cli.py
