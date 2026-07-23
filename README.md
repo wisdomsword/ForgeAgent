@@ -70,6 +70,8 @@ Memory 只保存经过确定性准入的事实、偏好和决策。程序性做�
 
 交互式终端中的 REPL 会在输入 `/` 时即时显示 slash 指令，并随继续输入过滤候选；可用键盘选择候选。上下方向键只回放当前进程内的会话输入，ForgeAgent 不会把 REPL 历史写入文件。测试注入 reader 和非 TTY 输入仍沿用普通输入路径。
 
+启动 Logo 和摘要只属于真实交互式 REPL：必须使用默认 reader，且 stdin 与 stdout 都是 TTY。初始化完成后会显示纯 ASCII Logo，以及所选模型、sandbox 档位、项目根目录和已启用 MCP 的可用数；可选 MCP 故障只显示一行固定、脱敏的降级信息。非 TTY、`run`、`serve`、CI、`TERM=dumb` 或禁用颜色时不会输出交互式 Logo、banner 或 goal prompt；其中 `printf 'quit\\n' | uv run forgeagent` 会让 stdout 和 stderr 都保持零字节，而管道输入的实际任务结果仍会输出。
+
 ## Skills（可验证的程序性知识）
 
 Skill 是本地、只读、按需加载的 Markdown 文档，不是工作流引擎或权限配置。每个 Skill 必须位于以其名称命名的目录中的 `SKILL.md`，并且严格采用下面五部分；`name` 必须与目录名相同：
@@ -239,6 +241,7 @@ mcpServers:
 - **多 server 同时接入**：启动时并发连接所有 `enabled` server。默认 optional server 连不上时标记 unavailable 并从工具目录移除，不影响其余；`required: true` 的 enabled server 连不上会清理已启动资源并使 CLI 非零退出。同名工具（两个 server 都有 `search`）靠调用里的 `server` 字段区分，不冲突。
 - **确认门（安全边界）**：MCP server 在**主进程执行，不受 restricted 沙箱约束**。所以有副作用的工具调用会逐次要你确认（终端 y/N）；只有列在该 server `autoApprove` 里的只读工具才免确认。未批准 → 结构化拒绝，不执行。因此 `mcpServers` 里只应放你信任的可执行文件，`autoApprove` 只列真正只读的工具。安全模型详见 [`docs/threat-model.md`](docs/threat-model.md)。
 - 每 server 可 `enabled: false` 暂时关掉、`expose: [toolA]` 只广告部分工具（控制注入系统提示词的工具清单体积）。REPL 里用 `/mcp status` 看连接状态。关闭使用绝对 deadline；若后台 MCP 清理未完成，会给出不完整关闭警告并保留资源引用以供重试，而不是伪造清理成功。
+- Docker 只是某个已配置 MCP integration runtime 的可选依赖，不是 ForgeAgent 的安装或启动前提。Docker 不可用时，`/mcp` 仅对该 server 报告固定的 `Status`、`Tools`、`Reason`、`Impact`、`Action` 字段（例如 `Docker is not running`），不会回显 child stderr、命令、参数、环境、异常类型或 secret。
 
 ## 多模型支持
 

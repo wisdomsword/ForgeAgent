@@ -1508,6 +1508,7 @@ def run_g355_offline(workdir: Path) -> GoldenEvidence:
         from forgeagent.cli import _handle_mcp_slash
 
         _handle_mcp_slash("/mcp", manager, console)
+        _handle_mcp_slash("/mcp status", manager, console)
         rendered = console.export_text()
     finally:
         manager.close()
@@ -1516,8 +1517,17 @@ def run_g355_offline(workdir: Path) -> GoldenEvidence:
     while pid and _process_exists(pid) and time.monotonic() < deadline:
         time.sleep(0.05)
     pid_reaped = bool(pid) and not _process_exists(pid)
-    require("available: available" in rendered, "G355 output lacks available status")
-    require("optional: unavailable" in rendered, "G355 output lacks optional failure status")
+    require("Status: available" in rendered, "G355 output lacks available status")
+    require(
+        "Status: unavailable: startup_failed" in rendered,
+        "G355 output lacks optional failure status",
+    )
+    require("Reason: MCP server failed to start" in rendered, "G355 output lacks reason")
+    require("Impact: Configured tools are disabled" in rendered, "G355 output lacks impact")
+    require(
+        "Action: Check the server configuration and try again" in rendered,
+        "G355 output lacks action",
+    )
     require(
         "available:echo" in rendered and "Echo the given text" in rendered,
         "G355 output lacks available echo tool description",

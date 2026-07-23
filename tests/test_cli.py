@@ -27,6 +27,7 @@ from pydantic import BaseModel
 from rich.console import Console
 
 import forgeagent.cli as cli_module
+import forgeagent.mcp_manager as mcp_manager_module
 from forgeagent.cli import (
     build_parser,
     main,
@@ -1427,6 +1428,28 @@ def test_bare_mcp_renders_bounded_sanitized_diagnostics(monkeypatch):
         for line in lines
     )
     assert len(lines) <= 10
+
+
+def test_mcp_diagnostic_uses_only_fixed_public_labels():
+    secret = "diagnostic-secret-value"
+    manager = MCPManager({"docker": MCPServerConfig(command="unused")})
+    manager._secret_values = {secret}
+    capture = mcp_manager_module._BoundedStderrCapture()
+    capture.__enter__()
+    assert capture.stream is not None
+    capture.stream.write(f"RuntimeError: cannot connect to /var/run/docker.sock token={secret}")
+    capture.close()
+    manager._publish_unavailable("docker", 0, capture)
+    console = _terminal_console()
+
+    cli_module._handle_mcp_slash("/mcp", manager, console)
+
+    rendered = console.export_text()
+    for label in ("Status", "Tools", "Reason", "Impact", "Action"):
+        assert f"{label}:" in rendered
+    assert "Docker is not running" in rendered
+    for internal in ("docker.sock", "RuntimeError", secret):
+        assert internal not in rendered
 
 
 def test_mcp_command_usage_lists_status_tools_and_toggles():
