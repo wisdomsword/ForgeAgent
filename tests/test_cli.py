@@ -20,9 +20,13 @@ from types import SimpleNamespace
 from urllib.parse import parse_qsl, unquote, urlsplit
 
 import pytest
+from prompt_toolkit.completion import CompleteEvent
+from prompt_toolkit.document import Document
+from prompt_toolkit.history import InMemoryHistory
 from pydantic import BaseModel
 from rich.console import Console
 
+import forgeagent.cli as cli_module
 from forgeagent.cli import (
     build_parser,
     main,
@@ -67,6 +71,71 @@ def _factory(script):
 def _console() -> Console:
     # record=True lets us assert on rendered text without a real terminal.
     return Console(record=True, width=100, force_terminal=False)
+
+
+def _terminal_console() -> Console:
+    return Console(record=True, width=100, force_terminal=True)
+
+
+def test_repl_explicit_reader_never_constructs_prompt_session(monkeypatch):
+    monkeypatch.setattr(
+        cli_module,
+        "PromptSession",
+        lambda *args, **kwargs: pytest.fail("must not construct"),
+        raising=False,
+    )
+
+    repl(
+        tier="restricted",
+        model="mock",
+        client_factory=_factory([]),
+        read_line=lambda _: "quit",
+    )
+
+
+@pytest.mark.parametrize("prefix", ["/", "/m", "/mo"])
+def test_default_interactive_reader_uses_command_table_and_memory_history(monkeypatch, prefix):
+    captured = {}
+
+    class FakeSession:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        def prompt(self, prompt):
+            return "quit"
+
+    monkeypatch.setattr(cli_module, "PromptSession", FakeSession, raising=False)
+    monkeypatch.setattr(cli_module.sys.stdin, "isatty", lambda: True)
+
+    repl(
+        tier="restricted",
+        model="mock",
+        client_factory=_factory([]),
+        console=_terminal_console(),
+        read_line=None,
+    )
+
+    completer = captured["completer"]
+    candidates = {
+        item.text for item in completer.get_completions(Document(prefix), CompleteEvent())
+    }
+    assert candidates == {
+        command for command in cli_module._SLASH_COMMAND_USAGE if command.startswith(prefix)
+    }
+    assert completer.words == list(cli_module._SLASH_COMMAND_USAGE)
+    assert completer.meta_dict == cli_module._SLASH_COMMAND_USAGE
+    assert completer.sentence is True
+    assert completer.match_middle is False
+    assert captured["complete_while_typing"] is True
+    assert isinstance(captured["history"], InMemoryHistory)
+    assert "FileHistory" not in repr(captured["history"])
+
+
+def test_non_tty_default_reader_uses_builtin_input(monkeypatch):
+    monkeypatch.setattr(cli_module.sys.stdin, "isatty", lambda: False)
+    monkeypatch.setattr("builtins.input", lambda _: "quit")
+
+    repl(tier="restricted", model="mock", client_factory=_factory([]), read_line=None)
 
 
 def _registry_with_skill(marker: str = "SKILL-BODY-UNIQUE") -> SkillRegistry:
@@ -135,8 +204,7 @@ def test_run_once_renders_disabled_model_memory_result(tmp_path):
         client_factory=_factory(
             [
                 _reply(
-                    _done()
-                    + '\n<!-- Memory: {"scope":"session","kind":"preference",'
+                    _done() + '\n<!-- Memory: {"scope":"session","kind":"preference",'
                     '"key":"formatter","content":"ruff"} -->'
                 )
             ]

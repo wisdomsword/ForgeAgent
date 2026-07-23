@@ -31,6 +31,9 @@ from typing import cast
 from urllib.parse import parse_qsl, quote, unquote, urlencode, urlsplit, urlunsplit
 
 import yaml
+from prompt_toolkit import PromptSession
+from prompt_toolkit.completion import WordCompleter
+from prompt_toolkit.history import InMemoryHistory
 from pydantic import BaseModel
 from rich.console import Console
 from rich.live import Live
@@ -174,9 +177,7 @@ def _client_factory_for_registry(
     return build_from_snapshot
 
 
-def _validate_context_policy(
-    model: str, registry: Registry, context_config: ContextConfig
-) -> None:
+def _validate_context_policy(model: str, registry: Registry, context_config: ContextConfig) -> None:
     """Resolve the selected model and its context limits before publishing a snapshot."""
     SlidingWindowContextPolicy(get_capability(model, registry), None, context_config)
 
@@ -254,8 +255,7 @@ def render_outcome(outcome: TaskOutcome, console: Console) -> None:
         colour = "green" if result.status in {"accepted", "replaced"} else "yellow"
         detail = f" ({result.reason})" if result.reason else ""
         console.print(
-            f"[{colour}]memory {result.status}[/{colour}]: "
-            f"{result.scope}/{result.key}{detail}"
+            f"[{colour}]memory {result.status}[/{colour}]: {result.scope}/{result.key}{detail}"
         )
 
 
@@ -837,13 +837,29 @@ def _handle_help_command(goal: str, console: Console) -> None:
         console.print(f"[red]unknown command[/red] {name!r}")
 
 
+def _make_interactive_reader() -> Callable[[str], str]:
+    """Return a terminal reader with slash-command completion and session-only history."""
+    completer = WordCompleter(
+        list(_SLASH_COMMAND_USAGE),
+        meta_dict=_SLASH_COMMAND_USAGE,
+        sentence=True,
+        match_middle=False,
+    )
+    session = PromptSession(
+        history=InMemoryHistory(),
+        completer=completer,
+        complete_while_typing=True,
+    )
+    return session.prompt
+
+
 def repl(
     *,
     tier: Tier,
     model: str,
     client_factory: ClientFactory,
     console: Console | None = None,
-    read_line: Callable[[str], str] = input,
+    read_line: Callable[[str], str] | None = None,
     confirmation_available: bool | None = None,
     container_image: str | None = None,
     stream: bool = False,
@@ -860,6 +876,10 @@ def repl(
     `stream` (M9 Phase 3) renders each goal's response live as it arrives.
     """
     console = console or Console()
+    if read_line is None:
+        read_line = (
+            _make_interactive_reader() if console.is_terminal and sys.stdin.isatty() else input
+        )
     current_context = context_config or ContextConfig()
     current_registry = registry
     if use_registry_snapshot is None:
