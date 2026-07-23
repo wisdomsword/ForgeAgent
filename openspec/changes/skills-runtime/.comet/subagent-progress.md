@@ -6,3 +6,4 @@
 - Task 4: complete (a16fbd9..b475415; review approved with two final-review Minors)
 - Task 5: complete (81f3e2f..4af0a6d; review clean after one fix round)
 - Task 6: complete (2848382..09d1683; review clean)
+- Task 7: complete (0a53ee3..23b67ac; review clean after one fix round)

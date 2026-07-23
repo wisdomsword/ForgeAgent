@@ -693,7 +693,7 @@ git commit -m "feat: enhance interactive repl command input"
 - Consumes: Task 4's initial-prompt/second-round feedback behavior and the existing offline golden runner abstractions.
 - Produces: an M19 candidate test that proves successful use of a Skill and a no-Skill control without editing `tests/golden/manifest.py`.
 
-- [ ] **Step 1: Write the failing deterministic Skill golden candidate tests**
+- [x] **Step 1: Write the failing deterministic Skill golden candidate tests**
 
 ```python
 def test_skill_candidate_reads_catalog_then_uses_skill_feedback(tmp_path):
@@ -711,13 +711,13 @@ def test_no_skill_control_never_advertises_or_registers_skill(tmp_path):
     assert '"name":"Skill"' not in result.first_request
 ```
 
-- [ ] **Step 2: Run candidate tests and verify RED**
+- [x] **Step 2: Run candidate tests and verify RED**
 
 Run: `uv run pytest tests/test_golden_candidates_skills.py -v`
 
 Expected: FAIL because the M19 candidate helper/case does not exist.
 
-- [ ] **Step 3: Implement deterministic candidate scripts and seed documentation**
+- [x] **Step 3: Implement deterministic candidate scripts and seed documentation**
 
 ```python
 def run_skill_candidate(tmp_path: Path) -> CandidateResult:
@@ -733,7 +733,7 @@ def run_skill_candidate(tmp_path: Path) -> CandidateResult:
 
 Register the candidate only in the candidate test module or an existing non-verified candidate collection. In the seed document, specify the fixture SKILL.md, first-round `Skill` call, required second-round marker, and no-Skill counterpart. Do not add it to the 20-item core manifest or alter its ID/count assertion.
 
-- [ ] **Step 4: Run the candidate and unchanged verified core for GREEN**
+- [x] **Step 4: Run the candidate and unchanged verified core for GREEN**
 
 Run separately:
 
@@ -742,7 +742,7 @@ Run separately:
 
 Expected: new candidate tests PASS and the golden core reports exactly `20/20` passing.
 
-- [ ] **Step 5: Commit the M19 golden evidence**
+- [x] **Step 5: Commit the M19 golden evidence**
 
 ```bash
 git add tests/test_golden_candidates_skills.py tests/golden/cases.py docs/golden-tasks-seed.md

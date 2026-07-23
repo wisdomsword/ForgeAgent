@@ -16,7 +16,7 @@
 
 ## 4. Golden 与文档
 
-- [ ] 4.1 增加离线 golden Skill 注入候选和渐进加载上下文体积断言，保持既有 20 项 verified core 不变
+- [x] 4.1 增加离线 golden Skill 注入候选和渐进加载上下文体积断言，保持既有 20 项 verified core 不变
 - [ ] 4.2 更新 README、SKILL.md 示例、文本协议、威胁模型与 ACTION_PLAN M19 状态
 
 ## 5. 评审与验证
