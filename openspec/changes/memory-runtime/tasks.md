@@ -13,9 +13,9 @@
 
 ## 3. CLI 与 headless 控制
 
-- [ ] 3.1 接入由 REPL 持有的 session/project MemoryManager，实现 `/memory` 查看、`/remember` 提交和 `/reload` 刷新。
-- [ ] 3.2 将 `--no-memory` 接入单次运行与 REPL 参数/配置链路，确保停用 manager 既不注入也不持久化候选。
-- [ ] 3.3 保持 HTTP/headless 仅项目级语义，并增加无会话泄漏与停用记忆的请求路径回归测试。
+- [x] 3.1 接入由 REPL 持有的 session/project MemoryManager，实现 `/memory` 查看、`/remember` 提交和 `/reload` 刷新。
+- [x] 3.2 将 `--no-memory` 接入单次运行与 REPL 参数/配置链路，确保停用 manager 既不注入也不持久化候选。
+- [x] 3.3 保持 HTTP/headless 仅项目级语义，并增加无会话泄漏与停用记忆的请求路径回归测试。
 
 ## 4. 文档与验证资产
 
