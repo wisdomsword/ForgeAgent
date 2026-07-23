@@ -6,7 +6,7 @@ Task 会重复应用并展示相同准入结果；同次复测还证明固定协
 
 ## What Changes
 
-- 让单个 Task 内完全相同的 Memory 候选具有幂等语义，只应用并反馈一次。
+- 让单个 Task 内同一 scope/key 在值未变化时重复发出的 Memory 候选具有幂等语义，只应用并反馈一次。
 - 保留同 key 不同内容候选的原有出现顺序和后写覆盖语义。
 - 更正固定协议中的 `utils` 调用方式，并明确纯记忆请求无需 Exec。
 - 增加重复候选与固定协议文本的回归测试。
@@ -19,7 +19,7 @@ Task 会重复应用并展示相同准入结果；同次复测还证明固定协
 
 ### Modified Capabilities
 
-- `runtime-memory`：明确单 Task 内完全相同的模型候选只处理一次，避免重复写入、审计和 CLI 反馈。
+- `runtime-memory`：明确单 Task 内同一 scope/key 未变化的重复模型候选只处理一次，避免重复写入、审计和 CLI 反馈。
 - `runtime-identity`：更正固定协议公开的 `utils` 注入方式和精确调用签名，并明确纯记忆请求无需 Exec。
 
 ## Impact

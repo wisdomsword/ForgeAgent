@@ -216,19 +216,15 @@ class Task:
         rounds = step.run(messages)
         status = self._derive_status(rounds)
         memory_results: list[MemoryResult] = []
-        seen_memory_candidates: set[tuple[str, str, str, str]] = set()
+        last_memory_values: dict[tuple[str, str], tuple[str, str]] = {}
         if self._memory_manager is not None and status.solved:
             for round_result in rounds:
                 for candidate in round_result.memory_candidates:
-                    candidate_identity = (
-                        candidate.scope,
-                        candidate.kind,
-                        candidate.key,
-                        candidate.content,
-                    )
-                    if candidate_identity in seen_memory_candidates:
+                    address = (candidate.scope, candidate.key)
+                    value = (candidate.kind, candidate.content)
+                    if last_memory_values.get(address) == value:
                         continue
-                    seen_memory_candidates.add(candidate_identity)
+                    last_memory_values[address] = value
                     memory_results.append(
                         self._memory_manager.apply(candidate, task_id=self._task_id)
                     )

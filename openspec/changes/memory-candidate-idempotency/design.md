@@ -9,7 +9,7 @@ round 顺序应用全部候选，因此完全相同的候选会重复写入、�
 
 **Goals:**
 
-- 单 Task 内完全相同候选只应用一次。
+- 单 Task 内同一 scope/key 的值未变化时，完全相同候选只应用一次。
 - 同 key 但不同 scope、kind 或 content 的候选继续按出现顺序处理。
 - 固定协议准确说明 `utils` API，并让纯记忆请求不再要求无意义的 Exec。
 
@@ -21,8 +21,8 @@ round 顺序应用全部候选，因此完全相同的候选会重复写入、�
 
 ## Decisions
 
-1. Task 收集候选时以 `(scope, kind, key, content)` 四元组维护 task-local seen set；首次出现
-   时调用 manager，后续完全重复项跳过。相比只按 key 去重，这不会丢失同 key 的确认更新。
+1. Task 按 `(scope, key)` 记录最近一次 `(kind, content)`；值未变化时跳过重发，值变化时
+   继续调用 manager。相比全局 seen set，这保留 `ruff → black → ruff` 的明确回退语义。
 2. 去重放在 Task 与 manager 的边界，而不是 CLI 展示层：这样写入和审计也保持幂等，所有
    Task 调用方获得一致结果。
 3. 固定协议使用真实示例 `utils.set_state("key", value)`，明确 `utils` 已注入、不得 import；

@@ -176,14 +176,19 @@ def test_task_preserves_order_for_same_key_with_different_content(tmp_path):
         MockClient(
             script=[
                 _reply(first + "\n" + _tool_call("Exec", code="print('update')")),
-                _reply(_done() + "\n" + second),
+                _reply(second + "\n" + _tool_call("Exec", code="print('revert')")),
+                _reply(_done() + "\n" + first),
             ]
         ),
         memory_manager=manager,
     ).run("update formatter")
 
-    assert [result.status for result in outcome.memory_results] == ["accepted", "replaced"]
-    assert "- formatter: black" in manager.render()
+    assert [result.status for result in outcome.memory_results] == [
+        "accepted",
+        "replaced",
+        "replaced",
+    ]
+    assert "- formatter: ruff" in manager.render()
 
 
 def test_task_applies_project_memory_and_next_task_receives_it(tmp_path):
