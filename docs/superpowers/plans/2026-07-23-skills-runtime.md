@@ -583,7 +583,7 @@ git commit -m "feat: load skill snapshots in cli and http"
 - Consumes: `_SLASH_COMMAND_USAGE` in `cli.py`; explicit `read_line` injection and current console/TTY behavior.
 - Produces: `_make_interactive_reader() -> Callable[[str], str]`, used only when `repl(read_line=None)` has interactive stdin and stdout.
 
-- [ ] **Step 1: Write failing enhanced-reader selection, completion, and history tests**
+- [x] **Step 1: Write failing enhanced-reader selection, completion, and history tests**
 
 ```python
 def test_repl_explicit_reader_never_constructs_prompt_session(monkeypatch):
@@ -611,13 +611,13 @@ def test_non_tty_default_reader_uses_builtin_input(monkeypatch):
     repl(tier="restricted", model="mock", client_factory=_client_factory, read_line=None)
 ```
 
-- [ ] **Step 2: Run reader tests and verify RED**
+- [x] **Step 2: Run reader tests and verify RED**
 
 Run: `uv run pytest tests/test_cli.py -k 'prompt_session or interactive_reader or non_tty' -v`
 
 Expected: FAIL because `repl` defaults to the bound `input` callable and `prompt_toolkit` is not a dependency.
 
-- [ ] **Step 3: Add the dependency and isolate enhanced input to the default interactive path**
+- [x] **Step 3: Add the dependency and isolate enhanced input to the default interactive path**
 
 ```toml
 dependencies = [
@@ -665,7 +665,7 @@ def repl(
 
 Run `uv lock` after editing `pyproject.toml`. Keep the PromptSession local to one REPL invocation, use no custom key bindings, and do not use `FileHistory`; default menu behavior provides candidate navigation with arrows and history navigation when its completion menu is inactive. Retain current handling of EOF, `KeyboardInterrupt`, blank input, `quit`, `exit`, Survey, confirmations, and all explicitly injected readers.
 
-- [ ] **Step 4: Run enhanced reader and all REPL regression tests for GREEN**
+- [x] **Step 4: Run enhanced reader and all REPL regression tests for GREEN**
 
 Run separately:
 
@@ -675,7 +675,7 @@ Run separately:
 
 Expected: PASS; `/`, `/m`, and `/mo` completion candidates derive from `_SLASH_COMMAND_USAGE`, accepted commands remain editable, history is in-memory only, and non-TTY/test readers retain old behavior.
 
-- [ ] **Step 5: Commit the isolated REPL dependency and reader**
+- [x] **Step 5: Commit the isolated REPL dependency and reader**
 
 ```bash
 git add pyproject.toml uv.lock src/forgeagent/cli.py tests/test_cli.py

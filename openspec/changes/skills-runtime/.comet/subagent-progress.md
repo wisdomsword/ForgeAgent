@@ -5,3 +5,4 @@
 - Task 3: complete (3c0763d..52dc470; review clean after report-collision repair)
 - Task 4: complete (a16fbd9..b475415; review approved with two final-review Minors)
 - Task 5: complete (81f3e2f..4af0a6d; review clean after one fix round)
+- Task 6: complete (2848382..09d1683; review clean)

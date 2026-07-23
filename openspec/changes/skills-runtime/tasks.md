@@ -11,8 +11,8 @@
 
 ## 3. REPL 交互输入
 
-- [ ] 3.1 添加并锁定 `prompt_toolkit` 依赖，实现由 `_SLASH_COMMAND_USAGE` 驱动的逐字符前缀候选和键盘选择
-- [ ] 3.2 实现当前会话上下键历史，覆盖 TTY 增强路径、非 TTY fallback 及显式 `read_line` 兼容
+- [x] 3.1 添加并锁定 `prompt_toolkit` 依赖，实现由 `_SLASH_COMMAND_USAGE` 驱动的逐字符前缀候选和键盘选择
+- [x] 3.2 实现当前会话上下键历史，覆盖 TTY 增强路径、非 TTY fallback 及显式 `read_line` 兼容
 
 ## 4. Golden 与文档
 
