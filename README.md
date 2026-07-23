@@ -38,6 +38,9 @@ uv run forgeagent --tier trusted run "..." --interactive
 # 流式显示：响应逐字实时渲染（非终端环境如管道/CI 自动降级为非流式）
 uv run forgeagent --stream run "..."
 
+# 禁用 session/project memory 的读取、注入与写入
+uv run forgeagent --no-memory run "..."
+
 # 附加图片：单个文件或整个目录（≤5MB/张、≤20 张），模型需支持图片输入
 uv run forgeagent run "描述这张图" --image ./screenshot.png
 ```
@@ -56,10 +59,14 @@ REPL 内输入 `/` 加回车查看指令菜单，或直接 `/help`。当前支�
 - `/search <query>` — 联网搜索，结果只打印，绝不自动送进对话内容
 - `/image <path> [goal...]` — 附加图片（文件或目录）；不带 goal 则暂存到下一条输入
 - `/mcp [status|enable <s>|disable <s>]` — 看 MCP server 连接状态与工具清单、启停某个 server
+- `/memory` — 查看当前 session/project memory（已掩码）
+- `/remember <session|project> <key>=<value>` — 显式保存一条陈述性事实
 - `/reload` — 重读 `~/.forgeagent/{models,config}.yaml`，配置写错时当场报错而非等到下次 run
 - `/help [command]` — 列出全部指令，或查看某个指令的详细用法
 
 REPL 命令必须以 `/` 开头。裸 `models`、`reload`、`mcp` 和 `mcp ...` 都是普通任务目标；这与顶层 CLI 子命令 `forgeagent models` 无关，后者仍用于列出模型。
+
+Memory 只保存经过确定性准入的事实、偏好和决策。程序性做事方法会被拒绝并提示沉淀为 Skill；项目级冲突按后写入者替换，文件可直接编辑纠正。`--no-memory` 同时关闭两级记忆。
 
 ## 配置（API key 与端点）
 

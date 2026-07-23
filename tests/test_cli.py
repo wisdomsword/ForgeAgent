@@ -27,6 +27,7 @@ from forgeagent.cli import (
     build_parser,
     main,
     render_outcome,
+    repl,
     run_once,
 )
 from forgeagent.client import MockClient
@@ -65,6 +66,74 @@ def _factory(script):
 def _console() -> Console:
     # record=True lets us assert on rendered text without a real terminal.
     return Console(record=True, width=100, force_terminal=False)
+
+
+def test_parser_accepts_no_memory_switch():
+    args = build_parser().parse_args(["--no-memory", "run", "goal"])
+    assert args.no_memory is True
+
+
+def test_repl_remember_and_memory_commands(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    console = _console()
+    inputs = iter(["/remember project editor=nvim", "/memory", "quit"])
+    repl(
+        tier="trusted",
+        model="mock",
+        client_factory=_factory([]),
+        console=console,
+        read_line=lambda _prompt: next(inputs),
+        confirmation_available=False,
+        use_registry_snapshot=False,
+    )
+    assert "editor: nvim" in console.export_text()
+    assert "editor: nvim" in (tmp_path / ".forgeagent" / "MEMORY.md").read_text()
+
+
+def test_repl_no_memory_does_not_persist_remember(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    console = _console()
+    inputs = iter(["/remember project editor=nvim", "/memory", "quit"])
+    repl(
+        tier="trusted",
+        model="mock",
+        client_factory=_factory([]),
+        console=console,
+        read_line=lambda _prompt: next(inputs),
+        confirmation_available=False,
+        no_memory=True,
+        use_registry_snapshot=False,
+    )
+    assert "editor: nvim" not in console.export_text()
+    assert not (tmp_path / ".forgeagent" / "MEMORY.md").exists()
+
+
+def test_repl_no_identity_also_disables_memory(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    console = _console()
+    inputs = iter(["/remember project editor=nvim", "quit"])
+    repl(
+        tier="trusted",
+        model="mock",
+        client_factory=_factory([]),
+        console=console,
+        read_line=lambda _prompt: next(inputs),
+        confirmation_available=False,
+        no_identity=True,
+        use_registry_snapshot=False,
+    )
+    assert not (tmp_path / ".forgeagent" / "MEMORY.md").exists()
+
+
+def test_http_runtime_settings_accept_no_memory(tmp_path):
+    from forgeagent.cli import _load_http_runtime_settings
+
+    config_path = tmp_path / "http.yaml"
+    config_path.write_text(
+        f"token: test-token\nallowed_root: {tmp_path}\nno_memory: true\n",
+        encoding="utf-8",
+    )
+    assert _load_http_runtime_settings(config_path).no_memory is True
 
 
 class _UnknownConfirmationArgs(BaseModel):
@@ -2884,6 +2953,7 @@ def test_main_default_does_not_create_http_server(monkeypatch):
         ["--model", "claude-haiku-4-5"],
         ["--container-image", "custom-image"],
         ["--no-identity"],
+        ["--no-memory"],
     ],
 )
 def test_serve_rejects_cli_execution_policy_overrides(monkeypatch, tmp_path, override):
@@ -2991,6 +3061,7 @@ def test_serve_builds_server_owned_task_factory_and_closes_in_order(monkeypatch,
     assert stat.S_IMODE(audit_path.stat().st_mode) == 0o600
 
     task = captured["factory"](SimpleNamespace(task_id="task-123"))
+    other_task = captured["factory"](SimpleNamespace(task_id="task-456"))
     try:
         assert task._tier == "trusted"
         assert task._allowed_root == str(allowed_root.resolve())
@@ -2999,8 +3070,11 @@ def test_serve_builds_server_owned_task_factory_and_closes_in_order(monkeypatch,
         assert task._audit_sink is captured["audit_sink"]
         assert task._task_id == "task-123"
         assert task._confirmer.is_headless is True
+        assert task._memory_manager is not other_task._memory_manager
+        assert task._memory_manager.enabled is False
     finally:
         task.close()
+        other_task.close()
 
 
 def test_serve_task_factory_does_not_inherit_mcp_auto_approve(monkeypatch, tmp_path):

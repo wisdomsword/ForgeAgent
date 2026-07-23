@@ -39,6 +39,7 @@ _CODE_BLOCK = re.compile(
 
 # Tool call: a single HTML comment carrying a JSON object.
 _TOOL_CALL = re.compile(r"<!--\s*ToolCall:\s*(\{.*?\})\s*-->", re.DOTALL)
+_MEMORY = re.compile(r"<!--\s*Memory:\s*(.*?)\s*-->", re.DOTALL)
 
 
 class ParseErrorType(StrEnum):
@@ -170,6 +171,15 @@ class ToolCall(BaseModel):
     source: ToolCallSource = ToolCallSource.TEXT
 
 
+class MemoryCandidate(BaseModel):
+    """One explicit, structured fact proposed for the runtime memory store."""
+
+    scope: Literal["session", "project"]
+    kind: Literal["fact", "preference", "decision", "procedure"]
+    key: str = Field(min_length=1)
+    content: str = Field(min_length=1)
+
+
 # --- task status (front matter) ---------------------------------------------
 
 
@@ -189,6 +199,7 @@ class ParseResult(BaseModel):
     task_status: TaskStatus | None = None
     code_blocks: list[CodeBlock] = Field(default_factory=list)
     tool_calls: list[ToolCall] = Field(default_factory=list)
+    memory_candidates: list[MemoryCandidate] = Field(default_factory=list)
     errors: list[ParseError] = Field(default_factory=list)
     # The response text with the front matter stripped off — a model that answers in
     # plain prose instead of calling Exec leaves its answer here, so callers can still
@@ -343,6 +354,31 @@ def _parse_tool_calls(
         )
 
 
+def _parse_memory_candidates(text: str, result: ParseResult) -> str:
+    """Extract explicit Memory markers and return display text without them."""
+    for match in _MEMORY.finditer(text):
+        raw = match.group(1)
+        try:
+            result.memory_candidates.append(MemoryCandidate.model_validate(json.loads(raw)))
+        except json.JSONDecodeError as exc:
+            result.errors.append(
+                ParseError(
+                    error_type=ParseErrorType.JSON_DECODE_ERROR,
+                    message=f"Invalid JSON in Memory marker: {exc}",
+                    raw=raw,
+                )
+            )
+        except ValidationError as exc:
+            result.errors.append(
+                ParseError(
+                    error_type=ParseErrorType.VALIDATION_ERROR,
+                    message=f"Invalid Memory candidate: {exc}",
+                    raw=raw,
+                )
+            )
+    return _MEMORY.sub("", text)
+
+
 def _parse_native_tool_calls(
     native_calls: list[NativeToolCall],
     result: ParseResult,
@@ -392,6 +428,7 @@ def parse(
     schemas = _DEFAULT_ARGS_BY_NAME if tool_schemas is None else tool_schemas
     result = ParseResult()
     body = _parse_front_matter(text, result)
+    body = _parse_memory_candidates(body, result)
     result.body = body.strip()
     _parse_code_blocks(body, result)
     _parse_tool_calls(body, result, schemas)

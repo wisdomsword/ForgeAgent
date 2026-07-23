@@ -38,7 +38,7 @@ from rich.text import Text
 
 from . import http_server
 from .anthropic_client import AnthropicClient
-from .audit import JsonlAuditSink
+from .audit import AuditSink, JsonlAuditSink
 from .client import ModelClient
 from .context import ContextConfig, SlidingWindowContextPolicy, load_context_config
 from .executor import ContainerRuntimeError
@@ -56,6 +56,7 @@ from .identity import (
 )
 from .image_input import load_images
 from .mcp_manager import MCPManager, load_mcp_config
+from .memory import MemoryManager
 from .model_registry import (
     Registry,
     RegistryError,
@@ -67,7 +68,7 @@ from .model_registry import (
 )
 from .models import ImageItem, StreamEventKind, TokenUsage
 from .openai_compatible_client import OpenAICompatibleClient
-from .protocol import FileWriteArgs, MCPArgs, SurveyArgs, WebFetchArgs
+from .protocol import FileWriteArgs, MCPArgs, MemoryCandidate, SurveyArgs, WebFetchArgs
 from .secret_policy import REDACTED, is_secret_name, mask_secrets, sensitive_env_values
 from .step import RoundResult, Termination
 from .task import Task, TaskOutcome
@@ -94,6 +95,7 @@ class _HttpRuntimeSettings:
     tier: Tier
     allowed_root: str
     no_identity: bool
+    no_memory: bool
     container_image: str | None
     shutdown_timeout_seconds: float
 
@@ -104,6 +106,7 @@ _HTTP_RUNTIME_KEYS = frozenset(
         "tier",
         "allowed_root",
         "no_identity",
+        "no_memory",
         "container_image",
         "shutdown_timeout_seconds",
     }
@@ -120,6 +123,7 @@ _SERVE_FORBIDDEN_CLI_OPTIONS = (
     "--model",
     "--stream",
     "--no-identity",
+    "--no-memory",
 )
 
 
@@ -487,6 +491,31 @@ def resolve_cli_identity(
     )
 
 
+def _make_memory_manager(
+    allowed_root: str,
+    *,
+    identity: ApprovedIdentity | None,
+    no_memory: bool,
+    no_identity: bool,
+    audit_sink: AuditSink | None = None,
+    diagnostic: IdentityDiagnostic | None = None,
+) -> MemoryManager:
+    """Keep project memory behind the same M17 identity trust decision."""
+    memory_path = Path(allowed_root) / ".forgeagent" / "MEMORY.md"
+    project_trusted = identity is not None and getattr(identity, "memory", None) is not None
+    allow_project = not os.path.lexists(memory_path) or project_trusted
+    manager = MemoryManager(
+        allowed_root,
+        audit_sink=audit_sink,
+        enabled=not no_memory and not no_identity,
+        allow_project=allow_project,
+        diagnostic=diagnostic,
+    )
+    if manager.enabled and allow_project and project_trusted:
+        manager.load()
+    return manager
+
+
 def run_once(
     goal: str,
     *,
@@ -503,6 +532,7 @@ def run_once(
     images: list[ImageItem] | None = None,
     stream: bool = False,
     context_config: ContextConfig | None = None,
+    memory_manager: MemoryManager | None = None,
 ) -> TaskOutcome:
     """Run a single goal and render its outcome. Returns the outcome for testing.
 
@@ -541,6 +571,7 @@ def run_once(
             container_image=container_image,
             on_stream_text=on_stream_text,
             context_config=resolved_context_config,
+            memory_manager=memory_manager,
         )
     except ValueError as exc:
         raise RegistryError(f"Invalid context configuration: {exc}") from exc
@@ -701,9 +732,38 @@ _SLASH_COMMAND_USAGE: dict[str, str] = {
     "/search": "/search <query> — web search; results are printed only, never sent to the model",
     "/image": "/image <path> [goal...] — attach image(s) (file or directory) to a goal",
     "/mcp": "/mcp [status|enable <s>|disable <s>] — MCP server status, tools, and toggles",
+    "/memory": "/memory — show effective session and project memory",
+    "/remember": "/remember <session|project> <key>=<value> — store one declarative fact",
     "/reload": "/reload — reload ~/.forgeagent/{models,config}.yaml",
     "/help": "/help [command] — list commands, or show one command's detailed usage",
 }
+
+
+def _handle_memory_command(manager: MemoryManager, console: Console) -> None:
+    rendered = manager.render()
+    console.print(rendered if rendered else "[dim]no memory[/dim]", markup=False)
+
+
+def _handle_remember_command(goal: str, manager: MemoryManager, console: Console) -> None:
+    parts = goal.split(maxsplit=2)
+    if len(parts) != 3 or parts[1] not in {"session", "project"} or "=" not in parts[2]:
+        console.print("usage: /remember <session|project> <key>=<value>", style="dim")
+        return
+    key, content = parts[2].split("=", 1)
+    try:
+        candidate = MemoryCandidate(
+            scope=parts[1],
+            kind="fact",
+            key=key.strip(),
+            content=content.strip(),
+        )
+    except ValueError:
+        console.print("[red]memory rejected[/red]: invalid candidate")
+        return
+    outcome = manager.apply(candidate)
+    colour = "green" if outcome.status in {"accepted", "replaced"} else "yellow"
+    detail = f": {outcome.reason}" if outcome.reason else ""
+    console.print(f"[{colour}]memory {outcome.status}[/{colour}]{detail}")
 
 
 def _print_command_menu(console: Console) -> None:
@@ -741,6 +801,7 @@ def repl(
     container_image: str | None = None,
     stream: bool = False,
     no_identity: bool = False,
+    no_memory: bool = False,
     context_config: ContextConfig | None = None,
     registry: Registry | None = None,
     use_registry_snapshot: bool | None = None,
@@ -783,6 +844,13 @@ def repl(
         no_identity=no_identity,
         allowed_root=allowed_root,
         confirmer=identity_confirmer,
+        diagnostic=identity_diagnostic,
+    )
+    memory_manager = _make_memory_manager(
+        allowed_root,
+        identity=identity,
+        no_memory=no_memory,
+        no_identity=no_identity,
         diagnostic=identity_diagnostic,
     )
     mcp = build_mcp_manager(console)
@@ -840,10 +908,17 @@ def repl(
                     images=images,
                     stream=stream,
                     context_config=current_context,
+                    memory_manager=memory_manager,
                 )
                 continue
             if goal == "/mcp" or goal.startswith("/mcp "):
                 _handle_mcp_slash(goal, mcp, console)
+                continue
+            if goal == "/memory":
+                _handle_memory_command(memory_manager, console)
+                continue
+            if goal == "/remember" or goal.startswith("/remember "):
+                _handle_remember_command(goal, memory_manager, console)
                 continue
             if goal == "/reload":
                 try:
@@ -865,6 +940,15 @@ def repl(
                             confirmer=identity_confirmer,
                             diagnostic=identity_diagnostic,
                         )
+                        project_trusted = identity is not None and identity.memory is not None
+                        memory_manager.set_project_access(
+                            not os.path.lexists(Path(allowed_root) / ".forgeagent" / "MEMORY.md")
+                            or project_trusted
+                        )
+                        if project_trusted:
+                            memory_manager.load()
+                        else:
+                            memory_manager.clear_project()
                         console.print("[green]identity reloaded[/green]")
                     except IdentityConfigError as exc:
                         console.print(f"[red]identity reload failed[/red]: {exc}")
@@ -891,6 +975,7 @@ def repl(
                 images=staged_images,
                 stream=stream,
                 context_config=current_context,
+                memory_manager=memory_manager,
             )
             staged_images = None
     finally:
@@ -1049,6 +1134,10 @@ def _load_http_runtime_settings(path: str | Path) -> _HttpRuntimeSettings:
     if not isinstance(no_identity, bool):
         raise HttpStartupError("HTTP service identity configuration is invalid.")
 
+    no_memory = values.get("no_memory", False)
+    if not isinstance(no_memory, bool):
+        raise HttpStartupError("HTTP service memory configuration is invalid.")
+
     container_image = values.get("container_image")
     if container_image is not None and (
         not isinstance(container_image, str)
@@ -1070,6 +1159,7 @@ def _load_http_runtime_settings(path: str | Path) -> _HttpRuntimeSettings:
         tier=tier,
         allowed_root=str(allowed_root_path),
         no_identity=no_identity,
+        no_memory=no_memory,
         container_image=container_image,
         shutdown_timeout_seconds=shutdown_timeout_seconds,
     )
@@ -1236,6 +1326,13 @@ def serve_http(
         mcp = build_mcp_manager(console)
 
         def task_factory(record: TaskRecord) -> Task:
+            memory_manager = _make_memory_manager(
+                settings.allowed_root,
+                identity=identity,
+                no_memory=settings.no_memory,
+                no_identity=settings.no_identity,
+                audit_sink=audit_sink,
+            )
             return Task(
                 task_client_factory(settings.model),
                 tier=settings.tier,
@@ -1248,6 +1345,7 @@ def serve_http(
                 audit_sink=audit_sink,
                 task_id=record.task_id,
                 context_config=settings.service.context_config,
+                memory_manager=memory_manager,
             )
 
         service = TaskService(
@@ -1288,6 +1386,11 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("trusted", "restricted", "container"),
         default="restricted",
         help="sandbox tier (default: restricted; container requires docker)",
+    )
+    parser.add_argument(
+        "--no-memory",
+        action="store_true",
+        help="skip session and project memory loading, injection, and writes",
     )
     parser.add_argument(
         "--container-image",
@@ -1409,6 +1512,13 @@ def main(
                     confirmer=identity_confirmer,
                     diagnostic=identity_diagnostic,
                 )
+                memory_manager = _make_memory_manager(
+                    allowed_root,
+                    identity=identity,
+                    no_memory=args.no_memory,
+                    no_identity=args.no_identity,
+                    diagnostic=identity_diagnostic,
+                )
                 outcome = run_once(
                     args.goal,
                     tier=args.tier,
@@ -1423,6 +1533,7 @@ def main(
                     images=images,
                     stream=args.stream,
                     context_config=context_config,
+                    memory_manager=memory_manager,
                 )
             finally:
                 if mcp is not None:
@@ -1453,6 +1564,7 @@ def main(
             container_image=args.container_image,
             stream=args.stream,
             no_identity=args.no_identity,
+            no_memory=args.no_memory,
             context_config=context_config,
             registry=runtime_registry,
             use_registry_snapshot=client_factory is build_real_client,

@@ -10,6 +10,7 @@ from forgeagent.models import NativeToolCall
 from forgeagent.protocol import (
     EditArgs,
     ExecArgs,
+    MemoryCandidate,
     ParseErrorType,
     ToolCallSource,
     parse,
@@ -118,6 +119,35 @@ def test_front_matter_absent_parses_body():
     result = parse(text)
     assert result.task_status is None
     assert len(result.tool_calls) == 1
+
+
+def test_memory_marker_is_extracted_and_removed_from_body():
+    text = (
+        'answer '
+        '<!-- Memory: {"scope":"project","kind":"fact",'
+        '"key":"editor","content":"vim"} -->'
+    )
+    result = parse(text)
+    assert not result.errors
+    assert result.memory_candidates == [
+        MemoryCandidate(scope="project", kind="fact", key="editor", content="vim")
+    ]
+    assert "Memory:" not in result.body
+
+
+def test_malformed_memory_marker_produces_error_without_candidate():
+    result = parse('x <!-- Memory: {"scope":"project","key":"missing-kind"} -->')
+    assert result.memory_candidates == []
+    assert any(error.error_type == ParseErrorType.VALIDATION_ERROR for error in result.errors)
+
+
+def test_memory_content_may_contain_json_braces():
+    result = parse(
+        'x <!-- Memory: {"scope":"session","kind":"fact",'
+        '"key":"json","content":"value with } brace"} -->'
+    )
+    assert result.memory_candidates[0].content == "value with } brace"
+    assert not result.errors
 
 
 def test_front_matter_present_and_valid():

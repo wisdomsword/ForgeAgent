@@ -7,7 +7,9 @@ from forgeagent.audit import AuditEvent
 from forgeagent.client import MockClient
 from forgeagent.context import ContextConfig
 from forgeagent.identity import ApprovedIdentity
+from forgeagent.memory import MemoryManager
 from forgeagent.models import AssistantMessage, StreamEvent, StreamEventKind, TokenUsage
+from forgeagent.protocol import MemoryCandidate
 from forgeagent.step import Termination
 from forgeagent.task import Task, TaskStatus
 
@@ -98,6 +100,77 @@ def test_task_forwards_audit_sink_and_task_id_to_core_events():
     assert outcome.status.completed is True
     assert sink.events
     assert all(event.task_id == "task-correlation" for event in sink.events)
+
+
+def test_task_does_not_persist_memory_from_failed_round(tmp_path):
+    manager = MemoryManager(str(tmp_path))
+    outcome = Task(
+        MockClient(
+            script=[
+                _reply(
+                    '<!-- Memory: {"scope":"project","kind":"fact",'
+                    '"key":"editor","content":"nvim"} -->'
+                )
+            ]
+        ),
+        memory_manager=manager,
+        max_rounds=1,
+    ).run("remember editor")
+    assert outcome.status.solved is False
+    assert not (tmp_path / ".forgeagent" / "MEMORY.md").exists()
+
+
+def test_task_applies_project_memory_and_next_task_receives_it(tmp_path):
+    manager = MemoryManager(str(tmp_path))
+    first = Task(
+        MockClient(
+            script=[
+                _reply(
+                    _done()
+                    + '\n<!-- Memory: {"scope":"project","kind":"fact",'
+                    '"key":"editor","content":"nvim"} -->'
+                )
+            ]
+        ),
+        memory_manager=manager,
+    )
+    assert first.run("remember editor").status.completed is True
+
+    second_client = _RecordingTaskClient(script=[_reply(_done())])
+    assert Task(second_client, memory_manager=manager).run("which editor?").status.completed is True
+    assert "- editor: nvim" in second_client.first_messages[0].content
+
+
+def test_explicit_system_prompt_does_not_mix_memory(tmp_path):
+    manager = MemoryManager(str(tmp_path))
+    manager.apply(
+        MemoryCandidate(scope="session", kind="fact", key="editor", content="nvim")
+    )
+    client = _RecordingTaskClient(script=[_reply(_done())])
+    Task(client, system_prompt="explicit", memory_manager=manager).run("goal")
+    assert client.first_messages[0].content == "explicit"
+
+
+def test_memory_audit_omits_candidate_content(tmp_path):
+    sink = _RecordingAuditSink()
+    manager = MemoryManager(str(tmp_path), audit_sink=sink)
+    Task(
+        MockClient(
+            script=[
+                _reply(
+                    _done()
+                    + '\n<!-- Memory: {"scope":"session","kind":"preference",'
+                    '"key":"format","content":"very-private-value"} -->'
+                )
+            ]
+        ),
+        memory_manager=manager,
+        task_id="memory-task",
+    ).run("remember format")
+    memory_events = [event for event in sink.events if event.event_type.startswith("memory.")]
+    assert [event.event_type for event in memory_events] == ["memory.accepted"]
+    assert "very-private-value" not in repr(memory_events)
+    assert memory_events[0].task_id == "memory-task"
 
 
 def test_task_status_exposes_cancelled_without_marking_solved():
