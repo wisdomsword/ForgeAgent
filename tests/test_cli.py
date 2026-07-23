@@ -202,6 +202,42 @@ def test_startup_display_console_capability_disables_live(monkeypatch, console):
     assert lives == []
 
 
+@pytest.mark.parametrize(
+    ("console", "environment"),
+    [
+        (Console(record=True, width=100, force_terminal=True), {"NO_COLOR": "1"}),
+        (Console(record=True, width=100, force_terminal=True, no_color=True), {}),
+        (Console(record=True, width=100, force_terminal=True, color_system=None), {}),
+    ],
+    ids=("no-color-environment", "console-no-color", "no-color-system"),
+)
+def test_interactive_degraded_color_renders_static_startup_mark_without_live(
+    monkeypatch, console, environment
+):
+    for name in ("NO_COLOR", "CI", "GITHUB_ACTIONS", "BUILD_NUMBER", "TERM"):
+        monkeypatch.delenv(name, raising=False)
+    for name, value in environment.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setattr(cli_module.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(cli_module, "Live", lambda **kwargs: pytest.fail("must not construct"))
+    monkeypatch.setattr(cli_module, "_make_interactive_reader", lambda: lambda _prompt: "quit")
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda _console: None)
+
+    cli_module.repl(
+        tier="restricted",
+        model="mock",
+        client_factory=_factory([]),
+        console=console,
+        read_line=None,
+        no_identity=True,
+        no_memory=True,
+        skills=SkillRegistry({}),
+        use_registry_snapshot=False,
+    )
+
+    assert " _____" in console.export_text()
+
+
 def test_repl_stops_startup_display_when_startup_raises(monkeypatch):
     display, lives = _display_with_recorded_live(monkeypatch)
     monkeypatch.setattr(cli_module, "_StartupDisplay", lambda console: display)

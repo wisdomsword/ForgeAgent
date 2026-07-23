@@ -878,14 +878,20 @@ def _interactive_repl(console: Console, *, default_reader: bool) -> bool:
     return default_reader and console.is_terminal and sys.stdin.isatty()
 
 
-def _startup_ui_available(console: Console) -> bool:
+def _startup_mark_available(console: Console) -> bool:
     return (
         console.is_terminal
+        and os.environ.get("TERM") != "dumb"
+        and not any(name in os.environ for name in ("CI", "GITHUB_ACTIONS", "BUILD_NUMBER"))
+    )
+
+
+def _startup_ui_available(console: Console) -> bool:
+    return (
+        _startup_mark_available(console)
         and console.color_system is not None
         and not console.no_color
         and "NO_COLOR" not in os.environ
-        and os.environ.get("TERM") != "dumb"
-        and not any(name in os.environ for name in ("CI", "GITHUB_ACTIONS", "BUILD_NUMBER"))
     )
 
 
@@ -894,15 +900,21 @@ class _StartupDisplay:
         self._console = console
         self._stage: str | None = None
         self._live: Live | None = None
+        self._static_mark_rendered = False
 
-    def logo_renderable(self) -> Text:
-        colour = _STARTUP_COLOURS[int(time.monotonic() * 8) % len(_STARTUP_COLOURS)]
-        logo = (
+    def _logo_text(self) -> str:
+        return (
             "ForgeAgent"
             if self._console.width < max(map(len, _STARTUP_LOGO))
             else "\n".join(_STARTUP_LOGO)
         )
-        return Text(logo, style=colour)
+
+    def logo_renderable(self) -> Text:
+        colour = _STARTUP_COLOURS[int(time.monotonic() * 8) % len(_STARTUP_COLOURS)]
+        return Text(self._logo_text(), style=colour)
+
+    def static_logo_renderable(self) -> Text:
+        return Text(self._logo_text())
 
     def renderable(self) -> Text:
         rendered = self.logo_renderable()
@@ -913,7 +925,11 @@ class _StartupDisplay:
 
     def start(self, stage: str) -> None:
         self._stage = stage
-        self._start_live()
+        if _startup_ui_available(self._console):
+            self._start_live()
+        elif _startup_mark_available(self._console) and not self._static_mark_rendered:
+            self._console.print(self.static_logo_renderable())
+            self._static_mark_rendered = True
 
     def set_stage(self, stage: str) -> None:
         self._stage = stage
