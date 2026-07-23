@@ -7,7 +7,7 @@ status: done_with_concerns
 
 ## 结论
 
-Task 5 的文档、`/mcp` public-label 负向回归、G355 golden 对齐和验证记录已完成。此前报告中的 golden `19/20` 是 G355 期望修复前的历史结果，不能作为最终通过证据；本次复审后使用全新输出目录实际运行 runner，得到 `20/20 passed (100.0%)`。真实 TTY smoke 未在本子会话伪造，仍保留为人工验证限制。
+Task 5 的文档、`/mcp` public-label 负向回归、G355 golden 对齐和验证记录已完成。此前报告中的 golden `19/20` 是 G355 期望修复前的历史结果，不能作为最终通过证据；本次复审后使用全新输出目录实际运行 runner，得到 `20/20 passed (100.0%)`。真实 TTY smoke 已由主会话完成，剩余未覆盖项只限报告中明确列出的可选人工分支。
 
 ## 文档契约
 
@@ -49,8 +49,8 @@ Task 5 的文档、`/mcp` public-label 负向回归、G355 golden 对齐和验�
 
 主会话使用真实 PTY 完成了 optional-failure 启动与 `quit` 清理：
 
-- `TERM=dumb`/`NO_COLOR=1` 的 TTY 输出一次静态 ASCII 标识，随后显示 `Ready | MCP 0/2`、固定字段的 filesystem/Docker 降级摘要和 `forge> `；输入 `quit` 后退出状态为 `0`。
-- `TERM=xterm-256color` 且未设置 `NO_COLOR` 时观察到 ANSI 七色动态 Logo 帧，动画结束后显示同一摘要和提示符；输入 `quit` 后退出状态为 `0`。
+- `TERM=dumb` 的 TTY 不显示 Logo 或动画，随后显示 `Ready | MCP 0/2`、固定字段的 filesystem/Docker 降级摘要和 `forge> `；输入 `quit` 后退出状态为 `0`。
+- `TERM=xterm-256color` 且设置 `NO_COLOR=1` 时显示一次静态 ASCII 标识；同样的终端未设置 `NO_COLOR` 时观察到 ANSI 七色动态 Logo 帧。两种模式均显示摘要和提示符，输入 `quit` 后退出状态为 `0`。
 - 使用 `tests/mcp_fixture_server.py` 的 normal 模式与隔离 HOME 启动时，摘要显示 `MCP 1/1`；bare `/mcp` 显示 `fixture`、`Status: available`、`Tools: 2`，随后 `quit` 退出状态为 `0`。
 - 在临时项目放置 `.forgeagent/AGENTS.md` 后，动态 Logo 在 `trust project identity` 确认出现前停止刷新；回答 `n` 后动画从 `Loading identity` 恢复到 `Connecting MCP services`，未与输入提示重叠。
 - 在完成启动后的 `forge> ` 提示符发送 Ctrl-C，进程退出状态为 `0`，终端光标与 bracketed-paste 状态均由 prompt-toolkit/Rich 清理序列恢复，无后台刷新残留。
@@ -58,4 +58,10 @@ Task 5 的文档、`/mcp` public-label 负向回归、G355 golden 对齐和验�
 
 ## Dirty-path 审计
 
-本次复审只修改 `README.md` 与本报告。工作树中预存在的 `openspec/changes/startup-information/.comet/subagent-progress.md` 未修改、未暂存、未提交。未触碰生产代码、测试、plan、OpenSpec progress、配置或 milestone 文件。
+Task 5 实际修改并提交了 `README.md`、`docs/m7-tools-mcp-survey.md`、本验证报告、`docs/superpowers/plans/2026-07-23-startup-information.md`、`openspec/changes/startup-information/tasks.md`、`tests/test_cli.py`、`tests/golden/cases.py` 和 `tests/test_http_server.py`；Task 1-4 的生产代码与测试属于同一 change 的既定范围。当前 worktree 的 `git status --short` 只有：
+
+```text
+?? openspec/changes/startup-information/.comet/subagent-progress.md
+```
+
+该 Comet 协调文件预先存在，未修改、未暂存、未提交。根 worktree 另有既存未提交路径（`.agent/`、`.agents/`、`.claude/commands/`、`.claude/rules/`、`.claude/skills/`、`.codex/`、`.superpowers/brainstorm/`、`skills-lock.json`、`work/`、`何为Harness.html`、`ACTION_PLAN.md`、`scripts/m16-filewrite-allowlist-blackbox.sh`），均不在本 change worktree，也未被纳入提交。
