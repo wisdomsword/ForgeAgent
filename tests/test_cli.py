@@ -439,6 +439,7 @@ def test_default_interactive_reader_uses_command_table_and_memory_history(monkey
             captured.update(kwargs)
 
         def prompt(self, prompt):
+            captured["prompt"] = prompt
             return "quit"
 
     monkeypatch.setattr(cli_module, "PromptSession", FakeSession, raising=False)
@@ -466,13 +467,30 @@ def test_default_interactive_reader_uses_command_table_and_memory_history(monkey
     assert captured["complete_while_typing"] is True
     assert isinstance(captured["history"], InMemoryHistory)
     assert "FileHistory" not in repr(captured["history"])
+    assert captured["prompt"] == "forge> "
 
 
 def test_non_tty_default_reader_uses_builtin_input(monkeypatch):
+    prompts = []
     monkeypatch.setattr(cli_module.sys.stdin, "isatty", lambda: False)
-    monkeypatch.setattr("builtins.input", lambda _: "quit")
+    monkeypatch.setattr("builtins.input", lambda prompt: prompts.append(prompt) or "quit")
 
     repl(tier="restricted", model="mock", client_factory=_factory([]), read_line=None)
+
+    assert prompts == [""]
+
+
+def test_explicit_reader_receives_no_interactive_goal_prompt():
+    prompts = []
+
+    repl(
+        tier="restricted",
+        model="mock",
+        client_factory=_factory([]),
+        read_line=lambda prompt: prompts.append(prompt) or "quit",
+    )
+
+    assert prompts == [""]
 
 
 def _registry_with_skill(marker: str = "SKILL-BODY-UNIQUE") -> SkillRegistry:
@@ -2122,8 +2140,7 @@ def test_repl_exits_on_quit():
         console=console,
         read_line=lambda prompt: "quit",
     )
-    # No task ran; just the banner.
-    assert "REPL" in console.export_text()
+    assert console.export_text() == ""
 
 
 def test_repl_exits_cleanly_on_keyboard_interrupt(monkeypatch):
@@ -3576,7 +3593,7 @@ def test_repl_non_tty_rejects_restricted_calls_and_continues(
         assert fake_mcp.calls == []
 
 
-def test_repl_explicit_tty_confirmation_uses_injected_read_line(monkeypatch):
+def test_repl_explicit_confirmation_uses_injected_read_line_without_goal_prompt(monkeypatch):
     import forgeagent.cli as cli_module
 
     inputs = iter(["restricted goal", "y", "quit"])
@@ -3602,7 +3619,7 @@ def test_repl_explicit_tty_confirmation_uses_injected_read_line(monkeypatch):
         confirmation_available=True,
     )
 
-    assert prompts == ["forge> ", "approve? [y/N] ", "forge> "]
+    assert prompts == ["", "approve? [y/N] ", ""]
 
 
 def test_repl_goal_starting_with_mcp_substring_runs_as_normal_task():

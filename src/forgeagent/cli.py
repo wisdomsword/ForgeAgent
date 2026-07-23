@@ -1088,8 +1088,6 @@ def repl(
             return build_real_client(selected_model, registry=current_registry)
         return client_factory(selected_model)
 
-    console.print("[bold]ForgeAgent[/bold] REPL — enter a goal, blank line or 'quit' to exit.")
-    console.print("[dim]type '/' and enter for the command menu, or '/help'[/dim]")
     mcp = None
     try:
         if interactive:
@@ -1151,7 +1149,8 @@ def repl(
         staged_images: list[ImageItem] | None = None
         while True:
             try:
-                goal = read_line("forge> ").strip()
+                prompt = "forge> " if interactive else ""
+                goal = read_line(prompt).strip()
             except EOFError:
                 break
             except KeyboardInterrupt:
