@@ -51,4 +51,3 @@ TBD - created by archiving change skills-runtime. Update Purpose after archive.
 #### Scenario: 管道提交任务
 - **WHEN** 用户通过非 TTY 输入提交一个 goal
 - **THEN** MCP 可继续为任务提供能力，但启动 banner、Logo、MCP optional 状态和交互 prompt 不出现在输出中，既有任务结果仍被输出
-

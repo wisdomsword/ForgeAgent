@@ -39,4 +39,3 @@
 #### Scenario: 非 TTY 使用普通输入
 - **WHEN** REPL 默认启动但 stdin 或输出不是 TTY
 - **THEN** 系统使用普通输入路径并保持现有退出语义
-

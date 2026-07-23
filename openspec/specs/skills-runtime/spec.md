@@ -72,4 +72,3 @@ TBD - created by archiving change skills-runtime. Update Purpose after archive.
 #### Scenario: HTTP 无确认时降级
 - **WHEN** HTTP 服务启动于含未批准项目 Skill 的目录
 - **THEN** 服务继续启动但不暴露该项目 Skill
-
