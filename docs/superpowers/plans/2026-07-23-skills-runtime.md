@@ -189,7 +189,7 @@ git commit -m "feat: add validated user skill registry"
 - Consumes: `SkillRegistry.load` with its `home`, `allowed_root`, `confirmer`, `allow_project`, `trust_record_path`, and `diagnostic` keyword parameters from Task 1, plus existing `canonical_project_id_digest`, `_load_trust_record`, and `_record_approval` internals.
 - Produces: `resolve_project_content_trust` with `allowed_root`, `raw_content_digest`, `effective_input_digest`, `trust_record_path`, `confirmer`, `summary`, `diagnostic`, and `diagnostic_prefix` keyword parameters; it returns `bool` and permits a Registry to overlay trusted project definitions without mutating either snapshot.
 
-- [ ] **Step 1: Lock existing identity behaviour and write failing project-Skill trust tests**
+- [x] **Step 1: Lock existing identity behaviour and write failing project-Skill trust tests**
 
 ```python
 def test_resolve_project_content_trust_matches_existing_record_without_confirming(tmp_path):
@@ -230,13 +230,13 @@ def test_unapproved_or_unwritable_project_skill_keeps_user_definition(tmp_path, 
     assert registry.catalog_prompt().endswith("review-python — user trigger")
 ```
 
-- [ ] **Step 2: Run trust-focused tests and verify RED**
+- [x] **Step 2: Run trust-focused tests and verify RED**
 
 Run: `uv run pytest tests/test_identity.py tests/test_skills.py -k 'content_trust or project_skill or resolve_project_trust' -v`
 
 Expected: FAIL because `resolve_project_content_trust` does not exist and project definitions are not discovered.
 
-- [ ] **Step 3: Extract the generic trust decision and add the project overlay**
+- [x] **Step 3: Extract the generic trust decision and add the project overlay**
 
 ```python
 def resolve_project_content_trust(
@@ -272,13 +272,13 @@ def resolve_project_content_trust(
 
 Refactor `resolve_project_trust()` to delegate to this helper while retaining its identity-specific summary, empty-content fast path, return contract, confirmation wording, and `identity-trust.json` path. In `skills.py`, discover the project candidate fully before building a length-prefixed `name + NUL + raw bytes` raw digest and the corresponding masked-content effective digest under Skills-specific domain separators. Build the confirmation summary from valid `name — trigger` lines, truncate the display at 8 KiB with an explicit truncation marker, use `<home>/.forgeagent/skills-trust.json` by default, and overlay the complete project mapping only when the helper returns true. If record parsing/writing fails after an approved confirmation, retain only the process-local project snapshot and never overwrite the unusable record.
 
-- [ ] **Step 4: Run identity and Skills regression tests for GREEN**
+- [x] **Step 4: Run identity and Skills regression tests for GREEN**
 
 Run: `uv run pytest tests/test_identity.py tests/test_skills.py -v`
 
 Expected: PASS, including unchanged identity trust-record tests, first approval, no-prompt digest reuse, changed digest rejection, denial, no-confirmer fallback, and atomic-record persistence tests.
 
-- [ ] **Step 5: Commit the trust-bound project overlay**
+- [x] **Step 5: Commit the trust-bound project overlay**
 
 ```bash
 git add src/forgeagent/identity.py src/forgeagent/skills.py tests/test_identity.py tests/test_skills.py

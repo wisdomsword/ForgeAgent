@@ -1,7 +1,7 @@
 ## 1. Skill 核心与信任边界
 
 - [x] 1.1 先写失败测试覆盖 SKILL.md 五段校验、大小/数量上限、确定性诊断和用户/项目覆盖，再实现 `SkillDefinition` 与 `SkillRegistry`
-- [ ] 1.2 先锁住既有 identity trust 行为，再提取通用内容摘要信任 helper，并覆盖项目 Skill 首次确认、摘要变化、headless 预批准和原子记录
+- [x] 1.2 先锁住既有 identity trust 行为，再提取通用内容摘要信任 helper，并覆盖项目 Skill 首次确认、摘要变化、headless 预批准和原子记录
 
 ## 2. 渐进加载与执行反馈
 
