@@ -341,7 +341,7 @@ def test_trusted_project_snapshot_overlays_complete_mapping_and_bounds_masked_su
     _write_skill(home, "user-only", trigger="user only")
     monkeypatch.setenv("PROJECT_TOKEN", "summary-secret")
     for index in range(3):
-        name = ("review-python" if index == 0 else f"project-{index}")
+        name = "review-python" if index == 0 else f"project-{index}"
         _write_project_skill(root, name, trigger=f"summary-secret {'x' * 4090}")
     approvals = []
 
@@ -359,3 +359,28 @@ def test_trusted_project_snapshot_overlays_complete_mapping_and_bounds_masked_su
     assert "summary-secret" not in summary
     assert len(summary.encode()) <= 8 * 1024
     assert "summary truncated" in summary
+
+
+def test_project_skill_trust_summary_redacts_paths_and_escapes_controls(tmp_path):
+    home, root = tmp_path / "home", tmp_path / "root"
+    document = _FULL_REVIEW_SKILL.replace(
+        "trigger: Use when reviewing Python.",
+        'trigger: "Use /private/review-secret \\x1b[31m safely."',
+    )
+    _write_raw_skill(root, "review-python", document)
+    summaries = []
+
+    for index in range(2):
+        SkillRegistry.load(
+            home=str(home),
+            allowed_root=str(root),
+            confirmer=lambda request: summaries.append(request.summary) or True,
+            trust_record_path=str(tmp_path / f"skills-trust-{index}.json"),
+        )
+
+    assert summaries == [summaries[0], summaries[0]]
+    assert "/private/review-secret" not in summaries[0]
+    assert "\x1b" not in summaries[0]
+    assert "Use <redacted-path>" in summaries[0]
+    assert r"\x1b[31m safely." in summaries[0]
+    assert len(summaries[0].encode()) <= 8 * 1024

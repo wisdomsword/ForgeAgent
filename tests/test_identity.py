@@ -707,9 +707,7 @@ def test_resolve_project_content_trust_reuses_matching_double_digest_without_con
         diagnostic_prefix="skill",
     )
 
-    assert identity_module.resolve_project_content_trust(
-        **common, confirmer=lambda _request: True
-    )
+    assert identity_module.resolve_project_content_trust(**common, confirmer=lambda _request: True)
     assert identity_module.resolve_project_content_trust(
         **common,
         confirmer=lambda _request: pytest.fail("already-approved content must not prompt"),

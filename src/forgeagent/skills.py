@@ -14,8 +14,12 @@ from typing import TYPE_CHECKING, Literal
 
 import yaml
 
-from forgeagent.identity import resolve_project_content_trust
-from forgeagent.secret_policy import mask_secrets, sensitive_env_values
+from forgeagent.identity import _escape_identity_confirmation, resolve_project_content_trust
+from forgeagent.secret_policy import (
+    _redact_absolute_paths,
+    mask_secrets,
+    sensitive_env_values,
+)
 
 if TYPE_CHECKING:
     from forgeagent.identity import IdentityConfirmer
@@ -88,9 +92,7 @@ class SkillRegistry:
         if not project:
             return cls(_bounded_catalog(user, diagnostic=diagnostic))
 
-        record_path = trust_record_path or os.path.join(
-            home, ".forgeagent", "skills-trust.json"
-        )
+        record_path = trust_record_path or os.path.join(home, ".forgeagent", "skills-trust.json")
         if not resolve_project_content_trust(
             allowed_root=allowed_root,
             raw_content_digest=_content_digest(_RAW_DIGEST_DOMAIN, project_raw_documents),
@@ -194,9 +196,13 @@ def _content_digest(domain: bytes, documents: Mapping[str, bytes]) -> str:
 
 
 def _project_trust_summary(definitions: Mapping[str, SkillDefinition]) -> str:
-    summary = "\n".join(
-        f"{definition.name} — {definition.trigger}" for definition in definitions.values()
-    )
+    lines: list[str] = []
+    for definition in definitions.values():
+        safe_trigger = _escape_identity_confirmation(
+            _redact_absolute_paths(definition.trigger), preserve_newlines=False
+        )
+        lines.append(f"{definition.name} — {safe_trigger}")
+    summary = "\n".join(lines)
     if len(summary.encode("utf-8")) <= _MAX_TRUST_SUMMARY_BYTES:
         return summary
     available = _MAX_TRUST_SUMMARY_BYTES - len(_TRUST_SUMMARY_TRUNCATION.encode("utf-8"))
