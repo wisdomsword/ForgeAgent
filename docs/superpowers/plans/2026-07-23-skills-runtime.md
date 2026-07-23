@@ -52,7 +52,7 @@ base-ref: ff7686d79df0b749ef9de76db5b361934beafe47
 - Consumes: `forgeagent.secret_policy.mask_secrets(text, sensitive_env_values())`; `IdentityConfirmer` is imported only under `TYPE_CHECKING` until Task 2 wires project trust.
 - Produces: `SkillDefinition`, `SkillRegistry.load` with `home` and `allowed_root`, `SkillRegistry.catalog_prompt()`, and `SkillRegistry.read(name, section="full")` for Tasks 2-5.
 
-- [ ] **Step 1: Write the failing validation, containment, ordering, masking, and limit tests**
+- [x] **Step 1: Write the failing validation, containment, ordering, masking, and limit tests**
 
 ```python
 def test_registry_accepts_only_the_fixed_five_part_document(tmp_path):
@@ -107,13 +107,13 @@ def test_catalog_uses_sorted_prefix_when_count_or_bytes_exceed_limit(tmp_path):
     assert diagnostics.count("skill catalog truncated") == 1
 ```
 
-- [ ] **Step 2: Run the new registry tests and verify RED**
+- [x] **Step 2: Run the new registry tests and verify RED**
 
 Run: `uv run pytest tests/test_skills.py -v`
 
 Expected: FAIL during collection with `ModuleNotFoundError: No module named 'forgeagent.skills'`.
 
-- [ ] **Step 3: Implement the smallest frozen parser and secure user-level discovery**
+- [x] **Step 3: Implement the smallest frozen parser and secure user-level discovery**
 
 ```python
 @dataclass(frozen=True)
@@ -160,7 +160,7 @@ class SkillRegistry:
 
 Implement `_discover()` with `lstat`, `realpath`, and `commonpath` checks for the root, each direct child, and its `SKILL.md`; reject dangling links, non-directories, non-regular files, and containment escapes. Parse only YAML front matter whose key set is exactly `{name, trigger}`, validate the name regex and single-line trigger, require the three exact ordered H2 headings exactly once with non-empty bodies, enforce 32 KiB per raw file, mask every retained field before constructing `SkillDefinition`, and emit only the bounded diagnostic grammar asserted by the tests. Sort directory names and make the 64-entry/16-KiB catalog truncation a stable prefix.
 
-- [ ] **Step 4: Run focused registry tests and static checks for GREEN**
+- [x] **Step 4: Run focused registry tests and static checks for GREEN**
 
 Run separately:
 
@@ -170,7 +170,7 @@ Run separately:
 
 Expected: all `tests/test_skills.py` cases PASS; ruff reports no diagnostics and no formatting changes.
 
-- [ ] **Step 5: Commit the independently usable user-Skill snapshot**
+- [x] **Step 5: Commit the independently usable user-Skill snapshot**
 
 ```bash
 git add src/forgeagent/skills.py tests/test_skills.py
