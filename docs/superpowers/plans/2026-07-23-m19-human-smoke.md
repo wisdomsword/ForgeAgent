@@ -38,7 +38,7 @@
 - Produces: `SmokeFixture`, `SmokeState`, `create_fixture(root: Path)`, `SmokeClientFactory`, `evaluate_checks(...)`, and `trust_record_matches_v2(...)` for Task 2.
 - Consumes: production `ModelClient`, `AssistantMessage`, `Message`, `TokenUsage`, `SkillRegistry`, and text ToolCall/task-status protocol.
 
-- [ ] **Step 1: Write failing fixture, client, and final-matrix tests**
+- [x] **Step 1: Write failing fixture, client, and final-matrix tests**
 
 Load the hyphenated script without running `main()` and assert the public harness helpers:
 
@@ -108,13 +108,13 @@ def test_check_matrix_fails_closed_until_human_checks_pass():
     assert checks["arrow history"] is False
 ```
 
-- [ ] **Step 2: Run the new tests and verify RED**
+- [x] **Step 2: Run the new tests and verify RED**
 
 Run: `uv run pytest tests/test_m19_skills_human_smoke.py -v`
 
 Expected: FAIL because `scripts/m19-skills-human-smoke.py` does not exist.
 
-- [ ] **Step 3: Implement the minimum fixture, state machine, and check matrix**
+- [x] **Step 3: Implement the minimum fixture, state machine, and check matrix**
 
 Implement these exact shapes in the new script:
 
@@ -191,7 +191,7 @@ and a stable ordered `evaluate_checks()` mapping. Implement `trust_record_matche
 loading `SkillRegistry` with `confirmer=None` and checking its full rendered Skill for
 `PROJECT_SKILL_V2`; do not parse or duplicate private trust-record internals.
 
-- [ ] **Step 4: Run focused tests and static checks for GREEN**
+- [x] **Step 4: Run focused tests and static checks for GREEN**
 
 Run separately:
 
@@ -201,7 +201,7 @@ Run separately:
 
 Expected: all focused tests pass and Ruff reports no changes or diagnostics.
 
-- [ ] **Step 5: Commit the independently testable deterministic core**
+- [x] **Step 5: Commit the independently testable deterministic core**
 
 ```bash
 git add scripts/m19-skills-human-smoke.py tests/test_m19_skills_human_smoke.py
