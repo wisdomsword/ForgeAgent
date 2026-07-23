@@ -158,7 +158,9 @@ class SmokeClientFactory:
                 _PROJECT_V2_MARKER,
                 "Use the reloaded project review procedure.",
             )
-        marker = _PROJECT_V1_MARKER if task_index == 0 else _PROJECT_V2_MARKER
+        marker = (
+            _PROJECT_V2_MARKER if trust_record_matches_v2(self._fixture) else _PROJECT_V1_MARKER
+        )
         return DeterministicSkillClient(marker, self._state)
 
 
@@ -170,11 +172,12 @@ def evaluate_checks(
     history_ok: bool,
 ) -> dict[str, bool]:
     observed = state.observed_markers
+    progressive_v1 = observed[:1] == [_PROJECT_V1_MARKER]
+    reload_v2 = progressive_v1 and _PROJECT_V2_MARKER in observed[1:]
     return {
-        "progressive V1": len(observed) >= 1 and observed[0] == _PROJECT_V1_MARKER,
-        "reload V2": len(observed) >= 2 and observed[1] == _PROJECT_V2_MARKER,
-        "two-round Skill tasks": observed[:2] == [_PROJECT_V1_MARKER, _PROJECT_V2_MARKER]
-        and not state.failures,
+        "progressive V1": progressive_v1,
+        "reload V2": reload_v2,
+        "two-round Skill tasks": reload_v2 and not state.failures,
         "Skill trust V2": trust_matches,
         "slash completion": completion_ok,
         "arrow history": history_ok,
@@ -253,9 +256,10 @@ def _print_instructions() -> None:
 M19 deterministic human smoke
 
 1. Approve the initial project Skill with: y
-2. At one forge> prompt type '/', then 'm'; backspace to '/', type 're'.
-   Observe the candidates changing. Do not press Enter on /m or /re.
-3. Clear the line, run /help. At the next prompt press Up, then Down.
+2. At one forge> prompt type '/', then 'm'. Keep the leading '/' visible. Backspace to '/',
+   type 're', and observe the candidates changing. Do not press Enter on /m or /re.
+   Use Ctrl-U to clear the line; if you accidentally submit m or re, continue anyway.
+3. Run /help. At the next prompt press Up, then Down.
 4. Run: review first snapshot
 5. Run: /reload, then approve the changed project Skill with: y
 6. Run: review reloaded snapshot

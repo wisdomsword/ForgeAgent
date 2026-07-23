@@ -52,16 +52,14 @@ uv run --offline python scripts/m19-skills-human-smoke.py
    `PASS progressive loading: <marker>`；缺少 marker 时返回失败状态并记录原因。
 
 第一次普通任务创建客户端时，脚本在 Task 已持有 V1 快照之后把磁盘 Skill 改为 V2。
-因此第一次任务必须仍看到 V1；只有用户执行 `/reload`、重新确认摘要并运行第二个任务
-后，才允许看到 V2。这同时验证快照不可变性和 reload 替换语义。
+在用户执行 `/reload` 并重新批准前，所有普通任务仍按 V1 验证；获批记录与 V2 匹配后才切换为 V2。这同时验证快照不可变性和 reload 替换语义，也不会让误提交的探索输入污染结果。
 
 ### 人类交互步骤
 
 脚本启动前打印编号清单，REPL 中由人类完成：
 
 1. 首次项目 Skill 确认输入 `y`。
-2. 在同一个提示符依次键入 `/`、`m`，观察候选逐字符过滤；退格回 `/` 后键入 `re`
-   再观察一次。期间不要回车；清空输入后执行 `/help`。
+2. 在同一个提示符依次键入 `/`、`m`，保留开头的 `/` 并观察候选逐字符过滤；退格回 `/` 后键入 `re` 再观察一次。期间不要回车，用 Ctrl-U 清空输入；即使误提交 `m` 或 `re` 也可继续。然后执行 `/help`。
 3. 在新提示符按上键回放 `/help`，再按下键回到空输入；不要回车执行回放内容。
 4. 输入普通目标 `review first snapshot`，观察 V1 渐进加载 PASS。
 5. 输入 `/reload`，对变化后的项目 Skill 再次输入 `y`。
@@ -75,9 +73,8 @@ REPL 退出后，脚本分别询问斜杠候选和方向键历史是否符合观
 
 脚本最终仅在以下条件全部成立时退出码为 0：
 
-- 第一项普通任务反馈包含 `PROJECT_SKILL_V1`。
-- 第二项普通任务反馈包含 `PROJECT_SKILL_V2`。
-- 两个任务都通过真实 Skill ToolCall → feedback → completed 两轮链路。
+- 普通任务中首先出现 `PROJECT_SKILL_V1`，且在后续任务中出现 `PROJECT_SKILL_V2`。
+- 所有记入的任务都通过真实 Skill ToolCall → feedback → completed 两轮链路，额外 V1 探索任务不会污染结果。
 - 临时 HOME 中生成了 `skills-trust.json`，且 reload 后批准记录与 V2 内容匹配。
 - 人类明确确认斜杠动态候选通过。
 - 人类明确确认上下键历史通过。

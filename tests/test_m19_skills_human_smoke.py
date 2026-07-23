@@ -56,17 +56,29 @@ def test_client_reads_skill_then_accepts_expected_feedback():
     assert state.observed_markers == ["PROJECT_SKILL_V1"]
 
 
-def test_factory_upgrades_disk_once_but_keeps_first_expected_snapshot(tmp_path):
+def test_factory_keeps_v1_until_v2_is_trusted(tmp_path):
     smoke = _load_smoke_module()
     fixture = smoke.create_fixture(tmp_path)
     state = smoke.SmokeState()
+    SkillRegistry.load(
+        home=str(fixture.home),
+        allowed_root=str(fixture.project),
+        confirmer=lambda _request: True,
+    )
     factory = smoke.SmokeClientFactory(fixture, state)
 
     first = factory("mock")
-    second = factory("mock")
+    extra_before_reload = factory("mock")
+    SkillRegistry.load(
+        home=str(fixture.home),
+        allowed_root=str(fixture.project),
+        confirmer=lambda _request: True,
+    )
+    after_reload = factory("mock")
 
     assert first.expected_marker == "PROJECT_SKILL_V1"
-    assert second.expected_marker == "PROJECT_SKILL_V2"
+    assert extra_before_reload.expected_marker == "PROJECT_SKILL_V1"
+    assert after_reload.expected_marker == "PROJECT_SKILL_V2"
     assert "PROJECT_SKILL_V2" in fixture.project_skill.read_text()
 
 
@@ -86,6 +98,27 @@ def test_check_matrix_fails_closed_until_human_checks_pass():
     assert checks["Skill trust V2"] is True
     assert checks["slash completion"] is False
     assert checks["arrow history"] is False
+
+
+def test_check_matrix_allows_extra_v1_tasks_before_reload():
+    smoke = _load_smoke_module()
+    state = smoke.SmokeState(
+        observed_markers=[
+            "PROJECT_SKILL_V1",
+            "PROJECT_SKILL_V1",
+            "PROJECT_SKILL_V1",
+            "PROJECT_SKILL_V2",
+        ]
+    )
+
+    checks = smoke.evaluate_checks(
+        state,
+        trust_matches=True,
+        completion_ok=True,
+        history_ok=True,
+    )
+
+    assert all(checks.values())
 
 
 def test_main_rejects_non_tty(monkeypatch, capsys):
@@ -260,6 +293,8 @@ def test_instructions_name_every_manual_step(capsys):
 
     output = capsys.readouterr().out
     assert "type '/', then 'm'" in output
+    assert "Keep the leading '/' visible" in output
+    assert "accidentally submit m or re" in output
     assert "press Up, then Down" in output
     assert "review first snapshot" in output
     assert "review reloaded snapshot" in output

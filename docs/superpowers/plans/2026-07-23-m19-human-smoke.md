@@ -86,15 +86,27 @@ def test_client_reads_skill_then_accepts_expected_feedback(tmp_path):
     assert state.observed_markers == ["PROJECT_SKILL_V1"]
 
 
-def test_factory_upgrades_disk_once_but_keeps_first_expected_snapshot(tmp_path):
+def test_factory_keeps_v1_until_v2_is_trusted(tmp_path):
     smoke = _load_smoke_module()
     fixture = smoke.create_fixture(tmp_path)
     state = smoke.SmokeState()
+    SkillRegistry.load(
+        home=str(fixture.home),
+        allowed_root=str(fixture.project),
+        confirmer=lambda _request: True,
+    )
     factory = smoke.SmokeClientFactory(fixture, state)
     first = factory("mock")
-    second = factory("mock")
+    extra_before_reload = factory("mock")
+    SkillRegistry.load(
+        home=str(fixture.home),
+        allowed_root=str(fixture.project),
+        confirmer=lambda _request: True,
+    )
+    after_reload = factory("mock")
     assert first.expected_marker == "PROJECT_SKILL_V1"
-    assert second.expected_marker == "PROJECT_SKILL_V2"
+    assert extra_before_reload.expected_marker == "PROJECT_SKILL_V1"
+    assert after_reload.expected_marker == "PROJECT_SKILL_V2"
     assert "PROJECT_SKILL_V2" in fixture.project_skill.read_text()
 
 
@@ -184,7 +196,11 @@ class SmokeClientFactory:
                 "PROJECT_SKILL_V2",
                 "Use the reloaded project review procedure.",
             )
-        marker = "PROJECT_SKILL_V1" if task_index == 0 else "PROJECT_SKILL_V2"
+        marker = (
+            "PROJECT_SKILL_V2"
+            if trust_record_matches_v2(self._fixture)
+            else "PROJECT_SKILL_V1"
+        )
         return DeterministicSkillClient(marker, self._state)
 ```
 
