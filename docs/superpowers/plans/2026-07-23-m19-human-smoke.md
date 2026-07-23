@@ -10,7 +10,9 @@
 
 ## Global Constraints
 
-- Do not read or mutate the real HOME, ForgeAgent configuration, API keys, or project Skills.
+- Do not read or mutate real ForgeAgent configuration or project Skills. Do not resolve, use,
+  print, or transmit API keys; hide inherited secret-named variables from the production path
+  and restore their exact original mapping afterward.
 - Do not open sockets, add dependencies, add a product CLI command, or persist REPL history.
 - The default entry requires both stdin and stdout to be TTYs and must fail closed otherwise.
 - Human completion/history observations default to failure until explicitly answered `y`.
@@ -38,7 +40,7 @@
 - Produces: `SmokeFixture`, `SmokeState`, `create_fixture(root: Path)`, `SmokeClientFactory`, `evaluate_checks(...)`, and `trust_record_matches_v2(...)` for Task 2.
 - Consumes: production `ModelClient`, `AssistantMessage`, `Message`, `TokenUsage`, `SkillRegistry`, and text ToolCall/task-status protocol.
 
-- [ ] **Step 1: Write failing fixture, client, and final-matrix tests**
+- [x] **Step 1: Write failing fixture, client, and final-matrix tests**
 
 Load the hyphenated script without running `main()` and assert the public harness helpers:
 
@@ -108,13 +110,13 @@ def test_check_matrix_fails_closed_until_human_checks_pass():
     assert checks["arrow history"] is False
 ```
 
-- [ ] **Step 2: Run the new tests and verify RED**
+- [x] **Step 2: Run the new tests and verify RED**
 
 Run: `uv run pytest tests/test_m19_skills_human_smoke.py -v`
 
 Expected: FAIL because `scripts/m19-skills-human-smoke.py` does not exist.
 
-- [ ] **Step 3: Implement the minimum fixture, state machine, and check matrix**
+- [x] **Step 3: Implement the minimum fixture, state machine, and check matrix**
 
 Implement these exact shapes in the new script:
 
@@ -191,7 +193,7 @@ and a stable ordered `evaluate_checks()` mapping. Implement `trust_record_matche
 loading `SkillRegistry` with `confirmer=None` and checking its full rendered Skill for
 `PROJECT_SKILL_V2`; do not parse or duplicate private trust-record internals.
 
-- [ ] **Step 4: Run focused tests and static checks for GREEN**
+- [x] **Step 4: Run focused tests and static checks for GREEN**
 
 Run separately:
 
@@ -201,7 +203,7 @@ Run separately:
 
 Expected: all focused tests pass and Ruff reports no changes or diagnostics.
 
-- [ ] **Step 5: Commit the independently testable deterministic core**
+- [x] **Step 5: Commit the independently testable deterministic core**
 
 ```bash
 git add scripts/m19-skills-human-smoke.py tests/test_m19_skills_human_smoke.py
@@ -218,9 +220,9 @@ git commit -m "test: add deterministic M19 smoke harness"
 
 **Interfaces:**
 - Consumes: Task 1's fixture, client factory, trust validation, and check matrix.
-- Produces: `main() -> int` and the documented command `uv run python scripts/m19-skills-human-smoke.py`.
+- Produces: `main() -> int` and the documented command `uv run --offline python scripts/m19-skills-human-smoke.py`.
 
-- [ ] **Step 1: Write failing tests for TTY rejection and cleanup-safe environment restoration**
+- [x] **Step 1: Write failing tests for TTY rejection and cleanup-safe environment restoration**
 
 ```python
 def test_main_rejects_non_tty_without_creating_fixture(monkeypatch, capsys):
@@ -243,16 +245,18 @@ def test_temporary_environment_restores_home_and_cwd(tmp_path, monkeypatch):
     assert Path.cwd() == original_cwd
 ```
 
-- [ ] **Step 2: Run the new tests and verify RED**
+- [x] **Step 2: Run the new tests and verify RED**
 
 Run: `uv run pytest tests/test_m19_skills_human_smoke.py -k 'non_tty or temporary_environment' -v`
 
 Expected: FAIL because `main()` and `temporary_smoke_environment()` are not implemented.
 
-- [ ] **Step 3: Implement the human workflow and summary**
+- [x] **Step 3: Implement the human workflow and summary**
 
 Implement `temporary_smoke_environment()` as a context manager that restores HOME and cwd
-in `finally`. Implement `main()` with this order:
+in `finally`, isolates import-time user config paths, and temporarily hides secret-named
+environment variables. Wrap the production prompt-toolkit reader so a `KeyboardInterrupt`
+swallowed by `repl()` still makes the harness return 130. Implement `main()` with this order:
 
 ```python
 def main() -> int:
@@ -286,7 +290,7 @@ and return 130. `_ask_yes()` accepts only `y` or `yes`; blank and all other valu
 The summary prints every check with `PASS`/`FAIL`, then exactly one final line:
 `M19 HUMAN SMOKE: PASS` or `M19 HUMAN SMOKE: FAIL`.
 
-- [ ] **Step 4: Document the one-command acceptance path and finalize the design status**
+- [x] **Step 4: Document the one-command acceptance path and finalize the design status**
 
 Add this short block after the README Skills runtime description:
 
@@ -297,7 +301,7 @@ Add this short block after the README Skills runtime description:
 候选和当前会话方向键历史：
 
 ```bash
-uv run python scripts/m19-skills-human-smoke.py
+uv run --offline python scripts/m19-skills-human-smoke.py
 ```
 
 该命令必须在真实交互终端运行；它使用临时 HOME/项目和确定性客户端，退出后自动清理，
@@ -306,7 +310,7 @@ uv run python scripts/m19-skills-human-smoke.py
 
 Change the design front matter from `status: proposed` to `status: final`.
 
-- [ ] **Step 5: Run the full automated gate**
+- [x] **Step 5: Run the full automated gate**
 
 Run separately:
 
@@ -318,9 +322,9 @@ Run separately:
 
 Expected: focused and full pytest pass; Ruff and diff checks are clean.
 
-- [ ] **Step 6: Run the real PTY success and failure paths**
+- [x] **Step 6: Run the real PTY success and failure paths**
 
-Success path: run `uv run python scripts/m19-skills-human-smoke.py` in a PTY, follow the seven
+Success path: run `uv run --offline python scripts/m19-skills-human-smoke.py` in a PTY, follow the seven
 printed steps, answer both final questions `y`, and verify final line `M19 HUMAN SMOKE: PASS`
 with exit code 0.
 
@@ -328,7 +332,7 @@ Failure path: run it again, exit before the two normal goals or answer one final
 and verify final line `M19 HUMAN SMOKE: FAIL` with a nonzero exit code. After each run, verify no
 `forgeagent-m19-human-*` directory remains in the system temporary directory.
 
-- [ ] **Step 7: Perform two final self-review passes and commit**
+- [x] **Step 7: Perform two final self-review passes and commit**
 
 First pass: compare every design acceptance item with a test, PTY observation, or final check row.
 Second pass: inspect HOME/cwd restoration, no key/network reads, trust-record verification, exact

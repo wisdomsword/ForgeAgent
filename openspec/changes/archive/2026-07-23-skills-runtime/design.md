@@ -24,7 +24,7 @@ M18 已把 `procedure` 记忆候选固定拒绝为 `procedure_requires_Skill`，
 
 ### 1. `SKILL.md` 使用 YAML front matter 加三个正文段
 
-每个 Skill 位于 `<name>/SKILL.md`。front matter 只含 `name` 与单行 `trigger`；正文必须按顺序包含 `## Steps`、`## Failure branches`、`## Completion criteria` 且均非空。它在语义上正好形成规划要求的五段，同时保持普通 Markdown 可读、可评审。解析复用已安装的 PyYAML，拒绝未知 front matter 键、重复段、名称不一致、控制字符和固定大小上限。
+每个 Skill 位于 `<name>/SKILL.md`。front matter 只含 `name` 与单行 `trigger`；正文必须按顺序包含 `## Steps`、`## Failure Branches`、`## Completion Criteria` 且均非空。它在语义上正好形成规划要求的五段，同时保持普通 Markdown 可读、可评审。解析复用已安装的 PyYAML，拒绝未知 front matter 键、重复段、名称不一致、控制字符和固定大小上限。
 
 备选一是五个纯标题，元数据读取更笨重；备选二是自由 Markdown 加启发式提取，无法可靠验证。严格结构最适合可执行协议边界。
 
