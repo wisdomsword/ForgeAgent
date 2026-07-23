@@ -430,14 +430,14 @@ uv run pytest tests/test_mcp_manager.py tests/test_cli.py tests/test_cli_startup
 uv run pytest -q
 uv run ruff check .
 uv run ruff format --check .
-uv run python scripts/run_golden_core.py
+UV_CACHE_DIR=/tmp/forgeagent-startup-information-uv-cache uv run python -m tests.golden.runner --output-dir /tmp/forgeagent-startup-information-golden-final
 openspec validate startup-information --strict
 uv build --out-dir /tmp/forgeagent-startup-information-build
 git diff --check
 git status --short
 ```
 
-Expected: focused and full pytest pass; Ruff reports no diagnostics and no formatting changes; golden core reports exactly `20/20`; OpenSpec prints `Change 'startup-information' is valid`; build emits wheel and sdist; diff check is empty; status has no changes outside this change plus the pre-existing dirty paths declared above. Record actual output rather than treating an unavailable build backend/network as a pass.
+Expected: focused and full pytest pass; Ruff reports no diagnostics and no formatting changes; golden core reports exactly `20/20`; OpenSpec prints `Change 'startup-information' is valid`; build emits wheel and sdist; diff check is empty; status has no changes outside this change plus the pre-existing dirty paths declared above. The obsolete `scripts/run_golden_core.py` entrypoint is absent; use the module runner above. Record actual output rather than treating an unavailable build backend/network as a pass.
 
 - [ ] **Step 5: Run the human interactive smoke before final commit**
 
