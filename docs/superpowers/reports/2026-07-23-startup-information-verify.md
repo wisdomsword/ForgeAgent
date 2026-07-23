@@ -7,7 +7,7 @@ status: done_with_concerns
 
 ## 结论
 
-Task 5 的文档、`/mcp` public-label 负向回归、G355 golden 对齐和验证记录已完成。此前报告中的 golden `19/20` 是 G355 期望修复前的历史结果，不能作为最终通过证据；本次复审后使用全新输出目录实际运行 runner，得到 `20/20 passed (100.0%)`。真实 TTY smoke 已由主会话完成，剩余未覆盖项只限报告中明确列出的可选人工分支。
+Task 5 的文档、`/mcp` public-label 负向回归、G355 golden 对齐、最终 MCP 修复、两轮 whole-change review 和验证记录已完成。此前报告中的 golden `19/20` 是 G355 期望修复前的历史结果，不能作为最终通过证据；最终使用全新输出目录实际运行 runner，得到 `20/20 passed (100.0%)`。真实 TTY smoke 已由主会话完成，剩余未覆盖项只限报告中明确列出的可选人工分支。
 
 ## 文档契约
 
@@ -23,6 +23,7 @@ Task 5 的文档、`/mcp` public-label 负向回归、G355 golden 对齐和验�
 | 命令 | 退出状态与实际结果 |
 | --- | --- |
 | `UV_CACHE_DIR=/tmp/forgeagent-startup-information-uv-cache uv run python -m tests.golden.runner --output-dir /tmp/forgeagent-startup-information-golden-final` | `0`；新目录 `report.md` 显示 `Summary: 20/20 passed (100.0%)`。G01、G03、G05、G06、G08、G11、G13、G14、G15、G17、G27、G43、G58、G59、G324、G329、G330、G332、G333、G355 均为 `PASS`；G355 详情为 `MCP slash output showed optional degradation and available tools`。 |
+| `UV_CACHE_DIR=/tmp/forgeagent-startup-information-uv-cache uv run python -m tests.golden.runner --output-dir /tmp/forgeagent-startup-information-golden-final2`（最终修复后） | `0`；`report.md` 显示 `Summary: 20/20 passed (100.0%)`，G355 为 `PASS`。 |
 | `UV_CACHE_DIR=/tmp/forgeagent-startup-information-uv-cache uv run python scripts/run_golden_core.py` | `2`；失败事实保留：`can't open file .../scripts/run_golden_core.py: [Errno 2] No such file or directory`。该脚本不存在，未将其当作通过。 |
 | `UV_CACHE_DIR=/tmp/forgeagent-startup-information-uv-cache uv run python -m tests.golden.runner --help` | `0`；可用 runner 入口为 `python -m tests.golden.runner`，接受 `--real-model` 与 `--output-dir`。 |
 | `uv run pytest tests/test_cli.py -q -k "mcp_diagnostic_uses_only_fixed_public_labels"` | `0`；`1 passed, 238 deselected`。首次 sandbox 读取 uv cache 被拒，升级权限后通过。 |
@@ -38,7 +39,9 @@ Task 5 的文档、`/mcp` public-label 负向回归、G355 golden 对齐和验�
 | `uv run ruff format --check .` | `0`；`81 files already formatted`。 |
 | `openspec validate startup-information --strict` | `0`；`Change 'startup-information' is valid`。 |
 | `uv build --out-dir /tmp/forgeagent-startup-information-build` | `0`；生成 `forgeagent-0.1.0.tar.gz` 与 `forgeagent-0.1.0-py3-none-any.whl`。 |
+| `UV_CACHE_DIR=/tmp/forgeagent-startup-information-uv-cache uv build --out-dir /tmp/forgeagent-startup-information-build-final` | 首次受限 sandbox 因 DNS 无法解析 `hatchling`（exit `2`）；获得网络权限后重跑 `0`，生成 `forgeagent-0.1.0.tar.gz` 与 `forgeagent-0.1.0-py3-none-any.whl`。 |
 | `git diff --check` | `0`；无输出。 |
+| `openspec status --change startup-information --json` | `isComplete: true`；proposal/design/specs/tasks 均为 `done`。CLI 没有独立 `openspec verify` 子命令，已用 `openspec validate startup-information --strict` 完成严格校验。 |
 
 此前的 `uv run python -m tests.golden.runner --output-dir /tmp/forgeagent-startup-information-golden` 得到 `19/20`，唯一失败是 `G355 output lacks available status`。它是修复前工件，已由上述新目录 `20/20` 结果取代，不作为最终验证结论。
 
