@@ -4,9 +4,9 @@
 
 设计文档见 [`docs/`](docs/)，行动计划见 [`ACTION_PLAN.md`](ACTION_PLAN.md)，最高宪法见 [`spec.md`](spec.md)。
 
-当前主线已完成 M16 本地 HTTP headless 服务与审计，以及 M17 Runtime Context
-Engineering；对应收尾记录见 [`milestone_016.md`](milestones/milestone_016.md) 和
-[`milestone_017.md`](milestones/milestone_017.md)。下一阶段为 M18 Memory 运行时。
+当前主线已完成 M17 Runtime Context Engineering，以及 M18 Memory 运行时（含归档后两次
+人工复测 hotfix）；对应收尾记录见 [`milestone_017.md`](milestones/milestone_017.md) 和
+[`milestone_018.md`](milestones/milestone_018.md)。下一阶段为 M19 Skills 运行时。
 
 ## 安装
 
