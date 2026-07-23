@@ -36,7 +36,7 @@ from forgeagent.cli import (
 )
 from forgeagent.client import MockClient
 from forgeagent.executor import TrustedBackend
-from forgeagent.mcp_manager import MCPManager, MCPServerConfig
+from forgeagent.mcp_manager import MCPManager, MCPServerConfig, MCPServerDiagnostic
 from forgeagent.model_registry import RegistryError
 from forgeagent.models import (
     AssistantMessage,
@@ -75,6 +75,49 @@ def _console() -> Console:
 
 def _terminal_console() -> Console:
     return Console(record=True, width=100, force_terminal=True)
+
+
+class _DiagnosticManager:
+    def __init__(self, values: tuple[MCPServerDiagnostic, ...]) -> None:
+        self._values = values
+
+    def diagnostics(self) -> tuple[MCPServerDiagnostic, ...]:
+        return self._values
+
+    def required_failures(self) -> dict[str, str]:
+        return {}
+
+    def server_status(self) -> dict[str, str]:
+        return {item.name: item.status for item in self._values}
+
+    def list_tools(self) -> list:
+        return []
+
+    def close(self) -> None:
+        return None
+
+
+def _diagnostic(
+    name: str,
+    *,
+    enabled: bool = True,
+    required: bool = False,
+    status: str = "available",
+    tool_count: int = 0,
+    reason: str | None = None,
+    impact: str | None = None,
+    action: str | None = None,
+) -> MCPServerDiagnostic:
+    return MCPServerDiagnostic(
+        name=name,
+        enabled=enabled,
+        required=required,
+        status=status,
+        tool_count=tool_count,
+        reason=reason,
+        impact=impact,
+        action=action,
+    )
 
 
 class _RecordedLive:
@@ -202,6 +245,80 @@ def test_startup_display_console_capability_disables_live(monkeypatch, console):
     assert lives == []
 
 
+def test_startup_summary_reports_model_sandbox_project_and_enabled_mcp_denominator():
+    console = _terminal_console()
+    diagnostics = (
+        _diagnostic("available", tool_count=2),
+        _diagnostic(
+            "optional",
+            status="unavailable: docker_unavailable",
+            reason="Docker is not running",
+            impact="Only this configured integration is disabled",
+            action="Start Docker or disable this server",
+        ),
+        _diagnostic("disabled", enabled=False, status="unavailable: disabled"),
+    )
+
+    cli_module._render_startup_summary(
+        console,
+        model="claude-sonnet-5",
+        tier="restricted",
+        root="/project",
+        diagnostics=diagnostics,
+    )
+
+    rendered = console.export_text()
+    assert "Ready | MCP 1/2 | model claude-sonnet-5" in rendered
+    assert "sandbox restricted | project /project" in rendered
+    assert rendered.count("Docker is not running") == 1
+    assert "MCP disabled" not in rendered
+
+
+def test_startup_summary_omits_mcp_count_when_no_server_is_enabled():
+    console = _terminal_console()
+
+    cli_module._render_startup_summary(
+        console,
+        model="gpt-5.5",
+        tier="trusted",
+        root="/project",
+        diagnostics=(_diagnostic("disabled", enabled=False, status="unavailable: disabled"),),
+    )
+
+    rendered = console.export_text()
+    assert "Ready | model gpt-5.5 | sandbox trusted | project /project" in rendered
+    assert "MCP " not in rendered
+
+
+def test_startup_summary_optional_failure_uses_only_fixed_diagnostic_fields():
+    console = _terminal_console()
+    hostile = "ExceptionGroup RuntimeError /private/secret --token=secret ENV=secret"
+
+    cli_module._render_startup_summary(
+        console,
+        model="model",
+        tier="container",
+        root="/project",
+        diagnostics=(
+            _diagnostic(
+                "docker",
+                status="unavailable: docker_unavailable",
+                reason="Docker is not running",
+                impact="Only this configured integration is disabled",
+                action="Start Docker or disable this server",
+            ),
+        ),
+    )
+
+    rendered = console.export_text()
+    assert rendered.count("Docker is not running") == 1
+    assert "Only this configured integration is disabled" in rendered
+    assert "Start Docker or disable this server" in rendered
+    assert hostile not in rendered
+    for forbidden in ("ExceptionGroup", "RuntimeError", "/private/secret", "--token", "ENV="):
+        assert forbidden not in rendered
+
+
 @pytest.mark.parametrize(
     ("console", "environment"),
     [
@@ -221,7 +338,7 @@ def test_interactive_degraded_color_renders_static_startup_mark_without_live(
     monkeypatch.setattr(cli_module.sys.stdin, "isatty", lambda: True)
     monkeypatch.setattr(cli_module, "Live", lambda **kwargs: pytest.fail("must not construct"))
     monkeypatch.setattr(cli_module, "_make_interactive_reader", lambda: lambda _prompt: "quit")
-    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda _console: None)
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: None)
 
     cli_module.repl(
         tier="restricted",
@@ -246,7 +363,7 @@ def test_repl_stops_startup_display_when_startup_raises(monkeypatch):
     monkeypatch.setattr(
         cli_module,
         "build_mcp_manager",
-        lambda console: (_ for _ in ()).throw(RuntimeError("startup failed")),
+        lambda: (_ for _ in ()).throw(RuntimeError("startup failed")),
     )
 
     with pytest.raises(RuntimeError, match="startup failed"):
@@ -281,7 +398,7 @@ def test_repl_stops_startup_display_after_confirmation_keyboard_interrupt(monkey
         return None
 
     monkeypatch.setattr(cli_module, "resolve_cli_identity", resolve_identity)
-    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda console: None)
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: None)
 
     with pytest.raises(KeyboardInterrupt):
         cli_module.repl(
@@ -1154,6 +1271,169 @@ class _CleanupFailureRequiredStartupManager(_RequiredStartupFailureManager):
         raise self.cleanup_error("cleanup failed")
 
 
+def test_build_mcp_manager_has_no_console_output(monkeypatch, capsys):
+    class QuietManager:
+        def __init__(self, servers):
+            self.closed = False
+
+        def connect(self):
+            return None
+
+        def required_failures(self):
+            return {}
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setattr(
+        cli_module,
+        "load_mcp_config",
+        lambda: {"optional": MCPServerConfig(command="unused")},
+    )
+    monkeypatch.setattr(cli_module, "MCPManager", QuietManager)
+
+    assert cli_module.build_mcp_manager() is not None
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""
+
+
+def test_build_mcp_manager_sanitizes_connect_and_cleanup_failures(monkeypatch, caplog):
+    secret = "startup-secret"
+
+    class HostileManager:
+        def __init__(self, servers):
+            self._closed = False
+
+        def connect(self):
+            raise RuntimeError(f"{secret} command=/private/command --token={secret} ExceptionGroup")
+
+        def close(self):
+            self._closed = True
+            raise ValueError(f"cleanup leaked {secret} RuntimeError")
+
+    monkeypatch.setattr(
+        cli_module,
+        "load_mcp_config",
+        lambda: {"required": MCPServerConfig(command="unused", required=True)},
+    )
+    monkeypatch.setattr(cli_module, "MCPManager", HostileManager)
+
+    with pytest.raises(cli_module.MCPStartupError) as raised:
+        cli_module.build_mcp_manager()
+
+    rendered = str(raised.value)
+    assert rendered == "startup_failed"
+    assert caplog.messages == ["MCP connect cleanup incomplete"]
+    for forbidden in (secret, "/private/command", "--token", "RuntimeError", "ExceptionGroup"):
+        assert forbidden not in rendered
+        assert forbidden not in caplog.text
+
+
+def test_build_mcp_manager_sanitizes_non_control_base_exception_group(monkeypatch):
+    secret = "exception-group-secret"
+
+    class GroupFailureManager:
+        def __init__(self, servers):
+            self.closed = False
+
+        def connect(self):
+            raise BaseExceptionGroup(secret, [asyncio.CancelledError(secret)])
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setattr(
+        cli_module,
+        "load_mcp_config",
+        lambda: {"required": MCPServerConfig(command="unused", required=True)},
+    )
+    monkeypatch.setattr(cli_module, "MCPManager", GroupFailureManager)
+
+    with pytest.raises(cli_module.MCPStartupError) as raised:
+        cli_module.build_mcp_manager()
+
+    assert str(raised.value) == "startup_failed"
+    assert secret not in str(raised.value)
+
+
+@pytest.mark.parametrize("control", [KeyboardInterrupt, SystemExit])
+def test_build_mcp_manager_extracts_process_control_from_exception_group(monkeypatch, control):
+    class GroupFailureManager:
+        def __init__(self, servers):
+            pass
+
+        def connect(self):
+            raise BaseExceptionGroup("hostile ExceptionGroup", [control("stop")])
+
+        def close(self):
+            pytest.fail("process control must not be replaced by cleanup")
+
+    monkeypatch.setattr(
+        cli_module,
+        "load_mcp_config",
+        lambda: {"required": MCPServerConfig(command="unused", required=True)},
+    )
+    monkeypatch.setattr(cli_module, "MCPManager", GroupFailureManager)
+
+    with pytest.raises(control, match="stop"):
+        cli_module.build_mcp_manager()
+
+
+def test_bare_mcp_renders_bounded_sanitized_diagnostics(monkeypatch):
+    manager = _DiagnosticManager(
+        (
+            _diagnostic("ready", tool_count=3),
+            _diagnostic(
+                "docker",
+                status="unavailable: docker_unavailable",
+                reason="Docker is not running",
+                impact="Only this configured integration is disabled",
+                action="Start Docker or disable this server",
+            ),
+        )
+    )
+    console = _terminal_console()
+
+    cli_module._handle_mcp_slash("/mcp", manager, console)
+
+    lines = [line for line in console.export_text().splitlines() if line.strip()]
+    assert any(line == "Status: available" for line in lines)
+    assert any(line == "Tools: 3" for line in lines)
+    assert any(line == "Status: unavailable: docker_unavailable" for line in lines)
+    assert any(line == "Reason: Docker is not running" for line in lines)
+    assert any(line == "Impact: Only this configured integration is disabled" for line in lines)
+    assert any(line == "Action: Start Docker or disable this server" for line in lines)
+    assert all(
+        line.startswith(("ready", "docker", "Status:", "Tools:", "Reason:", "Impact:", "Action:"))
+        for line in lines
+    )
+    assert len(lines) <= 10
+
+
+def test_mcp_command_usage_lists_status_tools_and_toggles():
+    console = _console()
+
+    cli_module._handle_mcp_slash("/mcp unknown", _DiagnosticManager(()), console)
+
+    rendered = console.export_text()
+    assert "status" in rendered
+    assert "tools" in rendered
+    assert "enable <server>" in rendered
+    assert "disable <server>" in rendered
+
+
+def test_handle_mcp_slash_tools_lists_tools_without_status():
+    console = _console()
+
+    cli_module._handle_mcp_slash("/mcp tools", _FakeMCPWithTools(), console)
+
+    rendered = console.export_text()
+    assert "fs:read" in rendered
+    assert "read a file" in rendered
+    assert "fs: available" not in rendered
+
+
 def test_build_mcp_manager_closes_and_raises_for_required_failures(monkeypatch):
     import forgeagent.cli as cli_module
 
@@ -1165,14 +1445,11 @@ def test_build_mcp_manager_closes_and_raises_for_required_failures(monkeypatch):
     )
     monkeypatch.setattr(cli_module, "MCPManager", _RequiredStartupFailureManager)
 
-    with pytest.raises(RuntimeError) as error:
-        cli_module.build_mcp_manager(_console())
+    with pytest.raises(cli_module.MCPStartupError) as error:
+        cli_module.build_mcp_manager()
 
     assert _RequiredStartupFailureManager.instances[0].closed is True
-    message = str(error.value)
-    assert message.index("alpha: unavailable: handshake failed") < message.index(
-        "zeta: unavailable: connection refused"
-    )
+    assert str(error.value) == "required_server_unavailable"
 
 
 def test_build_mcp_manager_skips_constructor_when_all_servers_are_disabled(monkeypatch):
@@ -1200,7 +1477,7 @@ def test_build_mcp_manager_skips_constructor_when_all_servers_are_disabled(monke
     )
     monkeypatch.setattr(cli_module, "MCPManager", ManagerSpy)
 
-    assert cli_module.build_mcp_manager(_console()) is None
+    assert cli_module.build_mcp_manager() is None
     assert calls == []
 
 
@@ -1217,10 +1494,10 @@ def test_build_mcp_manager_preserves_startup_error_when_cleanup_raises(monkeypat
     monkeypatch.setattr(cli_module, "MCPManager", _CleanupFailureRequiredStartupManager)
 
     with pytest.raises(cli_module.MCPStartupError) as error:
-        cli_module.build_mcp_manager(_console())
+        cli_module.build_mcp_manager()
 
     assert _CleanupFailureRequiredStartupManager.instances[0].closed is True
-    assert str(error.value).startswith("alpha: unavailable: handshake failed")
+    assert str(error.value) == "required_server_unavailable"
 
 
 def test_build_mcp_manager_preserves_required_startup_error_when_cleanup_is_cancelled(
@@ -1242,10 +1519,10 @@ def test_build_mcp_manager_preserves_required_startup_error_when_cleanup_is_canc
     monkeypatch.setattr(cli_module, "MCPManager", _CleanupFailureRequiredStartupManager)
 
     with pytest.raises(cli_module.MCPStartupError) as error:
-        cli_module.build_mcp_manager(_console())
+        cli_module.build_mcp_manager()
 
     assert _CleanupFailureRequiredStartupManager.instances[0].closed is True
-    assert str(error.value).startswith("alpha: unavailable: handshake failed")
+    assert str(error.value) == "required_server_unavailable"
 
 
 @pytest.mark.parametrize("failure_kind", ["connect", "required"])
@@ -1288,15 +1565,13 @@ def test_build_mcp_manager_logs_non_control_cleanup_type_without_replacing_prima
     caplog.set_level(logging.WARNING, logger="forgeagent.cli")
 
     with pytest.raises(cli_module.MCPStartupError) as raised:
-        cli_module.build_mcp_manager(_console())
+        cli_module.build_mcp_manager()
 
     expected_primary = (
-        "MCP manager startup failed: RuntimeError"
-        if failure_kind == "connect"
-        else "required: unavailable: RuntimeError"
+        "startup_failed" if failure_kind == "connect" else "required_server_unavailable"
     )
     assert str(raised.value) == expected_primary
-    assert caplog.messages == [f"MCP {failure_kind} cleanup failed: CancelledError"]
+    assert caplog.messages == [f"MCP {failure_kind} cleanup incomplete"]
     assert secret not in caplog.text
 
 
@@ -1314,7 +1589,7 @@ def test_build_mcp_manager_does_not_swallow_base_cleanup_errors(monkeypatch, cle
     monkeypatch.setattr(cli_module, "MCPManager", _CleanupFailureRequiredStartupManager)
 
     with pytest.raises(cleanup_error, match="cleanup failed"):
-        cli_module.build_mcp_manager(_console())
+        cli_module.build_mcp_manager()
 
 
 def test_optional_status_does_not_expose_secret_exception_text(monkeypatch):
@@ -1343,7 +1618,7 @@ def test_optional_status_does_not_expose_secret_exception_text(monkeypatch):
     monkeypatch.setattr(cli_module, "MCPManager", OptionalSecretStatusManager)
 
     console = _console()
-    manager = cli_module.build_mcp_manager(console)
+    manager = cli_module.build_mcp_manager()
     assert manager is not None
     try:
         repl_console = _console()
@@ -1389,10 +1664,10 @@ def test_build_mcp_manager_maps_connect_infrastructure_error_after_cleanup(monke
     monkeypatch.setattr(cli_module, "MCPManager", InfrastructureFailureManager)
 
     with pytest.raises(cli_module.MCPStartupError) as raised:
-        cli_module.build_mcp_manager(_console())
+        cli_module.build_mcp_manager()
 
     assert InfrastructureFailureManager.instance.closed is True
-    assert str(raised.value) == "MCP manager startup failed: RuntimeError"
+    assert str(raised.value) == "startup_failed"
     assert "startup-secret" not in str(raised.value)
 
 
@@ -1427,7 +1702,7 @@ def test_build_mcp_manager_does_not_close_manager_already_closed_by_connect(monk
     monkeypatch.setattr(cli_module, "MCPManager", SelfClosingInfrastructureFailureManager)
 
     with pytest.raises(cli_module.MCPStartupError):
-        cli_module.build_mcp_manager(_console())
+        cli_module.build_mcp_manager()
 
     assert SelfClosingInfrastructureFailureManager.instance.close_calls == 1
 
@@ -1451,10 +1726,10 @@ def test_build_mcp_manager_masks_sensitive_required_server_identity(monkeypatch)
     monkeypatch.setattr(cli_module.MCPManager, "connect", fail_required)
 
     with pytest.raises(cli_module.MCPStartupError) as raised:
-        cli_module.build_mcp_manager(_console())
+        cli_module.build_mcp_manager()
 
     assert secret not in str(raised.value)
-    assert "external-***REDACTED***" in str(raised.value)
+    assert str(raised.value) == "required_server_unavailable"
 
 
 @pytest.mark.parametrize(
@@ -1493,11 +1768,11 @@ def test_build_mcp_manager_connect_cleanup_only_propagates_process_control(
 
     if expected_error is None:
         with pytest.raises(cli_module.MCPStartupError) as raised:
-            cli_module.build_mcp_manager(_console())
-        assert str(raised.value) == "MCP manager startup failed: RuntimeError"
+            cli_module.build_mcp_manager()
+        assert str(raised.value) == "startup_failed"
     else:
         with pytest.raises(expected_error, match="cleanup failure"):
-            cli_module.build_mcp_manager(_console())
+            cli_module.build_mcp_manager()
 
 
 def test_main_reports_required_mcp_startup_error_without_running_task(monkeypatch):
@@ -1506,7 +1781,7 @@ def test_main_reports_required_mcp_startup_error_without_running_task(monkeypatc
     console = _console()
     ran_task: list[bool] = []
     _RequiredStartupFailureManager.instances.clear()
-    monkeypatch.setattr(cli_module, "Console", lambda: console)
+    monkeypatch.setattr(cli_module, "Console", lambda **kwargs: console)
     monkeypatch.setattr(
         cli_module,
         "load_mcp_config",
@@ -1525,6 +1800,29 @@ def test_main_reports_required_mcp_startup_error_without_running_task(monkeypatc
     assert cli_module.main(["run", "goal"], client_factory=_factory([])) == 2
     assert ran_task == []
     assert "MCP startup error" in console.export_text()
+
+
+def test_main_routes_sanitized_mcp_startup_error_to_stderr(monkeypatch, capsys):
+    secret = "hostile-startup-secret"
+    monkeypatch.setattr(
+        cli_module,
+        "build_mcp_manager",
+        lambda: (_ for _ in ()).throw(
+            cli_module.MCPStartupError(
+                f"RuntimeError ExceptionGroup /private/path --token={secret} ENV={secret}"
+            )
+        ),
+    )
+    monkeypatch.setattr(cli_module, "load_mcp_config", lambda: {})
+
+    assert cli_module.main(["run", "goal"], client_factory=_factory([])) == 2
+
+    captured = capsys.readouterr()
+    assert "MCP startup error" in captured.err
+    assert "startup_failed" in captured.err
+    assert captured.out == ""
+    for forbidden in (secret, "RuntimeError", "ExceptionGroup", "/private/path", "--token", "ENV="):
+        assert forbidden not in captured.err
 
 
 def test_required_mcp_startup_error_uses_only_server_status(monkeypatch):
@@ -1546,7 +1844,7 @@ def test_required_mcp_startup_error_uses_only_server_status(monkeypatch):
     monkeypatch.setattr(cli_module, "MCPManager", _RequiredStartupFailureManager)
 
     with pytest.raises(RuntimeError) as error:
-        cli_module.build_mcp_manager(_console())
+        cli_module.build_mcp_manager()
 
     assert secret not in str(error.value)
 
@@ -1562,7 +1860,7 @@ def test_main_run_wires_confirmer_only_with_terminal_console_and_tty_stdin(monke
         seen.append(kwargs["confirmer"])
         return real_run_once(*args, **kwargs)
 
-    monkeypatch.setattr(cli_module, "Console", lambda: console)
+    monkeypatch.setattr(cli_module, "Console", lambda **kwargs: console)
     monkeypatch.setattr(cli_module, "run_once", spy_run_once)
     monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
 
@@ -1587,8 +1885,12 @@ def test_main_run_omits_confirmer_without_terminal_console(monkeypatch):
         seen.append(kwargs["confirmer"])
         return real_run_once(*args, **kwargs)
 
-    monkeypatch.setattr(cli_module, "Console", lambda: Console(record=True, force_terminal=False))
-    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda console: _MCP())
+    monkeypatch.setattr(
+        cli_module,
+        "Console",
+        lambda **kwargs: Console(record=True, force_terminal=False),
+    )
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: _MCP())
     monkeypatch.setattr(cli_module, "run_once", spy_run_once)
     monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
 
@@ -1607,7 +1909,7 @@ def test_main_run_omits_confirmer_without_tty_even_if_interactive(monkeypatch):
         seen.append((kwargs["asker"], kwargs["confirmer"]))
         return real_run_once(*args, **kwargs)
 
-    monkeypatch.setattr(cli_module, "Console", lambda: console)
+    monkeypatch.setattr(cli_module, "Console", lambda **kwargs: console)
     monkeypatch.setattr(cli_module, "run_once", spy_run_once)
     monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
 
@@ -1795,7 +2097,7 @@ def test_repl_wires_confirmer_without_mcp_manager(monkeypatch):
         seen.append(kwargs["confirmer"])
         return real_run_once(*args, **kwargs)
 
-    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda console: None)
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: None)
     monkeypatch.setattr(cli_module, "run_once", spy_run_once)
     cli_module.repl(
         tier="trusted",
@@ -1827,7 +2129,7 @@ def test_repl_exits_on_quit():
 def test_repl_exits_cleanly_on_keyboard_interrupt(monkeypatch):
     import forgeagent.cli as cli_module
 
-    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda console: None)
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: None)
 
     def interrupt(_prompt):
         raise KeyboardInterrupt
@@ -2239,7 +2541,7 @@ def test_main_returns_config_error_for_initial_unresolvable_context_policy(monke
     )
 
     assert cli_module.main(["run", "do a thing"], client_factory=_factory([_reply(_done())])) == 2
-    assert "config error" in capsys.readouterr().out
+    assert "config error" in capsys.readouterr().err
 
 
 def test_main_custom_injected_model_uses_factory_without_registry_lookup():
@@ -2280,7 +2582,7 @@ def test_main_injected_capability_policy_failure_is_structured_and_single_use(ca
         return client
 
     assert main(["run", "goal"], client_factory=injected_factory) == 2
-    assert "config error" in capsys.readouterr().out
+    assert "config error" in capsys.readouterr().err
     assert len(clients) == 1
     assert clients[0].calls_made == 0
 
@@ -2708,7 +3010,7 @@ def test_repl_mcp_timeout_processes_next_command_and_quit(monkeypatch, action):
     fake = TimeoutMCP()
     inputs = iter([f"/mcp {action} {server}", "/help model", "quit"])
     monkeypatch.setattr(cli_module, "sensitive_env_values", lambda: {secret})
-    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda console: fake)
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: fake)
     console = _console()
 
     cli_module.repl(
@@ -2733,7 +3035,7 @@ def test_repl_runtime_toggle_of_required_server_keeps_session_running(monkeypatc
     fake = _FakeMCP()
     fake.required = True
     inputs = iter(["/mcp disable fs", "/mcp enable fs", "quit"])
-    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda console: fake)
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: fake)
 
     cli_module.repl(
         tier="trusted",
@@ -3152,7 +3454,7 @@ def test_repl_bare_former_commands_run_as_goals(goal, monkeypatch):
 
     seen: list[str] = []
     inputs = iter([goal, "quit"])
-    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda console: None)
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: None)
     monkeypatch.setattr(
         cli_module,
         "run_once",
@@ -3251,7 +3553,7 @@ def test_repl_non_tty_rejects_restricted_calls_and_continues(
         outcomes[goal] = outcome
         return outcome
 
-    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda console: fake_mcp)
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: fake_mcp)
     monkeypatch.setattr(cli_module, "run_once", run_goal)
     cli_module.repl(
         tier="restricted",
@@ -3289,7 +3591,7 @@ def test_repl_explicit_tty_confirmation_uses_injected_read_line(monkeypatch):
         assert kwargs["confirmer"](MCPArgs(server="server", tool="tool")) is True
         return None
 
-    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda console: None)
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: None)
     monkeypatch.setattr(cli_module, "run_once", run_goal)
     cli_module.repl(
         tier="trusted",
@@ -3409,7 +3711,11 @@ def test_main_run_interactive_approves_project_identity(monkeypatch, tmp_path):
 
     monkeypatch.setattr(cli_module.Path, "home", staticmethod(lambda: home))
     monkeypatch.chdir(project)
-    monkeypatch.setattr(cli_module, "Console", lambda: Console(record=True, force_terminal=True))
+    monkeypatch.setattr(
+        cli_module,
+        "Console",
+        lambda **kwargs: Console(record=True, force_terminal=True),
+    )
     monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
     monkeypatch.setattr(
         cli_module,
@@ -3575,7 +3881,7 @@ def test_serve_builds_server_owned_task_factory_and_closes_in_order(monkeypatch,
             events.append("server.close")
 
     monkeypatch.setattr(cli_module, "TaskService", FakeService)
-    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda console: mcp)
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: mcp)
     monkeypatch.setattr(cli_module, "resolve_cli_identity", lambda **kwargs: identity)
     monkeypatch.setattr(
         cli_module,
@@ -3688,7 +3994,7 @@ def test_serve_task_factory_does_not_inherit_mcp_auto_approve(monkeypatch, tmp_p
             pass
 
     monkeypatch.setattr(cli_module, "TaskService", FakeService)
-    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda console: mcp)
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: mcp)
     monkeypatch.setattr(
         http_server_module,
         "create_http_server",
@@ -3734,7 +4040,7 @@ def test_serve_audit_startup_failure_does_not_create_listener(monkeypatch, tmp_p
     monkeypatch.setattr(
         cli_module,
         "build_mcp_manager",
-        lambda console: pytest.fail("audit failure must happen before MCP startup"),
+        lambda: pytest.fail("audit failure must happen before MCP startup"),
     )
 
     assert cli_module.main(["serve", "--config", str(config_path), "--once"]) == 2
@@ -3758,7 +4064,7 @@ def test_serve_validates_headless_and_audit_policy_before_listener(
     config_path.write_text(
         f"token: file-token\naudit_path: {tmp_path / 'audit.jsonl'}\n{extra_config}"
     )
-    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda console: None)
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: None)
     monkeypatch.setattr(
         http_server_module,
         "create_http_server",
@@ -3884,7 +4190,7 @@ def test_serve_closes_listener_service_and_mcp_when_startup_output_fails(
             raise console_error
 
     monkeypatch.setattr(cli_module, "TaskService", FakeService)
-    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda console: mcp)
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: mcp)
     monkeypatch.setattr(cli_module, "resolve_cli_identity", lambda **kwargs: None)
     monkeypatch.setattr(
         http_server_module,
