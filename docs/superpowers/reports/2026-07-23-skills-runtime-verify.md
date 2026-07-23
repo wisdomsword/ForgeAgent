@@ -9,7 +9,7 @@ status: passed
 
 M19 的 12/12 项任务、10/10 项需求和 19/19 个规格场景均有实现与测试证据，
 设计、delta spec 和实现一致。未发现 CRITICAL、WARNING 或 SUGGESTION 级遗留项，
-change 可归档。
+change 已完成验证并归档。
 
 ## 完整性
 
@@ -33,17 +33,19 @@ change 可归档。
 
 ## 验证证据
 
-- `UV_CACHE_DIR=/tmp/forgeagent-m19-uv-cache uv run pytest -q`：
-  `1422 passed, 11 skipped in 75.00s`。
+- 最终收尾完整回归 `uv run --offline pytest -q`：
+  `1437 passed, 11 skipped in 79.45s`。
+- 人类验收专项回归：`15 passed`；用户在真实 PTY 执行
+  `uv run --offline python scripts/m19-skills-human-smoke.py`，六项检查全部 PASS。
 - `uv run ruff check .`：`All checks passed!`。
-- `uv run ruff format --check .`：`80 files already formatted`。
+- `uv run ruff format --check .`：`82 files already formatted`。
 - `uv run python -m tests.golden.runner --output-dir /tmp/forgeagent-m19-final-golden`：
   `20/20 passed (100.0%)`。
 - `openspec validate skills-runtime --strict`：`Change 'skills-runtime' is valid`。
 - `uv build --out-dir /tmp/forgeagent-m19-final-build`：sdist 与 wheel 均成功生成。
 - `git diff --check`：通过。
-- 归档后 `openspec validate --all --strict`：`12 passed, 0 failed`；active change 列表为空，
-  两份主规格均未残留 delta-only 标题。
+- 最终 `openspec validate --all --strict`：`13 passed, 0 failed`；M19 已归档，后续
+  `startup-information` change 在独立 worktree 中继续实施。
 
 ## 两轮 whole-change 自审
 
@@ -57,7 +59,9 @@ change 可归档。
 
 ## 分支与残余风险
 
-- 分支处理：保留 `codex/skills-runtime`，不推送、不合并；工作区含用户既有无关改动，
-  本次提交仅纳入 M19 文件。
+- 分支处理：verify 阶段按当时决策保留 `codex/skills-runtime`、不推送、不合并；
+  完成后的本地人类验收收尾将该归档分支推送至 `origin/codex/skills-runtime`。
+  由于后续 `startup-information` change 已在独立 worktree 中活跃，本次不擅自
+  合并 `main`。工作区仍含用户既有无关改动，归档提交只纳入 M19 收尾文件。
 - user-level Skill 属本地用户配置；project-level Skill 只有显式批准的内容摘要生效。
   Skill 是模型可读指导，不是执行策略，实际安全仍由协议、确认门和 sandbox 保证。

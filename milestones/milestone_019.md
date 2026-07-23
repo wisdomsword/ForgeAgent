@@ -6,6 +6,8 @@
 - 前置里程碑: [milestone_018](milestone_018.md)
 - 技术设计: [2026-07-23-skills-runtime-design](../docs/superpowers/specs/2026-07-23-skills-runtime-design.md)
 - 验证报告: [2026-07-23-skills-runtime-verify](../docs/superpowers/reports/2026-07-23-skills-runtime-verify.md)
+- 人类验收: [2026-07-23-m19-human-smoke-design](../docs/superpowers/specs/2026-07-23-m19-human-smoke-design.md)
+- OpenSpec 归档: [`2026-07-23-skills-runtime`](../openspec/changes/archive/2026-07-23-skills-runtime/)
 
 ## 目标与范围
 
@@ -33,6 +35,8 @@
 - [x] 只读 Skill 协议、工具和渐进反馈环
 - [x] CLI/HTTP 快照、reload 与 REPL 输入增强
 - [x] 文档、golden 候选、全量验证和 Comet 收尾
+- [x] 无 API Key、无网络的一键本地人类验收
+- [x] 修复补全观察期间误提交普通输入造成的假失败
 
 ## 交付物清单
 
@@ -41,6 +45,7 @@
 - [x] prompt-toolkit 当前会话补全与历史
 - [x] 单元、集成、golden 候选和安全回归测试
 - [x] README、文本协议、威胁模型、ACTION_PLAN 与 OpenSpec 产物
+- [x] `scripts/m19-skills-human-smoke.py` 与专项回归测试
 
 ## 三次评审
 
@@ -54,11 +59,14 @@
 - [x] 每个实现任务均经过独立实现/规格审查与代码质量审查。
 - [x] 两轮 whole-change 自审复核调用链、安全边界、入口一致性和无全文预加载。
 - [x] 最终独立评审发现的两个测试证据缺口均已修复并复审通过。
+- [x] 人类验收收尾复审发现导入时配置隔离、secret env 隔离、Ctrl-C 清理和额外输入假失败，均已补回归并修复。
 
 ### 验收评审
 
-- [x] `1422 passed, 11 skipped`。
-- [x] ruff check/format、golden `20/20`、OpenSpec strict、package build、diff check 全部通过。
+- [x] 最终完整回归 `1437 passed, 11 skipped`；人类验收焦点测试 `15 passed`。
+- [x] 用户在真实 PTY 执行 `uv run --offline python scripts/m19-skills-human-smoke.py`，Skill 信任、渐进加载、`/reload`、斜杠补全和方向键历史六项全部 PASS。
+- [x] Ruff check/format、golden `20/20`、OpenSpec strict、package build、diff check 全部通过。
+- [x] 归档 `.comet.yaml` 为 `phase: archive`、`verify_result: pass`、`archived: true`。
 
 ## 遗留问题
 
@@ -68,6 +76,8 @@
 
 ## 续接指引
 
-M19 已归档，功能分支 `codex/skills-runtime` 保留且未推送。下一阶段为 M20 Eval：在不
-改变 M19 Skill 权限语义和 20 项 verified core 标准的前提下，增加分层指标聚合、趋势
-记录与 opt-in 独立 Evaluator；继续保持离线 CI、secret masking 和请求/会话隔离。
+M19 已完成 OpenSpec 归档，归档分支 `codex/skills-runtime` 随本次收尾推送至
+`origin/codex/skills-runtime`，不将正在独立 worktree 中实施的 `startup-information`
+change 擅自并入 `main`。下一个计划里程碑为 M20 Eval：在不改变 M19 Skill
+权限语义和 20 项 verified core 标准的前提下，增加分层指标聚合、趋势记录与
+opt-in 独立 Evaluator；继续保持离线 CI、secret masking 和请求/会话隔离。
