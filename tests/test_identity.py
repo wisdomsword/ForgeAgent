@@ -125,6 +125,16 @@ def test_default_protocol_advertises_memory_candidates():
     assert "procedures belong" in rendered
 
 
+def test_default_protocol_describes_injected_utils_and_memory_only_completion():
+    rendered = compose_system_prompt(ApprovedIdentity(None, None, None, None))
+
+    assert 'utils.set_state("key", value)' in rendered
+    assert "utils is already injected" in rendered
+    assert "do not import it" in rendered
+    assert "A request that only records memory does not require Exec" in rendered
+    assert "utils.set_state(key=value)" not in rendered
+
+
 def test_protocol_unchanged_when_project_agents_attempts_override():
     expected_protocol = _expected_protocol_text()
     injecting_agents = (

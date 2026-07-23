@@ -140,6 +140,52 @@ def test_task_exposes_disabled_memory_candidate_result(tmp_path):
     assert outcome.memory_results[0].reason == "memory_disabled"
 
 
+def test_task_applies_identical_memory_candidate_once_across_rounds(tmp_path):
+    sink = _RecordingAuditSink()
+    manager = MemoryManager(str(tmp_path), enabled=False, audit_sink=sink)
+    marker = (
+        '<!-- Memory: {"scope":"session","kind":"preference",'
+        '"key":"formatter","content":"ruff"} -->'
+    )
+    outcome = Task(
+        MockClient(
+            script=[
+                _reply(marker + "\n" + _tool_call("Exec", code="print('retry')")),
+                _reply(_done() + "\n" + marker),
+            ]
+        ),
+        memory_manager=manager,
+    ).run("remember formatter")
+
+    assert len(outcome.memory_results) == 1
+    assert outcome.memory_results[0].status == "disabled"
+    memory_events = [
+        event.event_type for event in sink.events if event.event_type.startswith("memory.")
+    ]
+    assert memory_events == ["memory.disabled"]
+
+
+def test_task_preserves_order_for_same_key_with_different_content(tmp_path):
+    manager = MemoryManager(str(tmp_path))
+    first = (
+        '<!-- Memory: {"scope":"session","kind":"preference",'
+        '"key":"formatter","content":"ruff"} -->'
+    )
+    second = first.replace('"ruff"', '"black"')
+    outcome = Task(
+        MockClient(
+            script=[
+                _reply(first + "\n" + _tool_call("Exec", code="print('update')")),
+                _reply(_done() + "\n" + second),
+            ]
+        ),
+        memory_manager=manager,
+    ).run("update formatter")
+
+    assert [result.status for result in outcome.memory_results] == ["accepted", "replaced"]
+    assert "- formatter: black" in manager.render()
+
+
 def test_task_applies_project_memory_and_next_task_receives_it(tmp_path):
     manager = MemoryManager(str(tmp_path))
     first = Task(
