@@ -23,8 +23,10 @@ import re
 import signal
 import sys
 import threading
+import time
 import unicodedata
 from collections.abc import Callable
+from contextlib import contextmanager
 from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import cast
@@ -58,7 +60,7 @@ from .identity import (
     resolve_project_trust,
 )
 from .image_input import load_images
-from .mcp_manager import MCPManager, load_mcp_config
+from .mcp_manager import MCPManager, MCPServerDiagnostic, load_mcp_config
 from .memory import MemoryManager
 from .model_registry import (
     Registry,
@@ -86,6 +88,11 @@ logger = logging.getLogger(__name__)
 
 class MCPStartupError(RuntimeError):
     """MCP manager startup failed or an enabled required service was unavailable."""
+
+    _CODES = frozenset({"startup_failed", "required_server_unavailable"})
+
+    def __init__(self, code: str) -> None:
+        super().__init__(code if code in self._CODES else "startup_failed")
 
 
 class HttpStartupError(RuntimeError):
@@ -664,7 +671,9 @@ def _handle_mcp_command(goal: str, mcp: MCPManager | None, console: Console) -> 
         else:
             console.print(f"[red]unknown server[/red] {safe_server!r}")
     else:
-        console.print("[dim]usage: mcp status | mcp enable <server> | mcp disable <server>[/dim]")
+        console.print(
+            "[dim]usage: mcp status | mcp tools | mcp enable <server> | mcp disable <server>[/dim]"
+        )
 
 
 def _print_mcp_tools(mcp: MCPManager, console: Console) -> None:
@@ -680,13 +689,30 @@ def _print_mcp_tools(mcp: MCPManager, console: Console) -> None:
 
 
 def _handle_mcp_slash(goal: str, mcp: MCPManager | None, console: Console) -> None:
-    """`/mcp [status|enable <s>|disable <s>]` — equivalent to `mcp status` plus a tool
-    listing (design doc §3.5); `/mcp enable|disable <s>` behaves exactly like the
-    compat command, so it goes straight through `_handle_mcp_command`."""
-    _handle_mcp_command("mcp" + goal[len("/mcp") :], mcp, console)
+    """Render MCP diagnostics, status, tools, and runtime toggles."""
+    if mcp is None:
+        _handle_mcp_command("mcp status", mcp, console)
+        return
     parts = goal.split()
-    action = parts[1] if len(parts) > 1 else "status"
-    if mcp is not None and action == "status":
+    if len(parts) == 1:
+        for diagnostic in mcp.diagnostics():
+            console.print(Text(diagnostic.name))
+            console.print(Text(f"Status: {diagnostic.status}"))
+            console.print(Text(f"Tools: {diagnostic.tool_count}"))
+            for label, value in (
+                ("Reason", diagnostic.reason),
+                ("Impact", diagnostic.impact),
+                ("Action", diagnostic.action),
+            ):
+                if value is not None:
+                    console.print(Text(f"{label}: {value}"))
+        return
+    action = parts[1]
+    if action == "tools" and len(parts) == 2:
+        _print_mcp_tools(mcp, console)
+        return
+    _handle_mcp_command("mcp" + goal[len("/mcp") :], mcp, console)
+    if action == "status":
         _print_mcp_tools(mcp, console)
 
 
@@ -778,7 +804,7 @@ _SLASH_COMMAND_USAGE: dict[str, str] = {
     "/model": "/model [id-or-alias] — list models, or switch this session's model",
     "/search": "/search <query> — web search; results are printed only, never sent to the model",
     "/image": "/image <path> [goal...] — attach image(s) (file or directory) to a goal",
-    "/mcp": "/mcp [status|enable <s>|disable <s>] — MCP server status, tools, and toggles",
+    "/mcp": "/mcp [status|tools|enable <s>|disable <s>] — MCP diagnostics, tools, and toggles",
     "/memory": "/memory — show effective session and project memory",
     "/remember": "/remember <session|project> <key>=<value> — store one declarative fact",
     "/reload": "/reload — reload ~/.forgeagent/{models,config}.yaml",
@@ -853,6 +879,170 @@ def _make_interactive_reader() -> Callable[[str], str]:
     return session.prompt
 
 
+_STARTUP_COLOURS = (
+    "red",
+    "yellow",
+    "green",
+    "cyan",
+    "blue",
+    "magenta",
+    "bright_magenta",
+)
+_STARTUP_LOGO = (
+    " _____                    _                    _   ",
+    "|  ___|__  _ __ __ _  ___| | __ _  ___ _ __ | |_ ",
+    "| |_ / _ \\| '__/ _` |/ _ \\ |/ _` |/ _ \\ '_ \\| __|",
+    "|  _| (_) | | | (_| |  __/ | (_| |  __/ | | | |_ ",
+    "|_|  \\___/|_|  \\__, |\\___|_|\\__, |\\___|_| |_|\\__|",
+    "                |___/        |___/                  ",
+)
+
+
+def _interactive_repl(console: Console, *, default_reader: bool) -> bool:
+    return default_reader and console.is_terminal and sys.stdin.isatty()
+
+
+def _startup_mark_available(console: Console) -> bool:
+    return (
+        console.is_terminal
+        and os.environ.get("TERM") != "dumb"
+        and not any(name in os.environ for name in ("CI", "GITHUB_ACTIONS", "BUILD_NUMBER"))
+    )
+
+
+def _startup_ui_available(console: Console) -> bool:
+    return (
+        _startup_mark_available(console)
+        and console.color_system is not None
+        and not console.no_color
+        and "NO_COLOR" not in os.environ
+    )
+
+
+class _StartupDisplay:
+    def __init__(self, console: Console) -> None:
+        self._console = console
+        self._stage: str | None = None
+        self._live: Live | None = None
+        self._static_mark_rendered = False
+
+    def _logo_text(self) -> str:
+        return (
+            "ForgeAgent"
+            if self._console.width < max(map(len, _STARTUP_LOGO))
+            else "\n".join(_STARTUP_LOGO)
+        )
+
+    def logo_renderable(self) -> Text:
+        colour = _STARTUP_COLOURS[int(time.monotonic() * 8) % len(_STARTUP_COLOURS)]
+        return Text(self._logo_text(), style=colour)
+
+    def static_logo_renderable(self) -> Text:
+        return Text(self._logo_text())
+
+    def renderable(self) -> Text:
+        rendered = self.logo_renderable()
+        if self._stage:
+            rendered.append("\n")
+            rendered.append(self._stage, style="dim")
+        return rendered
+
+    def start(self, stage: str) -> None:
+        self._stage = stage
+        if _startup_ui_available(self._console):
+            self._start_live()
+        elif _startup_mark_available(self._console) and not self._static_mark_rendered:
+            self._console.print(self.static_logo_renderable())
+            self._static_mark_rendered = True
+
+    def set_stage(self, stage: str) -> None:
+        self._stage = stage
+
+    def pause(self) -> None:
+        self.stop()
+
+    def resume(self) -> None:
+        if self._stage is not None:
+            self._start_live()
+
+    def stop(self) -> None:
+        live = self._live
+        if live is None:
+            return
+        try:
+            live.stop()
+        finally:
+            self._live = None
+
+    def _start_live(self) -> None:
+        if self._live is not None or not _startup_ui_available(self._console):
+            return
+        self._live = Live(
+            console=self._console,
+            refresh_per_second=8,
+            transient=True,
+            get_renderable=self.renderable,
+        )
+        self._live.start()
+
+
+@contextmanager
+def _startup_confirmation(display: _StartupDisplay):
+    should_resume = display._live is not None
+    if should_resume:
+        display.pause()
+    try:
+        yield
+    except BaseException:
+        raise
+    else:
+        if should_resume:
+            display.resume()
+
+
+def _with_startup_display_pause(
+    confirmer: IdentityConfirmer | None, display: _StartupDisplay
+) -> IdentityConfirmer | None:
+    if confirmer is None:
+        return None
+
+    def confirm(request: IdentityTrustRequest) -> bool:
+        with _startup_confirmation(display):
+            return confirmer(request)
+
+    return confirm
+
+
+def _render_startup_summary(
+    console: Console,
+    *,
+    model: str,
+    tier: Tier,
+    root: str,
+    diagnostics: tuple[MCPServerDiagnostic, ...],
+) -> None:
+    enabled = [item for item in diagnostics if item.enabled]
+    available = sum(item.status == "available" for item in enabled)
+    fields = ["Ready", f"model {model}", f"sandbox {tier}", f"project {root}"]
+    if enabled:
+        fields.insert(1, f"MCP {available}/{len(enabled)}")
+    console.print(Text(" | ".join(fields)))
+    for item in enabled:
+        if item.required or item.status == "available":
+            continue
+        detail = [f"MCP {item.name} unavailable"]
+        detail.extend(
+            f"{label}: {value}"
+            for label, value in (
+                ("Reason", item.reason),
+                ("Impact", item.impact),
+                ("Action", item.action),
+            )
+            if value is not None
+        )
+        console.print(Text(" | ".join(detail)), soft_wrap=True)
+
+
 def repl(
     *,
     tier: Tier,
@@ -876,10 +1066,13 @@ def repl(
     `stream` (M9 Phase 3) renders each goal's response live as it arrives.
     """
     console = console or Console()
-    if read_line is None:
+    default_reader = read_line is None
+    if default_reader:
         read_line = (
             _make_interactive_reader() if console.is_terminal and sys.stdin.isatty() else input
         )
+    interactive = _interactive_repl(console, default_reader=default_reader)
+    display = _StartupDisplay(console)
     current_context = context_config or ContextConfig()
     current_registry = registry
     if use_registry_snapshot is None:
@@ -895,53 +1088,69 @@ def repl(
             return build_real_client(selected_model, registry=current_registry)
         return client_factory(selected_model)
 
-    console.print("[bold]ForgeAgent[/bold] REPL — enter a goal, blank line or 'quit' to exit.")
-    console.print("[dim]type '/' and enter for the command menu, or '/help'[/dim]")
-    # Survey remains available through the injected reader; side-effecting operations need
-    # both a terminal output and terminal input channel unless tests explicitly provide one.
-    asker = make_console_asker(console, read_line)
-    if confirmation_available is None:
-        confirmation_available = console.is_terminal and sys.stdin.isatty()
-    confirmer = make_console_confirmer(console, read_line) if confirmation_available else None
-    identity_confirmer = (
-        make_console_identity_confirmer(console, read_line) if confirmation_available else None
-    )
-    allowed_root = str(Path.cwd().resolve())
-    identity_diagnostic = make_console_identity_diagnostic(console)
-    skill_confirmer = (
-        make_console_skill_confirmer(console, read_line) if confirmation_available else None
-    )
-    identity = resolve_cli_identity(
-        no_identity=no_identity,
-        allowed_root=allowed_root,
-        confirmer=identity_confirmer,
-        diagnostic=identity_diagnostic,
-    )
-    memory_manager = _make_memory_manager(
-        allowed_root,
-        identity=identity,
-        no_memory=no_memory,
-        no_identity=no_identity,
-        diagnostic=identity_diagnostic,
-    )
-    current_skills = skills or _load_skill_registry(
-        home=str(Path.home()),
-        allowed_root=allowed_root,
-        no_identity=no_identity,
-        confirmer=skill_confirmer,
-        diagnostic=identity_diagnostic,
-    )
-    mcp = build_mcp_manager(console)
-    # One accumulator for the whole REPL session — usage keeps growing across tasks,
-    # not reset per goal (docs/m10 §3.2).
-    usage_total = TokenUsage()
-    # Images staged by a path-only `/image` call, attached to the next goal the user
-    # types at the prompt (design doc §3.5).
-    staged_images: list[ImageItem] | None = None
+    mcp = None
     try:
+        if interactive:
+            display.start("Loading identity")
+        # Survey remains available through the injected reader; side-effecting operations need
+        # both a terminal output and terminal input channel unless tests explicitly provide one.
+        asker = make_console_asker(console, read_line)
+        if confirmation_available is None:
+            confirmation_available = console.is_terminal and sys.stdin.isatty()
+        confirmer = make_console_confirmer(console, read_line) if confirmation_available else None
+        identity_confirmer = (
+            make_console_identity_confirmer(console, read_line) if confirmation_available else None
+        )
+        identity_confirmer = _with_startup_display_pause(identity_confirmer, display)
+        allowed_root = str(Path.cwd().resolve())
+        identity_diagnostic = make_console_identity_diagnostic(console)
+        skill_confirmer = (
+            make_console_skill_confirmer(console, read_line) if confirmation_available else None
+        )
+        skill_confirmer = _with_startup_display_pause(skill_confirmer, display)
+        identity = resolve_cli_identity(
+            no_identity=no_identity,
+            allowed_root=allowed_root,
+            confirmer=identity_confirmer,
+            diagnostic=identity_diagnostic,
+        )
+        display.set_stage("Loading memory")
+        memory_manager = _make_memory_manager(
+            allowed_root,
+            identity=identity,
+            no_memory=no_memory,
+            no_identity=no_identity,
+            diagnostic=identity_diagnostic,
+        )
+        display.set_stage("Loading skills")
+        current_skills = skills or _load_skill_registry(
+            home=str(Path.home()),
+            allowed_root=allowed_root,
+            no_identity=no_identity,
+            confirmer=skill_confirmer,
+            diagnostic=identity_diagnostic,
+        )
+        display.set_stage("Connecting MCP services")
+        mcp = build_mcp_manager()
+        display.stop()
+        if interactive:
+            _render_startup_summary(
+                console,
+                model=model,
+                tier=tier,
+                root=allowed_root,
+                diagnostics=mcp.diagnostics() if mcp is not None else (),
+            )
+        # One accumulator for the whole REPL session — usage keeps growing across tasks,
+        # not reset per goal (docs/m10 §3.2).
+        usage_total = TokenUsage()
+        # Images staged by a path-only `/image` call, attached to the next goal the user
+        # types at the prompt (design doc §3.5).
+        staged_images: list[ImageItem] | None = None
         while True:
             try:
-                goal = read_line("forge> ").strip()
+                prompt = "forge> " if interactive else ""
+                goal = read_line(prompt).strip()
             except EOFError:
                 break
             except KeyboardInterrupt:
@@ -1074,6 +1283,7 @@ def repl(
             )
             staged_images = None
     finally:
+        display.stop()
         if mcp is not None:
             mcp.close()
 
@@ -1124,7 +1334,17 @@ def run_smoke(
     return all_ok
 
 
-def build_mcp_manager(console: Console) -> MCPManager | None:
+def _process_control(error: BaseException) -> KeyboardInterrupt | SystemExit | None:
+    if isinstance(error, (KeyboardInterrupt, SystemExit)):
+        return error
+    if isinstance(error, BaseExceptionGroup):
+        for nested in error.exceptions:
+            if control := _process_control(nested):
+                return control
+    return None
+
+
+def build_mcp_manager() -> MCPManager | None:
     """Load mcp.yaml and, if any servers are enabled, build + connect a manager.
 
     Returns None when no servers are configured (the common case) so the MCP tool stays
@@ -1137,30 +1357,26 @@ def build_mcp_manager(console: Console) -> MCPManager | None:
     manager = MCPManager(servers)
     try:
         manager.connect()
-    except (KeyboardInterrupt, SystemExit):
-        raise
-    except Exception as exc:
+    except BaseException as error:
+        if control := _process_control(error):
+            raise control from None
         if not getattr(manager, "_closed", False):
             try:
                 manager.close()
             except BaseException as cleanup:
-                if isinstance(cleanup, (KeyboardInterrupt, SystemExit)):
-                    raise
-                logger.warning("MCP connect cleanup failed: %s", type(cleanup).__name__)
-        raise MCPStartupError(f"MCP manager startup failed: {type(exc).__name__}") from None
+                if control := _process_control(cleanup):
+                    raise control from None
+                logger.warning("MCP connect cleanup incomplete")
+        raise MCPStartupError("startup_failed") from None
     failures = manager.required_failures()
     if failures:
-        diagnostics = ", ".join(f"{name}: {status}" for name, status in sorted(failures.items()))
         try:
             manager.close()
         except BaseException as cleanup:
-            if isinstance(cleanup, (KeyboardInterrupt, SystemExit)):
-                raise
-            logger.warning("MCP required cleanup failed: %s", type(cleanup).__name__)
-        raise MCPStartupError(diagnostics)
-    for name, status in manager.server_status().items():
-        colour = "green" if status == "available" else "yellow"
-        console.print(f"[{colour}]MCP[/{colour}] {name}: {status}")
+            if control := _process_control(cleanup):
+                raise control from None
+            logger.warning("MCP required cleanup incomplete")
+        raise MCPStartupError("required_server_unavailable")
     return manager
 
 
@@ -1425,7 +1641,7 @@ def serve_http(
     mcp: MCPManager | None = None
     service: TaskService | None = None
     try:
-        mcp = build_mcp_manager(console)
+        mcp = build_mcp_manager()
 
         def task_factory(record: TaskRecord) -> Task:
             memory_manager = _make_memory_manager(
@@ -1564,13 +1780,14 @@ def main(
     raw_argv = list(sys.argv[1:] if argv is None else argv)
     args = build_parser().parse_args(raw_argv)
     console = Console()
+    error_console = Console(stderr=True)
     try:
         if args.command == "models":
             print_models(console)
             return 0
         if args.command == "serve":
             if _serve_has_cli_policy_override(raw_argv):
-                console.print(
+                error_console.print(
                     "[red]HTTP startup error[/red]: execution policy must come from --config"
                 )
                 return 2
@@ -1607,7 +1824,7 @@ def main(
                 except ValueError as exc:
                     console.print(f"[red]could not load image(s)[/red]: {exc}")
                     return 2
-            mcp = build_mcp_manager(console)
+            mcp = build_mcp_manager()
             try:
                 confirmer = make_console_confirmer(console) if interactive_identity else None
                 identity = resolve_cli_identity(
@@ -1683,19 +1900,19 @@ def main(
         )
         return 0
     except RegistryError as exc:
-        console.print(f"[red]config error[/red]: {exc}")
+        error_console.print(f"[red]config error[/red]: {exc}")
         return 2
     except ContainerRuntimeError as exc:
-        console.print(f"[red]container error[/red]: {exc}")
+        error_console.print(f"[red]container error[/red]: {exc}")
         return 2
     except MCPStartupError as exc:
-        console.print(f"[red]MCP startup error[/red]: {exc}")
+        error_console.print(f"[red]MCP startup error[/red]: {exc}")
         return 2
     except IdentityConfigError as exc:
-        console.print(f"[red]identity config error[/red]: {exc}")
+        error_console.print(f"[red]identity config error[/red]: {exc}")
         return 2
     except HttpStartupError:
-        console.print("[red]HTTP startup error[/red]: service did not start")
+        error_console.print("[red]HTTP startup error[/red]: service did not start")
         return 2
 
 

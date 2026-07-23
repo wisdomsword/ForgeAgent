@@ -525,7 +525,7 @@ def test_serve_real_client_uses_one_validated_registry_snapshot_for_tasks(monkey
     monkeypatch.setattr(cli_module, "build_real_client", fake_real_builder)
     monkeypatch.setattr(cli_module, "JsonlAuditSink", lambda *_args, **_kwargs: SimpleNamespace())
     monkeypatch.setattr(cli_module, "resolve_cli_identity", lambda **_kwargs: None)
-    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda _console: None)
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: None)
     monkeypatch.setattr(cli_module, "TaskService", FakeService)
     monkeypatch.setattr(http_server_module, "create_http_server", lambda *_args: FakeServer())
 
@@ -594,7 +594,7 @@ def test_serve_task_factory_passes_only_server_context_to_task(monkeypatch, tmp_
         return client
 
     monkeypatch.setattr(cli_module, "TaskService", FakeService)
-    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda _console: None)
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: None)
     monkeypatch.setattr(http_server_module, "create_http_server", lambda *_args: FakeServer())
 
     cli_module.serve_http(

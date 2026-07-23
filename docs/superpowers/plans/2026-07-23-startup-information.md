@@ -2,6 +2,7 @@
 change: startup-information
 design-doc: docs/superpowers/specs/2026-07-23-startup-information-design.md
 base-ref: 7e17ad540de9907fdd795c0791e7e03b485e5028
+archived-with: 2026-07-23-startup-information
 ---
 
 # Startup Information Implementation Plan
@@ -38,8 +39,6 @@ base-ref: 7e17ad540de9907fdd795c0791e7e03b485e5028
 | `README.md`、`docs/m7-tools-mcp-survey.md` | 记录交互/非交互输出边界、`/mcp` 固定诊断和 MCP/Docker 信任边界。 |
 | `docs/superpowers/reports/2026-07-23-startup-information-verify.md` | 记录定向、全量、golden、OpenSpec、构建、TTY smoke 和 dirty-path 审计结果。 |
 
----
-
 ### Task 1: Add Generation-Bounded MCP Stderr Capture and Diagnostics
 
 **Files:**
@@ -50,7 +49,7 @@ base-ref: 7e17ad540de9907fdd795c0791e7e03b485e5028
 - Consumes: existing `MCPServerConfig`, `_ServerState`, `_holder_slot_matches(name, generation, task=None, stop=None)`, `mask_secrets()` and public-label mapping.
 - Produces: `MCPServerDiagnostic(name: str, enabled: bool, required: bool, status: str, tool_count: int, reason: str | None, impact: str | None, action: str | None)`; `MCPManager.diagnostics() -> tuple[MCPServerDiagnostic, ...]`; private `MCPManager._publish_unavailable(name: str, generation: int, capture: _BoundedStderrCapture) -> None`; `MCPManager._holder()` calls `stdio_client(params, errlog=capture.stream)`.
 
-- [ ] **Step 1: Write failing capture and projection tests**
+- [x] **Step 1: Write failing capture and projection tests**
 
 Add focused tests that monkeypatch the imported `mcp.client.stdio.stdio_client` and exercise a real `_BoundedStderrCapture` reader without a real provider. Cover independent capture objects for two generations, valid UTF-8, `b"\\xff"` replacement decoding, exactly 8192 retained bytes, `truncated is True` after 8193 bytes, and a writer completing a payload larger than a pipe buffer while `text()` remains bounded.
 
@@ -89,13 +88,13 @@ def test_diagnostics_never_publish_raw_stderr_or_secret(monkeypatch):
 
 Add generation tests that fail generation N, enable generation N+1, then complete N's holder/finalizer; assert N+1's status, `diagnostic_code`, tools and diagnostic tuple are unchanged. Add success-path and close-path tests asserting the capture buffer is cleared, reader is joined, and no non-daemon reader thread survives.
 
-- [ ] **Step 2: Run the new tests to verify RED**
+- [x] **Step 2: Run the new tests to verify RED**
 
 Run: `uv run pytest tests/test_mcp_manager.py -q -k "bounded_stderr_capture or diagnostics or generation"`
 
 Expected: collection/import failure for `_BoundedStderrCapture` and `MCPManager.diagnostics`, or assertion failures because `stdio_client` receives no `errlog` and raw exception types still determine public status.
 
-- [ ] **Step 3: Implement the minimal capture and fixed projection contract**
+- [x] **Step 3: Implement the minimal capture and fixed projection contract**
 
 At module scope, add a private capture with a binary pipe reader. `__enter__()` starts one daemon thread; `close()` closes only the parent write stream first, joins the reader, closes the read descriptor, and is idempotent. The reader must always consume chunks after the cap, only extending the locked bytearray by the remaining capacity.
 
@@ -125,15 +124,15 @@ class _BoundedStderrCapture:
 
 Create the `@dataclass(frozen=True) MCPServerDiagnostic` exactly as declared above. Extend `_ServerState` only with `diagnostic_code: str | None = None`; do not store display prose there. Add a private mapping from `docker_unavailable`, `timeout`, `startup_failed`, and `stderr_truncated` to fixed `(reason, impact, action)` tuples. `_classify_startup_failure(masked_stderr: str) -> str` matches only deterministic Docker daemon/socket and connection-timeout patterns; every other failure returns `startup_failed`.
 
-In `_holder`, construct the capture before `stdio_client`, pass `errlog=capture.stream`, and in its exception branch call `_publish_unavailable(name, generation, capture)` only when `_holder_slot_matches(name, generation, stop=stop) and not self._closing`. That method clears tools, sets status to the existing compatible `"unavailable: <fixed public reason>"`, and sets `diagnostic_code`. Never interpolate `exc`, its type, or raw capture text into state. On successful publication and in `finally`, clear and close the capture after the reader has observed EOF. Reset `diagnostic_code` before every enabled replacement generation. Implement `diagnostics()` on the facade thread: iterate deterministic state order, mask labels, compute `tool_count`, map only the fixed code, and return a tuple.
+In `_holder`, construct the capture before `stdio_client`, pass `errlog=capture.stream`, and in its exception branch call `_publish_unavailable(name, generation, capture)` only when `_holder_slot_matches(name, generation, stop=stop) and not self._closing`. That method clears tools, sets status to the existing compatible `"unavailable: <fixed_code>"`, and sets `diagnostic_code`. Never interpolate `exc`, its type, or raw capture text into state. On successful publication and in `finally`, clear and close the capture after the reader has observed EOF. Reset `diagnostic_code` before every enabled replacement generation. Implement `diagnostics()` on the facade thread: iterate deterministic state order, mask labels, compute `tool_count`, map only the fixed code, and return a tuple.
 
-- [ ] **Step 4: Run focused RED-to-GREEN tests and lifecycle regression**
+- [x] **Step 4: Run focused RED-to-GREEN tests and lifecycle regression**
 
 Run: `uv run pytest tests/test_mcp_manager.py -q -k "bounded_stderr_capture or diagnostics or generation or close_terminates_child_processes"`
 
 Expected: PASS. The successful-holder test observes no retained text; overflow test returns 8192 decoded bytes and `truncated=True`; replacement generation keeps its own projection; close/cancel tests leave no holder or reader resources.
 
-- [ ] **Step 5: Commit the MCP diagnostic boundary**
+- [x] **Step 5: Commit the MCP diagnostic boundary**
 
 ```bash
 git add src/forgeagent/mcp_manager.py tests/test_mcp_manager.py
@@ -150,7 +149,7 @@ git commit -m "feat: add bounded MCP startup diagnostics"
 - Consumes: Task 1 `MCPManager.diagnostics()`, existing `Console`, `Live`, identity/skill confirmer factories, and `Tier`.
 - Produces: `_StartupDisplay(console: Console)`, `start(stage: str) -> None`, `set_stage(stage: str) -> None`, `pause() -> None`, `resume() -> None`, `stop() -> None`; `_interactive_repl(console, read_line_is_default) -> bool`.
 
-- [ ] **Step 1: Write failing display lifecycle and rendering tests**
+- [x] **Step 1: Write failing display lifecycle and rendering tests**
 
 Use a fake terminal `Console(force_terminal=True, width=100)`, a fake monotonic clock, and a `Live` factory recorder. Assert real TTY + default reader starts exactly one 8 FPS Live; seven phase frames use `red`, `yellow`, `green`, `cyan`, `blue`, `magenta`, `bright_magenta`; narrow width renders only `ForgeAgent`; `NO_COLOR`, `TERM=dumb`, CI and `console.color_system is None` do not construct animated Live. Test pause before identity/skill confirmation, resume after successful answer, and `finally` cleanup on `KeyboardInterrupt` and a startup exception.
 
@@ -175,13 +174,13 @@ def test_startup_display_narrow_terminal_is_single_line(monkeypatch):
     assert display.logo_renderable().plain == "ForgeAgent"
 ```
 
-- [ ] **Step 2: Run display tests to verify RED**
+- [x] **Step 2: Run display tests to verify RED**
 
 Run: `uv run pytest tests/test_cli.py -q -k "startup_display or startup_renderer or startup_logo"`
 
 Expected: FAIL because `_StartupDisplay` and `_interactive_repl` do not exist.
 
-- [ ] **Step 3: Implement minimal private renderer and confirmation adapter**
+- [x] **Step 3: Implement minimal private renderer and confirmation adapter**
 
 Add only private CLI helpers. The predicate must be exact and called once after reader selection:
 
@@ -202,13 +201,13 @@ def _startup_ui_available(console: Console) -> bool:
 
 Wrap the existing confirmer calls with a small context manager that invokes `display.pause()` before `read_line` and resumes only if initialization continues. Preserve EOF/KeyboardInterrupt behavior by re-raising them after cleanup. Do not alter injected-reader semantics or create a `PromptSession` in that path.
 
-- [ ] **Step 4: Run renderer tests and existing reader regression**
+- [x] **Step 4: Run renderer tests and existing reader regression**
 
 Run: `uv run pytest tests/test_cli.py -q -k "startup_display or startup_renderer or startup_logo or repl_explicit_reader_never_constructs_prompt_session or repl_exits_cleanly_on_keyboard_interrupt"`
 
 Expected: PASS; no Live instance exists for explicit reader/non-TTY/no-color paths and every started fake Live is stopped.
 
-- [ ] **Step 5: Commit the renderer lifecycle**
+- [x] **Step 5: Commit the renderer lifecycle**
 
 ```bash
 git add src/forgeagent/cli.py tests/test_cli.py
@@ -225,7 +224,7 @@ git commit -m "feat: render interactive startup information"
 - Consumes: Task 1 diagnostics tuple and Task 2 display lifecycle.
 - Produces: `build_mcp_manager() -> MCPManager | None` with no `Console` argument and no output; `_render_startup_summary(console: Console, *, model: str, tier: Tier, root: str, diagnostics: tuple[MCPServerDiagnostic, ...]) -> None`; bare `/mcp` uses `diagnostics()` while `/mcp status|tools|enable|disable` remains accepted.
 
-- [ ] **Step 1: Write failing CLI behavior tests**
+- [x] **Step 1: Write failing CLI behavior tests**
 
 Add tests for: `build_mcp_manager()` does not print; summary includes selected model, tier, resolved root, and `MCP 1/2`; disabled state is excluded; no enabled MCP omits count; an optional Docker diagnostic prints exactly one fixed line and no secret/raw stderr; required failure raises before any `Ready` output; bare `/mcp` prints at most Status/Tools/Reason/Impact/Action lines per server and omits absent optional fields; status/enable/disable/tools continue their existing behavior and timeout prints fixed pending text.
 
@@ -239,7 +238,9 @@ def _lines(*values: str) -> Callable[[str], str]:
     return lambda _prompt: next(iterator)
 
 
-def _patch_diagnostics(monkeypatch, *, available: int, enabled: int, optional_code: str) -> None:
+def _patch_diagnostics(
+    monkeypatch, *, available: int, enabled: int, optional_code: str
+) -> "_DiagnosticManager":
     values = tuple(
         MCPServerDiagnostic(
             name=f"server-{index}", enabled=True, required=False,
@@ -250,7 +251,9 @@ def _patch_diagnostics(monkeypatch, *, available: int, enabled: int, optional_co
         )
         for index in range(enabled)
     )
-    monkeypatch.setattr(cli, "build_mcp_manager", lambda: _DiagnosticManager(values))
+    manager = _DiagnosticManager(values)
+    monkeypatch.setattr(cli, "build_mcp_manager", lambda: manager)
+    return manager
 
 
 class _DiagnosticManager:
@@ -269,13 +272,15 @@ class _DiagnosticManager:
 
 def test_interactive_optional_failure_prints_one_fixed_degradation_line(monkeypatch):
     console = _terminal_console()
-    _patch_diagnostics(monkeypatch, available=1, enabled=2, optional_code="docker_unavailable")
-    repl(
+    manager = _patch_diagnostics(
+        monkeypatch, available=1, enabled=2, optional_code="docker_unavailable"
+    )
+    _render_startup_summary(
+        console,
         tier=Tier.RESTRICTED,
         model="claude-sonnet-5",
-        client_factory=lambda _: MockClient(script=[]),
-        console=console,
-        read_line=_lines("quit"),
+        root="/project",
+        diagnostics=manager.diagnostics(),
     )
     output = console.file.getvalue()
     assert "MCP 1/2" in output
@@ -285,22 +290,20 @@ def test_interactive_optional_failure_prints_one_fixed_degradation_line(monkeypa
 
 def test_required_mcp_failure_has_only_sanitized_stderr(monkeypatch, capsys):
     monkeypatch.setattr(cli, "build_mcp_manager", lambda: (_ for _ in ()).throw(MCPStartupError("startup_failed")))
-    monkeypatch.setattr(sys, "argv", ["forgeagent"])
-    with pytest.raises(SystemExit) as exited:
-        cli.main()
+    exit_code = cli.main([])
     captured = capsys.readouterr()
-    assert exited.value.code == 2
+    assert exit_code == 2
     assert "startup_failed" in captured.err
     assert captured.out == ""
 ```
 
-- [ ] **Step 2: Run the CLI contract tests to verify RED**
+- [x] **Step 2: Run the CLI contract tests to verify RED**
 
 Run: `uv run pytest tests/test_cli.py -q -k "build_mcp_manager or startup_summary or optional_failure or required_mcp or mcp_command"`
 
 Expected: FAIL because the builder requires `Console`, emits lines itself, no summary exists, and slash command still derives all output from `server_status()`.
 
-- [ ] **Step 3: Move output ownership to REPL and implement fixed text rendering**
+- [x] **Step 3: Move output ownership to REPL and implement fixed text rendering**
 
 Change the signature to `def build_mcp_manager() -> MCPManager | None`; retain config load, manager construction, connect, required check and bounded cleanup. On connect/required failure, raise `MCPStartupError` built solely from a fixed diagnostic code/label, never from status or exception text. `main()` must create separate `Console()` stdout and `Console(stderr=True)` stderr objects, catch startup/config/container/identity/MCP errors through the stderr console, and return exit code 2 while normal task output stays stdout.
 
@@ -319,13 +322,13 @@ def _render_startup_summary(console: Console, *, model: str, tier: Tier, root: s
 
 Print the fixed optional message once per unavailable enabled optional diagnostic, using only `(name, reason, impact, action)` from Task 1. Required diagnostics are checked first and render no partial summary. For bare `/mcp`, render each diagnostic with no more than five labeled lines, using `Text` literals so bracket content cannot become Rich markup. Keep `/mcp status`, `/mcp tools`, `/mcp enable`, `/mcp disable` compatible; update the usage string to list all four forms.
 
-- [ ] **Step 4: Run targeted CLI tests**
+- [x] **Step 4: Run targeted CLI tests**
 
 Run: `uv run pytest tests/test_cli.py -q -k "build_mcp_manager or startup_summary or optional_failure or required_mcp or mcp_command or runtime_toggle_of_required"`
 
 Expected: PASS. Existing runtime required-toggle test still keeps the REPL alive; no builder output is captured; public text contains neither test secret nor exception class.
 
-- [ ] **Step 5: Commit CLI output ownership and diagnostics**
+- [x] **Step 5: Commit CLI output ownership and diagnostics**
 
 ```bash
 git add src/forgeagent/cli.py tests/test_cli.py
@@ -344,7 +347,7 @@ git commit -m "feat: report MCP startup capability safely"
 - Consumes: Task 3 stdout/stderr split and `build_mcp_manager() -> MCPManager | None`.
 - Produces: default non-TTY reader that calls `input()`/stream read without a prompt; subprocess tests invoke the installed `forgeagent` console script with isolated HOME and fixture config.
 
-- [ ] **Step 1: Write failing black-box and regression tests**
+- [x] **Step 1: Write failing black-box and regression tests**
 
 Create `_forgeagent_process(argv: list[str], stdin: bytes, env: dict[str, str]) -> CompletedProcess[bytes]`, implemented as `subprocess.run(argv, input=stdin, capture_output=True, text=False, env=env, check=False)`, then use it to assert exit 0 and exact `stdout == b""`, `stderr == b""`. Add a pipe-goal test with a scripted local model double/entrypoint hook that proves MCP connects and only task result appears. Add optional fixture stderr output/failure and assert no Docker/SDK/path/secret raw text in either stream. Add required failure test asserting exit 2, stdout empty, stderr has only fixed text. Unit-test default non-TTY reader receives `""` prompt while terminal reader receives `"forge> "`.
 
@@ -364,25 +367,25 @@ def test_required_mcp_failure_is_stderr_only(isolated_cli_env):
     assert b"Traceback" not in result.stderr
 ```
 
-- [ ] **Step 2: Run black-box tests to verify RED**
+- [x] **Step 2: Run black-box tests to verify RED**
 
 Run: `uv run pytest tests/test_cli_startup_blackbox.py tests/test_cli.py -q -k "pipe or non_tty or startup_bytes"`
 
 Expected: FAIL: current REPL prompt/banner/MCP status reaches stdout and required errors are not guaranteed to use the dedicated stderr console.
 
-- [ ] **Step 3: Implement the non-TTY reader boundary and fixture modes**
+- [x] **Step 3: Implement the non-TTY reader boundary and fixture modes**
 
 Select the reader once. When interactive predicate is false, use a callable that reads a line without passing a prompt to `input`; do not call PromptSession or `console.print()` for startup UI. Preserve EOF, `KeyboardInterrupt`, empty line, confirmations and Survey behavior exactly. Keep MCP manager creation in non-TTY REPL so submitted goals retain tools.
 
 Extend `tests/mcp_fixture_server.py` only with environment-selected test modes: `startup_chatter` writes a benign line to stderr before normal server startup; `docker_failure` writes a Docker-daemon-shaped line then terminates before handshake. The test must use synthetic values and never require Docker.
 
-- [ ] **Step 4: Run non-TTY, stdout/stderr, and command-path regressions**
+- [x] **Step 4: Run non-TTY, stdout/stderr, and command-path regressions**
 
 Run: `uv run pytest tests/test_cli_startup_blackbox.py tests/test_cli.py -q -k "pipe or non_tty or startup_bytes or main_reports_required_mcp_startup_error or run"`
 
 Expected: PASS. `run`, `serve`, `models`, and `smoke` have no Logo or optional startup-status output; pipe quit is exactly two zero-length streams.
 
-- [ ] **Step 5: Commit the black-box contract**
+- [x] **Step 5: Commit the black-box contract**
 
 ```bash
 git add src/forgeagent/cli.py tests/mcp_fixture_server.py tests/test_cli_startup_blackbox.py tests/test_cli.py
@@ -401,23 +404,23 @@ git commit -m "fix: silence noninteractive startup output"
 - Consumes: final behavior from Tasks 1-4.
 - Produces: user documentation that distinguishes real-interactive REPL from non-TTY/script paths; verification report containing literal command outcomes and the human TTY smoke result.
 
-- [ ] **Step 1: Write the final contractual output assertion before editing prose**
+- [x] **Step 1: Write the final contractual output assertion before editing prose**
 
 In `tests/test_cli.py`, add `test_mcp_diagnostic_uses_only_fixed_public_labels`: make a diagnostic whose internal source includes `docker.sock`, an exception class name and a secret; invoke bare `/mcp`; assert output contains `Status`, `Tools`, `Reason`, `Impact`, `Action` and `Docker is not running`, while every internal value is absent. Do not assert animation ANSI escape sequences in documentation or tests.
 
-- [ ] **Step 2: Run the acceptance check**
+- [x] **Step 2: Run the acceptance check**
 
 Run: `uv run pytest tests/test_cli.py -q -k "startup_summary or mcp_command"`
 
 Expected: PASS before documentation edits because behavior is already complete; this confirms docs will describe proven output rather than prescribe unimplemented behavior.
 
-- [ ] **Step 3: Update docs and verification report with exact scope**
+- [x] **Step 3: Update docs and verification report with exact scope**
 
 In `README.md`, document that the logo/summary is real-TTY REPL only; `printf 'quit\\n' | forgeagent` intentionally produces no startup bytes; task result output remains available on non-TTY goal input; `/mcp` shows bounded safe diagnostics. In the MCP section, describe Docker only as an optional configured integration runtime, never a ForgeAgent prerequisite. In `docs/m7-tools-mcp-survey.md`, update the current runtime addendum with per-generation stderr isolation and no raw child-error exposure.
 
 Mark only completed implementation tasks in `openspec/changes/startup-information/tasks.md`; do not alter requirements. Create the report with each command, exit status, relevant count, environment limitations, human smoke observations, review findings/fixes, and an explicit dirty-path audit against the Global Constraints list.
 
-- [ ] **Step 4: Run final automated verification**
+- [x] **Step 4: Run final automated verification**
 
 Run:
 
@@ -426,20 +429,20 @@ uv run pytest tests/test_mcp_manager.py tests/test_cli.py tests/test_cli_startup
 uv run pytest -q
 uv run ruff check .
 uv run ruff format --check .
-uv run python scripts/run_golden_core.py
+UV_CACHE_DIR=/tmp/forgeagent-startup-information-uv-cache uv run python -m tests.golden.runner --output-dir /tmp/forgeagent-startup-information-golden-final
 openspec validate startup-information --strict
 uv build --out-dir /tmp/forgeagent-startup-information-build
 git diff --check
 git status --short
 ```
 
-Expected: focused and full pytest pass; Ruff reports no diagnostics and no formatting changes; golden core reports exactly `20/20`; OpenSpec prints `Change 'startup-information' is valid`; build emits wheel and sdist; diff check is empty; status has no changes outside this change plus the pre-existing dirty paths declared above. Record actual output rather than treating an unavailable build backend/network as a pass.
+Expected: focused and full pytest pass; Ruff reports no diagnostics and no formatting changes; golden core reports exactly `20/20`; OpenSpec prints `Change 'startup-information' is valid`; build emits wheel and sdist; diff check is empty; status has no changes outside this change plus the pre-existing dirty paths declared above. The obsolete `scripts/run_golden_core.py` entrypoint is absent; use the module runner above. Record actual output rather than treating an unavailable build backend/network as a pass.
 
-- [ ] **Step 5: Run the human interactive smoke before final commit**
+- [x] **Step 5: Run the human interactive smoke before final commit**
 
 In a real terminal, run `uv run forgeagent` with one available fixture MCP and then with one configured optional failure. Confirm: transient animation is visible; static logo and one summary appear; optional message is one line; prompt does not overlap a Live refresh; `/mcp` exposes only fixed fields; identity/skill confirmation pauses input safely; Ctrl-C/quit restores cursor and leaves no background refresh. Repeat `printf 'quit\\n' | uv run forgeagent` and record zero bytes for both streams.
 
-- [ ] **Step 6: Perform two review passes and commit the completed change**
+- [x] **Step 6: Perform two review passes and commit the completed change**
 
 First compare every requirement/scenario in `openspec/changes/startup-information/specs/*/spec.md` to Tasks 1-5 and their test evidence. Second inspect the final diff for raw exception interpolation, capture/reader leaks, old-generation publication, Rich markup injection, disabled-server denominator mistakes, unexpected non-TTY output, and accidental pre-existing files. Fix each finding with a focused test and rerun the affected test plus the complete command block above.
 

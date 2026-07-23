@@ -19,15 +19,24 @@ ForgeAgent SHALL support a boolean `required` setting on each MCP server configu
 - **THEN** ForgeAgent does not connect the server and does not fail initial CLI startup because of that server
 
 ### Requirement: Optional MCP failures degrade predictably
-ForgeAgent SHALL continue startup when an optional MCP server fails to connect, SHALL exclude that server's unavailable tools, and SHALL emit diagnostic information naming the failed server and a fixed failure category or exception type without exposing raw exception, command, argument, environment or server-content text.
+
+ForgeAgent SHALL continue startup when an optional MCP server fails to connect, SHALL exclude that server's unavailable tools, and SHALL emit only a masked fixed failure category and bounded user-facing diagnostic. Each server/generation's child stderr SHALL be isolated in its own bounded in-memory sink; raw stderr, command, arguments, environment, server content, Python exception type and `ExceptionGroup` text MUST NOT reach startup output, `/mcp`, structured feedback or lifecycle logs.
 
 #### Scenario: Optional server connection fails
 - **WHEN** an optional MCP server cannot start or complete its connection handshake
-- **THEN** the CLI remains usable with other tools and reports the degraded server
+- **THEN** the CLI remains usable with other tools and reports the degraded server using its public label and fixed failure category
 
-#### Scenario: Optional failure carries a known secret
-- **WHEN** an optional server failure exception contains a configured secret value
-- **THEN** `server_status()`, startup diagnostics and REPL status output identify the server and fixed cause without containing the secret or raw exception text
+#### Scenario: Optional server emits startup chatter
+- **WHEN** an MCP child writes normal startup chatter to stderr before becoming available
+- **THEN** the chatter is consumed by that server's sink and does not appear in ForgeAgent stdout or stderr
+
+#### Scenario: Optional server failure carries a known secret
+- **WHEN** an optional server failure stderr or exception contains a configured secret value
+- **THEN** server status, startup diagnostics and `/mcp` output contain neither the secret nor raw failure text
+
+#### Scenario: Docker runtime is unavailable
+- **WHEN** an enabled optional server uses Docker and its stderr matches the known Docker daemon-unavailable condition
+- **THEN** `/mcp` reports a fixed user-facing reason that Docker is not running, explains that only that configured integration is disabled, and offers starting Docker or disabling that server
 
 ### Requirement: MCP discovery metadata does not expose known secrets
 ForgeAgent MUST apply the existing sensitive-environment value policy before discovered MCP metadata or configured server identity reaches the model prompt, CLI, ToolOutcome feedback, structured call errors, public status, required-startup diagnostics or lifecycle logs. JSON-like input schemas MUST be recursively masked; exact built-in floats MUST be finite, and any nested NaN, positive infinity or negative infinity MUST make the public schema `{}`; a masked key collision or any other non-JSON-like value MUST have the same result. A tool or configured server routing identity that contains a known secret MUST NOT be advertised because a masked display alias cannot be routed safely back to the original SDK identity. Public configured-server labels MUST be stable and collision-free; an unknown or manually supplied raw server identity MUST map to one manager-owned fixed category label allocated without collision against configured public labels and never derived from that raw input. Internal lifecycle, approval and call routing MUST continue to use the original identity.
@@ -57,11 +66,12 @@ ForgeAgent MUST apply the existing sensitive-environment value policy before dis
 - **THEN** approval and call routing receive the raw identity while the next-round feedback and CLI outcome contain only the manager-owned public server label and masked tool label
 
 ### Requirement: Required MCP failures abort startup
-ForgeAgent MUST return a non-zero CLI startup result when a required MCP server fails to connect, MUST NOT start the task, and MUST perform bounded cleanup of MCP resources that were already started. Normal cleanup MUST release those resources. When an event-loop thread is hard-stuck, the required CLI failure MAY remain incomplete at the public deadline only while retaining cleanup evidence and emitting a sanitized warning. If the authoritative drain does not yet exist, the queued shutdown facade or fallback callback on the live loop/thread MUST keep the manager state strongly reachable; if the drain exists, that sole loop-owned drain MUST keep it reachable. When the loop recovers, queued work MUST create or reuse the sole authoritative drain and continue cleanup; an existing drain MUST continue directly. Because `build_mcp_manager()` closes and raises `MCPStartupError`, the CLI MUST NOT expose or promise a later `close()` handle, and this path MUST NOT add a global registry, `atexit` hook, or new API. A direct API caller that still holds the `MCPManager`, and ordinary manager lifecycle repeated `close()` calls, MAY use a new bounded close retry.
+
+ForgeAgent MUST return a non-zero CLI startup result when a required MCP server fails to connect, MUST NOT start the task, and MUST perform bounded cleanup of MCP resources that were already started. The required-startup error MUST be written through the sanitized stderr path and MUST NOT expose raw child stderr, command, arguments, environment, server content, Python exception type or `ExceptionGroup` text. Normal cleanup MUST release those resources. When an event-loop thread is hard-stuck, the required CLI failure MAY remain incomplete at the public deadline only while retaining cleanup evidence and emitting a sanitized warning. If the authoritative drain does not yet exist, the queued shutdown facade or fallback callback on the live loop/thread MUST keep the manager state strongly reachable; if the drain exists, that sole loop-owned drain MUST keep it reachable. When the loop recovers, queued work MUST create or reuse the sole authoritative drain and continue cleanup; an existing drain MUST continue directly. Because `build_mcp_manager()` closes and raises `MCPStartupError`, the CLI MUST NOT expose or promise a later `close()` handle, and this path MUST NOT add a global registry, `atexit` hook, or new API. A direct API caller that still holds the `MCPManager`, and ordinary manager lifecycle repeated `close()` calls, MAY use a new bounded close retry.
 
 #### Scenario: Required server connection fails
 - **WHEN** a required MCP server cannot start or complete its connection handshake
-- **THEN** the CLI reports a startup error, makes one bounded cleanup attempt for already-started MCP resources, and exits non-zero before running the task without exposing a manager or later-close handle
+- **THEN** the CLI reports a fixed sanitized startup error, makes one bounded cleanup attempt for already-started MCP resources, and exits non-zero before running the task without exposing a manager or later-close handle
 
 #### Scenario: Required startup failure cleans up normally
 - **WHEN** a required server fails after one or more MCP resources have started and their loop thread remains responsive
@@ -82,6 +92,10 @@ ForgeAgent MUST return a non-zero CLI startup result when a required MCP server 
 #### Scenario: Every configured server is disabled at startup
 - **WHEN** all MCP server entries are disabled when the CLI is assembled
 - **THEN** ForgeAgent starts without an MCP manager or loop, does not fail because a disabled server is required, and does not promise runtime enable from that manager-less session
+
+#### Scenario: Required server emits raw stderr before failing
+- **WHEN** a required MCP child writes Docker, filesystem, or arbitrary stderr before its handshake fails
+- **THEN** the required startup error contains only the fixed failure category and no raw child line
 
 ### Requirement: MCP runtime holder ownership is loop-owned and generation-safe
 ForgeAgent MUST serialize holder desired-state reconciliation on the MCP loop thread, MUST bind holder, session, teardown and replacement intent to monotonic generations, and MUST prevent an older generation from removing, cancelling or mutating a newer generation's resources or public state. The concrete container and task shapes belong to the technical Design Doc.
@@ -262,3 +276,15 @@ ForgeAgent's automated tests MUST isolate the configuration home used by CLI and
 #### Scenario: User home contains MCP configuration
 - **WHEN** the machine running tests has `~/.forgeagent/mcp.yaml`
 - **THEN** tests use an isolated configuration root and their result is independent of that file
+
+### Requirement: MCP child stderr is isolated per server and generation
+
+ForgeAgent SHALL pass a distinct bounded text sink to each MCP SDK `stdio_client(..., errlog=...)` invocation. The sink SHALL retain only a fixed maximum number of bytes in memory, record whether truncation occurred, and release its content after the holder generation is finalized. Masking and fixed-category classification SHALL happen before any diagnostic projection; an older generation MUST NOT overwrite a newer generation's diagnostic.
+
+#### Scenario: One server writes more than the bound
+- **WHEN** an MCP child writes stderr beyond the configured sink limit
+- **THEN** the sink remains bounded, records truncation, and the public diagnostic uses a fixed truncation marker without exposing the complete text
+
+#### Scenario: A replacement generation starts
+- **WHEN** generation N is unavailable and generation N+1 is explicitly enabled
+- **THEN** generation N's sink and diagnostic cannot replace or mutate generation N+1's status or diagnostic
