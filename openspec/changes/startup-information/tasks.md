@@ -6,8 +6,8 @@
 ## 2. 交互式启动呈现
 
 - [x] 2.1 先写失败测试覆盖真实 TTY、`NO_COLOR`、无颜色、窄终端、确认暂停、成功/异常/`Ctrl-C` 清理和无残留刷新线程
-- [ ] 2.2 在 CLI 内实现最小 StartupRenderer、纯 ASCII 七色 Logo、初始化生命周期和模型/sandbox/project 摘要
-- [ ] 2.3 实现 MCP `available/enabled` 摘要，确保 disabled 排除、optional 失败一行降级、required 失败不渲染部分 Ready
+- [x] 2.2 在 CLI 内实现最小 StartupRenderer、纯 ASCII 七色 Logo、初始化生命周期和模型/sandbox/project 摘要
+- [x] 2.3 实现 MCP `available/enabled` 摘要，确保 disabled 排除、optional 失败一行降级、required 失败不渲染部分 Ready
 
 ## 3. 非 TTY 与错误输出
 
@@ -16,8 +16,8 @@
 
 ## 4. `/mcp` 用户诊断
 
-- [ ] 4.1 先写失败测试覆盖可用工具数、Reason / Impact / Action、Docker 非默认 sandbox 说明、unknown 降级、disabled 状态和 public label/secret masking
-- [ ] 4.2 扩展 `/mcp status` 的结构化展示，保留 enable/disable、工具列表、timeout pending 和现有路由语义
+- [x] 4.1 先写失败测试覆盖可用工具数、Reason / Impact / Action、Docker 非默认 sandbox 说明、unknown 降级、disabled 状态和 public label/secret masking
+- [x] 4.2 扩展 `/mcp status` 的结构化展示，保留 enable/disable、工具列表、timeout pending 和现有路由语义
 
 ## 5. 文档、评审与验证
 

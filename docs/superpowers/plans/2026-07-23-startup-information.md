@@ -225,7 +225,7 @@ git commit -m "feat: render interactive startup information"
 - Consumes: Task 1 diagnostics tuple and Task 2 display lifecycle.
 - Produces: `build_mcp_manager() -> MCPManager | None` with no `Console` argument and no output; `_render_startup_summary(console: Console, *, model: str, tier: Tier, root: str, diagnostics: tuple[MCPServerDiagnostic, ...]) -> None`; bare `/mcp` uses `diagnostics()` while `/mcp status|tools|enable|disable` remains accepted.
 
-- [ ] **Step 1: Write failing CLI behavior tests**
+- [x] **Step 1: Write failing CLI behavior tests**
 
 Add tests for: `build_mcp_manager()` does not print; summary includes selected model, tier, resolved root, and `MCP 1/2`; disabled state is excluded; no enabled MCP omits count; an optional Docker diagnostic prints exactly one fixed line and no secret/raw stderr; required failure raises before any `Ready` output; bare `/mcp` prints at most Status/Tools/Reason/Impact/Action lines per server and omits absent optional fields; status/enable/disable/tools continue their existing behavior and timeout prints fixed pending text.
 
@@ -298,13 +298,13 @@ def test_required_mcp_failure_has_only_sanitized_stderr(monkeypatch, capsys):
     assert captured.out == ""
 ```
 
-- [ ] **Step 2: Run the CLI contract tests to verify RED**
+- [x] **Step 2: Run the CLI contract tests to verify RED**
 
 Run: `uv run pytest tests/test_cli.py -q -k "build_mcp_manager or startup_summary or optional_failure or required_mcp or mcp_command"`
 
 Expected: FAIL because the builder requires `Console`, emits lines itself, no summary exists, and slash command still derives all output from `server_status()`.
 
-- [ ] **Step 3: Move output ownership to REPL and implement fixed text rendering**
+- [x] **Step 3: Move output ownership to REPL and implement fixed text rendering**
 
 Change the signature to `def build_mcp_manager() -> MCPManager | None`; retain config load, manager construction, connect, required check and bounded cleanup. On connect/required failure, raise `MCPStartupError` built solely from a fixed diagnostic code/label, never from status or exception text. `main()` must create separate `Console()` stdout and `Console(stderr=True)` stderr objects, catch startup/config/container/identity/MCP errors through the stderr console, and return exit code 2 while normal task output stays stdout.
 
@@ -323,13 +323,13 @@ def _render_startup_summary(console: Console, *, model: str, tier: Tier, root: s
 
 Print the fixed optional message once per unavailable enabled optional diagnostic, using only `(name, reason, impact, action)` from Task 1. Required diagnostics are checked first and render no partial summary. For bare `/mcp`, render each diagnostic with no more than five labeled lines, using `Text` literals so bracket content cannot become Rich markup. Keep `/mcp status`, `/mcp tools`, `/mcp enable`, `/mcp disable` compatible; update the usage string to list all four forms.
 
-- [ ] **Step 4: Run targeted CLI tests**
+- [x] **Step 4: Run targeted CLI tests**
 
 Run: `uv run pytest tests/test_cli.py -q -k "build_mcp_manager or startup_summary or optional_failure or required_mcp or mcp_command or runtime_toggle_of_required"`
 
 Expected: PASS. Existing runtime required-toggle test still keeps the REPL alive; no builder output is captured; public text contains neither test secret nor exception class.
 
-- [ ] **Step 5: Commit CLI output ownership and diagnostics**
+- [x] **Step 5: Commit CLI output ownership and diagnostics**
 
 ```bash
 git add src/forgeagent/cli.py tests/test_cli.py
