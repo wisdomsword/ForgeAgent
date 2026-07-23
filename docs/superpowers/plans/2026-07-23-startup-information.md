@@ -2,6 +2,7 @@
 change: startup-information
 design-doc: docs/superpowers/specs/2026-07-23-startup-information-design.md
 base-ref: 7e17ad540de9907fdd795c0791e7e03b485e5028
+archived-with: 2026-07-23-startup-information
 ---
 
 # Startup Information Implementation Plan
@@ -37,8 +38,6 @@ base-ref: 7e17ad540de9907fdd795c0791e7e03b485e5028
 | `tests/mcp_fixture_server.py` | 增加仅测试使用的 stderr chatter / Docker-like failure modes，供真实 stdio 子进程断言。 |
 | `README.md`、`docs/m7-tools-mcp-survey.md` | 记录交互/非交互输出边界、`/mcp` 固定诊断和 MCP/Docker 信任边界。 |
 | `docs/superpowers/reports/2026-07-23-startup-information-verify.md` | 记录定向、全量、golden、OpenSpec、构建、TTY smoke 和 dirty-path 审计结果。 |
-
----
 
 ### Task 1: Add Generation-Bounded MCP Stderr Capture and Diagnostics
 
