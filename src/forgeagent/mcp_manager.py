@@ -33,7 +33,7 @@ from collections.abc import Coroutine
 from dataclasses import dataclass, field
 from datetime import timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, TextIO
 
 import yaml
 from pydantic import BaseModel, Field
@@ -51,8 +51,103 @@ _ENV_PLACEHOLDER = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 _UNAVAILABLE_CAUSE = re.compile(r"^unavailable: ([A-Za-z_][A-Za-z0-9_]*)")
 _LOOP_THREAD_NAME = "forgeagent-mcp-loop"
 _UNKNOWN_SERVER_LABEL = "unknown"
+_STDERR_CAPTURE_LIMIT = 8192
+_STARTUP_DIAGNOSTICS = {
+    "docker_unavailable": (
+        "Docker is not running",
+        "Configured tools are disabled",
+        "Start Docker or disable this server",
+    ),
+    "timeout": (
+        "MCP server startup timed out",
+        "Configured tools are disabled",
+        "Check the server and try again",
+    ),
+    "startup_failed": (
+        "MCP server failed to start",
+        "Configured tools are disabled",
+        "Check the server configuration and try again",
+    ),
+    "stderr_truncated": (
+        "MCP server startup output was truncated",
+        "Configured tools are disabled",
+        "Check the server logs and try again",
+    ),
+}
 
 logger = logging.getLogger(__name__)
+
+
+class _BoundedStderrCapture:
+    def __init__(self, limit: int = _STDERR_CAPTURE_LIMIT) -> None:
+        self._limit = limit
+        self._data = bytearray()
+        self._lock = threading.Lock()
+        self._read_fd: int | None = None
+        self.stream: TextIO | None = None
+        self._reader: threading.Thread | None = None
+        self.truncated = False
+
+    def __enter__(self) -> _BoundedStderrCapture:
+        read_fd, write_fd = os.pipe()
+        self._read_fd = read_fd
+        self.stream = os.fdopen(write_fd, "w", encoding="utf-8", errors="replace")
+        self._reader = threading.Thread(
+            target=self._drain,
+            args=(read_fd,),
+            name="forgeagent-mcp-stderr",
+            daemon=True,
+        )
+        self._reader.start()
+        return self
+
+    def __exit__(self, *_exc_info: object) -> None:
+        self.close()
+
+    def _drain(self, read_fd: int) -> None:
+        while chunk := os.read(read_fd, 8192):
+            with self._lock:
+                remaining = max(0, self._limit - len(self._data))
+                if len(chunk) > remaining:
+                    self.truncated = True
+                if remaining:
+                    self._data.extend(chunk[:remaining])
+
+    def text(self) -> str:
+        with self._lock:
+            return bytes(self._data).decode("utf-8", errors="replace")
+
+    def clear(self) -> None:
+        with self._lock:
+            self._data.clear()
+            self.truncated = False
+
+    def close(self) -> None:
+        stream = self.stream
+        if stream is not None and not stream.closed:
+            stream.close()
+        reader = self._reader
+        if reader is not None:
+            reader.join()
+        read_fd = self._read_fd
+        if read_fd is not None:
+            os.close(read_fd)
+            self._read_fd = None
+
+
+def _classify_startup_failure(masked_stderr: str) -> str:
+    normalized = masked_stderr.lower()
+    if "docker.sock" in normalized or (
+        "docker daemon" in normalized
+        and any(marker in normalized for marker in ("cannot connect", "not running", "failed"))
+    ):
+        return "docker_unavailable"
+    if any(
+        marker in normalized
+        for marker in ("connection timed out", "connection timeout", "connect timeout")
+    ):
+        return "timeout"
+    return "startup_failed"
 
 
 def _prefer_process_control(primary: BaseException, cleanup: BaseException) -> BaseException:
@@ -165,6 +260,18 @@ class MCPToolInfo(BaseModel):
     input_schema: dict = Field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class MCPServerDiagnostic:
+    name: str
+    enabled: bool
+    required: bool
+    status: str
+    tool_count: int
+    reason: str | None
+    impact: str | None
+    action: str | None
+
+
 @dataclass
 class _ServerState:
     """Live per-server state held by the manager (not serialized)."""
@@ -175,6 +282,7 @@ class _ServerState:
     generation: int = 0
     tearing_down_generation: int | None = None
     restart_after_generation: int | None = None
+    diagnostic_code: str | None = None
 
 
 @dataclass
@@ -539,8 +647,10 @@ class MCPManager:
         )
         session: object | None = None
         cancellation: asyncio.CancelledError | None = None
+        capture = _BoundedStderrCapture()
+        capture.__enter__()
         try:
-            async with stdio_client(params) as (read, write):
+            async with stdio_client(params, errlog=capture.stream) as (read, write):
                 try:
                     async with ClientSession(read, write) as session:
                         try:
@@ -556,6 +666,8 @@ class MCPManager:
                             self._sessions[name] = (generation, session)
                             if self._holder_can_publish(name, generation, stop):
                                 state.status = "available"
+                                state.diagnostic_code = None
+                                capture.clear()
                             else:
                                 state.tools = []
                                 if self._session_slot_matches(name, generation, session):
@@ -584,18 +696,41 @@ class MCPManager:
             if cancellation is not None:
                 raise cancellation from None
             raise
-        except BaseException as exc:  # noqa: BLE001 - isolate: never leak past this holder
+        except BaseException:  # noqa: BLE001 - isolate: never leak past this holder
             if cancellation is not None:
                 raise cancellation from None
             if self._holder_slot_matches(name, generation, stop=stop) and not self._closing:
-                state.tools = []
-                state.status = f"unavailable: {type(exc).__name__}"
+                capture.close()
+                self._publish_unavailable(name, generation, capture)
             ready.set()
         finally:
             # Whether we stopped normally or errored, this session is gone once the
             # async-with scopes have exited — never leave a stale handle in _sessions.
             if session is not None and self._session_slot_matches(name, generation, session):
                 self._sessions.pop(name, None)
+            capture.close()
+            capture.clear()
+
+    def _publish_unavailable(
+        self,
+        name: str,
+        generation: int,
+        capture: _BoundedStderrCapture,
+    ) -> None:
+        state = self._states[name]
+        if state.generation != generation:
+            capture.clear()
+            return
+        masked_stderr = mask_secrets(capture.text(), self._secret_values)
+        code = (
+            "stderr_truncated"
+            if capture.truncated
+            else _classify_startup_failure(masked_stderr)
+        )
+        state.tools = []
+        state.status = f"unavailable: {code}"
+        state.diagnostic_code = code
+        capture.clear()
 
     def _filter_tools(self, server: str, cfg: MCPServerConfig, tools) -> list[MCPToolInfo]:
         """Map SDK tool objects to MCPToolInfo, applying the optional `expose` allowlist."""
@@ -632,6 +767,7 @@ class MCPManager:
                 return ready
             state = self._states[name]
             state.generation += 1
+            state.diagnostic_code = None
             generation = state.generation
             stop = asyncio.Event()
             holder_coro = self._holder(name, generation, ready, stop)
@@ -648,7 +784,8 @@ class MCPManager:
                     )
                     selected = _prefer_process_control(selected, cleanup)
                 state.tools = []
-                state.status = f"unavailable: {type(selected).__name__}"
+                state.status = "unavailable: startup_failed"
+                state.diagnostic_code = "startup_failed"
                 ready.set()
                 return ready
             self._holders[name] = (generation, task, stop)
@@ -739,6 +876,7 @@ class MCPManager:
                     stop.set()
                 state.tools = []
                 state.status = "unavailable: connect timeout"
+                state.diagnostic_code = "timeout"
 
         await asyncio.gather(
             *(
@@ -923,6 +1061,27 @@ class MCPManager:
             if state.config.enabled and state.config.required and state.status != "available"
         }
 
+    def diagnostics(self) -> tuple[MCPServerDiagnostic, ...]:
+        """Return a fixed, redacted diagnostic projection for every configured server."""
+        result: list[MCPServerDiagnostic] = []
+        for name, state in self._states.items():
+            status = mask_secrets(_public_status(state.status), self._secret_values)
+            detail = _STARTUP_DIAGNOSTICS.get(state.diagnostic_code)
+            reason, impact, action = detail if detail is not None else (None, None, None)
+            result.append(
+                MCPServerDiagnostic(
+                    name=self.public_server_name(name),
+                    enabled=state.config.enabled,
+                    required=state.config.required,
+                    status=status,
+                    tool_count=len(state.tools),
+                    reason=reason,
+                    impact=impact,
+                    action=action,
+                )
+            )
+        return tuple(result)
+
     def tools_prompt(self) -> str:
         """Markdown describing the available MCP tools, grouped by server, for injection
         into the system prompt. Empty string when no tools are available.
@@ -1054,6 +1213,7 @@ class MCPManager:
         state = self._states[server]
         state.config.enabled = False
         state.restart_after_generation = None
+        state.diagnostic_code = None
         state.tools = []
         state.status = "unavailable: disabled"
         slot = self._holders.get(server)
@@ -1094,6 +1254,7 @@ class MCPManager:
         else:
             state.config.enabled = False
             state.restart_after_generation = None
+            state.diagnostic_code = None
             state.tools = []
             state.status = "unavailable: disabled"
         return True
