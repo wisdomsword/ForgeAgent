@@ -88,6 +88,15 @@ def _write_skill(home, name: str, *, trigger: str) -> None:
     _write_raw_skill(home, name, _skill_document(name=name, trigger=trigger))
 
 
+def _skill_document_with_raw_size(size: int) -> str:
+    padding = size - len(_FULL_REVIEW_SKILL.encode())
+    assert padding >= 0
+    return _FULL_REVIEW_SKILL.replace(
+        "- Report the findings.\n",
+        f"- Report the findings.{'x' * padding}\n",
+    )
+
+
 def test_registry_accepts_only_the_fixed_five_part_document(tmp_path):
     home, root = tmp_path / "home", tmp_path / "project"
     _write_skill(home, "review-python", trigger="Use when reviewing Python.")
@@ -129,21 +138,56 @@ def test_registry_ignores_invalid_document_with_bounded_diagnostic(tmp_path, doc
     assert diagnostics == [f"skill ignored: {reason} (review-python)"]
 
 
-def test_registry_rejects_project_symlink_escape_and_masks_catalog(tmp_path, monkeypatch):
+def test_registry_rejects_user_symlink_escape_with_bounded_diagnostic(tmp_path, monkeypatch):
     home, root, outside = tmp_path / "home", tmp_path / "root", tmp_path / "outside"
     _write_skill(home, "review-python", trigger="Use $TOKEN before release.")
     _write_skill(outside, "escaped", trigger="do not disclose")
-    (root / ".forgeagent" / "skills").mkdir(parents=True)
+    user_skills = home / ".forgeagent" / "skills"
     os.symlink(
         outside / ".forgeagent" / "skills" / "escaped",
-        root / ".forgeagent" / "skills" / "escaped",
+        user_skills / "escaped",
     )
     monkeypatch.setenv("TOKEN", "secret-value")
+    diagnostics: list[str] = []
 
-    registry = SkillRegistry.load(home=str(home), allowed_root=str(root), allow_project=False)
+    registry = SkillRegistry.load(
+        home=str(home),
+        allowed_root=str(root),
+        allow_project=False,
+        diagnostic=diagnostics.append,
+    )
 
     assert "secret-value" not in registry.catalog_prompt()
     assert registry.read("escaped") is None
+    assert diagnostics == ["skill ignored: invalid format (escaped)"]
+
+
+@pytest.mark.parametrize(
+    ("raw_size", "accepted"),
+    [
+        (32 * 1024, True),
+        (32 * 1024 + 1, False),
+    ],
+)
+def test_registry_enforces_raw_skill_file_size_boundary(tmp_path, raw_size, accepted):
+    home = tmp_path / "home"
+    _write_raw_skill(
+        home,
+        "review-python",
+        _skill_document_with_raw_size(raw_size),
+    )
+    diagnostics: list[str] = []
+
+    registry = SkillRegistry.load(
+        home=str(home),
+        allowed_root=str(tmp_path / "root"),
+        allow_project=False,
+        diagnostic=diagnostics.append,
+    )
+
+    assert (registry.read("review-python") is not None) is accepted
+    expected = [] if accepted else ["skill ignored: invalid format (review-python)"]
+    assert diagnostics == expected
 
 
 def test_catalog_uses_sorted_prefix_when_count_or_bytes_exceed_limit(tmp_path):

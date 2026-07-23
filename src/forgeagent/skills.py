@@ -121,10 +121,12 @@ def _discover(
         child = Path(root_real, directory_name)
         child_real = _contained_directory(child, root_real)
         if child_real is None:
+            _emit_ignored(diagnostic, "invalid format", directory_name)
             continue
         skill_file = child / "SKILL.md"
         skill_real = _contained_regular_file(skill_file, root_real)
         if skill_real is None:
+            _emit_ignored(diagnostic, "invalid format", directory_name)
             continue
         try:
             if os.stat(skill_real).st_size > _MAX_SKILL_BYTES:
