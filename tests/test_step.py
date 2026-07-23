@@ -25,6 +25,7 @@ from forgeagent.models import (
 )
 from forgeagent.protocol import EditArgs, FileReadArgs, MCPArgs, ToolCall
 from forgeagent.runtime import Runtime
+from forgeagent.skills import SkillDefinition, SkillRegistry
 from forgeagent.step import RoundResult, Step, Termination, _apply_edit
 from forgeagent.tools import ToolOutcome
 
@@ -76,6 +77,21 @@ def _done(confidence=0.9) -> str:
     return f"---\ntask_status:\n  completed: true\n  confidence: {confidence}\n---\n"
 
 
+def _registry_with_skill(marker: str = "SKILL-BODY-UNIQUE") -> SkillRegistry:
+    return SkillRegistry(
+        {
+            "review-python": SkillDefinition(
+                name="review-python",
+                trigger="Use when reviewing Python.",
+                steps=f"1. {marker}",
+                failure_branches="Stop when the diff is unavailable.",
+                completion_criteria="All findings are recorded.",
+                source="user",
+            )
+        }
+    )
+
+
 class _RecordingPolicy:
     def __init__(self):
         self.views: list[list[Message]] = []
@@ -109,6 +125,20 @@ class _FirstViewThenOverBudgetPolicy:
 
 
 # --- loop control ------------------------------------------------------------
+
+
+def test_step_registers_skill_snapshot_for_parse_and_bounded_feedback():
+    step = Step(
+        MockClient(script=[]),
+        TrustedBackend(),
+        Runtime(),
+        skills=_registry_with_skill(),
+    )
+
+    round_result = step._handle_reply(_reply(_tool_call("Skill", name="review-python")))
+
+    assert round_result.parse_errors == []
+    assert "SKILL-BODY-UNIQUE" in step._render_feedback(round_result)
 
 
 def test_step_applies_policy_before_every_complete_call():

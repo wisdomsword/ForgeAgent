@@ -68,6 +68,7 @@ from .tools import (
 
 if TYPE_CHECKING:
     from .mcp_manager import MCPManager
+    from .skills import SkillRegistry
 
 # Re-exported for callers/tests that import them from step (their historical home before
 # the M7 tools.py extraction): the Edit runtime matcher and the code-block store.
@@ -198,6 +199,7 @@ class Step:
         audit_sink: AuditSink | None = None,
         task_id: str | None = None,
         context_policy: ContextPolicy | None = None,
+        skills: SkillRegistry | None = None,
         context_config: ContextConfig | None = None,
     ):
         self._client = client
@@ -232,7 +234,7 @@ class Step:
         self.blocks = CodeBlockStore()
         # Tool set drives both parsing (which names are recognised) and dispatch. Default
         # is the built-in Exec/Edit/Survey registry; with an MCPManager, MCP is added too.
-        self._registry = registry or default_registry(with_mcp=mcp is not None)
+        self._registry = registry or default_registry(with_mcp=mcp is not None, skills=skills)
         # One context shared across the task's tool dispatches (blocks/state persist).
         self._ctx = ToolContext(
             blocks=self.blocks,
