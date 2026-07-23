@@ -14,6 +14,18 @@ base-ref: ff7686d79df0b749ef9de76db5b361934beafe47
 
 **Tech Stack:** Python 3.11, Pydantic v2, pytest, Rich, prompt-toolkit 3.x, uv, ruff, OpenSpec.
 
+## 中文执行说明
+
+本计划以中文为权威说明，代码片段、接口名和命令保留英文以避免实现歧义。M19 的目标是
+建立经过固定结构校验、内容信任和边界限制的 Skill 快照；初始提示只公布有界目录，
+模型需要时再通过只读工具加载正文。CLI、REPL 与 HTTP 均在既有组合边界创建独立快照，
+不改变两阶段完成、确认门、审计和 sandbox 语义。
+
+交互式 REPL 仅在默认 TTY 输入路径启用 prompt-toolkit：斜杠候选来自现有指令表，随着
+输入逐字符过滤，并支持键盘选择；上下方向键只回放当前会话历史。非 TTY、测试注入
+reader 和显式输入函数保持原行为，不写入持久历史。下方英文任务步骤及测试命令是这份
+中文说明的可执行细化，若出现表述冲突，以本节、OpenSpec delta spec 和已验证行为为准。
+
 ## Global Constraints
 
 - Preserve the existing default sandbox, confirmation, audit, context-budget, two-phase completion, and tool feedback behaviour.
