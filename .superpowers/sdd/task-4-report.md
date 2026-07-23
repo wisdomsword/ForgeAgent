@@ -56,7 +56,7 @@ banner, prompt, readiness summary, and optional failure text are absent.
 ## Verification
 
 - Focused RED/GREEN coverage: `42 passed`.
-- Full CLI plus black-box coverage: `239 passed`.
+- Full CLI plus black-box coverage: `243 passed`.
 - `rtk .venv/bin/ruff check src/forgeagent/cli.py tests/test_cli.py
   tests/mcp_fixture_server.py tests/test_cli_startup_blackbox.py`: passed.
 - `rtk .venv/bin/ruff format --check src/forgeagent/cli.py tests/test_cli.py
@@ -77,3 +77,38 @@ banner, prompt, readiness summary, and optional failure text are absent.
   launcher while the MCP server remains a real subprocess.
 - The manager-suite failure is outside the Task 4 file scope and remains an
   unresolved verification signal for the owning MCP lifecycle work.
+
+## Review Remediation
+
+Addressed the Task 4 review findings without changing production code or fixture
+behavior.
+
+### RED
+
+Command:
+
+`uv run pytest tests/test_cli_startup_blackbox.py -q -k pipe_goal`
+
+Result: `1 failed, 4 deselected`.
+
+The deliberately incomplete `b"PIPE_RESULT\\n"` stdout expectation failed against
+the real subprocess bytes. The failure established that the task-result contract is
+the exact sequence of completion status, `MCP fixture:echo` result, `PIPE_RESULT`,
+and usage line, with no startup bytes.
+
+### GREEN
+
+Command:
+
+`uv run pytest tests/test_cli_startup_blackbox.py tests/test_cli.py -q -k "pipe or non_tty or startup_bytes or main_reports_required_mcp_startup_error or run or noninteractive_commands or serve_builds_server_owned"`
+
+Result: `47 passed, 196 deselected`.
+
+- The pipe-goal black-box test now asserts every stdout byte, closing the gap left
+  by a denylist of startup strings.
+- `run`, `serve`, `models`, and `smoke` have focused regression coverage that fails
+  if they construct the REPL Logo or startup-summary paths, and each asserts no
+  `ForgeAgent`, `Ready |`, or MCP summary output.
+- The `serve` lifecycle test additionally captures its real command output while
+  retaining the existing fake listener/service boundary, so it remains independent
+  of Docker, sockets, and external network access.

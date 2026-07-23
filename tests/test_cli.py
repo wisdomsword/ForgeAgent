@@ -2810,6 +2810,50 @@ def test_smoke_include_openai_compatible_adds_models():
         assert model in seen
 
 
+@pytest.mark.parametrize("command", ["run", "serve", "models", "smoke"])
+def test_noninteractive_commands_do_not_render_repl_startup_information(
+    monkeypatch, tmp_path, command
+):
+    import forgeagent.cli as cli_module
+
+    class OptionalMCP:
+        def tools_prompt(self):
+            return ""
+
+        def close(self):
+            pass
+
+    console = _console()
+    monkeypatch.setattr(cli_module, "Console", lambda **kwargs: console)
+    monkeypatch.setattr(cli_module, "_StartupDisplay", lambda *_: pytest.fail("unexpected logo"))
+    monkeypatch.setattr(
+        cli_module,
+        "_render_startup_summary",
+        lambda **kwargs: pytest.fail("unexpected startup summary"),
+    )
+    monkeypatch.setattr(cli_module, "build_mcp_manager", OptionalMCP)
+    monkeypatch.setattr(
+        cli_module,
+        "serve_http",
+        lambda *args, console, **kwargs: console.print("serving on 127.0.0.1:8765"),
+    )
+
+    argv = {
+        "run": ["run", "goal"],
+        "serve": ["serve", "--config", str(tmp_path / "http.yaml")],
+        "models": ["models"],
+        "smoke": ["smoke"],
+    }[command]
+    factory = _smoke_factory() if command == "smoke" else _factory([_reply(_done())])
+
+    assert main(argv, client_factory=factory) == 0
+    rendered = console.export_text()
+    assert "ForgeAgent" not in rendered
+    assert "Ready |" not in rendered
+    assert "MCP 1/1" not in rendered
+    assert "unavailable" not in rendered
+
+
 # --- models / reload commands (M7 Phase 4) -----------------------------------
 
 
@@ -3860,6 +3904,7 @@ def test_serve_builds_server_owned_task_factory_and_closes_in_order(monkeypatch,
 
     events: list[str] = []
     captured: dict[str, object] = {}
+    console = _console()
     identity = object()
     skills = _registry_with_skill("user-only skill")
     skill_load_calls = []
@@ -3898,6 +3943,7 @@ def test_serve_builds_server_owned_task_factory_and_closes_in_order(monkeypatch,
             events.append("server.close")
 
     monkeypatch.setattr(cli_module, "TaskService", FakeService)
+    monkeypatch.setattr(cli_module, "Console", lambda **kwargs: console)
     monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: mcp)
     monkeypatch.setattr(cli_module, "resolve_cli_identity", lambda **kwargs: identity)
     monkeypatch.setattr(
@@ -3925,6 +3971,11 @@ def test_serve_builds_server_owned_task_factory_and_closes_in_order(monkeypatch,
     assert captured["shutdown_timeout"] == 0.1
     assert events == ["server.shutdown", "service.shutdown", "mcp.close", "server.close"]
     assert stat.S_IMODE(audit_path.stat().st_mode) == 0o600
+    rendered = console.export_text()
+    assert "ForgeAgent" not in rendered
+    assert "Ready |" not in rendered
+    assert "MCP 1/1" not in rendered
+    assert "unavailable" not in rendered
 
     task = captured["factory"](SimpleNamespace(task_id="task-123"))
     other_task = captured["factory"](SimpleNamespace(task_id="task-456"))

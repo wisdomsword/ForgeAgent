@@ -142,10 +142,12 @@ def test_pipe_goal_connects_mcp_and_only_outputs_task_result(
     assert result.returncode == 0, (result.stdout, result.stderr)
     assert result.stderr == b""
     assert pid_file.exists()
-    assert b"PIPE_RESULT" in result.stdout
-    assert b"fixture:echo" in result.stdout
-    for startup_text in (b"ForgeAgent", b"forge> ", b"Ready |", b"unavailable"):
-        assert startup_text not in result.stdout
+    assert result.stdout == (
+        b"completed\n"
+        b"  round 1 [MCP fixture:echo] ok\n"
+        b"PIPE_RESULT\n"
+        b"usage: in=0 out=0 cached=0 reasoning=0 (session total) cache_hit=n/a\n"
+    )
 
 
 def test_required_mcp_failure_is_stderr_only(isolated_cli_env: dict[str, str]):
