@@ -23,8 +23,10 @@ import re
 import signal
 import sys
 import threading
+import time
 import unicodedata
 from collections.abc import Callable
+from contextlib import contextmanager
 from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import cast
@@ -853,6 +855,124 @@ def _make_interactive_reader() -> Callable[[str], str]:
     return session.prompt
 
 
+_STARTUP_COLOURS = (
+    "red",
+    "yellow",
+    "green",
+    "cyan",
+    "blue",
+    "magenta",
+    "bright_magenta",
+)
+_STARTUP_LOGO = (
+    " _____                    _                    _   ",
+    "|  ___|__  _ __ __ _  ___| | __ _  ___ _ __ | |_ ",
+    "| |_ / _ \\| '__/ _` |/ _ \\ |/ _` |/ _ \\ '_ \\| __|",
+    "|  _| (_) | | | (_| |  __/ | (_| |  __/ | | | |_ ",
+    "|_|  \\___/|_|  \\__, |\\___|_|\\__, |\\___|_| |_|\\__|",
+    "                |___/        |___/                  ",
+)
+
+
+def _interactive_repl(console: Console, *, default_reader: bool) -> bool:
+    return default_reader and console.is_terminal and sys.stdin.isatty()
+
+
+def _startup_ui_available(console: Console) -> bool:
+    return (
+        console.is_terminal
+        and console.color_system is not None
+        and not console.no_color
+        and "NO_COLOR" not in os.environ
+        and os.environ.get("TERM") != "dumb"
+        and not any(name in os.environ for name in ("CI", "GITHUB_ACTIONS", "BUILD_NUMBER"))
+    )
+
+
+class _StartupDisplay:
+    def __init__(self, console: Console) -> None:
+        self._console = console
+        self._stage: str | None = None
+        self._live: Live | None = None
+
+    def logo_renderable(self) -> Text:
+        colour = _STARTUP_COLOURS[int(time.monotonic() * 8) % len(_STARTUP_COLOURS)]
+        logo = (
+            "ForgeAgent"
+            if self._console.width < max(map(len, _STARTUP_LOGO))
+            else "\n".join(_STARTUP_LOGO)
+        )
+        return Text(logo, style=colour)
+
+    def renderable(self) -> Text:
+        rendered = self.logo_renderable()
+        if self._stage:
+            rendered.append("\n")
+            rendered.append(self._stage, style="dim")
+        return rendered
+
+    def start(self, stage: str) -> None:
+        self._stage = stage
+        self._start_live()
+
+    def set_stage(self, stage: str) -> None:
+        self._stage = stage
+
+    def pause(self) -> None:
+        self.stop()
+
+    def resume(self) -> None:
+        if self._stage is not None:
+            self._start_live()
+
+    def stop(self) -> None:
+        live = self._live
+        if live is None:
+            return
+        try:
+            live.stop()
+        finally:
+            self._live = None
+
+    def _start_live(self) -> None:
+        if self._live is not None or not _startup_ui_available(self._console):
+            return
+        self._live = Live(
+            console=self._console,
+            refresh_per_second=8,
+            transient=True,
+            get_renderable=self.renderable,
+        )
+        self._live.start()
+
+
+@contextmanager
+def _startup_confirmation(display: _StartupDisplay):
+    should_resume = display._live is not None
+    if should_resume:
+        display.pause()
+    try:
+        yield
+    except BaseException:
+        raise
+    else:
+        if should_resume:
+            display.resume()
+
+
+def _with_startup_display_pause(
+    confirmer: IdentityConfirmer | None, display: _StartupDisplay
+) -> IdentityConfirmer | None:
+    if confirmer is None:
+        return None
+
+    def confirm(request: IdentityTrustRequest) -> bool:
+        with _startup_confirmation(display):
+            return confirmer(request)
+
+    return confirm
+
+
 def repl(
     *,
     tier: Tier,
@@ -876,10 +996,13 @@ def repl(
     `stream` (M9 Phase 3) renders each goal's response live as it arrives.
     """
     console = console or Console()
-    if read_line is None:
+    default_reader = read_line is None
+    if default_reader:
         read_line = (
             _make_interactive_reader() if console.is_terminal and sys.stdin.isatty() else input
         )
+    interactive = _interactive_repl(console, default_reader=default_reader)
+    display = _StartupDisplay(console)
     current_context = context_config or ContextConfig()
     current_registry = registry
     if use_registry_snapshot is None:
@@ -897,48 +1020,57 @@ def repl(
 
     console.print("[bold]ForgeAgent[/bold] REPL — enter a goal, blank line or 'quit' to exit.")
     console.print("[dim]type '/' and enter for the command menu, or '/help'[/dim]")
-    # Survey remains available through the injected reader; side-effecting operations need
-    # both a terminal output and terminal input channel unless tests explicitly provide one.
-    asker = make_console_asker(console, read_line)
-    if confirmation_available is None:
-        confirmation_available = console.is_terminal and sys.stdin.isatty()
-    confirmer = make_console_confirmer(console, read_line) if confirmation_available else None
-    identity_confirmer = (
-        make_console_identity_confirmer(console, read_line) if confirmation_available else None
-    )
-    allowed_root = str(Path.cwd().resolve())
-    identity_diagnostic = make_console_identity_diagnostic(console)
-    skill_confirmer = (
-        make_console_skill_confirmer(console, read_line) if confirmation_available else None
-    )
-    identity = resolve_cli_identity(
-        no_identity=no_identity,
-        allowed_root=allowed_root,
-        confirmer=identity_confirmer,
-        diagnostic=identity_diagnostic,
-    )
-    memory_manager = _make_memory_manager(
-        allowed_root,
-        identity=identity,
-        no_memory=no_memory,
-        no_identity=no_identity,
-        diagnostic=identity_diagnostic,
-    )
-    current_skills = skills or _load_skill_registry(
-        home=str(Path.home()),
-        allowed_root=allowed_root,
-        no_identity=no_identity,
-        confirmer=skill_confirmer,
-        diagnostic=identity_diagnostic,
-    )
-    mcp = build_mcp_manager(console)
-    # One accumulator for the whole REPL session — usage keeps growing across tasks,
-    # not reset per goal (docs/m10 §3.2).
-    usage_total = TokenUsage()
-    # Images staged by a path-only `/image` call, attached to the next goal the user
-    # types at the prompt (design doc §3.5).
-    staged_images: list[ImageItem] | None = None
+    mcp = None
     try:
+        if interactive:
+            display.start("Loading identity")
+        # Survey remains available through the injected reader; side-effecting operations need
+        # both a terminal output and terminal input channel unless tests explicitly provide one.
+        asker = make_console_asker(console, read_line)
+        if confirmation_available is None:
+            confirmation_available = console.is_terminal and sys.stdin.isatty()
+        confirmer = make_console_confirmer(console, read_line) if confirmation_available else None
+        identity_confirmer = (
+            make_console_identity_confirmer(console, read_line) if confirmation_available else None
+        )
+        identity_confirmer = _with_startup_display_pause(identity_confirmer, display)
+        allowed_root = str(Path.cwd().resolve())
+        identity_diagnostic = make_console_identity_diagnostic(console)
+        skill_confirmer = (
+            make_console_skill_confirmer(console, read_line) if confirmation_available else None
+        )
+        skill_confirmer = _with_startup_display_pause(skill_confirmer, display)
+        identity = resolve_cli_identity(
+            no_identity=no_identity,
+            allowed_root=allowed_root,
+            confirmer=identity_confirmer,
+            diagnostic=identity_diagnostic,
+        )
+        display.set_stage("Loading memory")
+        memory_manager = _make_memory_manager(
+            allowed_root,
+            identity=identity,
+            no_memory=no_memory,
+            no_identity=no_identity,
+            diagnostic=identity_diagnostic,
+        )
+        display.set_stage("Loading skills")
+        current_skills = skills or _load_skill_registry(
+            home=str(Path.home()),
+            allowed_root=allowed_root,
+            no_identity=no_identity,
+            confirmer=skill_confirmer,
+            diagnostic=identity_diagnostic,
+        )
+        display.set_stage("Connecting MCP services")
+        mcp = build_mcp_manager(console)
+        display.stop()
+        # One accumulator for the whole REPL session — usage keeps growing across tasks,
+        # not reset per goal (docs/m10 §3.2).
+        usage_total = TokenUsage()
+        # Images staged by a path-only `/image` call, attached to the next goal the user
+        # types at the prompt (design doc §3.5).
+        staged_images: list[ImageItem] | None = None
         while True:
             try:
                 goal = read_line("forge> ").strip()
@@ -1074,6 +1206,7 @@ def repl(
             )
             staged_images = None
     finally:
+        display.stop()
         if mcp is not None:
             mcp.close()
 

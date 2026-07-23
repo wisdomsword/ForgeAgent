@@ -77,6 +77,190 @@ def _terminal_console() -> Console:
     return Console(record=True, width=100, force_terminal=True)
 
 
+class _RecordedLive:
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+        self.started = False
+        self.stopped = False
+
+    def start(self):
+        self.started = True
+
+    def stop(self):
+        self.stopped = True
+
+
+def _display_with_recorded_live(monkeypatch, *, width: int = 100):
+    lives = []
+    for name in ("NO_COLOR", "CI", "GITHUB_ACTIONS", "BUILD_NUMBER", "TERM"):
+        monkeypatch.delenv(name, raising=False)
+
+    def make_live(**kwargs):
+        live = _RecordedLive(**kwargs)
+        lives.append(live)
+        return live
+
+    monkeypatch.setattr(cli_module, "Live", make_live)
+    console = Console(record=True, width=width, force_terminal=True, color_system="standard")
+    return cli_module._StartupDisplay(console), lives
+
+
+def test_startup_renderer_requires_default_reader_and_both_ttys(monkeypatch):
+    console = _terminal_console()
+    monkeypatch.setattr(cli_module.sys.stdin, "isatty", lambda: True)
+
+    assert cli_module._interactive_repl(console, default_reader=True) is True
+    assert cli_module._interactive_repl(console, default_reader=False) is False
+
+    monkeypatch.setattr(cli_module.sys.stdin, "isatty", lambda: False)
+    assert cli_module._interactive_repl(console, default_reader=True) is False
+    assert cli_module._interactive_repl(_console(), default_reader=True) is False
+
+
+def test_startup_display_starts_one_eight_fps_live_and_cycles_seven_colours(monkeypatch):
+    display, lives = _display_with_recorded_live(monkeypatch)
+    clock = {"now": 0.0}
+    monkeypatch.setattr(cli_module.time, "monotonic", lambda: clock["now"])
+
+    display.start("Loading identity")
+    display.start("Loading skills")
+
+    assert len(lives) == 1
+    assert lives[0].started is True
+    assert lives[0].kwargs == {
+        "console": display._console,
+        "refresh_per_second": 8,
+        "transient": True,
+        "get_renderable": display.renderable,
+    }
+    colours = []
+    for phase in range(7):
+        clock["now"] = phase / 8
+        colours.append(str(display.logo_renderable().style))
+    assert colours == [
+        "red",
+        "yellow",
+        "green",
+        "cyan",
+        "blue",
+        "magenta",
+        "bright_magenta",
+    ]
+    assert "Loading skills" in lives[0].kwargs["get_renderable"]().plain
+
+
+def test_startup_display_pauses_for_confirmation_and_recreates_live(monkeypatch):
+    display, lives = _display_with_recorded_live(monkeypatch)
+    display.start("Loading identity")
+    display.pause()
+    assert lives[0].stopped is True
+    display.resume()
+    display.stop()
+
+    assert [live.started for live in lives] == [True, True]
+    assert all(live.stopped for live in lives)
+
+
+def test_startup_display_narrow_terminal_is_single_line(monkeypatch):
+    display, _ = _display_with_recorded_live(monkeypatch, width=12)
+    assert display.logo_renderable().plain == "ForgeAgent"
+
+
+@pytest.mark.parametrize("environment_name", ["NO_COLOR", "CI", "GITHUB_ACTIONS", "BUILD_NUMBER"])
+def test_startup_display_environment_disables_live(monkeypatch, environment_name):
+    display, lives = _display_with_recorded_live(monkeypatch)
+    monkeypatch.setenv(environment_name, "1")
+
+    display.start("Loading identity")
+
+    assert lives == []
+
+
+def test_startup_display_dumb_terminal_disables_live(monkeypatch):
+    display, lives = _display_with_recorded_live(monkeypatch)
+    monkeypatch.setenv("TERM", "dumb")
+
+    display.start("Loading identity")
+
+    assert lives == []
+
+
+@pytest.mark.parametrize(
+    "console",
+    [
+        Console(record=True, width=100, force_terminal=False),
+        Console(record=True, width=100, force_terminal=True, no_color=True),
+        Console(record=True, width=100, force_terminal=True, color_system=None),
+    ],
+)
+def test_startup_display_console_capability_disables_live(monkeypatch, console):
+    lives = []
+    monkeypatch.setattr(cli_module, "Live", lambda **kwargs: lives.append(kwargs))
+
+    cli_module._StartupDisplay(console).start("Loading identity")
+
+    assert lives == []
+
+
+def test_repl_stops_startup_display_when_startup_raises(monkeypatch):
+    display, lives = _display_with_recorded_live(monkeypatch)
+    monkeypatch.setattr(cli_module, "_StartupDisplay", lambda console: display)
+    monkeypatch.setattr(cli_module.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(cli_module, "_make_interactive_reader", lambda: lambda _prompt: "quit")
+    monkeypatch.setattr(
+        cli_module,
+        "build_mcp_manager",
+        lambda console: (_ for _ in ()).throw(RuntimeError("startup failed")),
+    )
+
+    with pytest.raises(RuntimeError, match="startup failed"):
+        cli_module.repl(
+            tier="restricted",
+            model="mock",
+            client_factory=_factory([]),
+            console=display._console,
+            read_line=None,
+            no_identity=True,
+            skills=SkillRegistry({}),
+            use_registry_snapshot=False,
+        )
+
+    assert [live.started for live in lives] == [True]
+    assert all(live.stopped for live in lives)
+
+
+def test_repl_stops_startup_display_after_confirmation_keyboard_interrupt(monkeypatch):
+    display, lives = _display_with_recorded_live(monkeypatch)
+    monkeypatch.setattr(cli_module, "_StartupDisplay", lambda console: display)
+    monkeypatch.setattr(cli_module.sys.stdin, "isatty", lambda: True)
+
+    def interrupt(_prompt):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(cli_module, "_make_interactive_reader", lambda: interrupt)
+    from forgeagent.identity import IdentityTrustRequest
+
+    def resolve_identity(**kwargs):
+        kwargs["confirmer"](IdentityTrustRequest(project_label="project", summary="summary"))
+        return None
+
+    monkeypatch.setattr(cli_module, "resolve_cli_identity", resolve_identity)
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda console: None)
+
+    with pytest.raises(KeyboardInterrupt):
+        cli_module.repl(
+            tier="restricted",
+            model="mock",
+            client_factory=_factory([]),
+            console=display._console,
+            read_line=None,
+            skills=SkillRegistry({}),
+            use_registry_snapshot=False,
+        )
+
+    assert all(live.stopped for live in lives)
+
+
 def test_repl_explicit_reader_never_constructs_prompt_session(monkeypatch):
     monkeypatch.setattr(
         cli_module,
