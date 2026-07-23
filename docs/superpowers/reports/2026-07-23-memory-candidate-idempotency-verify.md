@@ -20,6 +20,19 @@ status: passed
 - 固定协议使用真实位置参数签名，明确 `utils` 无需 import，纯记忆请求无需 Exec。
 - `runtime-memory` 和 `runtime-identity` delta spec 均已 strict 校验。
 
+## 完整验证 Scorecard
+
+| 维度 | 结果 |
+| --- | --- |
+| 完整性 | 3/3 tasks；2/2 modified requirements 已实现 |
+| 正确性 | 10/10 delta scenarios 有实现或既有回归证据 |
+| 一致性 | proposal、hotfix design、两份 delta、代码与测试一致 |
+
+- 关联设计：`docs/superpowers/specs/2026-07-23-memory-runtime-design.md`。
+- 关联设计：`docs/superpowers/specs/2026-07-17-compose-runtime-identity-design.md`。
+- M18 的候选出现顺序仍用于所有发生变化的值；仅 scope/key 当前值未变化的重发折叠为
+  同一逻辑候选，因此没有设计漂移。
+
 ## TDD 与验证证据
 
 - RED：重复候选产生 2 个 disabled 结果；固定协议缺少正确签名。
