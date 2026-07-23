@@ -47,7 +47,12 @@ Task 5 的文档、`/mcp` public-label 负向回归、G355 golden 对齐和验�
 
 ## 人工 TTY smoke
 
-未在此子会话中伪造真实终端观察。主会话仍需使用真实 TTY 验证：可用/optional-failure 两种启动、动态动画与静态单色降级标识、摘要、提示符、动画暂停确认、Ctrl-C/quit 清理、`/mcp` 固定字段，以及 `printf 'quit\\n' | uv run forgeagent` 的 stdout/stderr 零字节。
+主会话使用真实 PTY 完成了 optional-failure 启动与 `quit` 清理：
+
+- `TERM=dumb`/`NO_COLOR=1` 的 TTY 输出一次静态 ASCII 标识，随后显示 `Ready | MCP 0/2`、固定字段的 filesystem/Docker 降级摘要和 `forge> `；输入 `quit` 后退出状态为 `0`。
+- `TERM=xterm-256color` 且未设置 `NO_COLOR` 时观察到 ANSI 七色动态 Logo 帧，动画结束后显示同一摘要和提示符；输入 `quit` 后退出状态为 `0`。
+- 该 smoke 使用配置中的 filesystem 与 github optional servers，因此 Docker 未运行只产生脱敏的固定摘要，不阻塞 REPL。
+- 尚未在本次 smoke 中覆盖可用 MCP、动画暂停确认和 Ctrl-C；管道零启动字节仍由自动化 black-box/golden 覆盖。
 
 ## Dirty-path 审计
 
