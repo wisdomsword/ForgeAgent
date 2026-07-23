@@ -125,7 +125,7 @@ class _BoundedStderrCapture:
 
 Create the `@dataclass(frozen=True) MCPServerDiagnostic` exactly as declared above. Extend `_ServerState` only with `diagnostic_code: str | None = None`; do not store display prose there. Add a private mapping from `docker_unavailable`, `timeout`, `startup_failed`, and `stderr_truncated` to fixed `(reason, impact, action)` tuples. `_classify_startup_failure(masked_stderr: str) -> str` matches only deterministic Docker daemon/socket and connection-timeout patterns; every other failure returns `startup_failed`.
 
-In `_holder`, construct the capture before `stdio_client`, pass `errlog=capture.stream`, and in its exception branch call `_publish_unavailable(name, generation, capture)` only when `_holder_slot_matches(name, generation, stop=stop) and not self._closing`. That method clears tools, sets status to the existing compatible `"unavailable: <fixed public reason>"`, and sets `diagnostic_code`. Never interpolate `exc`, its type, or raw capture text into state. On successful publication and in `finally`, clear and close the capture after the reader has observed EOF. Reset `diagnostic_code` before every enabled replacement generation. Implement `diagnostics()` on the facade thread: iterate deterministic state order, mask labels, compute `tool_count`, map only the fixed code, and return a tuple.
+In `_holder`, construct the capture before `stdio_client`, pass `errlog=capture.stream`, and in its exception branch call `_publish_unavailable(name, generation, capture)` only when `_holder_slot_matches(name, generation, stop=stop) and not self._closing`. That method clears tools, sets status to the existing compatible `"unavailable: <fixed_code>"`, and sets `diagnostic_code`. Never interpolate `exc`, its type, or raw capture text into state. On successful publication and in `finally`, clear and close the capture after the reader has observed EOF. Reset `diagnostic_code` before every enabled replacement generation. Implement `diagnostics()` on the facade thread: iterate deterministic state order, mask labels, compute `tool_count`, map only the fixed code, and return a tuple.
 
 - [ ] **Step 4: Run focused RED-to-GREEN tests and lifecycle regression**
 
@@ -239,7 +239,9 @@ def _lines(*values: str) -> Callable[[str], str]:
     return lambda _prompt: next(iterator)
 
 
-def _patch_diagnostics(monkeypatch, *, available: int, enabled: int, optional_code: str) -> None:
+def _patch_diagnostics(
+    monkeypatch, *, available: int, enabled: int, optional_code: str
+) -> "_DiagnosticManager":
     values = tuple(
         MCPServerDiagnostic(
             name=f"server-{index}", enabled=True, required=False,
@@ -250,7 +252,9 @@ def _patch_diagnostics(monkeypatch, *, available: int, enabled: int, optional_co
         )
         for index in range(enabled)
     )
-    monkeypatch.setattr(cli, "build_mcp_manager", lambda: _DiagnosticManager(values))
+    manager = _DiagnosticManager(values)
+    monkeypatch.setattr(cli, "build_mcp_manager", lambda: manager)
+    return manager
 
 
 class _DiagnosticManager:
@@ -269,13 +273,15 @@ class _DiagnosticManager:
 
 def test_interactive_optional_failure_prints_one_fixed_degradation_line(monkeypatch):
     console = _terminal_console()
-    _patch_diagnostics(monkeypatch, available=1, enabled=2, optional_code="docker_unavailable")
-    repl(
+    manager = _patch_diagnostics(
+        monkeypatch, available=1, enabled=2, optional_code="docker_unavailable"
+    )
+    _render_startup_summary(
+        console,
         tier=Tier.RESTRICTED,
         model="claude-sonnet-5",
-        client_factory=lambda _: MockClient(script=[]),
-        console=console,
-        read_line=_lines("quit"),
+        root="/project",
+        diagnostics=manager.diagnostics(),
     )
     output = console.file.getvalue()
     assert "MCP 1/2" in output
@@ -285,11 +291,9 @@ def test_interactive_optional_failure_prints_one_fixed_degradation_line(monkeypa
 
 def test_required_mcp_failure_has_only_sanitized_stderr(monkeypatch, capsys):
     monkeypatch.setattr(cli, "build_mcp_manager", lambda: (_ for _ in ()).throw(MCPStartupError("startup_failed")))
-    monkeypatch.setattr(sys, "argv", ["forgeagent"])
-    with pytest.raises(SystemExit) as exited:
-        cli.main()
+    exit_code = cli.main([])
     captured = capsys.readouterr()
-    assert exited.value.code == 2
+    assert exit_code == 2
     assert "startup_failed" in captured.err
     assert captured.out == ""
 ```
