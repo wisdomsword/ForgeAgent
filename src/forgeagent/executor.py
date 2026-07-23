@@ -320,22 +320,39 @@ class ContainerBackend(ExecutorBackend):
     def _run_command(self, container_name: str) -> list[str]:
         uid = os_uid_gid()
         cmd = [
-            self._cli, "run", "--rm", "-i", "--name", container_name,
-            "--network", "none",
-            "--memory", f"{self._memory_mb}m",
-            "--cpus", str(self._cpus),
-            "--pids-limit", str(self._pids_limit),
-            "--cap-drop", "ALL",
-            "--security-opt", "no-new-privileges",
+            self._cli,
+            "run",
+            "--rm",
+            "-i",
+            "--name",
+            container_name,
+            "--network",
+            "none",
+            "--memory",
+            f"{self._memory_mb}m",
+            "--cpus",
+            str(self._cpus),
+            "--pids-limit",
+            str(self._pids_limit),
+            "--cap-drop",
+            "ALL",
+            "--security-opt",
+            "no-new-privileges",
             "--read-only",
-            "--tmpfs", "/tmp",
+            "--tmpfs",
+            "/tmp",
             # T9b (M8 decision 9): mask host topology/cgroup details; /proc keeps
             # docker's default masks (runc forbids custom mounts inside /proc).
-            "--tmpfs", "/sys:ro",
-            "-v", f"{self._allowed_root}:{self._allowed_root}",
-            "-v", f"{self._skeleton_dir}:/opt/fa:ro",
-            "-e", "PYTHONPATH=/opt/fa",
-            "-w", self._allowed_root,
+            "--tmpfs",
+            "/sys:ro",
+            "-v",
+            f"{self._allowed_root}:{self._allowed_root}",
+            "-v",
+            f"{self._skeleton_dir}:/opt/fa:ro",
+            "-e",
+            "PYTHONPATH=/opt/fa",
+            "-w",
+            self._allowed_root,
         ]
         if uid is not None:
             cmd += ["--user", uid]
@@ -366,9 +383,7 @@ class ContainerBackend(ExecutorBackend):
             # by name. Truly best-effort: a hung daemon (the likely cause of the
             # timeout) must not let TimeoutExpired escape execute().
             try:
-                subprocess.run(
-                    [self._cli, "kill", container_name], capture_output=True, timeout=10
-                )
+                subprocess.run([self._cli, "kill", container_name], capture_output=True, timeout=10)
             except (subprocess.TimeoutExpired, OSError):
                 pass
             return ExecResult(
@@ -420,8 +435,7 @@ def _verify_container_runtime(cli: str, image: str) -> None:
     )
     if have.returncode != 0:
         raise ContainerRuntimeError(
-            f"container image {image!r} is not available locally. "
-            f"Pull it first: {cli} pull {image}"
+            f"container image {image!r} is not available locally. Pull it first: {cli} pull {image}"
         )
 
 

@@ -29,8 +29,7 @@ def _blocked(result) -> bool:
         return False
     err = result.error or ""
     return any(
-        marker in err
-        for marker in ("restricted:", "PermissionError", "timed out", "denied")
+        marker in err for marker in ("restricted:", "PermissionError", "timed out", "denied")
     )
 
 
@@ -77,8 +76,7 @@ def test_t2_write_outside_denied(tmp_path):
 
 def test_t3_socket_connect_denied(tmp_path):
     code = (
-        "import socket\n"
-        "socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect(('127.0.0.1', 9))"
+        "import socket\nsocket.socket(socket.AF_INET, socket.SOCK_STREAM).connect(('127.0.0.1', 9))"
     )
     assert _blocked(_backend(tmp_path).execute(code, Runtime()))
 
@@ -184,10 +182,7 @@ def test_t7_backend_still_limits_even_if_static_missed(tmp_path):
     secret = tmp_path.parent / "t7_secret.txt"
     secret.write_text("secret")
     try:
-        code = (
-            "m = __import__('builtins')\n"
-            f"print(m.open({str(secret)!r}).read())"
-        )
+        code = f"m = __import__('builtins')\nprint(m.open({str(secret)!r}).read())"
         assert _blocked(_backend(tmp_path).execute(code, Runtime()))
     finally:
         secret.unlink(missing_ok=True)

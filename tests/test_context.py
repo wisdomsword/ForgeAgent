@@ -72,7 +72,7 @@ def test_load_context_config_reads_only_top_level_context_mapping(tmp_path: Path
     assert load_context_config(path) == ContextConfig(utilization_ratio=0.5, image_token_reserve=99)
 
 
-@pytest.mark.parametrize("contents", ["[]\n", "false\n", "0\n", "\"\"\n"])
+@pytest.mark.parametrize("contents", ["[]\n", "false\n", "0\n", '""\n'])
 def test_load_context_config_rejects_falsey_non_mapping_roots_from_path(
     tmp_path: Path, contents: str
 ):
@@ -244,7 +244,7 @@ def test_policy_never_splits_tool_call_and_feedback_round():
     conversation = [
         Message(role=Role.SYSTEM, content="system"),
         Message(role=Role.USER, content="goal"),
-        Message(role=Role.ASSISTANT, content="<!-- ToolCall: {\"name\": \"Exec\"} -->"),
+        Message(role=Role.ASSISTANT, content='<!-- ToolCall: {"name": "Exec"} -->'),
         Message(role=Role.USER, content="tool feedback"),
         Message(role=Role.ASSISTANT, content="latest assistant"),
         Message(role=Role.USER, content="latest feedback"),

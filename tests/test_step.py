@@ -142,9 +142,7 @@ def test_step_registers_skill_snapshot_for_parse_and_bounded_feedback():
 
 
 def test_step_applies_policy_before_every_complete_call():
-    client = _RecordingClient(
-        script=[_reply(_exec_call("print('ok')")), _reply(_done())]
-    )
+    client = _RecordingClient(script=[_reply(_exec_call("print('ok')")), _reply(_done())])
     policy = _RecordingPolicy()
 
     Step(client, TrustedBackend(), Runtime(), context_policy=policy).run(_user())
@@ -781,9 +779,7 @@ def test_long_exec_feedback_has_masked_continuation_in_next_provider_request(mon
         "_EXEC_CONTINUATION",
         f"请缩小输出范围，或将工作分片执行后重试 {secret}",
     )
-    client = _RecordingClient(
-        script=[_reply(_exec_call("print('x' * 10_000)")), _reply(_done())]
-    )
+    client = _RecordingClient(script=[_reply(_exec_call("print('x' * 10_000)")), _reply(_done())])
     step = Step(
         client,
         TrustedBackend(),
@@ -835,9 +831,7 @@ def test_feedback_metadata_overflow_keeps_outcomes_and_skips_next_provider_call(
     render_feedback = Step._render_feedback
 
     def snapshot_then_render(self, round_result):
-        original_outcomes.extend(
-            outcome.model_copy(deep=True) for outcome in round_result.outcomes
-        )
+        original_outcomes.extend(outcome.model_copy(deep=True) for outcome in round_result.outcomes)
         return render_feedback(self, round_result)
 
     monkeypatch.setattr(Step, "_render_feedback", snapshot_then_render)

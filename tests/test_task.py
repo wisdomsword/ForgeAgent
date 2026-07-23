@@ -144,8 +144,7 @@ def test_task_exposes_disabled_memory_candidate_result(tmp_path):
         MockClient(
             script=[
                 _reply(
-                    _done()
-                    + '\n<!-- Memory: {"scope":"session","kind":"preference",'
+                    _done() + '\n<!-- Memory: {"scope":"session","kind":"preference",'
                     '"key":"formatter","content":"ruff"} -->'
                 )
             ]
@@ -215,8 +214,7 @@ def test_task_applies_project_memory_and_next_task_receives_it(tmp_path):
         MockClient(
             script=[
                 _reply(
-                    _done()
-                    + '\n<!-- Memory: {"scope":"project","kind":"fact",'
+                    _done() + '\n<!-- Memory: {"scope":"project","kind":"fact",'
                     '"key":"editor","content":"nvim"} -->'
                 )
             ]
@@ -232,9 +230,7 @@ def test_task_applies_project_memory_and_next_task_receives_it(tmp_path):
 
 def test_explicit_system_prompt_does_not_mix_memory(tmp_path):
     manager = MemoryManager(str(tmp_path))
-    manager.apply(
-        MemoryCandidate(scope="session", kind="fact", key="editor", content="nvim")
-    )
+    manager.apply(MemoryCandidate(scope="session", kind="fact", key="editor", content="nvim"))
     client = _RecordingTaskClient(script=[_reply(_done())])
     Task(client, system_prompt="explicit", memory_manager=manager).run("goal")
     assert client.first_messages[0].content == "explicit"
@@ -247,8 +243,7 @@ def test_memory_audit_omits_candidate_content(tmp_path):
         MockClient(
             script=[
                 _reply(
-                    _done()
-                    + '\n<!-- Memory: {"scope":"session","kind":"preference",'
+                    _done() + '\n<!-- Memory: {"scope":"session","kind":"preference",'
                     '"key":"format","content":"very-private-value"} -->'
                 )
             ]

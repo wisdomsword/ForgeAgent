@@ -183,9 +183,11 @@ class MemoryManager:
         path = self._safe_storage_path(for_write=True)
         directory = path.parent
         directory.mkdir(parents=True, exist_ok=True)
-        content = "<!-- forgeagent-memory-v1 -->\n" + "\n".join(
-            f"- {key}: {entries[key].content}" for key in sorted(entries)
-        ) + "\n"
+        content = (
+            "<!-- forgeagent-memory-v1 -->\n"
+            + "\n".join(f"- {key}: {entries[key].content}" for key in sorted(entries))
+            + "\n"
+        )
         descriptor, temporary_name = tempfile.mkstemp(
             prefix=".MEMORY.", suffix=".tmp", dir=directory
         )

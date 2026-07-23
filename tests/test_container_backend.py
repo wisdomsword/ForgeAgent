@@ -86,8 +86,12 @@ def test_run_command_hardening_flags(tmp_path, monkeypatch):
         cmd = backend._run_command("forgeagent-test")
         joined = " ".join(cmd)
         for flag in (
-            "--network none", "--cap-drop ALL", "--read-only",
-            "--security-opt no-new-privileges", "--tmpfs /sys:ro", "--pids-limit",
+            "--network none",
+            "--cap-drop ALL",
+            "--read-only",
+            "--security-opt no-new-privileges",
+            "--tmpfs /sys:ro",
+            "--pids-limit",
         ):
             assert flag in joined
         # allowed_root mounted at the SAME path (path transparency, decision 5).
@@ -156,9 +160,10 @@ def test_timeout_kills_container_and_next_block_runs(tmp_path):
 
         for _ in range(10):
             ps = subprocess.run(
-                ["docker", "ps", "-a", "--filter", "name=forgeagent-",
-                 "--format", "{{.Names}}"],
-                capture_output=True, text=True, timeout=20,
+                ["docker", "ps", "-a", "--filter", "name=forgeagent-", "--format", "{{.Names}}"],
+                capture_output=True,
+                text=True,
+                timeout=20,
             )
             if ps.stdout.strip() == "":
                 break
@@ -254,11 +259,7 @@ def test_t6_pids_limit_stops_fork_bomb(tmp_path):
 def test_t9_non_root_and_sys_masked(tmp_path):
     backend = ContainerBackend(allowed_root=str(tmp_path), timeout_seconds=60.0)
     try:
-        code = (
-            "import os\n"
-            "print('uid:', os.getuid())\n"
-            "print('sys:', os.listdir('/sys'))\n"
-        )
+        code = "import os\nprint('uid:', os.getuid())\nprint('sys:', os.listdir('/sys'))\n"
         result = backend.execute(code, Runtime())
         assert result.success is True
         assert "uid: 0" not in result.stdout  # non-root

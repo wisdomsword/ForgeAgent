@@ -255,9 +255,7 @@ class Step:
     def _cancelled(self) -> bool:
         return self._cancel_event is not None and self._cancel_event.is_set()
 
-    def _stream_or_complete(
-        self, request_view: list[Message]
-    ) -> AssistantMessage | ClientError:
+    def _stream_or_complete(self, request_view: list[Message]) -> AssistantMessage | ClientError:
         """No callback -> plain complete() (today's path, unchanged). With a callback,
         consume client.stream(), forward TEXT_DELTA/THINKING_DELTA text to it for
         display, and return the DONE event's AssistantMessage (or a mid-stream
