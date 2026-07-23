@@ -462,7 +462,37 @@ def test_task_catalog_is_after_identity_before_mcp_and_omits_skill_body():
     )
 
 
-def test_skill_full_content_arrives_only_as_next_round_feedback():
+def test_loaded_skill_feedback_masks_current_environment_secret(tmp_path, monkeypatch):
+    secret = "task-skill-secret-value"
+    marker = "SKILL-BODY-NONSECRET-MARKER"
+    monkeypatch.setenv("FORGEAGENT_TASK_SKILL_SECRET", secret)
+    skill_file = tmp_path / "home" / ".forgeagent" / "skills" / "review-python" / "SKILL.md"
+    skill_file.parent.mkdir(parents=True)
+    skill_file.write_text(
+        f"""---
+name: review-python
+trigger: Use when reviewing Python.
+---
+
+## Steps
+
+1. {marker}: {secret}
+
+## Failure Branches
+
+- Stop when the diff is unavailable.
+
+## Completion Criteria
+
+- All findings are recorded.
+""",
+        encoding="utf-8",
+    )
+    skills = SkillRegistry.load(
+        home=str(tmp_path / "home"),
+        allowed_root=str(tmp_path / "project"),
+        allow_project=False,
+    )
     client = _RecordingTaskClient(
         script=[
             _reply(_tool_call("Skill", name="review-python")),
@@ -470,10 +500,12 @@ def test_skill_full_content_arrives_only_as_next_round_feedback():
         ]
     )
 
-    outcome = Task(client, skills=_registry_with_unique_skill()).run("review this")
+    outcome = Task(client, skills=skills).run("review this")
 
-    assert "SKILL-BODY-UNIQUE" not in client.requests[0][0].content
-    assert "SKILL-BODY-UNIQUE" in client.requests[1][-1].content
+    feedback = client.requests[1][-1].content
+    assert secret not in feedback
+    assert "***REDACTED***" in feedback
+    assert marker in feedback
     assert outcome.status.completed is True
 
 
