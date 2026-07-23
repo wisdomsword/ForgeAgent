@@ -102,6 +102,24 @@ def test_task_forwards_audit_sink_and_task_id_to_core_events():
     assert all(event.task_id == "task-correlation" for event in sink.events)
 
 
+def test_task_does_not_persist_memory_from_failed_round(tmp_path):
+    manager = MemoryManager(str(tmp_path))
+    outcome = Task(
+        MockClient(
+            script=[
+                _reply(
+                    '<!-- Memory: {"scope":"project","kind":"fact",'
+                    '"key":"editor","content":"nvim"} -->'
+                )
+            ]
+        ),
+        memory_manager=manager,
+        max_rounds=1,
+    ).run("remember editor")
+    assert outcome.status.solved is False
+    assert not (tmp_path / ".forgeagent" / "MEMORY.md").exists()
+
+
 def test_task_applies_project_memory_and_next_task_receives_it(tmp_path):
     manager = MemoryManager(str(tmp_path))
     first = Task(

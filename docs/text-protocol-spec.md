@@ -49,6 +49,22 @@ native argument is a recoverable parse error. If native calls are present, Step 
 renders them back into ToolCall marker text in assistant history so the next round
 can see the prior call.
 
+## Memory candidates
+
+Declarative facts may be proposed with an HTML comment; the marker is removed from
+the user-visible body and validated into `ParseResult.memory_candidates`:
+
+```markdown
+<!-- Memory: {"scope":"project","kind":"fact","key":"editor","content":"nvim"} -->
+```
+
+`scope` is `session` or `project`; `kind` is `fact`, `preference`, `decision`, or
+`procedure`. Parsing never writes `MEMORY.md`. The runtime admission gate rejects
+procedures, secrets, control characters, and bounded prompt-injection patterns;
+procedures are feedback-routed to a future Skill. Malformed JSON or fields become a
+recoverable `ParseError`. Users can submit the same structure through the REPL
+`/remember <session|project> <key>=<value>` command.
+
 ## Current argument contracts
 
 | Tool | Arguments and validation |
@@ -117,7 +133,7 @@ without reading input. `FileRead` and `FileList` do not block for confirmation.
 `--interactive` controls Survey only.
 
 REPL embedded commands require a slash prefix: `/model` (list or switch model),
-`/search`, `/image`, `/mcp`, `/reload`, `/help`, and `/` (command menu). Unknown
+`/search`, `/image`, `/mcp`, `/memory`, `/remember`, `/reload`, `/help`, and `/` (command menu). Unknown
 slash commands are rejected. Bare `models`, `reload`, `mcp`, and `mcp ...` are
 ordinary model goals. The top-level `forgeagent models` CLI subcommand remains a
 separate command and is not REPL routing.

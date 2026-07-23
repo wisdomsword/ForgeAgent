@@ -94,10 +94,10 @@ def test_g385_missing_identity_files_omit_their_sections():
     assert "## Project Memory" not in rendered
 
 
-def test_candidate_id_pattern_covers_g381_to_g400_without_g401():
+def test_candidate_id_pattern_covers_g381_to_g420_without_g421():
     """The candidate parser accepts the expanded range and rejects adjacent IDs."""
     from tests.golden.runner import _CANDIDATE_ID
 
-    for number in range(381, 401):
+    for number in range(381, 421):
         assert _CANDIDATE_ID.fullmatch(f"G{number}")
-    assert not _CANDIDATE_ID.fullmatch("G401")
+    assert not _CANDIDATE_ID.fullmatch("G421")

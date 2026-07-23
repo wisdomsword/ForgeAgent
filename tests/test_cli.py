@@ -108,6 +108,23 @@ def test_repl_no_memory_does_not_persist_remember(tmp_path, monkeypatch):
     assert not (tmp_path / ".forgeagent" / "MEMORY.md").exists()
 
 
+def test_repl_no_identity_also_disables_memory(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    console = _console()
+    inputs = iter(["/remember project editor=nvim", "quit"])
+    repl(
+        tier="trusted",
+        model="mock",
+        client_factory=_factory([]),
+        console=console,
+        read_line=lambda _prompt: next(inputs),
+        confirmation_available=False,
+        no_identity=True,
+        use_registry_snapshot=False,
+    )
+    assert not (tmp_path / ".forgeagent" / "MEMORY.md").exists()
+
+
 def test_http_runtime_settings_accept_no_memory(tmp_path):
     from forgeagent.cli import _load_http_runtime_settings
 
@@ -3054,7 +3071,7 @@ def test_serve_builds_server_owned_task_factory_and_closes_in_order(monkeypatch,
         assert task._task_id == "task-123"
         assert task._confirmer.is_headless is True
         assert task._memory_manager is not other_task._memory_manager
-        assert task._memory_manager.enabled is True
+        assert task._memory_manager.enabled is False
     finally:
         task.close()
         other_task.close()

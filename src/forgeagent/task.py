@@ -213,11 +213,12 @@ class Task:
             context_policy=self._context_policy,
         )
         rounds = step.run(messages)
-        if self._memory_manager is not None:
+        outcome = TaskOutcome(status=self._derive_status(rounds), rounds=rounds)
+        if self._memory_manager is not None and outcome.status.solved:
             for round_result in rounds:
                 for candidate in round_result.memory_candidates:
                     self._memory_manager.apply(candidate, task_id=self._task_id)
-        return TaskOutcome(status=self._derive_status(rounds), rounds=rounds)
+        return outcome
 
     def _derive_status(self, rounds: list[RoundResult]) -> TaskStatus:
         if not rounds:

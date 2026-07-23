@@ -1,0 +1,14 @@
+{
+  "change": "memory-runtime",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "06db89ffb504b8f314fc609c33b27ec135570a648c49c4ddef9db0599110389e",
+  "files": [
+    { "path": "openspec/changes/memory-runtime/proposal.md", "sha256": "fbeadd91bc9c448416bafbb23c1fcecfc1c52f999045eaa1e81f5b9c5abf84aa" },
+    { "path": "openspec/changes/memory-runtime/design.md", "sha256": "4ff43326940c983f99bc8c531e721bee302b5509e8b694e2ca1c5d2922165a6b" },
+    { "path": "openspec/changes/memory-runtime/tasks.md", "sha256": "08f19ecddd6a5230d05c45f6f4302537f84803cac2e52f0a641e381ff423e62e" },
+    { "path": "openspec/changes/memory-runtime/specs/runtime-memory/spec.md", "sha256": "a4704df978aa73ebdfd62edcf610ca6a9e6a1844d1f839327aa1954787bb143b" }
+  ]
+}

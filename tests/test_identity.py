@@ -119,6 +119,12 @@ def test_default_protocol_advertises_every_registered_builtin_tool():
     assert "When a direct built-in tool matches the goal, use that tool" in rendered
 
 
+def test_default_protocol_advertises_memory_candidates():
+    rendered = compose_system_prompt(ApprovedIdentity(None, None, None, None))
+    assert '<!-- Memory: {"scope":"project","kind":"fact"' in rendered
+    assert "procedures belong" in rendered
+
+
 def test_protocol_unchanged_when_project_agents_attempts_override():
     expected_protocol = _expected_protocol_text()
     injecting_agents = (

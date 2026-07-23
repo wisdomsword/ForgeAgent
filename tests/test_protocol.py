@@ -141,6 +141,15 @@ def test_malformed_memory_marker_produces_error_without_candidate():
     assert any(error.error_type == ParseErrorType.VALIDATION_ERROR for error in result.errors)
 
 
+def test_memory_content_may_contain_json_braces():
+    result = parse(
+        'x <!-- Memory: {"scope":"session","kind":"fact",'
+        '"key":"json","content":"value with } brace"} -->'
+    )
+    assert result.memory_candidates[0].content == "value with } brace"
+    assert not result.errors
+
+
 def test_front_matter_present_and_valid():
     text = "---\ntask_status:\n  completed: true\n  confidence: 0.9\n---\nAll done."
     result = parse(text)

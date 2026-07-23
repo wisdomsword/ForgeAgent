@@ -39,7 +39,7 @@ _CODE_BLOCK = re.compile(
 
 # Tool call: a single HTML comment carrying a JSON object.
 _TOOL_CALL = re.compile(r"<!--\s*ToolCall:\s*(\{.*?\})\s*-->", re.DOTALL)
-_MEMORY = re.compile(r"<!--\s*Memory:\s*(\{.*?\})\s*-->", re.DOTALL)
+_MEMORY = re.compile(r"<!--\s*Memory:\s*(.*?)\s*-->", re.DOTALL)
 
 
 class ParseErrorType(StrEnum):

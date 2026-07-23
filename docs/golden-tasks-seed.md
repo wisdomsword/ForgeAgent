@@ -932,3 +932,30 @@ golden set 是**产品级功能验收**（任务能不能被正确完成），�
 | **合计** | 100% | 15 | 15 | 50 | 120 | 100 | 20 | 20 | 40 | 20 | **400** | 100% |
 
 400 个整体与 §六.5 配比精确一致（160/100/80/40/20 = 40/25/20/10/5%，无需取整近似）。M15 新增覆盖身份子系统的功能侧冒烟：SOUL/USER/AGENTS/MEMORY 各自可见性与省略语义（G381-385）、大小与 secret 掩码边界（G386-388）、symlink 逃逸/`--no-identity`/headless 默认拒绝/信任复用/变化重确认（G389-393）、身份子系统与 MCP/WebFetch 工具子系统的正交性（G398-399）。系统性安全断言（symlink 逃逸判定谓词本身、trust record 原子写入）归 `tests/test_identity.py`，golden set 只保留上述功能侧冒烟，延续 G06/G14/G24/G333 一路的分工原则。**候选表格中的文字描述本身不是可执行验证，也不是真实模型遵循证据**——只有本任务 Step 4 建立的独立 mock replay 机器和 Task 9 已有的组合矩阵/mock-replay 测试才是可执行断言。
+
+## M18 扩充候选（G401-G420，不加入 verified manifest）
+
+以下 20 项只定义预期验收场景；它们不改变离线 verified core 的 20 项 manifest，只有对应的可执行测试通过后才能进入后续里程碑的验证集合。
+
+| ID | 描述 | Pass 判定 |
+|---|---|---|
+| G401 | Memory 标记提取并从正文剥离 | `ParseResult.memory_candidates` 有效且 body 不含标记 |
+| G402 | `/remember project` 写入一条事实 | project MEMORY.md 含稳定 key/value 条目 |
+| G403 | `/remember session` 跨 Task 可见 | 第二个 Task prompt 含 session 条目且文件未变化 |
+| G404 | project 记忆在新进程可复用 | reload 后同一 allowed_root prompt 含条目 |
+| G405 | 相同 key 后写入者替换旧事实 | 文件只保留新 value 并产生 replaced 结果 |
+| G406 | 不同 key 追加且排序稳定 | 文件条目按 key 稳定输出 |
+| G407 | procedure 候选分流 Skill | 候选拒绝且 reason 指向 Skill |
+| G408 | ignore-previous 注入候选拒绝 | 后续 prompt 不含恶意候选 |
+| G409 | secret 候选拒绝与最小披露 | 审计不含 secret 或 content |
+| G410 | 控制字符和超长候选拒绝 | 存储字节不变并返回 bounded reason |
+| G411 | 畸形 MEMORY.md 条目隔离 | 合法条目继续加载，未知 Markdown 不注入 |
+| G412 | project 原子写入失败保留旧文件 | 旧文件字节完全不变 |
+| G413 | `/memory` 输出 session/project 两段 | 输出含作用域和 key 且经过掩码 |
+| G414 | `--no-memory` 阻止读取、注入、写入 | prompt、session、project 均无候选 |
+| G415 | `/reload` 读取手工纠正 | 下一 Task 使用纠正后的 value |
+| G416 | HTTP task 不共享 session | 两个请求的 session 候选互不可见 |
+| G417 | `memory.accepted/rejected` 审计字段稳定 | 事件含 scope/kind/key/reason，不含 content |
+| G418 | 审计 sink 降级不阻断任务 | task 完成语义不因 audit 失败变化 |
+| G419 | Memory 内容仍受 M17 context budget | 过长渲染由既有 context policy 有界处理 |
+| G420 | 旧 M15 自由文本文件不执行 | 未知条目不作为工具或协议指令运行 |

@@ -44,3 +44,63 @@ def test_injection_candidate_is_rejected_without_echoing_content(tmp_path):
     )
     assert outcome.status == "rejected"
     assert content not in outcome.reason
+
+
+def test_memory_audit_records_kind_without_content(tmp_path):
+    class Sink:
+        def __init__(self):
+            self.events = []
+
+        def emit(self, event):
+            self.events.append(event)
+            return True
+
+    sink = Sink()
+    manager = MemoryManager(str(tmp_path), audit_sink=sink)
+    manager.apply(
+        MemoryCandidate(scope="session", kind="preference", key="format", content="compact")
+    )
+    assert sink.events[0].parameters == {
+        "scope": "session",
+        "kind": "preference",
+        "key": "format",
+        "reason": "",
+    }
+    assert "compact" not in repr(sink.events)
+
+
+def test_memory_rejects_project_path_escape(tmp_path):
+    outside = tmp_path.parent / f"{tmp_path.name}-outside"
+    outside.mkdir()
+    forgeagent_dir = tmp_path / ".forgeagent"
+    forgeagent_dir.symlink_to(outside, target_is_directory=True)
+    manager = MemoryManager(str(tmp_path))
+    result = manager.apply(
+        MemoryCandidate(scope="project", kind="fact", key="editor", content="nvim")
+    )
+    assert result.status == "persistence_error"
+    assert not (outside / "MEMORY.md").exists()
+
+
+def test_memory_load_reports_fixed_diagnostic_for_malformed_entry(tmp_path):
+    path = tmp_path / ".forgeagent" / "MEMORY.md"
+    path.parent.mkdir()
+    path.write_text("<!-- forgeagent-memory-v1 -->\nnot a memory entry\n", encoding="utf-8")
+    messages = []
+    manager = MemoryManager(str(tmp_path), diagnostic=messages.append)
+    manager.load()
+    assert messages == ["memory entry ignored: invalid format"]
+
+
+def test_untrusted_project_memory_cannot_be_read_or_overwritten(tmp_path):
+    path = tmp_path / ".forgeagent" / "MEMORY.md"
+    path.parent.mkdir()
+    path.write_text("<!-- forgeagent-memory-v1 -->\n- editor: vim\n", encoding="utf-8")
+    manager = MemoryManager(str(tmp_path), allow_project=False)
+    manager.load()
+    assert "vim" not in manager.render()
+    result = manager.apply(
+        MemoryCandidate(scope="project", kind="fact", key="editor", content="nvim")
+    )
+    assert result.status == "rejected"
+    assert "vim" in path.read_text(encoding="utf-8")

@@ -38,7 +38,7 @@ from rich.text import Text
 
 from . import http_server
 from .anthropic_client import AnthropicClient
-from .audit import JsonlAuditSink
+from .audit import AuditSink, JsonlAuditSink
 from .client import ModelClient
 from .context import ContextConfig, SlidingWindowContextPolicy, load_context_config
 from .executor import ContainerRuntimeError
@@ -491,6 +491,31 @@ def resolve_cli_identity(
     )
 
 
+def _make_memory_manager(
+    allowed_root: str,
+    *,
+    identity: ApprovedIdentity | None,
+    no_memory: bool,
+    no_identity: bool,
+    audit_sink: AuditSink | None = None,
+    diagnostic: IdentityDiagnostic | None = None,
+) -> MemoryManager:
+    """Keep project memory behind the same M17 identity trust decision."""
+    memory_path = Path(allowed_root) / ".forgeagent" / "MEMORY.md"
+    project_trusted = identity is not None and getattr(identity, "memory", None) is not None
+    allow_project = not os.path.lexists(memory_path) or project_trusted
+    manager = MemoryManager(
+        allowed_root,
+        audit_sink=audit_sink,
+        enabled=not no_memory and not no_identity,
+        allow_project=allow_project,
+        diagnostic=diagnostic,
+    )
+    if manager.enabled and allow_project and project_trusted:
+        manager.load()
+    return manager
+
+
 def run_once(
     goal: str,
     *,
@@ -821,8 +846,13 @@ def repl(
         confirmer=identity_confirmer,
         diagnostic=identity_diagnostic,
     )
-    memory_manager = MemoryManager(allowed_root, enabled=not no_memory)
-    memory_manager.load()
+    memory_manager = _make_memory_manager(
+        allowed_root,
+        identity=identity,
+        no_memory=no_memory,
+        no_identity=no_identity,
+        diagnostic=identity_diagnostic,
+    )
     mcp = build_mcp_manager(console)
     # One accumulator for the whole REPL session — usage keeps growing across tasks,
     # not reset per goal (docs/m10 §3.2).
@@ -901,7 +931,6 @@ def repl(
                     continue
                 current_registry = candidate_registry
                 current_context = candidate_context
-                memory_manager.load()
                 console.print(f"[green]reloaded[/green]: {len(current_registry.models)} models")
                 if not no_identity:
                     try:
@@ -911,6 +940,15 @@ def repl(
                             confirmer=identity_confirmer,
                             diagnostic=identity_diagnostic,
                         )
+                        project_trusted = identity is not None and identity.memory is not None
+                        memory_manager.set_project_access(
+                            not os.path.lexists(Path(allowed_root) / ".forgeagent" / "MEMORY.md")
+                            or project_trusted
+                        )
+                        if project_trusted:
+                            memory_manager.load()
+                        else:
+                            memory_manager.clear_project()
                         console.print("[green]identity reloaded[/green]")
                     except IdentityConfigError as exc:
                         console.print(f"[red]identity reload failed[/red]: {exc}")
@@ -1288,12 +1326,13 @@ def serve_http(
         mcp = build_mcp_manager(console)
 
         def task_factory(record: TaskRecord) -> Task:
-            memory_manager = MemoryManager(
+            memory_manager = _make_memory_manager(
                 settings.allowed_root,
+                identity=identity,
+                no_memory=settings.no_memory,
+                no_identity=settings.no_identity,
                 audit_sink=audit_sink,
-                enabled=not settings.no_memory,
             )
-            memory_manager.load()
             return Task(
                 task_client_factory(settings.model),
                 tier=settings.tier,
@@ -1473,8 +1512,13 @@ def main(
                     confirmer=identity_confirmer,
                     diagnostic=identity_diagnostic,
                 )
-                memory_manager = MemoryManager(allowed_root, enabled=not args.no_memory)
-                memory_manager.load()
+                memory_manager = _make_memory_manager(
+                    allowed_root,
+                    identity=identity,
+                    no_memory=args.no_memory,
+                    no_identity=args.no_identity,
+                    diagnostic=identity_diagnostic,
+                )
                 outcome = run_once(
                     args.goal,
                     tier=args.tier,
