@@ -3,6 +3,8 @@ comet_change: memory-runtime
 role: technical-design
 canonical_spec: openspec
 status: final
+archived-with: 2026-07-23-memory-runtime
+status: final
 ---
 
 # M18 Memory Runtime 技术设计
@@ -93,3 +95,4 @@ manager 通过既有 `AuditSink` 记录：`memory.accepted`、`memory.rejected`�
 ## 9. 评审结论
 
 两轮自评审均确认：候选必须显式、准入必须确定性、project 写入必须原子、两级作用域必须由入口持有、`--no-memory` 必须阻止读取和写入、HTTP 不得泄漏 session；没有发现与 M15/M17 或 M18 OpenSpec 场景的矛盾。
+

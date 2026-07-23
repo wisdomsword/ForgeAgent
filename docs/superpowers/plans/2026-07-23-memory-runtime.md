@@ -2,6 +2,7 @@
 change: memory-runtime
 design-doc: docs/superpowers/specs/2026-07-23-memory-runtime-design.md
 base-ref: 840f649821b1c5440ee22b43b7ee213c4d44f8b6
+archived-with: 2026-07-23-memory-runtime
 ---
 
 # M18 Memory Runtime 实施计划
@@ -23,6 +24,7 @@ base-ref: 840f649821b1c5440ee22b43b7ee213c4d44f8b6
 - 显式 `system_prompt` 和 `--no-identity` 既有优先级不变；M17 context policy 仍是最终预算边界。
 - 不实现向量检索、RAG、摘要、置信度、衰减、团队作用域或 Skill 写入。
 
+archived-with: 2026-07-23-memory-runtime
 ---
 
 ### Task 1：MemoryCandidate 协议与核心存储
@@ -107,3 +109,4 @@ def test_procedure_candidate_is_rejected_without_write(tmp_path):
 - 覆盖了新 capability 的七类需求：协议、准入、作用域、原子持久化、用户控制、审计、回归。
 - 没有新增依赖、数据库或未来 M19/M20 组件；HTTP schema 明确保持不变。
 - 所有跨任务接口签名在相邻任务中一致：Task 使用 `MemoryManager`，manager 返回 `MemoryResult`，parser 提供 `memory_candidates`。
+
