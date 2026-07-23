@@ -297,7 +297,7 @@ git commit -m "feat: trust project skills by content digest"
 - Consumes: immutable `SkillRegistry.read(name, section)` from Task 1 and `ToolOutcome` bounded-feedback fields already used by File tools.
 - Produces: `SkillArgs`, `SkillTool`, and `default_registry(with_mcp=False, skills=None)` for Task 4.
 
-- [ ] **Step 1: Write failing schema, tool, unknown-name, and continuation tests**
+- [x] **Step 1: Write failing schema, tool, unknown-name, and continuation tests**
 
 ```python
 def test_skill_args_accepts_catalog_name_and_declared_section():
@@ -325,13 +325,13 @@ def test_skill_tool_unknown_name_is_recoverable_and_registry_is_conditional(tmp_
     assert "Skill" in default_registry(skills=registry).arg_schemas()
 ```
 
-- [ ] **Step 2: Run protocol and tool tests and verify RED**
+- [x] **Step 2: Run protocol and tool tests and verify RED**
 
 Run: `uv run pytest tests/test_protocol.py tests/test_tools.py -k skill -v`
 
 Expected: FAIL with import errors for `SkillArgs` and `SkillTool`.
 
-- [ ] **Step 3: Implement the schema, tool, and registry hook**
+- [x] **Step 3: Implement the schema, tool, and registry hook**
 
 ```python
 class SkillArgs(BaseModel):
@@ -374,7 +374,7 @@ def default_registry(*, with_mcp: bool = False, skills: SkillRegistry | None = N
 
 Import `Literal` where needed. Do not add path arguments, filesystem operations, confirmation handling, audit content fields, or a special parser branch: the existing dynamic `arg_schemas()` mechanism must validate this tool only when it is actually registered.
 
-- [ ] **Step 4: Run focused protocol/tool tests for GREEN**
+- [x] **Step 4: Run focused protocol/tool tests for GREEN**
 
 Run separately:
 
@@ -383,7 +383,7 @@ Run separately:
 
 Expected: PASS; malformed names fail Pydantic validation, unknown valid names return `success=False`, and no-Skills registries do not advertise `Skill`.
 
-- [ ] **Step 5: Commit the protocol-compatible read-only tool**
+- [x] **Step 5: Commit the protocol-compatible read-only tool**
 
 ```bash
 git add src/forgeagent/protocol.py src/forgeagent/tools.py tests/test_protocol.py tests/test_tools.py

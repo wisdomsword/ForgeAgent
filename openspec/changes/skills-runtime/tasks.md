@@ -5,7 +5,7 @@
 
 ## 2. 渐进加载与执行反馈
 
-- [ ] 2.1 先写协议与工具测试，再实现 `SkillArgs`、只读 `Skill` 工具和 ToolRegistry 装配
+- [x] 2.1 先写协议与工具测试，再实现 `SkillArgs`、只读 `Skill` 工具和 ToolRegistry 装配
 - [ ] 2.2 将有界 Skill 目录接入 Task 系统提示词，验证全文不在初始上下文、按需读取后进入下一轮且不改变完成/确认/sandbox 语义
 - [ ] 2.3 将 Skills 快照接入 CLI、`/reload` 和 HTTP Task 创建路径，覆盖会话替换、请求隔离与无确认降级
 
