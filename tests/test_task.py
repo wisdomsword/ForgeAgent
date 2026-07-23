@@ -120,6 +120,26 @@ def test_task_does_not_persist_memory_from_failed_round(tmp_path):
     assert not (tmp_path / ".forgeagent" / "MEMORY.md").exists()
 
 
+def test_task_exposes_disabled_memory_candidate_result(tmp_path):
+    manager = MemoryManager(str(tmp_path), enabled=False)
+    outcome = Task(
+        MockClient(
+            script=[
+                _reply(
+                    _done()
+                    + '\n<!-- Memory: {"scope":"session","kind":"preference",'
+                    '"key":"formatter","content":"ruff"} -->'
+                )
+            ]
+        ),
+        memory_manager=manager,
+    ).run("remember formatter")
+
+    assert outcome.memory_results[0].status == "disabled"
+    assert outcome.memory_results[0].key == "formatter"
+    assert outcome.memory_results[0].reason == "memory_disabled"
+
+
 def test_task_applies_project_memory_and_next_task_receives_it(tmp_path):
     manager = MemoryManager(str(tmp_path))
     first = Task(

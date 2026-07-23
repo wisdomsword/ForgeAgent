@@ -14,7 +14,7 @@ import threading
 from collections.abc import Callable
 from pathlib import Path
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .audit import AuditSink
 from .client import ModelClient
@@ -22,7 +22,7 @@ from .context import ContextConfig, ContextPolicy, SlidingWindowContextPolicy
 from .executor import ContainerBackend, ExecutorBackend, RestrictedBackend, TrustedBackend
 from .identity import ApprovedIdentity, compose_system_prompt
 from .mcp_manager import MCPManager
-from .memory import MemoryManager
+from .memory import MemoryManager, MemoryResult
 from .models import GenerationParams, ImageItem, Message, Role, StreamEventKind, TextItem
 from .runtime import Runtime
 from .step import RoundResult, Step, Termination
@@ -73,6 +73,7 @@ class TaskOutcome(BaseModel):
 
     status: TaskStatus
     rounds: list[RoundResult]
+    memory_results: list[MemoryResult] = Field(default_factory=list)
 
 
 class Task:
@@ -213,12 +214,15 @@ class Task:
             context_policy=self._context_policy,
         )
         rounds = step.run(messages)
-        outcome = TaskOutcome(status=self._derive_status(rounds), rounds=rounds)
-        if self._memory_manager is not None and outcome.status.solved:
+        status = self._derive_status(rounds)
+        memory_results: list[MemoryResult] = []
+        if self._memory_manager is not None and status.solved:
             for round_result in rounds:
                 for candidate in round_result.memory_candidates:
-                    self._memory_manager.apply(candidate, task_id=self._task_id)
-        return outcome
+                    memory_results.append(
+                        self._memory_manager.apply(candidate, task_id=self._task_id)
+                    )
+        return TaskOutcome(status=status, rounds=rounds, memory_results=memory_results)
 
     def _derive_status(self, rounds: list[RoundResult]) -> TaskStatus:
         if not rounds:

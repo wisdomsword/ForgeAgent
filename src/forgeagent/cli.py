@@ -249,6 +249,13 @@ def render_outcome(outcome: TaskOutcome, console: Console) -> None:
             # The model answered in plain text without calling Exec — still show it,
             # since it's the only place the actual answer lives.
             console.print(rnd.body)
+    for result in outcome.memory_results:
+        colour = "green" if result.status in {"accepted", "replaced"} else "yellow"
+        detail = f" ({result.reason})" if result.reason else ""
+        console.print(
+            f"[{colour}]memory {result.status}[/{colour}]: "
+            f"{result.scope}/{result.key}{detail}"
+        )
 
 
 def _accumulate_usage(total: TokenUsage, rounds: list[RoundResult]) -> None:
@@ -865,6 +872,9 @@ def repl(
             try:
                 goal = read_line("forge> ").strip()
             except EOFError:
+                break
+            except KeyboardInterrupt:
+                console.print()
                 break
             if not goal or goal in {"quit", "exit"}:
                 break

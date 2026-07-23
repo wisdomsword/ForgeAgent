@@ -108,6 +108,32 @@ def test_repl_no_memory_does_not_persist_remember(tmp_path, monkeypatch):
     assert not (tmp_path / ".forgeagent" / "MEMORY.md").exists()
 
 
+def test_run_once_renders_disabled_model_memory_result(tmp_path):
+    from forgeagent.memory import MemoryManager
+
+    console = _console()
+    run_once(
+        "remember formatter",
+        tier="trusted",
+        model="mock",
+        client_factory=_factory(
+            [
+                _reply(
+                    _done()
+                    + '\n<!-- Memory: {"scope":"session","kind":"preference",'
+                    '"key":"formatter","content":"ruff"} -->'
+                )
+            ]
+        ),
+        console=console,
+        memory_manager=MemoryManager(str(tmp_path), enabled=False),
+    )
+    rendered = console.export_text()
+    assert "memory disabled" in rendered
+    assert "formatter" in rendered
+    assert "ruff" not in rendered
+
+
 def test_repl_no_identity_also_disables_memory(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     console = _console()
@@ -1458,6 +1484,26 @@ def test_repl_exits_on_quit():
     )
     # No task ran; just the banner.
     assert "REPL" in console.export_text()
+
+
+def test_repl_exits_cleanly_on_keyboard_interrupt(monkeypatch):
+    import forgeagent.cli as cli_module
+
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda console: None)
+
+    def interrupt(_prompt):
+        raise KeyboardInterrupt
+
+    repl(
+        tier="trusted",
+        model="mock",
+        client_factory=_factory([]),
+        console=_console(),
+        read_line=interrupt,
+        confirmation_available=False,
+        no_identity=True,
+        use_registry_snapshot=False,
+    )
 
 
 def test_repl_accumulates_usage_across_tasks_in_one_session():

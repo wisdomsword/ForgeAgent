@@ -1,0 +1,6 @@
+{
+  "openspec_proposal": "openspec/changes/memory-result-feedback/proposal.md",
+  "openspec_design": "openspec/changes/memory-result-feedback/design.md",
+  "openspec_tasks": "openspec/changes/memory-result-feedback/tasks.md",
+  "openspec_delta_spec": "openspec/changes/memory-result-feedback/specs/runtime-memory/spec.md"
+}
