@@ -402,7 +402,7 @@ git commit -m "feat: add read-only skill tool"
 - Consumes: `SkillRegistry.catalog_prompt()` and `default_registry(skills=registry)` from Tasks 1 and 3.
 - Produces: the `skills: SkillRegistry | None = None` keyword parameter on both `Task` and `Step`, used by Task 5.
 
-- [ ] **Step 1: Write failing prompt-order and feedback-loop tests**
+- [x] **Step 1: Write failing prompt-order and feedback-loop tests**
 
 ```python
 def test_task_catalog_is_after_identity_before_mcp_and_omits_skill_body(tmp_path):
@@ -428,13 +428,13 @@ def test_no_skills_keeps_existing_system_prompt_and_unknown_skill_parse_feedback
     assert Task(MockClient(script=[_reply(_done())]), skills=None)._build_system_prompt() == baseline
 ```
 
-- [ ] **Step 2: Run prompt and Step feedback tests and verify RED**
+- [x] **Step 2: Run prompt and Step feedback tests and verify RED**
 
 Run: `uv run pytest tests/test_task.py tests/test_step.py -k skill -v`
 
 Expected: FAIL because `Task.__init__` and `Step.__init__` do not accept `skills` and the first prompt lacks the catalog.
 
-- [ ] **Step 3: Implement stable prompt composition and propagation without semantic bypasses**
+- [x] **Step 3: Implement stable prompt composition and propagation without semantic bypasses**
 
 ```python
 class Task:
@@ -479,13 +479,13 @@ class Step:
 
 Use the existing `Step` registry creation site rather than maintaining a parallel parser registry. Preserve the exact existing parse result for a fabricated `Skill` call when no registry is supplied, preserve the current `render_bounded_feedback()` path for all Skill outcomes, and do not add a completion signal or authorization exception for Skill content.
 
-- [ ] **Step 4: Run focused task/Step tests for GREEN**
+- [x] **Step 4: Run focused task/Step tests for GREEN**
 
 Run: `uv run pytest tests/test_task.py tests/test_step.py -k skill -v`
 
 Expected: PASS; first request contains only catalog metadata, second-round feedback contains masked full content, and existing completion/confirmation/sandbox behavior remains unchanged.
 
-- [ ] **Step 5: Commit progressive loading at the execution boundary**
+- [x] **Step 5: Commit progressive loading at the execution boundary**
 
 ```bash
 git add src/forgeagent/task.py src/forgeagent/step.py tests/test_task.py tests/test_step.py
