@@ -623,6 +623,28 @@ def test_capture_clear_and_close_are_idempotent_and_reader_is_daemon():
     assert reader.is_alive() is False
 
 
+def test_capture_close_does_not_wait_for_duplicated_writer():
+    capture = _BoundedStderrCapture()
+    capture.__enter__()
+    assert capture.stream is not None
+    duplicate_writer = os.dup(capture.stream.fileno())
+    reader = capture._reader
+    assert reader is not None
+    closer = threading.Thread(target=capture.close)
+
+    try:
+        closer.start()
+        closer.join(timeout=0.2)
+
+        assert closer.is_alive() is False
+        assert reader.is_alive() is False
+        assert capture._read_fd is None
+    finally:
+        os.close(duplicate_writer)
+        closer.join(timeout=1)
+        capture.close()
+
+
 def test_holder_passes_capture_to_stdio_and_releases_it_after_success(monkeypatch):
     import mcp
     import mcp.client.stdio as mcp_stdio
@@ -5282,6 +5304,93 @@ def test_active_call_failure_finalizes_without_implicit_restart(monkeypatch):
         assert mgr.list_tools() == []
 
     asyncio.run(fail_active_call())
+
+
+def test_runtime_call_failure_publishes_fixed_redacted_diagnostic(monkeypatch):
+    mgr = _manager_with_secret(monkeypatch, "runtime-secret")
+
+    async def fail_active_call() -> None:
+        async def holder(
+            name: str,
+            generation: int,
+            ready: asyncio.Event,
+            stop: asyncio.Event,
+        ) -> None:
+            ready.set()
+            await stop.wait()
+
+        monkeypatch.setattr(mgr, "_holder", holder)
+        ready = mgr._start_holder("github")
+        await ready.wait()
+        generation, holder_task, _stop = mgr._holders["github"]
+        state = mgr._states["github"]
+        state.status = "available"
+        state.tools = [_tool("github")]
+        mgr._sessions["github"] = (
+            generation,
+            _SessionProbe("unused", error=RuntimeError("runtime-secret /private/path")),
+        )
+
+        result = await mgr._call_tool_on_loop("github", "echo", {})
+        assert result == {"ok": False, "text": "MCP call failed"}
+        await asyncio.gather(holder_task, return_exceptions=True)
+
+    asyncio.run(fail_active_call())
+
+    diagnostic = mgr.diagnostics()[0]
+    assert diagnostic.status == "unavailable: startup_failed"
+    assert (
+        diagnostic.reason,
+        diagnostic.impact,
+        diagnostic.action,
+    ) == (
+        "MCP server failed to start",
+        "Configured tools are disabled",
+        "Check the server configuration and try again",
+    )
+    assert "runtime-secret" not in repr(diagnostic)
+    assert "/private/path" not in repr(diagnostic)
+
+
+def test_unexpected_active_holder_exit_publishes_fixed_diagnostic(monkeypatch):
+    mgr = MCPManager({"pending": MCPServerConfig(command="unused")})
+    release = asyncio.Event()
+
+    async def holder(
+        name: str,
+        generation: int,
+        ready: asyncio.Event,
+        stop: asyncio.Event,
+    ) -> None:
+        ready.set()
+        await release.wait()
+
+    monkeypatch.setattr(mgr, "_holder", holder)
+
+    async def exit_holder() -> None:
+        ready = mgr._start_holder("pending")
+        await ready.wait()
+        _generation, holder_task, _stop = mgr._holders["pending"]
+        state = mgr._states["pending"]
+        state.status = "available"
+        state.tools = [_tool()]
+        release.set()
+        await holder_task
+        mgr._finalize_holder_slot("pending", _generation, holder_task)
+
+    asyncio.run(exit_holder())
+
+    diagnostic = mgr.diagnostics()[0]
+    assert diagnostic.status == "unavailable: startup_failed"
+    assert (
+        diagnostic.reason,
+        diagnostic.impact,
+        diagnostic.action,
+    ) == (
+        "MCP server failed to start",
+        "Configured tools are disabled",
+        "Check the server configuration and try again",
+    )
 
 
 @pytest.mark.parametrize(

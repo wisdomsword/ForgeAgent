@@ -27,6 +27,7 @@ import logging
 import math
 import os
 import re
+import select
 import threading
 import time
 from collections.abc import Coroutine
@@ -51,6 +52,9 @@ _ENV_PLACEHOLDER = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 _LOOP_THREAD_NAME = "forgeagent-mcp-loop"
 _UNKNOWN_SERVER_LABEL = "unknown"
 _STDERR_CAPTURE_LIMIT = 8192
+_STDERR_CAPTURE_POLL_INTERVAL = 0.01
+_STDERR_CAPTURE_CLOSE_DRAIN_TIMEOUT = 0.05
+_STDERR_CAPTURE_JOIN_TIMEOUT = 0.1
 _STARTUP_DIAGNOSTICS = {
     "docker_unavailable": (
         "Docker is not running",
@@ -85,6 +89,7 @@ class _BoundedStderrCapture:
         self._read_fd: int | None = None
         self.stream: TextIO | None = None
         self._reader: threading.Thread | None = None
+        self._close_requested = threading.Event()
         self.truncated = False
 
     def __enter__(self) -> _BoundedStderrCapture:
@@ -119,13 +124,48 @@ class _BoundedStderrCapture:
         self.close()
 
     def _drain(self, read_fd: int) -> None:
-        while chunk := os.read(read_fd, 8192):
+        close_deadline: float | None = None
+        try:
+            while True:
+                if self._close_requested.is_set():
+                    if close_deadline is None:
+                        close_deadline = time.monotonic() + _STDERR_CAPTURE_CLOSE_DRAIN_TIMEOUT
+                    timeout = min(
+                        _STDERR_CAPTURE_POLL_INTERVAL,
+                        max(0.0, close_deadline - time.monotonic()),
+                    )
+                    if timeout == 0.0:
+                        return
+                else:
+                    timeout = _STDERR_CAPTURE_POLL_INTERVAL
+                try:
+                    readable, _, _ = select.select([read_fd], [], [], timeout)
+                except (OSError, ValueError):
+                    return
+                if not readable:
+                    if close_deadline is not None:
+                        return
+                    continue
+                try:
+                    chunk = os.read(read_fd, 8192)
+                except OSError:
+                    return
+                if not chunk:
+                    return
+                with self._lock:
+                    remaining = max(0, self._limit - len(self._data))
+                    if len(chunk) > remaining:
+                        self.truncated = True
+                    if remaining:
+                        self._data.extend(chunk[:remaining])
+        finally:
+            try:
+                os.close(read_fd)
+            except OSError:
+                pass
             with self._lock:
-                remaining = max(0, self._limit - len(self._data))
-                if len(chunk) > remaining:
-                    self.truncated = True
-                if remaining:
-                    self._data.extend(chunk[:remaining])
+                if self._read_fd == read_fd:
+                    self._read_fd = None
 
     def text(self) -> str:
         with self._lock:
@@ -138,11 +178,13 @@ class _BoundedStderrCapture:
 
     def close(self) -> None:
         stream = self.stream
+        self._close_requested.set()
         if stream is not None and not stream.closed:
             stream.close()
         reader = self._reader
-        if reader is not None and reader.ident is not None:
-            reader.join()
+        if reader is not None:
+            reader.join(timeout=_STDERR_CAPTURE_JOIN_TIMEOUT)
+            return
         read_fd = self._read_fd
         if read_fd is not None:
             os.close(read_fd)
@@ -823,7 +865,11 @@ class MCPManager:
             self._start_holder(name)
         elif state.config.enabled and not self._closed and not self._closing:
             if state.status == "available":
-                state.status = "unavailable"
+                if task.cancelled():
+                    state.status = "unavailable"
+                else:
+                    state.status = "unavailable: startup_failed"
+                    state.diagnostic_code = "startup_failed"
         else:
             stop.set()
 
@@ -1132,6 +1178,7 @@ class MCPManager:
                 self._sessions.pop(server, None)
                 state.tools = []
                 state.status = "unavailable: startup_failed"
+                state.diagnostic_code = "startup_failed"
                 state.tearing_down_generation = generation
                 holder_slot = self._holders.get(server)
                 if holder_slot is not None:
