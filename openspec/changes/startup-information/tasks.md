@@ -11,8 +11,8 @@
 
 ## 3. 非 TTY 与错误输出
 
-- [ ] 3.1 先写失败的 CLI/子进程回归，固定 pipe quit 零 stdout/stderr、管道任务结果导向、`run`/`serve` 无 Logo 和 optional MCP 状态
-- [ ] 3.2 统一 stdin/stdout TTY 判定，移除非交互 banner/prompt/启动状态，并把 required MCP 启动错误接到 sanitized stderr + 非零退出路径
+- [x] 3.1 先写失败的 CLI/子进程回归，固定 pipe quit 零 stdout/stderr、管道任务结果导向、`run`/`serve` 无 Logo 和 optional MCP 状态
+- [x] 3.2 统一 stdin/stdout TTY 判定，移除非交互 banner/prompt/启动状态，并把 required MCP 启动错误接到 sanitized stderr + 非零退出路径
 
 ## 4. `/mcp` 用户诊断
 

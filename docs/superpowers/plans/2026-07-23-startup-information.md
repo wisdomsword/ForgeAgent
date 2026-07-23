@@ -348,7 +348,7 @@ git commit -m "feat: report MCP startup capability safely"
 - Consumes: Task 3 stdout/stderr split and `build_mcp_manager() -> MCPManager | None`.
 - Produces: default non-TTY reader that calls `input()`/stream read without a prompt; subprocess tests invoke the installed `forgeagent` console script with isolated HOME and fixture config.
 
-- [ ] **Step 1: Write failing black-box and regression tests**
+- [x] **Step 1: Write failing black-box and regression tests**
 
 Create `_forgeagent_process(argv: list[str], stdin: bytes, env: dict[str, str]) -> CompletedProcess[bytes]`, implemented as `subprocess.run(argv, input=stdin, capture_output=True, text=False, env=env, check=False)`, then use it to assert exit 0 and exact `stdout == b""`, `stderr == b""`. Add a pipe-goal test with a scripted local model double/entrypoint hook that proves MCP connects and only task result appears. Add optional fixture stderr output/failure and assert no Docker/SDK/path/secret raw text in either stream. Add required failure test asserting exit 2, stdout empty, stderr has only fixed text. Unit-test default non-TTY reader receives `""` prompt while terminal reader receives `"forge> "`.
 
@@ -368,25 +368,25 @@ def test_required_mcp_failure_is_stderr_only(isolated_cli_env):
     assert b"Traceback" not in result.stderr
 ```
 
-- [ ] **Step 2: Run black-box tests to verify RED**
+- [x] **Step 2: Run black-box tests to verify RED**
 
 Run: `uv run pytest tests/test_cli_startup_blackbox.py tests/test_cli.py -q -k "pipe or non_tty or startup_bytes"`
 
 Expected: FAIL: current REPL prompt/banner/MCP status reaches stdout and required errors are not guaranteed to use the dedicated stderr console.
 
-- [ ] **Step 3: Implement the non-TTY reader boundary and fixture modes**
+- [x] **Step 3: Implement the non-TTY reader boundary and fixture modes**
 
 Select the reader once. When interactive predicate is false, use a callable that reads a line without passing a prompt to `input`; do not call PromptSession or `console.print()` for startup UI. Preserve EOF, `KeyboardInterrupt`, empty line, confirmations and Survey behavior exactly. Keep MCP manager creation in non-TTY REPL so submitted goals retain tools.
 
 Extend `tests/mcp_fixture_server.py` only with environment-selected test modes: `startup_chatter` writes a benign line to stderr before normal server startup; `docker_failure` writes a Docker-daemon-shaped line then terminates before handshake. The test must use synthetic values and never require Docker.
 
-- [ ] **Step 4: Run non-TTY, stdout/stderr, and command-path regressions**
+- [x] **Step 4: Run non-TTY, stdout/stderr, and command-path regressions**
 
 Run: `uv run pytest tests/test_cli_startup_blackbox.py tests/test_cli.py -q -k "pipe or non_tty or startup_bytes or main_reports_required_mcp_startup_error or run"`
 
 Expected: PASS. `run`, `serve`, `models`, and `smoke` have no Logo or optional startup-status output; pipe quit is exactly two zero-length streams.
 
-- [ ] **Step 5: Commit the black-box contract**
+- [x] **Step 5: Commit the black-box contract**
 
 ```bash
 git add src/forgeagent/cli.py tests/mcp_fixture_server.py tests/test_cli_startup_blackbox.py tests/test_cli.py
