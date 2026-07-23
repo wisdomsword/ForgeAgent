@@ -502,7 +502,7 @@ git commit -m "feat: load skill content on demand in tasks"
 - Consumes: `SkillRegistry.load`, `Task(client, skills=registry)`, `IdentityTrustRequest`, and `IdentityDiagnostic` from earlier tasks.
 - Produces: `_load_skill_registry` with `home`, `allowed_root`, `no_identity`, `confirmer`, and `diagnostic` keyword parameters; it returns `SkillRegistry`. Also produces `make_console_skill_confirmer(console, read_line) -> IdentityConfirmer` and a single service-start snapshot closed over by the HTTP `TaskFactory`.
 
-- [ ] **Step 1: Write failing lifecycle, degradation, replacement, and request-isolation tests**
+- [x] **Step 1: Write failing lifecycle, degradation, replacement, and request-isolation tests**
 
 ```python
 def test_run_once_threads_supplied_skill_snapshot_to_task(monkeypatch, tmp_path):
@@ -529,13 +529,13 @@ assert task._skills is other_task._skills is skills
 assert task._skills.read("project-only") is None
 ```
 
-- [ ] **Step 2: Run CLI and HTTP lifecycle tests and verify RED**
+- [x] **Step 2: Run CLI and HTTP lifecycle tests and verify RED**
 
 Run: `uv run pytest tests/test_cli.py -k skill -v`
 
 Expected: FAIL because `run_once`, `repl`, and the HTTP factory have no `skills` argument or loader.
 
-- [ ] **Step 3: Implement the composition-boundary loader and atomic reload**
+- [x] **Step 3: Implement the composition-boundary loader and atomic reload**
 
 ```python
 def make_console_skill_confirmer(console: Console, read_line: Callable[[str], str]) -> IdentityConfirmer:
@@ -558,13 +558,13 @@ def _load_skill_registry(*, home: str, allowed_root: str, no_identity: bool, con
 
 Add `skills: SkillRegistry | None = None` to `run_once()` and pass it to `Task`. In `repl()`, create the reader before the confirmer, load one initial snapshot, pass it to every `run_once()`, and on `/reload` construct models, context, identity, memory, and candidate Skills before replacing all current references together. A rejected project candidate is a successful user-Skill-only snapshot; configuration exceptions keep the old snapshot. At HTTP service startup, resolve home/root/no-identity once, call the loader with `confirmer=None`, and close that registry over the existing `TaskFactory`; do not add fields, endpoints, file watchers, or per-request discovery.
 
-- [ ] **Step 4: Run the focused CLI and HTTP regression suite for GREEN**
+- [x] **Step 4: Run the focused CLI and HTTP regression suite for GREEN**
 
 Run: `uv run pytest tests/test_cli.py -k 'skill or reload or factory' -v`
 
 Expected: PASS; interactive approval uses Skill-specific wording, no-identity skips project discovery, headless startup does not block, reload is all-or-nothing, and each request gets the same immutable snapshot but a fresh Task/Step/Runtime.
 
-- [ ] **Step 5: Commit lifecycle assembly independently of REPL UI changes**
+- [x] **Step 5: Commit lifecycle assembly independently of REPL UI changes**
 
 ```bash
 git add src/forgeagent/cli.py tests/test_cli.py
