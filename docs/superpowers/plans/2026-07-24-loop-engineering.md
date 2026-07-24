@@ -265,21 +265,21 @@ Commit with message `feat: submit loops over HTTP`.
 - Adds an M21 threat entry for checkpoint injection/path/race/replay risks and mitigations.
 - The example only reports dependency state; it does not install/update dependencies, create branches, commit, push, or open PRs.
 
-- [ ] **Step 1: Write documentation assertion RED tests or extend existing static tests**
+- [x] **Step 1: Write documentation assertion RED tests or extend existing static tests**
 
 Create `tests/test_loop_docs.py` with direct text assertions against `README.md`, `docs/text-protocol-spec.md`, `docs/threat-model.md`, `docs/golden-tasks-seed.md`, `ACTION_PLAN.md`, and both `examples/loop/` files. Assert command syntax, `forgeagent.loop.v1`, every stable stop reason, Loop-only Checkpoint, no scheduler daemon, explicit Evaluator/Triad exclusions, and that the example contains no install/update/commit/push/PR action.
 
-- [ ] **Step 2: Run documentation tests and verify RED**
+- [x] **Step 2: Run documentation tests and verify RED**
 
 Run: `UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run pytest -q tests/test_loop_docs.py`
 
 Expected: assertions fail because M21 documentation/example text is absent.
 
-- [ ] **Step 3: Write minimal synchronized documentation and example**
+- [x] **Step 3: Write minimal synchronized documentation and example**
 
 Provide cron, launchd plist command arguments, systemd timer/service command, and HTTP examples without credentials. Mark scheduler snippets as user-installed examples. Update ACTION_PLAN M21 evidence only with commands actually run later; until Task 6, state implementation pending or omit final counts.
 
-- [ ] **Step 4: Run documentation/static tests and verify GREEN**
+- [x] **Step 4: Run documentation/static tests and verify GREEN**
 
 Run:
 
@@ -290,7 +290,7 @@ UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run pytest -q \
 
 Expected: all pass.
 
-- [ ] **Step 5: Mark OpenSpec tasks 3.3 and 4.3 complete and commit**
+- [x] **Step 5: Mark OpenSpec tasks 3.3 and 4.3 complete and commit**
 
 Commit with message `docs: explain loop engineering`.
 
