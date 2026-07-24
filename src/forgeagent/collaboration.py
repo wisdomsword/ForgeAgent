@@ -1221,10 +1221,17 @@ class CollaborationRunner:
         try:
             if goal != self._state.goal:
                 raise CollaborationError("collaboration goal does not match")
+            if self._state.status in _TERMINAL_STATUSES:
+                return CollaborationReport.from_state(self._state)
             if self._state.mode == "triad":
-                planner_report = self._run_triad_planner(cancel_event)
-                if planner_report is not None:
-                    return planner_report
+                if self._state.phase == "planning":
+                    planner_report = self._run_triad_planner(cancel_event)
+                    if planner_report is not None:
+                        return planner_report
+                elif self._state.phase == "needs_confirmation":
+                    confirmation_report = self._confirm_triad_plan(cancel_event)
+                    if confirmation_report is not None:
+                        return confirmation_report
             return self._run_duo(cancel_event)
         finally:
             self._run_lock.release()
@@ -1280,12 +1287,24 @@ class CollaborationRunner:
         self._emit_plan("submitted")
         if not planner.status.completed:
             return self._task_failure(planner)
-        approved = False
-        if self._plan_confirmer is not None:
-            try:
-                approved = self._plan_confirmer(_plan_summary(self._state)) is True
-            except Exception:
-                approved = False
+        return self._confirm_triad_plan(cancel_event)
+
+    def _confirm_triad_plan(
+        self, cancel_event: threading.Event | None
+    ) -> CollaborationReport | None:
+        if self._cancelled(cancel_event):
+            return self._finish("cancelled", "cancelled")
+        try:
+            approved = (
+                self._plan_confirmer is not None
+                and self._plan_confirmer(_plan_summary(self._state)) is True
+            )
+        except Exception:
+            if self._cancelled(cancel_event):
+                return self._finish("cancelled", "cancelled")
+            return self._finish("failed", "role_failed")
+        if self._cancelled(cancel_event):
+            return self._finish("cancelled", "cancelled")
         if not approved:
             self._emit_plan("denied")
             return self._finish("stopped", "needs_confirmation")
@@ -1323,41 +1342,48 @@ class CollaborationRunner:
         )
 
     def _run_duo(self, cancel_event: threading.Event | None) -> CollaborationReport:
-        rejection: tuple[EvaluationItem, ...] = ()
+        rejection = (
+            self._state.last_evaluation
+            if self._state.phase == "generator"
+            and self._state.last_evaluation
+            and not all(item.passed for item in self._state.last_evaluation)
+            else ()
+        )
         while True:
             if self._cancelled(cancel_event):
                 return self._finish("cancelled", "cancelled")
-            try:
-                generator = self._run_role(
-                    "generator",
-                    self._state.generator_attempts + 1,
-                    default_registry(),
-                    _GENERATOR_PROMPT,
-                    _role_task_data(self._state, rejection),
-                    cancel_event,
-                )
-            except CollaborationRoleConfigurationError:
-                if self._cancelled(cancel_event):
-                    return self._finish("cancelled", "cancelled")
-                return self._finish("failed", "unrecoverable_failure")
-            except Exception:
-                if self._cancelled(cancel_event):
-                    return self._finish("cancelled", "cancelled")
-                return self._finish("failed", "role_failed")
-            if not generator.status.completed:
+            if self._state.phase == "generator":
                 try:
-                    self._persist_role_boundary("generator", generator, phase="generator")
+                    generator = self._run_role(
+                        "generator",
+                        self._state.generator_attempts + 1,
+                        default_registry(),
+                        _GENERATOR_PROMPT,
+                        _role_task_data(self._state, rejection),
+                        cancel_event,
+                    )
+                except CollaborationRoleConfigurationError:
+                    if self._cancelled(cancel_event):
+                        return self._finish("cancelled", "cancelled")
+                    return self._finish("failed", "unrecoverable_failure")
+                except Exception:
+                    if self._cancelled(cancel_event):
+                        return self._finish("cancelled", "cancelled")
+                    return self._finish("failed", "role_failed")
+                if not generator.status.completed:
+                    try:
+                        self._persist_role_boundary("generator", generator, phase="generator")
+                    except CollaborationError:
+                        return self._finish("failed", "state_failure")
+                    if self._cancelled(cancel_event) or generator.status.reason == "cancelled":
+                        return self._finish("cancelled", "cancelled")
+                    return self._task_failure(generator)
+                try:
+                    self._persist_role_boundary("generator", generator, phase="evaluator")
                 except CollaborationError:
                     return self._finish("failed", "state_failure")
-                if self._cancelled(cancel_event) or generator.status.reason == "cancelled":
+                if self._cancelled(cancel_event):
                     return self._finish("cancelled", "cancelled")
-                return self._task_failure(generator)
-            try:
-                self._persist_role_boundary("generator", generator, phase="evaluator")
-            except CollaborationError:
-                return self._finish("failed", "state_failure")
-            if self._cancelled(cancel_event):
-                return self._finish("cancelled", "cancelled")
 
             evaluator_state = self._store.load(self._state.collaboration_id)
             registry = build_evaluator_registry(store=self._store, state=evaluator_state)

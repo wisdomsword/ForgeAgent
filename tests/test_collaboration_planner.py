@@ -11,9 +11,12 @@ import pytest
 from forgeagent.audit import AuditEvent
 from forgeagent.client import MockClient
 from forgeagent.collaboration import (
+    AcceptanceItem,
     CollaborationRoleConfigurationError,
     CollaborationRunner,
+    CollaborationStore,
     headless_plan_confirmer,
+    plan_digest,
 )
 from forgeagent.models import AssistantMessage, ClientError, TokenUsage
 from forgeagent.task import Task
@@ -131,6 +134,59 @@ def _runner(
     )
 
 
+def _persisted_triad_state(
+    tmp_path: Path,
+    *,
+    phase: str,
+    collaboration_id: str,
+    generator_attempts: int = 0,
+):
+    store = CollaborationStore(str(tmp_path))
+    state = store.create("create PRIVATE_GOAL artifact", "triad", collaboration_id=collaboration_id)
+    items = tuple(AcceptanceItem.model_validate(item) for item in _items())
+    state = store.save(
+        state.model_copy(
+            update={
+                "phase": "needs_confirmation",
+                "plan": items,
+                "plan_digest": plan_digest(items),
+            }
+        ),
+        expected_revision=state.revision,
+    )
+    if phase in {"generator", "evaluator"}:
+        state = store.save(
+            state.model_copy(update={"phase": "generator"}),
+            expected_revision=state.revision,
+        )
+    if phase == "evaluator":
+        state = store.save(
+            state.model_copy(
+                update={"phase": "evaluator", "generator_attempts": generator_attempts}
+            ),
+            expected_revision=state.revision,
+        )
+    store.close()
+
+
+def _reopened_runner(
+    tmp_path: Path,
+    builder: _RoleBuilder,
+    *,
+    collaboration_id: str,
+    plan_confirmer=None,
+    audit_sink=None,
+) -> CollaborationRunner:
+    store = CollaborationStore(str(tmp_path), audit_sink=audit_sink)
+    return CollaborationRunner(
+        store=store,
+        state=store.load(collaboration_id),
+        role_task_builder=builder,
+        plan_confirmer=plan_confirmer,
+        audit_sink=audit_sink,
+    )
+
+
 def test_triad_approved_plan_rejects_then_uses_fresh_generator_and_passes(tmp_path: Path):
     summaries: list[str] = []
     builder = _RoleBuilder(
@@ -207,6 +263,130 @@ def test_triad_headless_preauthorize_runs_generator(tmp_path: Path):
 
     assert report.status == "completed"
     assert [call[0] for call in builder.calls] == ["planner", "generator", "evaluator"]
+
+
+def test_reopened_triad_waiting_for_confirmation_does_not_rerun_planner(tmp_path: Path):
+    collaboration_id = "1" * 32
+    _persisted_triad_state(tmp_path, phase="needs_confirmation", collaboration_id=collaboration_id)
+    builder = _RoleBuilder(
+        {
+            ("generator", 1): [_reply(_done())],
+            ("evaluator", 1): [_evaluation(_results(passed=True)), _reply(_done())],
+        }
+    )
+    runner = _reopened_runner(
+        tmp_path,
+        builder,
+        collaboration_id=collaboration_id,
+        plan_confirmer=headless_plan_confirmer("preauthorize"),
+    )
+
+    report = runner.run("create PRIVATE_GOAL artifact")
+
+    assert report.status == "completed"
+    assert [call[0] for call in builder.calls] == ["generator", "evaluator"]
+
+
+def test_reopened_confirmed_triad_starts_at_generator(tmp_path: Path):
+    collaboration_id = "2" * 32
+    _persisted_triad_state(tmp_path, phase="generator", collaboration_id=collaboration_id)
+    builder = _RoleBuilder(
+        {
+            ("generator", 1): [_reply(_done())],
+            ("evaluator", 1): [_evaluation(_results(passed=True)), _reply(_done())],
+        }
+    )
+    runner = _reopened_runner(tmp_path, builder, collaboration_id=collaboration_id)
+
+    report = runner.run("create PRIVATE_GOAL artifact")
+
+    assert report.status == "completed"
+    assert [call[0] for call in builder.calls] == ["generator", "evaluator"]
+    assert (report.generator_attempts, report.evaluator_attempts) == (1, 1)
+
+
+def test_reopened_triad_at_evaluator_does_not_repeat_generator(tmp_path: Path):
+    collaboration_id = "3" * 32
+    _persisted_triad_state(
+        tmp_path,
+        phase="evaluator",
+        collaboration_id=collaboration_id,
+        generator_attempts=1,
+    )
+    builder = _RoleBuilder(
+        {("evaluator", 1): [_evaluation(_results(passed=True)), _reply(_done())]}
+    )
+    runner = _reopened_runner(tmp_path, builder, collaboration_id=collaboration_id)
+
+    report = runner.run("create PRIVATE_GOAL artifact")
+
+    assert report.status == "completed"
+    assert [call[0] for call in builder.calls] == ["evaluator"]
+    assert (report.generator_attempts, report.evaluator_attempts) == (1, 1)
+
+
+def test_reopened_terminal_triad_returns_stable_report_without_roles(tmp_path: Path):
+    collaboration_id = "4" * 32
+    builder = _RoleBuilder(
+        {
+            ("planner", 1): [_plan(_items()), _reply(_done())],
+            ("generator", 1): [_reply(_done())],
+            ("evaluator", 1): [_evaluation(_results(passed=True)), _reply(_done())],
+        }
+    )
+    original = _runner(
+        tmp_path,
+        builder,
+        collaboration_id=collaboration_id,
+        plan_confirmer=headless_plan_confirmer("preauthorize"),
+    )
+    first_report = original.run("create PRIVATE_GOAL artifact")
+    original.close()
+    resumed_builder = _RoleBuilder({})
+    resumed = _reopened_runner(tmp_path, resumed_builder, collaboration_id=collaboration_id)
+
+    second_report = resumed.run("create PRIVATE_GOAL artifact")
+
+    assert second_report == first_report
+    assert resumed_builder.calls == []
+
+
+@pytest.mark.parametrize("tamper", ["delete", "reorder", "change", "digest"])
+def test_reopened_triad_keeps_persisted_plan_frozen(tmp_path: Path, tamper: str):
+    collaboration_id = "5" * 32
+    _persisted_triad_state(tmp_path, phase="generator", collaboration_id=collaboration_id)
+    state_path = tmp_path / ".forgeagent" / "collaborations" / f"{collaboration_id}.json"
+
+    class _TamperingBuilder(_RoleBuilder):
+        def __call__(self, role, attempt, registry, system_prompt):
+            task = super().__call__(role, attempt, registry, system_prompt)
+            original = task.run
+
+            def run(goal, *, cancel_event=None):
+                outcome = original(goal, cancel_event=cancel_event)
+                payload = json.loads(state_path.read_text(encoding="utf-8"))
+                if tamper == "delete":
+                    payload["plan"] = payload["plan"][:1]
+                elif tamper == "reorder":
+                    payload["plan"] = list(reversed(payload["plan"]))
+                elif tamper == "change":
+                    payload["plan"][0]["acceptance"] = "A lower standard"
+                changed = tuple(AcceptanceItem.model_validate(item) for item in payload["plan"])
+                payload["plan_digest"] = "f" * 64 if tamper == "digest" else plan_digest(changed)
+                state_path.write_text(json.dumps(payload), encoding="utf-8")
+                return outcome
+
+            task.run = run
+            return task
+
+    builder = _TamperingBuilder({("generator", 1): [_reply(_done())]})
+    runner = _reopened_runner(tmp_path, builder, collaboration_id=collaboration_id)
+
+    report = runner.run("create PRIVATE_GOAL artifact")
+
+    assert report.status == "failed"
+    assert report.stop_reason == "state_failure"
+    assert [call[0] for call in builder.calls] == ["generator"]
 
 
 def test_planner_corrects_duplicate_and_how_only_submissions(tmp_path: Path):
@@ -329,6 +509,57 @@ def test_triad_cancel_after_planner_wins_before_confirmation(tmp_path: Path):
     assert report.status == "cancelled"
     assert report.stop_reason == "cancelled"
     assert confirmer_calls == []
+
+
+def test_triad_confirmation_exception_is_role_failure_not_denial(tmp_path: Path):
+    sink = _AuditSink()
+    builder = _RoleBuilder({("planner", 1): [_plan(_items()), _reply(_done())]})
+
+    def broken_confirmer(summary: str) -> bool:
+        raise RuntimeError(f"PRIVATE_CONFIRMATION_FAILURE:{summary}")
+
+    report = _runner(
+        tmp_path,
+        builder,
+        plan_confirmer=broken_confirmer,
+        audit_sink=sink,
+    ).run("create PRIVATE_GOAL artifact")
+
+    assert report.status == "failed"
+    assert report.stop_reason == "role_failed"
+    plan_results = [
+        event.result_status for event in sink.events if event.event_type == "collaboration.plan"
+    ]
+    assert plan_results == ["submitted"]
+    assert "PRIVATE_CONFIRMATION_FAILURE" not in repr(sink.events)
+
+
+@pytest.mark.parametrize("decision", [True, False])
+def test_triad_cancel_during_confirmation_wins_without_decision_audit(
+    tmp_path: Path, decision: bool
+):
+    cancel = threading.Event()
+    sink = _AuditSink()
+    builder = _RoleBuilder({("planner", 1): [_plan(_items()), _reply(_done())]})
+
+    def cancelling_confirmer(summary: str) -> bool:
+        assert "PRIVATE_GOAL" not in summary
+        cancel.set()
+        return decision
+
+    report = _runner(
+        tmp_path,
+        builder,
+        plan_confirmer=cancelling_confirmer,
+        audit_sink=sink,
+    ).run("create PRIVATE_GOAL artifact", cancel_event=cancel)
+
+    assert report.status == "cancelled"
+    assert report.stop_reason == "cancelled"
+    plan_results = [
+        event.result_status for event in sink.events if event.event_type == "collaboration.plan"
+    ]
+    assert plan_results == ["submitted"]
 
 
 def test_triad_cancel_wins_over_planner_construction_failure(tmp_path: Path):
