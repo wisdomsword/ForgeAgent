@@ -9,7 +9,7 @@
 
 | 维度 | 结果 |
 |---|---|
-| Completeness | 3/3 tasks；2/2 modified requirements 已实现 |
+| Completeness | 4/4 tasks；2/2 modified requirements 已实现 |
 | Correctness | WHAT-only 双字段、single/Duo/Triad route、角色 start/outcome、异常安全收口均有回归覆盖 |
 | Coherence | 实现与 proposal/design/delta specs 一致；未新增依赖、公开 schema 或持久化 schema |
 | Code review | 两轮自审与一次 `codex review --uncommitted`；审查发现的 single Loop route、Loop correlation 和本地转录泄漏风险均已修复 |
