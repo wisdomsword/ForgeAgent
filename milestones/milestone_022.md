@@ -7,7 +7,7 @@
 - 技术设计: [2026-07-24-triad-mode-design](../docs/superpowers/specs/2026-07-24-triad-mode-design.md)
 - 验证报告: [2026-07-24-triad-mode-verify](../docs/superpowers/reports/2026-07-24-triad-mode-verify.md)
 - OpenSpec change: [`2026-07-24-triad-mode`](../openspec/changes/archive/2026-07-24-triad-mode/)
-- 归档后修复: `collaboration-contract-hotfix`（Planner WHAT-only 双字段校验与协作审计闭环；全量 `2073 passed, 11 skipped`、OpenSpec strict `18/18`）
+- 归档后修复: [`2026-07-24-collaboration-contract-hotfix`](../openspec/changes/archive/2026-07-24-collaboration-contract-hotfix/)（Planner WHAT-only 双字段校验与协作审计闭环；全量 `2073 passed, 11 skipped`；归档前 strict `18/18`、归档后主规格 `17/17`）
 
 ## 目标与范围
 

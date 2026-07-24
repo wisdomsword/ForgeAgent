@@ -21,7 +21,8 @@ HTTP/CLI/cron 调度示例）。M22 Duo/Triad 协作运行时已完成并归档�
 2026-07-25 归档后复核补齐了 Planner `behavior`/`acceptance` 双字段 WHAT-only 校验，以及
 `collaboration.route`、角色 start/outcome（含稳定 model/tier/status、耗时与归一化 usage）
 审计；异常路径同样产生不含原文的 outcome 事件。复核修复后的全量验证为
-`2073 passed, 11 skipped`，OpenSpec strict 为 `18/18`。
+`2073 passed, 11 skipped`；归档前 OpenSpec strict 为 `18/18`（含 active change），归档后
+主规格为 `17/17`。
 
 ## M22 Duo / Triad（独立验收）
 

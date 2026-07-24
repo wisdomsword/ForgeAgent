@@ -39,6 +39,9 @@ rtk git diff --check
 exit 0
 ```
 
+上述 OpenSpec 计数包含验证时的 active change；归档并合并 delta spec 后，主规格复验为
+`17 passed, 0 failed`。
+
 ## 需求映射
 
 - Planner WHAT-only：`SubmitPlanTool` 对 `behavior` 与 `acceptance` 复用同一 HOW-only 拒绝边界；回归覆盖具体库/工具/实现步骤。

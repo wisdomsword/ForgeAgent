@@ -104,6 +104,7 @@ def test_m22_closeout_artifacts_record_final_gates() -> None:
     assert "M22 Duo/Triad 协作运行时已完成并归档" in readme
     assert "最终全量验证与归档仍在进行" not in readme
     assert "milestone_022.md" in readme
+    assert "主规格为 `17/17`" in readme
 
     action_plan = _text("ACTION_PLAN.md")
     m22_row = next(line for line in action_plan.splitlines() if line.startswith("| **M22**"))
@@ -123,6 +124,7 @@ def test_m22_closeout_artifacts_record_final_gates() -> None:
     assert "- 状态: 已完成" in milestone
     assert "2069 passed, 11 skipped" in milestone
     assert "../openspec/changes/archive/2026-07-24-triad-mode/" in milestone
+    assert "../openspec/changes/archive/2026-07-24-collaboration-contract-hotfix/" in milestone
     assert "../openspec/changes/triad-mode/" not in milestone
     assert "M23" in milestone
     assert _text("milestones/latest").strip() == "milestone_022.md"
