@@ -237,14 +237,15 @@ def test_missing_usage_stops_after_a_successful_zero_usage_iteration(tmp_path: P
     runner.close()
 
 
-def test_zero_usage_takes_priority_over_task_completion(tmp_path: Path):
+def test_verified_completion_takes_priority_over_zero_usage(tmp_path: Path):
     builder = _Builder([_outcome(completed=True, reason="completed", usage=TokenUsage())])
     runner = _runner(tmp_path, builder)
 
     report = runner.run()
 
-    assert report.status == "stopped"
-    assert report.stop_reason == "token_usage_unavailable"
+    assert report.status == "completed"
+    assert report.stop_reason == "completed"
+    assert report.usage_available is False
     runner.close()
 
 

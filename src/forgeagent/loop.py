@@ -796,11 +796,11 @@ class LoopRunner:
             raise LoopCheckpointError("Loop task failed without an outcome")
         self._record_outcome(outcome)
         reason = self._stop_reason(cancel_event=cancel_event, watchdog_event=watchdog_event)
-        if reason is not None:
-            self._stop(reason)
-        elif outcome.status.completed:
+        if outcome.status.completed:
             self._save(status="completed", stop_reason="completed")
             self._audit_lifecycle("loop.stop", "completed")
+        elif reason is not None:
+            self._stop(reason)
 
     def _record_outcome(self, outcome: TaskOutcome) -> None:
         # CheckpointTool owns a per-iteration copy and may have committed durable progress.
