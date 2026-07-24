@@ -94,3 +94,43 @@ UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run ruff format --check src/forgeag
 
 - Cross-process resume locking remains explicitly deferred; revision checks prevent silent overwrite but cannot make external side effects exactly once.
 - The descriptor-based no-follow guarantee depends on platform support; unsupported platforms reject checkpoint loads rather than following a potentially unsafe path.
+
+## Independent review fix 2
+
+### Verified finding
+
+- Protecting only the final checkpoint file with `O_NOFOLLOW` did not protect its parent path. After store initialization, replacing `.forgeagent/loops` with a symlink caused `load()` to read an external checkpoint and allowed writes to target the external directory.
+- The store now pins the initialized Loop directory with a no-follow directory descriptor. File open, temporary creation, replacement, cleanup, and directory fsync are all relative to that descriptor, while each public operation verifies that the configured path still names the pinned inode. A renamed or symlink-replaced directory therefore fails closed before reading or writing.
+- The store exposes idempotent `close()` and retains a finalizer as a leak-safe fallback. Platforms without the required descriptor-relative/no-follow APIs fail closed.
+
+### RED
+
+```text
+UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run pytest -q tests/test_loop_checkpoint.py -k replaced_by_symlink
+FAILED test_store_fails_closed_when_loop_directory_is_replaced_by_symlink
+Failed: DID NOT RAISE LoopCheckpointError
+1 failed, 63 deselected in 0.15s
+```
+
+### GREEN
+
+```text
+UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run pytest -q tests/test_loop_checkpoint.py -k replaced_by_symlink
+1 passed, 63 deselected in 0.09s
+
+UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run pytest -q tests/test_loop_checkpoint.py tests/test_tools.py tests/test_evaluator.py
+152 passed in 0.19s
+
+UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run ruff check src/forgeagent/loop.py tests/test_loop_checkpoint.py
+All checks passed!
+
+UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run ruff format --check src/forgeagent/loop.py tests/test_loop_checkpoint.py
+2 files already formatted
+
+git diff --check
+passed
+```
+
+### Remaining risk
+
+- The pinned descriptor prevents path replacement from escaping the project root, but it is intentionally not a cross-process lock. Concurrent processes can still race revisions or external side effects; that remains outside M21 Task 1.

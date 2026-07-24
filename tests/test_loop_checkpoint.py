@@ -283,34 +283,44 @@ def test_store_rejects_symlink_root_and_file(tmp_path: Path):
         store.load(created.loop_id)
 
 
-def test_store_load_never_follows_a_file_swapped_after_lstat(tmp_path: Path, monkeypatch):
-    store = LoopCheckpointStore(str(tmp_path))
+def test_store_fails_closed_when_loop_directory_is_replaced_by_symlink(tmp_path: Path):
+    root = tmp_path / "root"
+    root.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    store = LoopCheckpointStore(str(root))
     created = store.create("Build it", _budgets(), loop_id="4" * 32)
-    path = tmp_path / ".forgeagent" / "loops" / (created.loop_id + ".json")
-    outside = tmp_path / "outside.json"
-    outside.write_text(
+    loops = root / ".forgeagent" / "loops"
+    original_loops = tmp_path / "original-loops"
+    loops.rename(original_loops)
+    loops.symlink_to(outside, target_is_directory=True)
+    outside_checkpoint = outside / (created.loop_id + ".json")
+    outside_checkpoint.write_text(
         json.dumps(created.model_copy(update={"goal": "Outside"}).model_dump(mode="json")),
         encoding="utf-8",
     )
-    original_lstat = os.lstat
-    swapped = False
+    outside_before = outside_checkpoint.read_bytes()
 
-    def swap_after_lstat(candidate):
-        nonlocal swapped
-        details = original_lstat(candidate)
-        if Path(candidate) == path and not swapped:
-            swapped = True
-            path.unlink()
-            path.symlink_to(outside)
-        return details
+    with pytest.raises(LoopCheckpointError):
+        store.load(created.loop_id)
+    with pytest.raises(LoopCheckpointError):
+        store.save(created.model_copy(update={"handoff": "next"}), expected_revision=0)
+    with pytest.raises(LoopCheckpointError):
+        store.create("Another", _budgets(), loop_id="5" * 32)
 
-    monkeypatch.setattr(os, "lstat", swap_after_lstat)
+    assert outside_checkpoint.read_bytes() == outside_before
+    assert not (outside / ("5" * 32 + ".json")).exists()
 
-    try:
-        loaded = store.load(created.loop_id)
-    except LoopCheckpointError:
-        return
-    assert loaded.goal == "Build it"
+
+def test_store_close_is_idempotent_and_fails_closed(tmp_path: Path):
+    store = LoopCheckpointStore(str(tmp_path))
+    created = store.create("Build it", _budgets(), loop_id="6" * 32)
+
+    store.close()
+    store.close()
+
+    with pytest.raises(LoopCheckpointError):
+        store.load(created.loop_id)
 
 
 def test_atomic_save_replaces_snapshot_and_stale_revision_preserves_old_bytes(tmp_path: Path):

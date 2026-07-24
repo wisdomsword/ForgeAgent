@@ -7,10 +7,10 @@ import math
 import os
 import re
 import stat
-import tempfile
 import threading
 import unicodedata
 import warnings
+import weakref
 from pathlib import Path
 from typing import Any, Literal
 from uuid import uuid4
@@ -356,6 +356,10 @@ class LoopCheckpointStore:
         self._task_id = task_id
         self._root = self._safe_directory(Path(allowed_root), must_exist=True, root=None)
         self._loop_directory = self._prepare_loop_directory()
+        self._loop_directory_descriptor = self._open_loop_directory()
+        self._directory_finalizer = weakref.finalize(
+            self, os.close, self._loop_directory_descriptor
+        )
 
     @staticmethod
     def _safe_directory(path: Path, *, must_exist: bool, root: Path | None) -> Path:
@@ -382,13 +386,46 @@ class LoopCheckpointStore:
             current = self._safe_directory(candidate, must_exist=False, root=self._root)
         return current
 
-    def _path_for(self, loop_id: str) -> Path:
+    def _open_loop_directory(self) -> int:
+        no_follow = getattr(os, "O_NOFOLLOW", None)
+        directory = getattr(os, "O_DIRECTORY", None)
+        if no_follow is None or directory is None:
+            raise LoopCheckpointError("checkpoint directory cannot be opened safely")
+        try:
+            descriptor = os.open(self._loop_directory, os.O_RDONLY | no_follow | directory)
+            details = os.fstat(descriptor)
+            if not stat.S_ISDIR(details.st_mode):
+                raise LoopCheckpointError("checkpoint directory is unsafe")
+            return descriptor
+        except LoopCheckpointError:
+            if "descriptor" in locals():
+                os.close(descriptor)
+            raise
+        except OSError as error:
+            raise LoopCheckpointError("checkpoint directory cannot be opened safely") from error
+
+    def _checkpoint_name(self, loop_id: str) -> str:
         if not isinstance(loop_id, str) or _LOOP_ID_RE.fullmatch(loop_id) is None:
             raise LoopCheckpointError("invalid checkpoint id")
-        path = self._loop_directory / f"{loop_id}.json"
-        if not _is_within(self._loop_directory, path):
-            raise LoopCheckpointError("checkpoint path is unsafe")
-        return path
+        return f"{loop_id}.json"
+
+    def _ensure_directory_binding(self) -> None:
+        try:
+            path_details = os.lstat(self._loop_directory)
+            descriptor_details = os.fstat(self._loop_directory_descriptor)
+        except OSError as error:
+            raise LoopCheckpointError("checkpoint directory is unavailable") from error
+        if (
+            stat.S_ISLNK(path_details.st_mode)
+            or not stat.S_ISDIR(path_details.st_mode)
+            or (path_details.st_dev, path_details.st_ino)
+            != (descriptor_details.st_dev, descriptor_details.st_ino)
+        ):
+            raise LoopCheckpointError("checkpoint directory is unsafe")
+
+    def close(self) -> None:
+        with self._lock:
+            self._directory_finalizer()
 
     def _audit(self, checkpoint: LoopCheckpoint, result_status: str) -> None:
         emit_audit(
@@ -419,21 +456,33 @@ class LoopCheckpointStore:
                 checkpoint = LoopCheckpoint(loop_id=effective_id, goal=goal, budgets=budgets)
             except ValidationError as error:
                 raise LoopCheckpointError("invalid checkpoint") from error
-            path = self._path_for(checkpoint.loop_id)
-            if os.path.lexists(path):
+            name = self._checkpoint_name(checkpoint.loop_id)
+            self._ensure_directory_binding()
+            try:
+                os.stat(name, dir_fd=self._loop_directory_descriptor, follow_symlinks=False)
+            except FileNotFoundError:
+                pass
+            except (OSError, TypeError) as error:
+                raise LoopCheckpointError("checkpoint file is invalid") from error
+            else:
                 raise LoopCheckpointError("checkpoint already exists")
-            self._write(path, checkpoint)
+            self._write(name, checkpoint)
             self._audit(checkpoint, "created")
             return checkpoint
 
     def load(self, loop_id: str) -> LoopCheckpoint:
         with self._lock:
-            path = self._path_for(loop_id)
+            name = self._checkpoint_name(loop_id)
             try:
+                self._ensure_directory_binding()
                 no_follow = getattr(os, "O_NOFOLLOW", None)
                 if no_follow is None:
                     raise LoopCheckpointError("checkpoint file cannot be opened safely")
-                descriptor = os.open(path, os.O_RDONLY | no_follow)
+                descriptor = os.open(
+                    name,
+                    os.O_RDONLY | no_follow,
+                    dir_fd=self._loop_directory_descriptor,
+                )
                 with os.fdopen(descriptor, "r", encoding="utf-8") as handle:
                     details = os.fstat(handle.fileno())
                     if not stat.S_ISREG(details.st_mode):
@@ -472,11 +521,11 @@ class LoopCheckpointStore:
                 )
             except ValidationError as error:
                 raise LoopCheckpointError("invalid checkpoint") from error
-            self._write(self._path_for(updated.loop_id), updated)
+            self._write(self._checkpoint_name(updated.loop_id), updated)
             self._audit(updated, "saved")
             return updated
 
-    def _write(self, path: Path, checkpoint: LoopCheckpoint) -> None:
+    def _write(self, name: str, checkpoint: LoopCheckpoint) -> None:
         payload = (
             json.dumps(
                 checkpoint.model_dump(mode="json"),
@@ -488,25 +537,38 @@ class LoopCheckpointStore:
         )
         if len(payload) > MAX_CHECKPOINT_BYTES:
             raise LoopCheckpointError("checkpoint is too large")
-        temporary_name: str | None = None
+        temporary_name = f".loop-checkpoint.{uuid4().hex}"
         try:
-            with tempfile.NamedTemporaryFile(
-                "wb", dir=self._loop_directory, prefix=".loop-checkpoint.", delete=False
-            ) as temporary:
-                temporary_name = temporary.name
+            self._ensure_directory_binding()
+            no_follow = getattr(os, "O_NOFOLLOW", None)
+            if no_follow is None:
+                raise LoopCheckpointError("checkpoint file cannot be opened safely")
+            descriptor = os.open(
+                temporary_name,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | no_follow,
+                0o600,
+                dir_fd=self._loop_directory_descriptor,
+            )
+            with os.fdopen(descriptor, "wb") as temporary:
                 temporary.write(payload)
                 temporary.flush()
                 os.fsync(temporary.fileno())
-            os.replace(temporary_name, path)
-            _fsync_directory(self._loop_directory)
-        except OSError as error:
+            os.replace(
+                temporary_name,
+                name,
+                src_dir_fd=self._loop_directory_descriptor,
+                dst_dir_fd=self._loop_directory_descriptor,
+            )
+            os.fsync(self._loop_directory_descriptor)
+        except LoopCheckpointError:
+            raise
+        except (OSError, TypeError) as error:
             raise LoopCheckpointError("checkpoint save failed") from error
         finally:
-            if temporary_name is not None and os.path.exists(temporary_name):
-                try:
-                    os.unlink(temporary_name)
-                except OSError:
-                    pass
+            try:
+                os.unlink(temporary_name, dir_fd=self._loop_directory_descriptor)
+            except (FileNotFoundError, OSError, TypeError):
+                pass
 
 
 class CheckpointTool(Tool):
@@ -579,17 +641,3 @@ def _is_within(root: Path, candidate: Path) -> bool:
         return os.path.commonpath((str(root), str(candidate))) == str(root)
     except ValueError:
         return False
-
-
-def _fsync_directory(directory: Path) -> None:
-    """Best-effort directory sync keeps a successful replace durable on POSIX."""
-    try:
-        descriptor = os.open(directory, os.O_RDONLY)
-    except OSError:
-        return
-    try:
-        os.fsync(descriptor)
-    except OSError:
-        pass
-    finally:
-        os.close(descriptor)
