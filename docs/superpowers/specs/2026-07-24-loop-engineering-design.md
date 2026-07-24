@@ -2,6 +2,8 @@
 comet_change: loop-engineering
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-07-24-loop-engineering
+status: final
 ---
 
 # M21 Loop Engineering 技术设计

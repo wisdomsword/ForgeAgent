@@ -89,3 +89,22 @@ Audit records MUST identify the risk level and operation outcome needed for repl
 #### Scenario: 审计写入降级
 - **WHEN** 包含 cache hit rate 的审计事件写入失败
 - **THEN** 任务执行继续遵循既有 fail-open 和 `audit_degraded` 语义，不因新增指标改变任务结果
+
+### Requirement: Loop lifecycle events are attributable and minimally disclosing
+The core Loop path MUST emit audit events for Loop start/resume, successful checkpoint persistence, iteration outcome, and terminal stop. Events MUST carry the Loop/task correlation and bounded counters while omitting the goal, checkpoint body, handoff text, completed/pending item text, absolute checkpoint path, prompts, credentials, and raw failure detail.
+
+#### Scenario: Loop starts or resumes
+- **WHEN** a CLI or HTTP request starts or resumes a Loop
+- **THEN** one lifecycle event records the public trigger kind, Loop identifier, safe budget presence/limits, and `started` or `resumed` result without goal or checkpoint content
+
+#### Scenario: Checkpoint persists
+- **WHEN** a model checkpoint or automatic iteration checkpoint is atomically committed
+- **THEN** one event records Loop/task correlation, schema version, iteration and aggregate item counts, and success without item text or host path
+
+#### Scenario: Loop iteration ends
+- **WHEN** an underlying Task iteration completes or fails
+- **THEN** one event records the stable Task reason and cumulative round/token/failure counters without raw model response or failure text
+
+#### Scenario: Loop reaches terminal state
+- **WHEN** a Loop completes, is cancelled, reaches a budget, or encounters an unrecoverable checkpoint/configuration failure
+- **THEN** one event records the stable terminal and stop reason plus bounded counters, and serialization failure follows the existing audit-degraded behavior

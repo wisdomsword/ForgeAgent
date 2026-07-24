@@ -2,6 +2,7 @@
 change: loop-engineering
 design-doc: docs/superpowers/specs/2026-07-24-loop-engineering-design.md
 base-ref: d24abc04fa5f92c64621b2dd5d22ee598031a860
+archived-with: 2026-07-24-loop-engineering
 ---
 
 # M21 Loop Engineering Implementation Plan
@@ -25,6 +26,7 @@ base-ref: d24abc04fa5f92c64621b2dd5d22ee598031a860
 - 所有生产代码任务严格 TDD：先运行聚焦测试并观察预期失败，再写最小实现，再运行聚焦及相关回归。
 - 代码、标识符和公开稳定枚举使用英文；用户文档以中文为主。
 
+archived-with: 2026-07-24-loop-engineering
 ---
 
 ### Task 1: Strict checkpoint models, store, and Loop-only tool
