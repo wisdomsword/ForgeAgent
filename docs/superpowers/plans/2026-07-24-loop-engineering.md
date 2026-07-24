@@ -98,39 +98,39 @@ Commit only Task 1 files with message `feat: add durable loop checkpoints`.
 - Task construction is injected with a callable receiving iteration number, remaining max rounds, Loop system-prompt suffix, and Loop registry; each returned Task is fresh and is always closed.
 - Stop reasons are stable strings: `completed`, `cancelled`, `wall_clock`, `token_usage_unavailable`, `token_budget`, `max_rounds`, `consecutive_failures`, `unrecoverable_failure`, `checkpoint_error`.
 
-- [ ] **Step 1: Write basic create/resume/convergence RED tests**
+- [x] **Step 1: Write basic create/resume/convergence RED tests**
 
 Use real `Task` + MockClient where practical and focused fake Task objects only for clocks/cancellation/process interruption. Cover single-iteration completion, failure summary injected into the next fresh Task, correct failure then success, terminal resume causing zero calls, frozen goal/budgets, completed items in resume prompt, and ordinary prose not counting as completed.
 
-- [ ] **Step 2: Run convergence tests and verify RED**
+- [x] **Step 2: Run convergence tests and verify RED**
 
 Run: `UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run pytest -q tests/test_loop_runner.py -k 'create or resume or convergence or completed'`
 
 Expected: failures because `LoopRunner` is absent.
 
-- [ ] **Step 3: Implement minimal serial runner and bounded handoff**
+- [x] **Step 3: Implement minimal serial runner and bounded handoff**
 
 Build each Task with a fresh registry and prompt suffix, persist an automatic snapshot after every returned Task, and return a report from the terminal snapshot. Mask secrets/control characters in `last_failure`; summarize only stable reason/counts/safe detail.
 
-- [ ] **Step 4: Run convergence tests and verify GREEN**
+- [x] **Step 4: Run convergence tests and verify GREEN**
 
 Run the Step 2 command. Expected: pass.
 
-- [ ] **Step 5: Write stop-condition and lifecycle RED tests**
+- [x] **Step 5: Write stop-condition and lifecycle RED tests**
 
 Cover exact boundary and resume accumulation for rounds/tokens/wall clock/failures, all-zero successful usage, external cancellation, watchdog cancellation, simultaneous-condition priority, auth/invalid-request unrecoverable classification, network/rate-limit recoverability, run reentrancy, Task/client close on every branch, revision conflicts, and all five audit event types with forbidden-text assertions.
 
-- [ ] **Step 6: Run stop tests and verify RED**
+- [x] **Step 6: Run stop tests and verify RED**
 
 Run: `UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run pytest -q tests/test_loop_runner.py -k 'budget or wall or cancel or failure or audit or close or priority'`
 
 Expected: targeted behavior failures.
 
-- [ ] **Step 7: Implement stop accounting, timer, failure classification, and audit**
+- [x] **Step 7: Implement stop accounting, timer, failure classification, and audit**
 
 Use one fixed priority function at every safe boundary. Sum `input_tokens + output_tokens + cached_tokens + reasoning_tokens`; do not alter `TokenUsage`. Use `threading.Timer` only for cooperative cancellation and always cancel it in `finally`.
 
-- [ ] **Step 8: Run Task 2 and core regressions**
+- [x] **Step 8: Run Task 2 and core regressions**
 
 Run:
 
@@ -142,7 +142,7 @@ UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run pytest -q \
 
 Expected: all pass.
 
-- [ ] **Step 9: Mark OpenSpec tasks 2.1-2.3 complete and commit**
+- [x] **Step 9: Mark OpenSpec tasks 2.1-2.3 complete and commit**
 
 Commit with message `feat: run bounded resumable loops`.
 

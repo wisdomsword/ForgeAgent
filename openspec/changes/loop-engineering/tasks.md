@@ -6,9 +6,9 @@
 
 ## 2. Loop 执行与停止条件
 
-- [ ] 2.1 实现 Task 之上的 LoopRunner、新建/resume、冻结配置和有界 handoff 渲染
-- [ ] 2.2 实现累计 rounds/token/wall-clock/consecutive-failure/cancel 停止语义与稳定优先级
-- [ ] 2.3 实现有界失败摘要、不可恢复失败分类、Loop 生命周期审计和资源关闭
+- [x] 2.1 实现 Task 之上的 LoopRunner、新建/resume、冻结配置和有界 handoff 渲染
+- [x] 2.2 实现累计 rounds/token/wall-clock/consecutive-failure/cancel 停止语义与稳定优先级
+- [x] 2.3 实现有界失败摘要、不可恢复失败分类、Loop 生命周期审计和资源关闭
 
 ## 3. 运行入口
 
