@@ -158,21 +158,21 @@ Commit with message `feat: run bounded resumable loops`.
 - Adds `run_loop_once(...) -> LoopReport` using current client/identity/memory/skills/MCP/context/tier assembly.
 - Output contains only loop ID/status/stop reason/counters; exit codes are completed=0, non-completed terminal=1, validation/checkpoint/preflight=2.
 
-- [ ] **Step 1: Write parser/dispatch/output RED tests**
+- [x] **Step 1: Write parser/dispatch/output RED tests**
 
 Cover new goal + required token budget, resume mutual exclusion, bool/zero/negative/nonfinite rejection, defaults, real MockClient completion, resume, no absolute path/goal/handoff/secret output, exit codes, and confirmation that `run`/REPL do not create `.forgeagent/loops` or import Evaluator.
 
-- [ ] **Step 2: Run CLI tests and verify RED**
+- [x] **Step 2: Run CLI tests and verify RED**
 
 Run: `UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run pytest -q tests/test_cli.py -k 'loop'`
 
 Expected: argparse/attribute failures for missing command.
 
-- [ ] **Step 3: Implement the smallest CLI wiring**
+- [x] **Step 3: Implement the smallest CLI wiring**
 
 Reuse the existing `run` branch assembly even if a small amount of direct code remains; do not refactor unrelated CLI commands. Catch only documented Loop validation/persistence errors and render fixed safe diagnostics.
 
-- [ ] **Step 4: Run CLI and ordinary command regressions**
+- [x] **Step 4: Run CLI and ordinary command regressions**
 
 Run:
 
@@ -183,7 +183,7 @@ UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run pytest -q \
 
 Expected: all pass.
 
-- [ ] **Step 5: Mark OpenSpec task 3.1 complete and commit**
+- [x] **Step 5: Mark OpenSpec task 3.1 complete and commit**
 
 Commit with message `feat: expose loop CLI`.
 
