@@ -1,4 +1,4 @@
-# Task 1 Report: bounded MCP startup diagnostics
+# Task 1 Report: M21 durable Loop checkpoints
 
 ## Status
 
@@ -6,166 +6,172 @@
 
 ## RED
 
-To preserve a real pre-implementation baseline, cloned the committed `HEAD` into
-`/tmp/forgeagent-task1-red.PD1kIu`, copied the current
-`tests/test_mcp_manager.py` into that clone, then ran:
-
-```sh
-uv run --directory /tmp/forgeagent-task1-red.PD1kIu pytest tests/test_mcp_manager.py -q -k 'bounded_stderr_capture or diagnostics or generation'
-```
-
-The test collection failed as expected with:
+模型测试先于 `src/forgeagent/loop.py` 创建并执行：
 
 ```text
-ImportError: cannot import name '_BoundedStderrCapture' from 'forgeagent.mcp_manager'
+UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run pytest -q tests/test_loop_checkpoint.py -k 'model or budget or report'
+ERROR tests/test_loop_checkpoint.py
+ModuleNotFoundError: No module named 'forgeagent.loop'
+1 error in 0.12s
 ```
+
+严格模型实现后的额外边界 RED：
+
+```text
+UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run pytest -q tests/test_loop_checkpoint.py -k 'report'
+FAILED test_report_model_rejects_coerced_counters_and_nonfinite_elapsed_time
+Failed: DID NOT RAISE ValidationError
+1 failed, 1 passed, 29 deselected in 0.09s
+```
+
+该失败证明 `LoopReport` 初始版本会接受 `bool` 计数；随后增加严格计数与有限数校验。
 
 ## GREEN
 
-Implemented a per-holder bounded stderr pipe reader, fixed diagnostic projection,
-generation-bounded publication, and lifecycle cleanup. The public diagnostic
-projection never stores or returns raw stderr or exception text.
-
-Verified with:
-
 ```text
-uv run pytest tests/test_mcp_manager.py -q -k 'bounded_stderr_capture or diagnostics or generation or close_terminates_child_processes'
-17 passed, 181 deselected in 0.88s
+UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run pytest -q tests/test_loop_checkpoint.py -k 'model or budget or report'
+21 passed, 10 deselected in 0.09s
 
-uv run pytest tests/test_mcp_manager.py -q
-197 passed, 1 skipped in 5.53s
+UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run pytest -q tests/test_loop_checkpoint.py -k 'store or atomic or symlink or checkpoint_tool or registry'
+10 passed, 21 deselected in 0.09s
 
-uv run ruff check src/forgeagent/mcp_manager.py tests/test_mcp_manager.py
+UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run pytest -q tests/test_loop_checkpoint.py tests/test_tools.py tests/test_evaluator.py
+112 passed in 0.17s
+
+UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run ruff check src/forgeagent/loop.py tests/test_loop_checkpoint.py
 All checks passed!
+
+UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run ruff format --check src/forgeagent/loop.py tests/test_loop_checkpoint.py
+2 files already formatted
 ```
 
 ## Files
 
-- `src/forgeagent/mcp_manager.py`
-- `tests/test_mcp_manager.py`
-
-## Self-review
-
-- `_BoundedStderrCapture` drains beyond 8192 bytes, decodes invalid UTF-8 with
-  replacement, and closes its writer before joining its daemon reader.
-- Failure publication is guarded by the holder generation and uses only fixed
-  diagnostic codes. A stale generation cannot replace the newer state.
-- The fixed `MCPServerDiagnostic` projection uses public server labels, masked
-  status, deterministic configured-server order, and fixed user-facing prose.
-- Success, cancellation, and close paths are covered by the focused lifecycle
-  tests; no reader thread remains after capture close.
+- `src/forgeagent/loop.py`
+- `tests/test_loop_checkpoint.py`
 
 ## Risk Signals
 
-- Concurrency/locking: the capture buffer is lock-protected and reader cleanup is
-  joined; generation checks protect stale holders. This is covered by unit tests,
-  but production subprocess timing remains inherently asynchronous.
-- Public diagnostic API: `MCPManager.diagnostics()` adds a stable projection; its
-  dataclass field contract is now externally visible and should be treated as
-  compatibility-sensitive.
-- Diff size: the two-file diff is greater than 200 lines (399 lines before this
-  report), primarily due to explicit lifecycle and boundary tests. It is larger
-  than the desired minimal surface, but directly corresponds to the requested
-  capture, projection, and regression coverage.
+- Checkpoint 保存依赖 POSIX `os.replace` 和 best-effort 目录 fsync；在异常替换路径中已验证旧字节不变与临时文件清理，但真实文件系统的断电语义仍依赖底层平台。
+- Store 在单进程内使用一把锁和 revision 防止丢失更新；多进程并发写入不在 Task 1 范围内，后续 runner/CLI 装配不得绕过 store。
+- Checkpoint 文本限制了长度、控制字符和项目根目录边界，但耐久文本仍应按不可信任务数据处理，不能作为权限或执行配置来源。
 
-## Commit
+## Independent review fix
 
-`e7e8240` - `feat: add bounded MCP startup diagnostics`
+### Verified findings
 
-## Review Fix Verification
-
-Applied the first-review Critical/Important fixes in `src/forgeagent/mcp_manager.py`
-and expanded lifecycle coverage in `tests/test_mcp_manager.py`.
+- Token usage may overshoot its configured budget in one completed provider call. Rejecting that snapshot would lose the evidence needed for the runner to stop at the next safe boundary, so checkpoint validation now permits the known cumulative value.
+- The previous `lstat()` followed by `Path.open()` left a symlink swap window. Loading now uses `os.open(..., O_NOFOLLOW)`, validates the opened descriptor with `fstat()`, and fails closed when `O_NOFOLLOW` is unavailable.
+- Persisted prompt-facing text previously rejected only ASCII controls. It now rejects Unicode categories `Cc`, `Cf`, `Cs`, `Zl`, and `Zp`, covering C0/C1 controls, bidirectional format characters, surrogates, and line/paragraph separators.
+- Public reports previously omitted the fixed schema and accepted arbitrary stop-reason text. Checkpoint and report stop reasons now use the planned stable enumeration with status-specific invariants.
 
 ### RED
 
-The new wording, capture-entry, stop/disable/timeout, hostile-exception, and
-lifecycle-log tests were run before the production fixes:
-
 ```text
-uv run pytest tests/test_mcp_manager.py -q -k 'capture_entry_failure or capture_entry_setup_failure or holder_failure_after_stop or holder_failure_after_disable or diagnostics_never_publish'
-5 failed, 197 deselected
-
-uv run pytest tests/test_mcp_manager.py -q -k 'call_failure_never_exposes or call_facade_failure or lifecycle_result_observation or holder_finalizer_log or active_call_failure or call_tool_isolates_sdk_control or call_outer_timeout or lifecycle_fallback_start_failure or server_status_masks_secret or required_failures_mask_secret or holder_task_creation_and_cleanup'
-16 failed, 195 deselected
+UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run pytest -q tests/test_loop_checkpoint.py -k 'overshoot or dangerous_unicode or status_inconsistent or swapped_after_lstat or report_is_safe_projection'
+34 failed, 30 deselected in 0.73s
 ```
 
-The failures were the expected pre-fix assertions: old Docker impact prose,
-unclosed capture descriptors, late failure overwriting timeout/disabled state,
-exception text/types in status and feedback, and exception types in lifecycle
-logs.
+Failures included `tokens_used exceeds token_budget`, dangerous Unicode being accepted, the missing report schema, inconsistent/unknown stop reasons being accepted, and a swapped symlink loading the outside goal.
 
 ### GREEN
 
 ```text
-uv run pytest tests/test_mcp_manager.py -q -k 'bounded_stderr_capture or diagnostics or generation or close_terminates_child_processes or capture_entry or holder_failure_after_stop or holder_failure_after_disable or disable_with_stdio_teardown_error or call_failure_never_exposes or call_facade_failure or lifecycle_result_observation or holder_finalizer_log or holder_cancellation_releases_capture or holder_failure_releases_capture'
-30 passed, 182 deselected in 1.15s
+UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run pytest -q tests/test_loop_checkpoint.py -k 'overshoot or dangerous_unicode or status_inconsistent or swapped_after_lstat or report_is_safe_projection'
+34 passed, 30 deselected in 0.10s
 
-uv run pytest tests/test_mcp_manager.py -q
-211 passed, 1 skipped in 5.95s
+UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run pytest -q tests/test_loop_checkpoint.py tests/test_tools.py tests/test_evaluator.py
+151 passed in 0.18s
 
-uv run ruff check src/forgeagent/mcp_manager.py tests/test_mcp_manager.py
-All checks passed!
-```
-
-The fixes make capture pipe/thread setup exception-safe, gate failure
-publication on the active enabled unstopped generation, use the required fixed
-Docker impact wording, collapse call/status/log exception projections to fixed
-sanitized categories, and exercise real holder success/failure/cancellation,
-timeout, disable teardown, and stale-generation finalizer paths.
-
-## Re-review Round 2: lifecycle log boundary
-
-### Scope
-
-Updated only `src/forgeagent/mcp_manager.py` and `tests/test_mcp_manager.py`.
-Every MCP startup, shutdown, rollback, drain, retry, close, finalization, and
-holder lifecycle logger now emits fixed text plus already-safe public server
-labels where needed. Exception objects remain available for process-control
-selection and cleanup ordering, but no exception type, raw exception text,
-`ExceptionGroup`, path, argument, or secret is formatted into a log record.
-
-### RED
-
-Strengthened the existing positive exception-type log assertions with hostile
-custom exceptions, `ExceptionGroup`, secret values, an absolute path, and
-argument fragments. Before the production change:
-
-```text
-uv run pytest tests/test_mcp_manager.py -q -k 'connect_startup_rollback_retries_stopped_loop_close or close_submission_error_propagates_facade_cleanup_control_exception or close_submission_control_exception_remains_authoritative_over_facade_cleanup or close_submission_and_facade_cleanup_errors_remain_public_no_throw or close_submission_and_fallback_errors_remain_public_no_throw or close_retains_resources_when_loop_close_fails_and_retries'
-10 failed, 202 deselected in 0.62s
-```
-
-The failures showed the expected old `KeyboardInterrupt`, `SystemExit`,
-`RuntimeError`, custom exception, and `ExceptionGroup` suffixes in lifecycle
-logs.
-
-### GREEN
-
-```text
-uv run pytest tests/test_mcp_manager.py -q -k 'fixed_log or log_never_exposes or startup_rollback_retries_stopped_loop_close or close_submission_error_propagates_facade_cleanup_control_exception or close_submission_control_exception_remains_authoritative_over_facade_cleanup or close_submission_and_facade_cleanup_errors_remain_public_no_throw or close_submission_and_fallback_errors_remain_public_no_throw or close_retains_resources_when_loop_close_fails_and_retries or holder_finalizer_log or lifecycle_result_observation_log'
-14 passed, 198 deselected in 0.28s
-
-uv run pytest tests/test_mcp_manager.py -q
-211 passed, 1 skipped in 6.43s
-
-uv run ruff check src/forgeagent/mcp_manager.py tests/test_mcp_manager.py
+UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run ruff check src/forgeagent/loop.py tests/test_loop_checkpoint.py
 All checks passed!
 
-uv run ruff format --check src/forgeagent/mcp_manager.py tests/test_mcp_manager.py
+UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run ruff format --check src/forgeagent/loop.py tests/test_loop_checkpoint.py
 2 files already formatted
 ```
 
-Additional static scans found no `type(...).__name__`, `logger.exception`,
-`exc_info`, or `stack_info` usage in `mcp_manager.py`; `git diff --check` was
-clean.
+### Remaining risk
 
-### Risk signals
+- Cross-process resume locking remains explicitly deferred; revision checks prevent silent overwrite but cannot make external side effects exactly once.
+- The descriptor-based no-follow guarantee depends on platform support; unsupported platforms reject checkpoint loads rather than following a potentially unsafe path.
 
-- Process-control selection and bounded cleanup still retain the original
-  exception objects internally; only their logger projection changed.
-- Public server labels and shutdown pending names remain in logs because they
-  are manager-owned, sanitized identifiers required for lifecycle diagnosis.
-- No new dependency, configuration surface, logger helper, or abstraction was
-  introduced.
+## Independent review fix 2
 
+### Verified finding
+
+- Protecting only the final checkpoint file with `O_NOFOLLOW` did not protect its parent path. After store initialization, replacing `.forgeagent/loops` with a symlink caused `load()` to read an external checkpoint and allowed writes to target the external directory.
+- The store now pins the initialized Loop directory with a no-follow directory descriptor. File open, temporary creation, replacement, cleanup, and directory fsync are all relative to that descriptor, while each public operation verifies that the configured path still names the pinned inode. A renamed or symlink-replaced directory therefore fails closed before reading or writing.
+- The store exposes idempotent `close()` and retains a finalizer as a leak-safe fallback. Platforms without the required descriptor-relative/no-follow APIs fail closed.
+
+### RED
+
+```text
+UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run pytest -q tests/test_loop_checkpoint.py -k replaced_by_symlink
+FAILED test_store_fails_closed_when_loop_directory_is_replaced_by_symlink
+Failed: DID NOT RAISE LoopCheckpointError
+1 failed, 63 deselected in 0.15s
+```
+
+### GREEN
+
+```text
+UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run pytest -q tests/test_loop_checkpoint.py -k replaced_by_symlink
+1 passed, 63 deselected in 0.09s
+
+UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run pytest -q tests/test_loop_checkpoint.py tests/test_tools.py tests/test_evaluator.py
+152 passed in 0.19s
+
+UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run ruff check src/forgeagent/loop.py tests/test_loop_checkpoint.py
+All checks passed!
+
+UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run ruff format --check src/forgeagent/loop.py tests/test_loop_checkpoint.py
+2 files already formatted
+
+git diff --check
+passed
+```
+
+### Remaining risk
+
+- The pinned descriptor prevents path replacement from escaping the project root, but it is intentionally not a cross-process lock. Concurrent processes can still race revisions or external side effects; that remains outside M21 Task 1.
+
+## Independent review fix 3
+
+### Verified findings
+
+- `close()` previously closed the directory fd only through its finalizer. If the OS reused the same fd number, the store could operate on the unrelated reused descriptor. The store now records an explicit closed state before releasing the fd, makes `close()` idempotent, and rejects every subsequent public operation before descriptor access.
+- A directory replacement after the pre-write binding check but after `os.replace()` could make `save()` or `create()` report success even though the published path no longer contained the snapshot. `_write()` now verifies the path-to-fd inode binding again after replacement and directory fsync, before audit emission or successful return.
+
+### RED
+
+```text
+UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run pytest -q tests/test_loop_checkpoint.py -k 'descriptor_number or replaced_during_write'
+FAILED test_store_close_fails_closed_after_descriptor_number_is_reused
+Failed: DID NOT RAISE LoopCheckpointError
+FAILED test_store_save_fails_if_loop_directory_is_replaced_during_write
+Failed: DID NOT RAISE LoopCheckpointError
+2 failed, 64 deselected in 0.10s
+```
+
+### GREEN
+
+```text
+UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run pytest -q tests/test_loop_checkpoint.py -k 'descriptor_number or replaced_during_write'
+2 passed, 64 deselected in 0.08s
+
+UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run pytest -q tests/test_loop_checkpoint.py tests/test_tools.py tests/test_evaluator.py
+153 passed in 0.16s
+
+UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run ruff check src/forgeagent/loop.py tests/test_loop_checkpoint.py
+All checks passed!
+
+UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run ruff format --check src/forgeagent/loop.py tests/test_loop_checkpoint.py
+2 files already formatted
+
+git diff --check
+passed
+```
+
+### Remaining risk
+
+- If the directory is renamed during a write, the new snapshot may exist only in the pinned old inode. The operation nevertheless fails closed and emits no successful audit; automatic rollback of that unreachable inode is intentionally not added.

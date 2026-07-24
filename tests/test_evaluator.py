@@ -478,6 +478,52 @@ def test_evaluator_parses_valid_failed_result(monkeypatch, tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# 6b. Code-fence stripping — model wraps YAML in markdown fences
+# ---------------------------------------------------------------------------
+
+VALID_PASSED_YAML = (
+    "evaluator_result:\n"
+    "  status: passed\n"
+    "  observed_evidence:\n"
+    "    - file contains expected value\n"
+    "  unmet_expectations: []\n"
+)
+
+
+@pytest.mark.parametrize(
+    "wrapped",
+    [
+        f"```yaml\n{VALID_PASSED_YAML}```",
+        f"```\n{VALID_PASSED_YAML}```",
+        f"```yaml\n{VALID_PASSED_YAML}\n```",
+        f"  ```yaml\n{VALID_PASSED_YAML}```",
+    ],
+)
+def test_parse_result_strips_code_fence(monkeypatch, tmp_path, wrapped):
+    fake_task = FakeTask(_outcome_text=wrapped)
+    monkeypatch.setattr(evaluator_module, "Task", lambda c, **kw: fake_task)
+    result = run_evaluator(MockClient(script=[]), make_request(tmp_path))
+    assert result.status == "passed"
+    assert result.observed_evidence == ("file contains expected value",)
+
+
+def test_parse_result_rejects_double_wrapped_fence(monkeypatch, tmp_path):
+    double = f"```yaml\n```yaml\n{VALID_PASSED_YAML}```\n```"
+    fake_task = FakeTask(_outcome_text=double)
+    monkeypatch.setattr(evaluator_module, "Task", lambda c, **kw: fake_task)
+    result = run_evaluator(MockClient(script=[]), make_request(tmp_path))
+    assert result.unmet_expectations == ("evaluation unavailable",)
+
+
+def test_system_prompt_contains_tool_call_format():
+    from forgeagent.evaluator import EVALUATOR_SYSTEM_PROMPT
+
+    assert "ToolCall" in EVALUATOR_SYSTEM_PROMPT
+    assert "FileRead" in EVALUATOR_SYSTEM_PROMPT
+    assert "FileList" in EVALUATOR_SYSTEM_PROMPT
+
+
+# ---------------------------------------------------------------------------
 # 7. Evidence is bounded (truncated at MAX_EVIDENCE_CHARS, capped at MAX_EVIDENCE_ITEMS)
 # ---------------------------------------------------------------------------
 

@@ -1,114 +1,81 @@
-# Task 4 Self-Review Report
+# Task 4 Report: HTTP Loop mode
 
 ## Status
 
-Implemented non-TTY input and process-level startup output contracts.
+DONE
 
-- REPL no longer emits the interactive banner on startup.
-- Default non-TTY input and explicitly injected readers receive an empty prompt.
-- The `forge> ` prompt remains limited to the real default interactive REPL.
-- MCP startup remains active for piped goals, including optional degradation and
-  required failure handling.
-- The MCP fixture has synthetic `startup_chatter` and `docker_failure` modes; no
-  Docker daemon or real secret is required.
-- Added subprocess black-box coverage for pipe quit, optional MCP stderr isolation,
-  a real fixture MCP call, and sanitized required startup failure.
+## RED
 
-## TDD Evidence
+The first service-focused run failed on the missing mode projection and because the
+worker assumed every result was a `TaskOutcome`:
 
-### RED
+```text
+KeyError: 'mode'
+AttributeError: 'str' object has no attribute 'reason'
+5 failed, 1 passed, 17 deselected
+```
 
-Command:
+The server assembly RED test then proved that Loop options still constructed an
+ordinary `Task`:
 
-`rtk pytest tests/test_cli_startup_blackbox.py tests/test_cli.py -q -k "pipe or non_tty or startup_bytes or required_mcp_failure"`
+```text
+FAILED test_serve_factory_selects_server_owned_new_and_resumed_loop
+assert isinstance(created, FakeRunner)
+```
 
-Result: `3 passed, 6 failed`.
+## GREEN
 
-Observed failures were the expected missing behaviors: piped startup bytes and
-`forge> ` prompts, plus the new non-TTY prompt assertion.
+```text
+UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run pytest -q \
+  tests/test_http_task_service.py tests/test_http_server.py tests/test_cli.py \
+  tests/test_http_config.py tests/test_headless.py
+467 passed, 10 skipped in 0.69s
 
-### GREEN
+UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run ruff check \
+  src/forgeagent/http_task_service.py src/forgeagent/http_server.py \
+  src/forgeagent/cli.py tests/test_http_task_service.py \
+  tests/test_http_server.py tests/test_cli.py
+All checks passed!
 
-Command:
+UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run ruff format --check \
+  src/forgeagent/http_task_service.py src/forgeagent/http_server.py \
+  src/forgeagent/cli.py tests/test_http_task_service.py \
+  tests/test_http_server.py tests/test_cli.py
+6 files already formatted
 
-`rtk pytest tests/test_cli_startup_blackbox.py tests/test_cli.py -q -k "pipe or non_tty or startup_bytes or main_reports_required_mcp_startup_error or run"`
+git diff --check
+passed
+```
 
-Result: `42 passed`.
+The ten skips are existing loopback-bind environment skips. Handler tests run over
+socket pairs and cover the Loop request schemas without weakening network tests.
 
-The pipe-goal test uses a temporary subprocess launcher with `MockClient`, starts
-the synthetic MCP fixture, executes the auto-approved `fixture:echo` call, and then
-returns `PIPE_RESULT`. It verifies task output contains the MCP result while startup
-banner, prompt, readiness summary, and optional failure text are absent.
+## Scope
 
-## Self-Review
+- `src/forgeagent/http_task_service.py`
+- `src/forgeagent/http_server.py`
+- `src/forgeagent/cli.py`
+- `tests/test_http_task_service.py`
+- `tests/test_http_server.py`
 
-- Production diff is limited to `src/forgeagent/cli.py`; no dependency, config,
-  production test hook, or new abstraction was added.
-- Explicit readers preserve existing EOF, KeyboardInterrupt, empty-input,
-  confirmation, and Survey behavior; only the goal prompt argument is empty.
-- Non-TTY REPL still calls `build_mcp_manager()`, so connected MCP capabilities are
-  available to piped tasks.
-- Required MCP failures remain represented by fixed `MCPStartupError` codes and are
-  rendered through the dedicated stderr console; no child stderr is projected.
-- Fixture stderr is synthetic and test-only. The temporary model launcher is written
-  under pytest's temporary directory and is not part of the repository.
-
-## Verification
-
-- Focused RED/GREEN coverage: `42 passed`.
-- Full CLI plus black-box coverage: `243 passed`.
-- `rtk .venv/bin/ruff check src/forgeagent/cli.py tests/test_cli.py
-  tests/mcp_fixture_server.py tests/test_cli_startup_blackbox.py`: passed.
-- `rtk .venv/bin/ruff format --check src/forgeagent/cli.py tests/test_cli.py
-  tests/mcp_fixture_server.py tests/test_cli_startup_blackbox.py`: passed.
-- `tests/test_mcp_manager.py`: `210 passed, 1 failed, 1 skipped` in the final
-  full-suite run. Two final isolated reruns reproduced the same failure:
-  `test_capture_entry_failure_is_closed_and_marks_holder_unavailable` indexes a
-  holder already removed by the failure cleanup path. No manager source or manager
-  test was changed for Task 4.
+`tests/test_cli.py` required no modification; its existing serve regressions pass.
 
 ## Risk Signals
 
-- A true OS-level TTY integration run was not performed in the sandbox. Existing
-  unit tests still cover prompt-toolkit reader construction and startup display
-  gating.
-- A local HTTP model server was not used because this sandbox forbids binding local
-  sockets; the black-box goal path instead uses a temporary in-process client
-  launcher while the MCP server remains a real subprocess.
-- The manager-suite failure is outside the Task 4 file scope and remains an
-  unresolved verification signal for the owning MCP lifecycle work.
-
-## Review Remediation
-
-Addressed the Task 4 review findings without changing production code or fixture
-behavior.
-
-### RED
-
-Command:
-
-`uv run pytest tests/test_cli_startup_blackbox.py -q -k pipe_goal`
-
-Result: `1 failed, 4 deselected`.
-
-The deliberately incomplete `b"PIPE_RESULT\\n"` stdout expectation failed against
-the real subprocess bytes. The failure established that the task-result contract is
-the exact sequence of completion status, `MCP fixture:echo` result, `PIPE_RESULT`,
-and usage line, with no startup bytes.
-
-### GREEN
-
-Command:
-
-`uv run pytest tests/test_cli_startup_blackbox.py tests/test_cli.py -q -k "pipe or non_tty or startup_bytes or main_reports_required_mcp_startup_error or run or noninteractive_commands or serve_builds_server_owned"`
-
-Result: `47 passed, 196 deselected`.
-
-- The pipe-goal black-box test now asserts every stdout byte, closing the gap left
-  by a denylist of startup strings.
-- `run`, `serve`, `models`, and `smoke` have focused regression coverage that fails
-  if they construct the REPL Logo or startup-summary paths, and each asserts no
-  `ForgeAgent`, `Ready |`, or MCP summary output.
-- The `serve` lifecycle test additionally captures its real command output while
-  retaining the existing fake listener/service boundary, so it remains independent
-  of Docker, sockets, and external network access.
+- `/tasks` remains the sole submission endpoint and accepts exactly ordinary Task,
+  full new-Loop, or resume-Loop key sets. Unknown and security-sensitive fields fail
+  before service submission; numeric validation rejects bool, non-finite, and
+  non-positive values.
+- HTTP derives checkpoint storage solely from configured `allowed_root`. A new Loop
+  uses the server task ID as its Loop ID; resume accepts only a 32-character lowercase
+  hex ID. No caller-supplied path, tier, model, identity, confirmer, or credential is
+  forwarded.
+- `TaskRecord` stores `LoopReport` privately. Public terminal views expose only mode,
+  stable status/stop reason, Loop ID, and bounded counters; running views do not
+  fabricate counters or expose checkpoint text/path, goal, handoff, or failure text.
+- The existing registry owns queued/running/cancelled/TTL/capacity lifecycle for both
+  modes. A process-local active Loop ID map rejects overlapping same-ID submissions
+  before constructing a second runner and releases the ID on every terminal path.
+- Loop runner close is sufficient at the service boundary. Each Loop iteration owns
+  and closes its Task and client together; ordinary Task retains the existing
+  Task-then-client cleanup behavior.

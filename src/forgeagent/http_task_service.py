@@ -16,8 +16,9 @@ from uuid import uuid4
 
 from .audit import AuditSink
 from .http_config import HttpServiceConfig
+from .loop import LoopReport
 from .step import Termination
-from .task import Task, TaskOutcome
+from .task import TaskOutcome
 
 _logger = logging.getLogger(__name__)
 _PUBLIC_DETAILS = {"internal_error": "Task execution failed."}
@@ -78,6 +79,7 @@ class TaskRecord:
     reason: str | None = None
     detail: str | None = None
     outcome: TaskOutcome | None = field(default=None, repr=False)
+    loop_report: LoopReport | None = field(default=None, repr=False)
     cancel_event: threading.Event = field(default_factory=threading.Event, repr=False)
     audit_degraded: bool = False
     future: Future[None] | None = field(default=None, repr=False)
@@ -86,11 +88,18 @@ class TaskRecord:
     ended_at: float | None = None
 
     def public_view(self, *, service_audit_degraded: bool = False) -> dict[str, object]:
+        mode = "loop" if self.options.get("mode") == "loop" else "task"
         outcome_status = self.outcome.status if self.outcome is not None else None
-        reason = self.reason or (outcome_status.reason if outcome_status is not None else None)
-        status, reason = _public_status_reason(self.status, reason)
-        return {
+        report_reason = self.loop_report.stop_reason if self.loop_report is not None else None
+        reason = (
+            self.reason
+            or report_reason
+            or (outcome_status.reason if outcome_status is not None else None)
+        )
+        status, reason = _public_status_reason(self.status, reason, mode=mode)
+        view: dict[str, object] = {
             "task_id": self.task_id,
+            "mode": mode,
             "status": status,
             "reason": reason,
             "detail": _PUBLIC_DETAILS.get(reason),
@@ -98,9 +107,31 @@ class TaskRecord:
             "usage": _usage_summary(self.outcome),
             "audit_degraded": self.audit_degraded or service_audit_degraded,
         }
+        if self.loop_report is not None and self.ended_at is not None:
+            report = self.loop_report
+            view.update(
+                loop_id=report.loop_id,
+                iterations=report.iterations,
+                rounds_used=report.rounds_used,
+                tokens_used=report.tokens_used,
+                elapsed_seconds=report.elapsed_seconds,
+                consecutive_failures=report.consecutive_failures,
+                completed_item_count=report.completed_item_count,
+                open_question_count=report.open_question_count,
+                usage_available=report.usage_available,
+            )
+        return view
 
 
-TaskFactory = Callable[[TaskRecord], Task]
+class TaskRunner(Protocol):
+    def run(
+        self, goal: str, *, cancel_event: threading.Event | None = None
+    ) -> TaskOutcome | LoopReport: ...
+
+    def close(self) -> None: ...
+
+
+TaskFactory = Callable[[TaskRecord], TaskRunner]
 
 
 class _Closeable(Protocol):
@@ -126,6 +157,7 @@ class TaskService:
         self._audit_sink = audit_sink
         self._audit_degraded = False
         self._records: dict[str, TaskRecord] = {}
+        self._active_resume_ids: dict[str, str] = {}
         self._expired_ids: set[str] = set()
         self._expired_order: deque[str] = deque()
         self._lock = threading.Lock()
@@ -193,6 +225,15 @@ class TaskService:
                 created_at=self._clock(),
             )
             self._records[record.task_id] = record
+            loop_id = _record_loop_id(record)
+            if loop_id is not None and loop_id in self._active_resume_ids:
+                record.status = "failed"
+                record.reason = "internal_error"
+                record.detail = "Task execution failed."
+                record.ended_at = self._clock()
+                return record, record.public_view(service_audit_degraded=self._audit_degraded)
+            if loop_id is not None:
+                self._active_resume_ids[loop_id] = record.task_id
             try:
                 record.future = self._executor.submit(self._run_record, record)
             except BaseException:
@@ -207,6 +248,8 @@ class TaskService:
                 except BaseException:
                     record.ended_at = time.monotonic()
                 del self._records[record.task_id]
+                if loop_id is not None:
+                    self._active_resume_ids.pop(loop_id, None)
                 raise
             return record, record.public_view(service_audit_degraded=self._audit_degraded)
 
@@ -227,6 +270,7 @@ class TaskService:
             record.cancel_event.set()
             if record.status == "queued":
                 self._set_cancelled_locked(record)
+                self._release_resume_id_locked(record)
                 if record.future is not None:
                     record.future.cancel()
             return record.public_view(service_audit_degraded=self._audit_degraded)
@@ -254,6 +298,7 @@ class TaskService:
                     record.cancel_event.set()
                 if record.status == "queued":
                     self._set_cancelled_locked(record)
+                    self._release_resume_id_locked(record)
                     if record.future is not None:
                         record.future.cancel()
                 if record.future is not None:
@@ -316,14 +361,19 @@ class TaskService:
             record.status = "running"
             record.started_at = self._clock()
 
-        task: Task | None = None
+        task: TaskRunner | None = None
         outcome: TaskOutcome | None = None
+        loop_report: LoopReport | None = None
         failed = False
         process_control_error: BaseException | None = None
         audit_degraded = False
         try:
             task = self._factory(record)
-            outcome = task.run(record.goal, cancel_event=record.cancel_event)
+            result = task.run(record.goal, cancel_event=record.cancel_event)
+            if isinstance(result, LoopReport):
+                loop_report = result
+            else:
+                outcome = result
         except BaseException as error:
             failed = True
             process_control_error = error if not isinstance(error, Exception) else None
@@ -343,24 +393,33 @@ class TaskService:
             if record.ended_at is not None:
                 return
             record.audit_degraded = audit_degraded
-            if record.cancel_event.is_set():
+            if record.cancel_event.is_set() and (
+                loop_report is None or loop_report.status == "active"
+            ):
                 record.outcome = outcome
                 self._set_cancelled_locked(record)
-            elif failed or outcome is None:
+            elif failed or (outcome is None and loop_report is None):
                 record.status = "failed"
                 record.reason = "internal_error"
                 record.detail = "Task execution failed."
                 record.ended_at = self._clock()
             else:
                 record.outcome = outcome
-                record.status = outcome.status.reason
-                record.reason = outcome.status.reason
+                record.loop_report = loop_report
+                if loop_report is not None:
+                    record.status = loop_report.status
+                    record.reason = loop_report.stop_reason
+                else:
+                    assert outcome is not None
+                    record.status = outcome.status.reason
+                    record.reason = outcome.status.reason
                 record.ended_at = self._clock()
+            self._release_resume_id_locked(record)
 
         if process_control_error is not None:
             raise process_control_error
 
-    def _close_task_resources(self, task: Task) -> bool:
+    def _close_task_resources(self, task: TaskRunner) -> bool:
         succeeded = True
         try:
             task.close()
@@ -383,6 +442,14 @@ class TaskService:
         record.status = "cancelled"
         record.reason = "cancelled"
         record.ended_at = self._clock()
+
+    def _release_resume_id_locked(self, record: TaskRecord) -> None:
+        resume_loop_id = _record_loop_id(record)
+        if (
+            resume_loop_id is not None
+            and self._active_resume_ids.get(resume_loop_id) == record.task_id
+        ):
+            del self._active_resume_ids[resume_loop_id]
 
     def _get_record_locked(self, task_id: str) -> TaskRecord:
         self._purge_expired_locked()
@@ -411,7 +478,7 @@ class TaskService:
         self._expired_ids.add(task_id)
 
 
-def _audit_degraded(task: Task) -> bool:
+def _audit_degraded(task: TaskRunner) -> bool:
     try:
         sink = getattr(task, "_audit_sink", None)
         return bool(getattr(sink, "degraded", False))
@@ -419,14 +486,25 @@ def _audit_degraded(task: Task) -> bool:
         return True
 
 
-def _public_status_reason(status: str, reason: str | None) -> tuple[str, str | None]:
+def _public_status_reason(
+    status: str, reason: str | None, *, mode: str = "task"
+) -> tuple[str, str | None]:
     if status in _PUBLIC_NONTERMINAL_STATES and reason is None:
         return status, None
     if status == "failed" and reason == "internal_error":
         return status, reason
+    if mode == "loop" and status in {"completed", "stopped", "cancelled", "failed"}:
+        return status, reason
     if status == reason and reason in _PUBLIC_TERMINAL_REASONS:
         return status, reason
     return "failed", "internal_error"
+
+
+def _record_loop_id(record: TaskRecord) -> str | None:
+    if record.options.get("mode") != "loop":
+        return None
+    value = record.options.get("resume_loop_id")
+    return value if isinstance(value, str) else record.task_id
 
 
 def _usage_summary(outcome: TaskOutcome | None) -> dict[str, int] | None:

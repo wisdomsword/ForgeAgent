@@ -56,10 +56,20 @@ from .identity import (
     IdentityConfirmer,
     IdentityDiagnostic,
     IdentityTrustRequest,
+    compose_system_prompt,
     load_identity,
     resolve_project_trust,
 )
 from .image_input import load_images
+from .loop import (
+    DEFAULT_MAX_CONSECUTIVE_FAILURES,
+    DEFAULT_MAX_ROUNDS,
+    DEFAULT_WALL_CLOCK_SECONDS,
+    LoopBudgets,
+    LoopCheckpointError,
+    LoopReport,
+    LoopRunner,
+)
 from .mcp_manager import MCPManager, MCPServerDiagnostic, load_mcp_config
 from .memory import MemoryManager
 from .model_registry import (
@@ -645,6 +655,192 @@ def run_once(
     _accumulate_usage(usage_total, outcome.rounds)
     _print_usage(usage_total, console)
     return outcome
+
+
+def _loop_system_prompt(
+    identity: ApprovedIdentity | None,
+    memory_manager: MemoryManager | None,
+    suffix: str,
+) -> str:
+    base_identity = identity or ApprovedIdentity(
+        soul=None, user=None, project_agents=None, memory=None
+    )
+    if memory_manager is not None:
+        base_identity = ApprovedIdentity(
+            soul=base_identity.soul,
+            user=base_identity.user,
+            project_agents=base_identity.project_agents,
+            memory=memory_manager.render() or None,
+        )
+    return f"{compose_system_prompt(base_identity)}\n\n{suffix}"
+
+
+def _render_loop_report(report: LoopReport, console: Console) -> None:
+    """Render the fixed public report projection without checkpoint contents."""
+    console.print(f"loop id: {report.loop_id}")
+    console.print(f"status: {report.status}")
+    console.print(f"stop reason: {report.stop_reason or 'active'}")
+    console.print(
+        "counters: "
+        f"iterations={report.iterations} rounds={report.rounds_used} "
+        f"tokens={report.tokens_used} elapsed_seconds={report.elapsed_seconds:.3f} "
+        f"consecutive_failures={report.consecutive_failures} "
+        f"completed_items={report.completed_item_count} "
+        f"open_questions={report.open_question_count} "
+        f"usage_available={report.usage_available}"
+    )
+
+
+def run_loop_once(
+    goal: str | None,
+    *,
+    tier: Tier,
+    model: str,
+    client_factory: ClientFactory,
+    allowed_root: str | None = None,
+    console: Console | None = None,
+    asker: Asker | None = None,
+    mcp: MCPManager | None = None,
+    confirmer: Confirmer | None = None,
+    identity: ApprovedIdentity | None = None,
+    container_image: str | None = None,
+    context_config: ContextConfig | None = None,
+    memory_manager: MemoryManager | None = None,
+    skills: SkillRegistry | None = None,
+    token_budget: int | None = None,
+    max_rounds: int | None = None,
+    wall_clock_seconds: float | None = None,
+    max_consecutive_failures: int | None = None,
+    resume: str | None = None,
+) -> LoopReport:
+    """Run one durable Loop through the same Task assembly as the CLI run command."""
+    if resume is None:
+        if goal is None:
+            raise ValueError("a Loop goal is required")
+        if token_budget is None:
+            raise ValueError("token budget is required")
+        budgets = LoopBudgets(
+            token_budget=token_budget,
+            max_rounds=DEFAULT_MAX_ROUNDS if max_rounds is None else max_rounds,
+            wall_clock_seconds=(
+                DEFAULT_WALL_CLOCK_SECONDS if wall_clock_seconds is None else wall_clock_seconds
+            ),
+            max_consecutive_failures=(
+                DEFAULT_MAX_CONSECUTIVE_FAILURES
+                if max_consecutive_failures is None
+                else max_consecutive_failures
+            ),
+        )
+    elif any(
+        value is not None
+        for value in (goal, token_budget, max_rounds, wall_clock_seconds, max_consecutive_failures)
+    ):
+        raise ValueError("resume cannot override the frozen Loop configuration")
+
+    root = str(Path.cwd().resolve()) if allowed_root is None else allowed_root
+    resolved_context_config = context_config or ContextConfig()
+
+    def build_task(iteration: int, remaining_rounds: int, suffix: str, registry):
+        del iteration
+        client = client_factory(model)
+        client_closed = False
+
+        def close_client() -> None:
+            nonlocal client_closed
+            if client_closed:
+                return
+            client_closed = True
+            close = getattr(client, "close", None)
+            if callable(close):
+                close()
+
+        try:
+            _validate_client_context_policy(client, resolved_context_config)
+            task = Task(
+                client,
+                tier=tier,
+                allowed_root=root,
+                system_prompt=_loop_system_prompt(identity, memory_manager, suffix),
+                max_rounds=remaining_rounds,
+                asker=asker,
+                mcp=mcp,
+                confirmer=confirmer,
+                container_image=container_image,
+                context_config=resolved_context_config,
+                memory_manager=memory_manager,
+                skills=skills,
+                tool_registry=registry,
+            )
+        except BaseException:
+            close_client()
+            raise
+
+        class OwnedLoopTask:
+            def __init__(self) -> None:
+                self._closed = False
+
+            def run(self, task_goal: str, *, cancel_event=None):
+                return task.run(task_goal, cancel_event=cancel_event)
+
+            def close(self) -> None:
+                if self._closed:
+                    return
+                self._closed = True
+                try:
+                    task.close()
+                finally:
+                    close_client()
+
+        return OwnedLoopTask()
+
+    if resume is None:
+        runner = LoopRunner.create(
+            allowed_root=root,
+            task_builder=build_task,
+            goal=goal,
+            budgets=budgets,
+            trigger="cli",
+            with_mcp=mcp is not None,
+            skills=skills,
+        )
+    else:
+        runner = LoopRunner.resume(
+            allowed_root=root,
+            task_builder=build_task,
+            loop_id=resume,
+            trigger="cli",
+            with_mcp=mcp is not None,
+            skills=skills,
+        )
+    cancel_event = threading.Event()
+    previous_sigint = None
+    sigint_installed = False
+
+    def request_cancel(signum, frame) -> None:
+        if cancel_event.is_set():
+            if callable(previous_sigint):
+                previous_sigint(signum, frame)
+                return
+            raise KeyboardInterrupt
+        cancel_event.set()
+
+    try:
+        try:
+            previous_sigint = signal.getsignal(signal.SIGINT)
+            signal.signal(signal.SIGINT, request_cancel)
+            sigint_installed = True
+        except ValueError:
+            # signal handlers can only be installed by the main thread.
+            pass
+        try:
+            report = runner.run(cancel_event=cancel_event)
+        finally:
+            if sigint_installed:
+                signal.signal(signal.SIGINT, previous_sigint)
+    finally:
+        runner.close()
+    _render_loop_report(report, console if console is not None else Console())
+    return report
 
 
 def _handle_mcp_command(goal: str, mcp: MCPManager | None, console: Console) -> None:
@@ -1647,7 +1843,8 @@ def serve_http(
     try:
         mcp = build_mcp_manager()
 
-        def task_factory(record: TaskRecord) -> Task:
+        def task_factory(record: TaskRecord) -> Task | LoopRunner:
+            options = getattr(record, "options", {})
             memory_manager = _make_memory_manager(
                 settings.allowed_root,
                 identity=identity,
@@ -1655,6 +1852,67 @@ def serve_http(
                 no_identity=settings.no_identity,
                 audit_sink=audit_sink,
             )
+            if options.get("mode") == "loop":
+
+                def build_loop_task(iteration, remaining_rounds, suffix, registry):
+                    del iteration
+                    client = task_client_factory(settings.model)
+                    task = Task(
+                        client,
+                        tier=settings.tier,
+                        allowed_root=settings.allowed_root,
+                        system_prompt=_loop_system_prompt(identity, memory_manager, suffix),
+                        max_rounds=remaining_rounds,
+                        mcp=mcp,
+                        confirmer=headless_confirmer,
+                        allow_auto_approve=False,
+                        container_image=settings.container_image,
+                        audit_sink=audit_sink,
+                        task_id=record.task_id,
+                        context_config=settings.service.context_config,
+                        memory_manager=memory_manager,
+                        skills=skills,
+                        tool_registry=registry,
+                    )
+
+                    class OwnedLoopTask:
+                        def run(self, goal, *, cancel_event=None):
+                            return task.run(goal, cancel_event=cancel_event)
+
+                        def close(self):
+                            try:
+                                task.close()
+                            finally:
+                                close = getattr(client, "close", None)
+                                if callable(close):
+                                    close()
+
+                    return OwnedLoopTask()
+
+                common = {
+                    "allowed_root": settings.allowed_root,
+                    "task_builder": build_loop_task,
+                    "trigger": "http",
+                    "audit_sink": audit_sink,
+                    "task_id": record.task_id,
+                    "with_mcp": mcp is not None,
+                    "skills": skills,
+                }
+                resume_loop_id = options.get("resume_loop_id")
+                if isinstance(resume_loop_id, str):
+                    return LoopRunner.resume(loop_id=resume_loop_id, **common)
+                budgets = LoopBudgets(
+                    token_budget=options["token_budget"],
+                    max_rounds=options["max_rounds"],
+                    wall_clock_seconds=options["wall_clock_seconds"],
+                    max_consecutive_failures=options["max_consecutive_failures"],
+                )
+                return LoopRunner.create(
+                    goal=record.goal,
+                    budgets=budgets,
+                    loop_id=record.task_id,
+                    **common,
+                )
             return Task(
                 task_client_factory(settings.model),
                 tier=settings.tier,
@@ -1748,6 +2006,13 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="PATH",
         help="attach image(s) at PATH (a file, or a directory of images)",
     )
+    loop_p = sub.add_parser("loop", help="run or resume one bounded durable Loop")
+    loop_p.add_argument("goal", nargs="?", help="the frozen Loop goal for a new Loop")
+    loop_p.add_argument("--token-budget", type=int, default=None, metavar="INT")
+    loop_p.add_argument("--max-rounds", type=int, default=None, metavar="INT")
+    loop_p.add_argument("--wall-clock-seconds", type=float, default=None, metavar="SECONDS")
+    loop_p.add_argument("--max-consecutive-failures", type=int, default=None, metavar="INT")
+    loop_p.add_argument("--resume", default=None, metavar="LOOP_ID", help="resume a durable Loop")
     sub.add_parser("models", help="list available models and their aliases")
     smoke_p = sub.add_parser("smoke", help="run a live smoke check against real models")
     smoke_p.add_argument(
@@ -1927,7 +2192,10 @@ def main(
     as a clear message and a non-zero exit, never a traceback.
     """
     raw_argv = list(sys.argv[1:] if argv is None else argv)
-    args = build_parser().parse_args(raw_argv)
+    try:
+        args = build_parser().parse_args(raw_argv)
+    except SystemExit as exc:
+        return int(exc.code)
     console = Console()
     error_console = Console(stderr=True)
     try:
@@ -2024,6 +2292,65 @@ def main(
                 if mcp is not None:
                     mcp.close()
             return 0 if outcome.status.solved else 1
+        if args.command == "loop":
+            context_config = _load_cli_context_config()
+            runtime_registry = load_registry() if client_factory is build_real_client else None
+            if runtime_registry is not None:
+                try:
+                    _validate_context_policy(args.model, runtime_registry, context_config)
+                except ValueError as exc:
+                    raise RegistryError(f"Invalid context configuration: {exc}") from exc
+            runtime_client_factory = _client_factory_for_registry(
+                runtime_registry if client_factory is build_real_client else None,
+                client_factory,
+            )
+            mcp = build_mcp_manager()
+            try:
+                confirmer = make_console_confirmer(console) if interactive_identity else None
+                identity = resolve_cli_identity(
+                    no_identity=args.no_identity,
+                    allowed_root=allowed_root,
+                    confirmer=identity_confirmer,
+                    diagnostic=identity_diagnostic,
+                )
+                memory_manager = _make_memory_manager(
+                    allowed_root,
+                    identity=identity,
+                    no_memory=args.no_memory,
+                    no_identity=args.no_identity,
+                    diagnostic=identity_diagnostic,
+                )
+                skills = _load_skill_registry(
+                    home=str(Path.home()),
+                    allowed_root=allowed_root,
+                    no_identity=args.no_identity,
+                    confirmer=skill_confirmer,
+                    diagnostic=identity_diagnostic,
+                )
+                report = run_loop_once(
+                    args.goal,
+                    tier=args.tier,
+                    model=args.model,
+                    client_factory=runtime_client_factory,
+                    allowed_root=allowed_root,
+                    console=console,
+                    mcp=mcp,
+                    confirmer=confirmer,
+                    identity=identity,
+                    container_image=args.container_image,
+                    context_config=context_config,
+                    memory_manager=memory_manager,
+                    skills=skills,
+                    token_budget=args.token_budget,
+                    max_rounds=args.max_rounds,
+                    wall_clock_seconds=args.wall_clock_seconds,
+                    max_consecutive_failures=args.max_consecutive_failures,
+                    resume=args.resume,
+                )
+            finally:
+                if mcp is not None:
+                    mcp.close()
+            return 0 if report.status == "completed" else 1
         if args.command == "smoke":
             models = list(SMOKE_MODELS)
             if args.include_fable:
@@ -2063,6 +2390,9 @@ def main(
         return 2
     except MCPStartupError as exc:
         error_console.print(f"[red]MCP startup error[/red]: {exc}")
+        return 2
+    except (LoopCheckpointError, ValueError):
+        error_console.print("[red]Loop request rejected[/red]")
         return 2
     except IdentityConfigError as exc:
         error_console.print(f"[red]identity config error[/red]: {exc}")

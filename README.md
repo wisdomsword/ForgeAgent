@@ -12,6 +12,61 @@
 人类验收；归档后补充的 Startup-Information 已完成真实 TTY 启动标识、能力摘要、MCP
 脱敏诊断和非 TTY 零启动噪声，并作为独立 OpenSpec change 归档。
 
+## M21 Loop（有界的耐久迭代）
+
+Loop 是显式选择的多次 Task 迭代，不改变 `run`、REPL 或普通 HTTP Task 的语义。新建
+Loop 必须给出目标和 token 预算；其余预算有安全默认值。每个 Loop 在允许根目录下保存
+版本化 checkpoint，恢复时只接受 Loop ID，目标和预算仍使用原 checkpoint 中冻结的值。
+
+```bash
+# 创建：checkpoint 位于当前 allowed root 的 .forgeagent/loops/ 下
+uv run forgeagent loop "生成依赖状态报告，不改动任何文件" --token-budget 12000
+
+# 恢复：不要同时传 goal 或任意预算覆盖项
+uv run forgeagent loop --resume LOOP_ID
+```
+
+模型在完成可独立验证的进度后调用 Loop 专用 `Checkpoint` 工具。工具成功返回前会原子
+commit 新 revision；进程中断后的 resume 从最后一次 commit replay，已提交条目会作为
+完成项注入下一次 Task，未提交的外部副作用可能重做。因此应把副作用切成可验证步骤，并在
+每一步后 checkpoint；这不是外部操作的 exactly-once 承诺。
+
+Loop 的稳定停止原因是 `completed`、`cancelled`、`wall_clock`、
+`token_usage_unavailable`、`token_budget`、`max_rounds`、
+`consecutive_failures`、`unrecoverable_failure` 和 `checkpoint_error`。round、token、
+wall clock 与连续失败均按整个 Loop 累计；wall clock 是协作超时，不能强杀已在途的模型或
+工具调用，只会在其返回后的安全边界停止。token usage 缺失不会被当成零而绕过预算。
+
+Loop 会产生模型调用费用，token budget 只是上限而非报价。M20 的独立 Evaluator 仍是
+显式 opt-in，普通 Loop 不会自动调用它；M22 的 Generator/Evaluator/Triad 打回语义也不在
+M21 范围内。
+
+### HTTP 与外部调度
+
+HTTP 的既有 `POST /tasks` 使用严格 allowlist。新 Loop body 不含 credential、路径或安全
+策略；这些仍由服务端配置拥有：
+
+```json
+{
+  "goal": "生成依赖状态报告，不执行安装或更新",
+  "mode": "loop",
+  "token_budget": 12000,
+  "max_rounds": 20,
+  "wall_clock_seconds": 900,
+  "max_consecutive_failures": 3
+}
+```
+
+恢复 body 只能是：
+
+```json
+{"mode": "loop", "resume_loop_id": "LOOP_ID"}
+```
+
+cron、launchd 和 systemd 的 user-installed 调用示例见
+[`examples/loop/README.md`](examples/loop/README.md)。ForgeAgent 不内置 scheduler daemon：
+同一 checkpoint 的跨进程并发恢复不应由多个调度触发器重叠执行，使用一个外部单实例策略。
+
 ## 安装
 
 ```bash

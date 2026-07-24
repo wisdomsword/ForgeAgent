@@ -385,6 +385,121 @@ def test_invalid_request_matrix(running_server, headers, body, expected_status, 
     assert payload["error"]["kind"] == kind
 
 
+@pytest.mark.parametrize(
+    ("body", "expected_goal", "expected_options"),
+    [
+        ({"goal": "ordinary"}, "ordinary", {}),
+        (
+            {
+                "goal": "durable",
+                "mode": "loop",
+                "token_budget": 200,
+                "max_rounds": 12,
+                "wall_clock_seconds": 30.5,
+                "max_consecutive_failures": 2,
+            },
+            "durable",
+            {
+                "mode": "loop",
+                "token_budget": 200,
+                "max_rounds": 12,
+                "wall_clock_seconds": 30.5,
+                "max_consecutive_failures": 2,
+            },
+        ),
+        (
+            {"mode": "loop", "resume_loop_id": "a" * 32},
+            "",
+            {"mode": "loop", "resume_loop_id": "a" * 32},
+        ),
+    ],
+)
+def test_submit_accepts_exact_task_new_loop_and_resume_loop_schemas(
+    body, expected_goal, expected_options
+):
+    config = HttpServiceConfig(token="test-token")
+    sink = RecordingSink()
+    submissions = []
+
+    class Service:
+        audit_degraded = False
+
+        def submit_view(self, goal, options):
+            submissions.append((goal, options))
+            return {
+                "task_id": "b" * 32,
+                "mode": options.get("mode", "task"),
+                "status": "queued",
+                "reason": None,
+                "detail": None,
+                "round_count": 0,
+                "usage": None,
+                "audit_degraded": False,
+            }
+
+        def mark_audit_degraded(self):
+            return None
+
+    server = SimpleNamespace(config=config, task_service=Service(), audit_sink=sink)
+    status, response, _raw = _request_via_handler(server, "POST", "/tasks", body=body)
+
+    assert status == 202
+    assert response["mode"] == expected_options.get("mode", "task")
+    assert submissions == [(expected_goal, expected_options)]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"goal": "loop", "mode": "loop", "token_budget": 10},
+        {
+            "goal": "loop",
+            "mode": "loop",
+            "token_budget": True,
+            "max_rounds": 2,
+            "wall_clock_seconds": 3.0,
+            "max_consecutive_failures": 1,
+        },
+        {
+            "goal": "loop",
+            "mode": "loop",
+            "token_budget": 10,
+            "max_rounds": False,
+            "wall_clock_seconds": 3.0,
+            "max_consecutive_failures": 1,
+        },
+        {
+            "goal": "loop",
+            "mode": "loop",
+            "token_budget": 10,
+            "max_rounds": 2,
+            "wall_clock_seconds": float("inf"),
+            "max_consecutive_failures": 1,
+        },
+        {"mode": "loop", "resume_loop_id": "A" * 32},
+        {"mode": "loop", "resume_loop_id": "a" * 32, "goal": "override"},
+        {"mode": "loop", "resume_loop_id": "a" * 32, "token_budget": 10},
+        {"goal": "loop", "mode": "loop", "token_budget": 10, "tier": "trusted"},
+        {"goal": "loop", "checkpoint_path": "/tmp/private"},
+        {"goal": "loop", "credentials": "secret"},
+    ],
+)
+def test_submit_rejects_invalid_or_security_sensitive_loop_bodies(body):
+    config = HttpServiceConfig(token="test-token")
+    sink = RecordingSink()
+    service = SimpleNamespace(
+        audit_degraded=False,
+        mark_audit_degraded=lambda: None,
+        submit_view=lambda *_args: pytest.fail("invalid body must not submit"),
+    )
+    server = SimpleNamespace(config=config, task_service=service, audit_sink=sink)
+
+    status, response, _raw = _request_via_handler(server, "POST", "/tasks", body=body)
+
+    assert status == 400
+    assert response["error"]["kind"] == "invalid_request"
+
+
 def test_serve_rejects_invalid_context_before_listener_creation(monkeypatch, tmp_path):
     import forgeagent.cli as cli_module
     import forgeagent.http_server as http_server_module
@@ -613,6 +728,103 @@ def test_serve_task_factory_passes_only_server_context_to_task(monkeypatch, tmp_
     finally:
         task.close()
         task._client.close()
+
+
+def test_serve_factory_selects_server_owned_new_and_resumed_loop(monkeypatch, tmp_path):
+    import forgeagent.cli as cli_module
+    import forgeagent.http_server as http_server_module
+
+    allowed_root = tmp_path / "project"
+    allowed_root.mkdir()
+    config_path = tmp_path / "http.yaml"
+    config_path.write_text(f"token: test-token\nno_identity: true\nallowed_root: {allowed_root}\n")
+    captured = {}
+    loop_calls = []
+
+    class FakeService:
+        def __init__(self, *, factory, config, shared_mcp_manager, audit_sink):
+            captured["factory"] = factory
+
+        def shutdown(self, timeout):
+            return None
+
+    class FakeServer:
+        server_address = ("127.0.0.1", 8765)
+
+        def serve_forever(self, poll_interval):
+            return None
+
+        def shutdown(self):
+            return None
+
+        def server_close(self):
+            return None
+
+    class FakeRunner:
+        pass
+
+    def fake_create(**kwargs):
+        loop_calls.append(("create", kwargs))
+        return FakeRunner()
+
+    def fake_resume(**kwargs):
+        loop_calls.append(("resume", kwargs))
+        return FakeRunner()
+
+    monkeypatch.setattr(cli_module, "TaskService", FakeService)
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: None)
+    monkeypatch.setattr(cli_module.LoopRunner, "create", fake_create)
+    monkeypatch.setattr(cli_module.LoopRunner, "resume", fake_resume)
+    monkeypatch.setattr(http_server_module, "create_http_server", lambda *_args: FakeServer())
+
+    cli_module.serve_http(
+        config_path,
+        client_factory=lambda _model: MockClient(script=[]),
+        console=SimpleNamespace(print=lambda *_args: None),
+        once=True,
+    )
+
+    task_id = "b" * 32
+    created = captured["factory"](
+        SimpleNamespace(
+            task_id=task_id,
+            goal="durable",
+            options={
+                "mode": "loop",
+                "token_budget": 200,
+                "max_rounds": 12,
+                "wall_clock_seconds": 30.5,
+                "max_consecutive_failures": 2,
+            },
+        )
+    )
+    resumed = captured["factory"](
+        SimpleNamespace(
+            task_id="c" * 32,
+            goal="",
+            options={"mode": "loop", "resume_loop_id": "a" * 32},
+        )
+    )
+
+    assert isinstance(created, FakeRunner)
+    assert isinstance(resumed, FakeRunner)
+    create_kwargs = loop_calls[0][1]
+    assert loop_calls[0][0] == "create"
+    assert create_kwargs["allowed_root"] == str(allowed_root)
+    assert create_kwargs["goal"] == "durable"
+    assert create_kwargs["task_id"] == task_id
+    assert create_kwargs["trigger"] == "http"
+    assert create_kwargs["budgets"].model_dump() == {
+        "max_rounds": 12,
+        "token_budget": 200,
+        "wall_clock_seconds": 30.5,
+        "max_consecutive_failures": 2,
+    }
+    assert loop_calls[1][0] == "resume"
+    assert loop_calls[1][1]["allowed_root"] == str(allowed_root)
+    assert loop_calls[1][1]["loop_id"] == "a" * 32
+    assert "goal" not in loop_calls[1][1]
+    assert "budgets" not in loop_calls[1][1]
 
 
 def test_unknown_task_and_unknown_route_use_safe_errors(running_server):

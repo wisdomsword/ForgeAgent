@@ -18,6 +18,7 @@ from forgeagent.http_task_service import (
     TaskService,
     _usage_summary,
 )
+from forgeagent.loop import LOOP_SCHEMA, LoopReport
 from forgeagent.models import TokenUsage
 from forgeagent.step import RoundResult, Termination
 from forgeagent.task import TaskOutcome, TaskStatus
@@ -77,6 +78,58 @@ class _FakeTask:
             self._events.append("task.close")
 
 
+def _loop_report(
+    loop_id: str = "a" * 32,
+    *,
+    status: str = "stopped",
+    stop_reason: str | None = "max_rounds",
+) -> LoopReport:
+    return LoopReport(
+        schema=LOOP_SCHEMA,
+        loop_id=loop_id,
+        status=status,
+        stop_reason=stop_reason,
+        iterations=3,
+        rounds_used=7,
+        tokens_used=101,
+        elapsed_seconds=2.5,
+        consecutive_failures=1,
+        completed_item_count=2,
+        open_question_count=1,
+        usage_available=True,
+    )
+
+
+class _FakeLoopRunner:
+    def __init__(
+        self,
+        report: LoopReport,
+        *,
+        started: threading.Event | None = None,
+        release: threading.Event | None = None,
+        events: list[str] | None = None,
+    ) -> None:
+        self._report = report
+        self._started = started
+        self._release = release
+        self._events = events
+        self._audit_sink = None
+
+    def run(self, goal: str, *, cancel_event: threading.Event | None = None) -> LoopReport:
+        assert cancel_event is not None
+        if self._events is not None:
+            self._events.append("run")
+        if self._started is not None:
+            self._started.set()
+        if self._release is not None:
+            self._release.wait(1.0)
+        return self._report
+
+    def close(self) -> None:
+        if self._events is not None:
+            self._events.append("loop.close")
+
+
 class _Clock:
     def __init__(self) -> None:
         self.now = 100.0
@@ -125,6 +178,7 @@ def test_submit_copies_options_and_factory_receives_private_record_data():
         assert observed == [("goal", {"max_rounds": 2})]
         assert set(service.query(record.task_id)) == {
             "task_id",
+            "mode",
             "status",
             "reason",
             "detail",
@@ -133,6 +187,116 @@ def test_submit_copies_options_and_factory_receives_private_record_data():
             "audit_degraded",
         }
     finally:
+        service.shutdown(1.0)
+
+
+def test_ordinary_task_public_view_always_identifies_task_mode():
+    service = TaskService(factory=_instant_factory, config=CONFIG)
+    try:
+        record = service.submit("goal", {})
+        assert service.wait(record.task_id, timeout=1.0)["mode"] == "task"
+    finally:
+        service.shutdown(1.0)
+
+
+def test_loop_public_view_is_bounded_and_omits_private_checkpoint_state():
+    private_options = {
+        "mode": "loop",
+        "resume_loop_id": "a" * 32,
+    }
+    report = _loop_report()
+    service = TaskService(
+        factory=lambda _record: _FakeLoopRunner(report),
+        config=CONFIG,
+    )
+    try:
+        record = service.submit("", private_options)
+        view = service.wait(record.task_id, timeout=1.0)
+
+        assert view == {
+            "task_id": record.task_id,
+            "mode": "loop",
+            "status": "stopped",
+            "reason": "max_rounds",
+            "detail": None,
+            "round_count": 0,
+            "usage": None,
+            "audit_degraded": False,
+            "loop_id": "a" * 32,
+            "iterations": 3,
+            "rounds_used": 7,
+            "tokens_used": 101,
+            "elapsed_seconds": 2.5,
+            "consecutive_failures": 1,
+            "completed_item_count": 2,
+            "open_question_count": 1,
+            "usage_available": True,
+        }
+        assert "goal" not in repr(view)
+        assert "checkpoint" not in repr(view)
+        assert "handoff" not in repr(view)
+        assert "/" not in repr(view)
+    finally:
+        service.shutdown(1.0)
+
+
+def test_running_loop_view_does_not_fabricate_terminal_report_counters():
+    started = threading.Event()
+    release = threading.Event()
+    service = TaskService(
+        factory=lambda _record: _FakeLoopRunner(_loop_report(), started=started, release=release),
+        config=CONFIG,
+    )
+    try:
+        record = service.submit("goal", {"mode": "loop", "token_budget": 10})
+        assert started.wait(1.0)
+        view = service.query(record.task_id)
+        assert view["mode"] == "loop"
+        assert view["status"] == "running"
+        assert "loop_id" not in view
+        assert "iterations" not in view
+    finally:
+        release.set()
+        service.shutdown(1.0)
+
+
+def test_loop_runner_is_closed_once_without_assuming_a_private_client():
+    events: list[str] = []
+    service = TaskService(
+        factory=lambda _record: _FakeLoopRunner(_loop_report(), events=events),
+        config=CONFIG,
+    )
+    try:
+        record = service.submit("goal", {"mode": "loop", "token_budget": 10})
+        service.wait(record.task_id, timeout=1.0)
+        assert events == ["run", "loop.close"]
+    finally:
+        service.shutdown(1.0)
+
+
+def test_same_loop_id_overlapping_resume_fails_closed_without_second_runner():
+    started = threading.Event()
+    release = threading.Event()
+    constructed = 0
+
+    def factory(_record: TaskRecord) -> _FakeLoopRunner:
+        nonlocal constructed
+        constructed += 1
+        return _FakeLoopRunner(_loop_report(), started=started, release=release)
+
+    service = TaskService(factory=factory, config=CONFIG)
+    options = {"mode": "loop", "resume_loop_id": "a" * 32}
+    try:
+        first = service.submit("", options)
+        assert started.wait(1.0)
+        second = service.submit("", options)
+        second_view = service.wait(second.task_id, timeout=1.0)
+        assert second_view["status"] == "failed"
+        assert second_view["reason"] == "internal_error"
+        assert constructed == 1
+    finally:
+        release.set()
+        service.wait(first.task_id, timeout=1.0)
         service.shutdown(1.0)
 
 
@@ -339,6 +503,55 @@ def test_running_cancel_is_cooperative_and_terminal_is_not_overwritten():
         service.shutdown(1.0)
 
 
+def test_cancel_during_loop_close_preserves_completed_report():
+    close_started = threading.Event()
+    release_close = threading.Event()
+
+    class ClosingLoopRunner(_FakeLoopRunner):
+        def close(self) -> None:
+            close_started.set()
+            assert release_close.wait(1.0)
+
+    report = _loop_report(status="completed", stop_reason="completed")
+    service = TaskService(
+        factory=lambda _record: ClosingLoopRunner(report),
+        config=CONFIG,
+    )
+    try:
+        record = service.submit("goal", {"mode": "loop", "token_budget": 10})
+        assert close_started.wait(1.0)
+
+        assert service.cancel(record.task_id)["status"] == "running"
+        release_close.set()
+
+        view = service.wait(record.task_id, timeout=1.0)
+        assert view["status"] == "completed"
+        assert view["reason"] == "completed"
+        assert view["loop_id"] == report.loop_id
+        assert view["iterations"] == report.iterations
+        assert service.cancel(record.task_id) == view
+    finally:
+        release_close.set()
+        service.shutdown(1.0)
+
+
+def test_cancelled_loop_report_remains_cancelled():
+    report = _loop_report(status="cancelled", stop_reason="cancelled")
+    service = TaskService(
+        factory=lambda _record: _FakeLoopRunner(report),
+        config=CONFIG,
+    )
+    try:
+        record = service.submit("goal", {"mode": "loop", "token_budget": 10})
+        view = service.wait(record.task_id, timeout=1.0)
+
+        assert view["status"] == "cancelled"
+        assert view["reason"] == "cancelled"
+        assert service.cancel(record.task_id) == view
+    finally:
+        service.shutdown(1.0)
+
+
 def test_worker_failure_is_safe_and_does_not_affect_another_task():
     def factory(record: TaskRecord) -> _FakeTask:
         if record.goal == "broken":
@@ -354,6 +567,7 @@ def test_worker_failure_is_safe_and_does_not_affect_another_task():
 
         assert service.query(broken.task_id) == {
             "task_id": broken.task_id,
+            "mode": "task",
             "status": "failed",
             "reason": "internal_error",
             "detail": "Task execution failed.",

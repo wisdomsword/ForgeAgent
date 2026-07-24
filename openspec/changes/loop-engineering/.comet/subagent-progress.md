@@ -1,0 +1,28 @@
+# Subagent Progress
+
+- Change: loop-engineering
+- Plan: docs/superpowers/plans/2026-07-24-loop-engineering.md
+- Review mode: thorough
+- TDD mode: tdd
+- Current task: Task 6 — M21 verification, reviews, evidence, and build handoff
+- OpenSpec mapping: 4.1 recovery tests; 4.2 stop/convergence/isolation; 4.4 full verification/reviews
+- Stage: final-review-complete
+- Review/fix round: 0/2
+- Task 1 commits: `b4fee57`, `2d50a5e`, `6101141`, `300ff4c`
+- Task 1 evidence: 153 passed across checkpoint/tools/evaluator; Ruff and format checks passed
+- Task 1 review: final review found no Critical/Important findings after two fix rounds
+- Task 2 commits: `ea5e59a`, `0649808`, `3df35c2`
+- Task 2 evidence: 198 core tests passed; Ruff and format checks passed
+- Task 2 review: no Critical/Important findings after one fix round
+- Task 3 commits: `798173e`, `94782b2`, `85ba227`; integration `0f8ecde`
+- Task 3 evidence: 324 CLI/task/startup/runner tests passed; Ruff and format checks passed
+- Task 3 review: no Critical/Important findings after one fix round; tier/model finding withdrawn against canonical design
+- Task 4 commit: `4d94082`
+- Task 4 evidence: 467 passed, 10 environment loopback skips; Ruff and format checks passed
+- Task 4 review: no Critical/Important findings
+- Task 5 commits: `fa56bfb`, `5dc745d`
+- Task 5 evidence: 118 docs/protocol/golden-runner tests passed; Ruff and format checks passed
+- Task 5 review: no Critical/Important findings after one fix round
+- Task 6 evidence: full 1758 passed / 11 skipped; golden 20/20; build pass; OpenSpec 16/16; Ruff/diff pass
+- Final review: no Critical/Important findings after two fix rounds (`4266a64`, `602fe6a`)
+- Verification report: `docs/superpowers/reports/2026-07-24-loop-engineering-verify.md`
