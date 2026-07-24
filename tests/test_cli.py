@@ -1357,6 +1357,104 @@ def test_run_loop_once_closes_runner_and_reuses_cli_assembly(monkeypatch, tmp_pa
     assert report.tokens_used == 1
 
 
+def test_run_loop_once_sigint_requests_cancel_and_restores_handler(monkeypatch, tmp_path):
+    previous_calls: list[int] = []
+
+    def previous_handler(signum, _frame):
+        previous_calls.append(signum)
+
+    current_handler = previous_handler
+    signal_calls: list[object] = []
+
+    def fake_getsignal(signum):
+        assert signum == signal.SIGINT
+        return current_handler
+
+    def fake_signal(signum, handler):
+        nonlocal current_handler
+        assert signum == signal.SIGINT
+        signal_calls.append(handler)
+        old_handler = current_handler
+        current_handler = handler
+        return old_handler
+
+    class InterruptingTask:
+        def __init__(self, *_args, **_kwargs):
+            self.closed = False
+
+        def run(self, _goal, *, cancel_event=None):
+            assert cancel_event is not None
+            assert callable(current_handler)
+            current_handler(signal.SIGINT, None)
+            assert cancel_event.is_set()
+            current_handler(signal.SIGINT, None)
+            return TaskOutcome(
+                status=TaskStatus(completed=False, reason=Termination.CANCELLED),
+                rounds=[RoundResult(text="", stopped_reason=Termination.CANCELLED)],
+            )
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setattr(cli_module.signal, "getsignal", fake_getsignal)
+    monkeypatch.setattr(cli_module.signal, "signal", fake_signal)
+    monkeypatch.setattr(cli_module, "Task", InterruptingTask)
+    monkeypatch.chdir(tmp_path)
+
+    assert (
+        main(
+            [
+                "--tier",
+                "trusted",
+                "--no-identity",
+                "--no-memory",
+                "loop",
+                "finish the work",
+                "--token-budget",
+                "5",
+            ],
+            client_factory=_factory([]),
+        )
+        == 1
+    )
+
+    checkpoint_path = next((tmp_path / ".forgeagent" / "loops").glob("*.json"))
+    store = LoopCheckpointStore(str(tmp_path))
+    checkpoint = store.load(checkpoint_path.stem)
+    store.close()
+
+    assert checkpoint.status == "cancelled"
+    assert checkpoint.stop_reason == "cancelled"
+    assert signal_calls[-1] is previous_handler
+    assert current_handler is previous_handler
+    assert previous_calls == [signal.SIGINT]
+
+
+def test_run_loop_once_non_main_thread_keeps_existing_signal_behavior(monkeypatch, tmp_path):
+    signal_calls = 0
+
+    def reject_signal_install(_signum, _handler):
+        nonlocal signal_calls
+        signal_calls += 1
+        raise ValueError("signal only works in main thread")
+
+    monkeypatch.setattr(cli_module.signal, "getsignal", lambda _signum: signal.default_int_handler)
+    monkeypatch.setattr(cli_module.signal, "signal", reject_signal_install)
+
+    report = run_loop_once(
+        "finish the work",
+        tier="trusted",
+        model="mock",
+        client_factory=_factory([_reply(_done(), usage=TokenUsage(input_tokens=1))]),
+        allowed_root=str(tmp_path),
+        console=_console(),
+        token_budget=5,
+    )
+
+    assert report.status == "completed"
+    assert signal_calls == 1
+
+
 def test_ordinary_run_and_repl_do_not_create_loop_checkpoints_or_import_evaluator(
     monkeypatch, tmp_path
 ):

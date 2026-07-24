@@ -778,8 +778,31 @@ def run_loop_once(
             with_mcp=mcp is not None,
             skills=skills,
         )
+    cancel_event = threading.Event()
+    previous_sigint = None
+    sigint_installed = False
+
+    def request_cancel(signum, frame) -> None:
+        if cancel_event.is_set():
+            if callable(previous_sigint):
+                previous_sigint(signum, frame)
+                return
+            raise KeyboardInterrupt
+        cancel_event.set()
+
     try:
-        report = runner.run()
+        try:
+            previous_sigint = signal.getsignal(signal.SIGINT)
+            signal.signal(signal.SIGINT, request_cancel)
+            sigint_installed = True
+        except ValueError:
+            # signal handlers can only be installed by the main thread.
+            pass
+        try:
+            report = runner.run(cancel_event=cancel_event)
+        finally:
+            if sigint_installed:
+                signal.signal(signal.SIGINT, previous_sigint)
     finally:
         runner.close()
     _render_loop_report(report, console if console is not None else Console())
