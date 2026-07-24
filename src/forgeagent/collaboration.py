@@ -1108,7 +1108,11 @@ def _task_usage(outcome: TaskOutcome) -> tuple[CollaborationUsage, bool]:
     return usage, available
 
 
-def _role_task_data(state: CollaborationState, rejection: tuple[EvaluationItem, ...]) -> str:
+def _role_task_data(
+    state: CollaborationState,
+    rejection: tuple[EvaluationItem, ...],
+    task_data_suffix: str = "",
+) -> str:
     payload: dict[str, object] = {
         "goal": state.goal,
         "plan": [item.model_dump(mode="json") for item in state.plan],
@@ -1116,13 +1120,16 @@ def _role_task_data(state: CollaborationState, rejection: tuple[EvaluationItem, 
     }
     if rejection:
         payload["rejection"] = [item.model_dump(mode="json") for item in rejection]
+    if task_data_suffix:
+        payload["loop_context"] = task_data_suffix
     return json.dumps(payload, ensure_ascii=True, separators=(",", ":"), sort_keys=True)
 
 
-def _planner_task_data(state: CollaborationState) -> str:
-    return json.dumps(
-        {"goal": state.goal}, ensure_ascii=True, separators=(",", ":"), sort_keys=True
-    )
+def _planner_task_data(state: CollaborationState, task_data_suffix: str = "") -> str:
+    payload = {"goal": state.goal}
+    if task_data_suffix:
+        payload["loop_context"] = task_data_suffix
+    return json.dumps(payload, ensure_ascii=True, separators=(",", ":"), sort_keys=True)
 
 
 def _plan_summary(state: CollaborationState) -> str:
@@ -1157,6 +1164,8 @@ class CollaborationRunner:
         state: CollaborationState,
         role_task_builder: RoleTaskBuilder,
         plan_confirmer: PlanConfirmer | None = None,
+        generator_registry: ToolRegistry | None = None,
+        task_data_suffix: str = "",
         audit_sink: AuditSink | None = None,
         task_id: str | None = None,
     ) -> None:
@@ -1166,6 +1175,8 @@ class CollaborationRunner:
         self._frozen_plan_digest = state.plan_digest
         self._role_task_builder = role_task_builder
         self._plan_confirmer = plan_confirmer
+        self._generator_registry = generator_registry
+        self._task_data_suffix = task_data_suffix
         self._audit_sink = audit_sink
         self._task_id = task_id
         self._run_lock = threading.Lock()
@@ -1180,6 +1191,8 @@ class CollaborationRunner:
         allowed_root: str,
         role_task_builder: RoleTaskBuilder,
         plan_confirmer: PlanConfirmer | None = None,
+        generator_registry: ToolRegistry | None = None,
+        task_data_suffix: str = "",
         collaboration_id: str | None = None,
         planner_model: str = "",
         generator_model: str = "",
@@ -1209,6 +1222,8 @@ class CollaborationRunner:
             state=state,
             role_task_builder=role_task_builder,
             plan_confirmer=plan_confirmer,
+            generator_registry=generator_registry,
+            task_data_suffix=task_data_suffix,
             audit_sink=audit_sink,
             task_id=task_id,
         )
@@ -1255,7 +1270,7 @@ class CollaborationRunner:
                 1,
                 registry,
                 _PLANNER_PROMPT,
-                _planner_task_data(planner_state),
+                _planner_task_data(planner_state, self._task_data_suffix),
                 cancel_event,
             )
         except CollaborationRoleConfigurationError:
@@ -1357,9 +1372,9 @@ class CollaborationRunner:
                     generator = self._run_role(
                         "generator",
                         self._state.generator_attempts + 1,
-                        default_registry(),
+                        self._generator_registry or default_registry(),
                         _GENERATOR_PROMPT,
-                        _role_task_data(self._state, rejection),
+                        _role_task_data(self._state, rejection, self._task_data_suffix),
                         cancel_event,
                     )
                 except CollaborationRoleConfigurationError:

@@ -47,6 +47,7 @@ from .anthropic_client import AnthropicClient
 from .audit import AuditSink, JsonlAuditSink
 from .client import ModelClient
 from .collaboration import (
+    CollaborationMode,
     CollaborationReport,
     CollaborationRole,
     CollaborationRoleConfigurationError,
@@ -861,6 +862,33 @@ def _render_loop_report(report: LoopReport, console: Console) -> None:
     )
 
 
+def _confirmed_collaboration_mode(
+    goal: str,
+    requested_mode: str | None,
+    *,
+    confirmation_available: bool,
+    read_line: Callable[[str], str],
+    console: Console,
+):
+    decision = resolve_collaboration_mode(goal, cast(CollaborationMode | None, requested_mode))
+    if not decision.override_required:
+        return decision
+    if not confirmation_available:
+        console.print("[red]collaboration override requires confirmation[/red]")
+        return None
+    try:
+        answer = read_line("allow weaker collaboration mode? [y/N] ").strip().lower()
+    except EOFError:
+        answer = ""
+    if answer not in {"y", "yes"}:
+        return None
+    return resolve_collaboration_mode(
+        goal,
+        cast(CollaborationMode | None, requested_mode),
+        allow_weaker_override=True,
+    )
+
+
 def run_loop_once(
     goal: str | None,
     *,
@@ -882,10 +910,10 @@ def run_loop_once(
     wall_clock_seconds: float | None = None,
     max_consecutive_failures: int | None = None,
     resume: str | None = None,
-    collaboration_mode: str = "single",
+    collaboration_mode: str | None = None,
     planner_model: str | None = None,
     evaluator_model: str | None = None,
-    max_rejections: int = 2,
+    max_rejections: int | None = None,
     plan_confirmer: Callable[[str], bool] | None = None,
 ) -> LoopReport:
     """Run one durable Loop through the same Task assembly as the CLI run command."""
@@ -908,9 +936,22 @@ def run_loop_once(
         )
     elif any(
         value is not None
-        for value in (goal, token_budget, max_rounds, wall_clock_seconds, max_consecutive_failures)
+        for value in (
+            goal,
+            token_budget,
+            max_rounds,
+            wall_clock_seconds,
+            max_consecutive_failures,
+            collaboration_mode,
+            planner_model,
+            evaluator_model,
+            max_rejections,
+        )
     ):
         raise ValueError("resume cannot override the frozen Loop configuration")
+
+    resolved_collaboration_mode = collaboration_mode or "single"
+    resolved_max_rejections = 2 if max_rejections is None else max_rejections
 
     root = str(Path.cwd().resolve()) if allowed_root is None else allowed_root
     resolved_context_config = context_config or ContextConfig()
@@ -968,8 +1009,9 @@ def run_loop_once(
 
         return OwnedLoopTask()
 
-    def build_collaboration(iteration: int, remaining_rounds: int, suffix: str):
-        del iteration, remaining_rounds, suffix
+    def build_collaboration(iteration: int, remaining_rounds: int, suffix: str, registry):
+        del iteration
+        rounds_left = remaining_rounds
         role_models = {
             "planner": planner_model or model,
             "generator": model,
@@ -978,6 +1020,9 @@ def run_loop_once(
 
         def build_role(role: CollaborationRole, attempt: int, registry, prompt: str):
             del attempt
+            nonlocal rounds_left
+            if rounds_left <= 0:
+                raise CollaborationRoleConfigurationError
             client = None
             task = None
             try:
@@ -988,6 +1033,7 @@ def run_loop_once(
                     tier="restricted" if role == "evaluator" else tier,
                     allowed_root=root,
                     system_prompt=prompt,
+                    max_rounds=rounds_left,
                     asker=asker if role == "generator" else None,
                     mcp=mcp if role == "generator" else None,
                     confirmer=confirmer if role == "generator" else None,
@@ -1007,7 +1053,10 @@ def run_loop_once(
 
             class OwnedRole:
                 def run(self, task_goal: str, *, cancel_event=None):
-                    return task.run(task_goal, cancel_event=cancel_event)
+                    nonlocal rounds_left
+                    outcome = task.run(task_goal, cancel_event=cancel_event)
+                    rounds_left = max(0, rounds_left - len(outcome.rounds))
+                    return outcome
 
                 def close(self):
                     try:
@@ -1029,6 +1078,8 @@ def run_loop_once(
                 state=state,
                 role_task_builder=build_role,
                 plan_confirmer=plan_confirmer,
+                generator_registry=registry,
+                task_data_suffix=suffix,
             )
         else:
             collaboration = CollaborationRunner.create(
@@ -1041,7 +1092,9 @@ def run_loop_once(
                 planner_model=role_models["planner"],
                 generator_model=role_models["generator"],
                 evaluator_model=role_models["evaluator"],
-                max_rejections=max_rejections,
+                max_rejections=resolved_max_rejections,
+                generator_registry=registry,
+                task_data_suffix=suffix,
             )
 
         class OwnedCollaboration:
@@ -1066,9 +1119,11 @@ def run_loop_once(
             trigger="cli",
             with_mcp=mcp is not None,
             skills=skills,
-            collaboration_builder=(build_collaboration if collaboration_mode != "single" else None),
-            collaboration_mode=collaboration_mode,
-            collaboration_id=uuid4().hex if collaboration_mode != "single" else "",
+            collaboration_builder=(
+                build_collaboration if resolved_collaboration_mode != "single" else None
+            ),
+            collaboration_mode=resolved_collaboration_mode,
+            collaboration_id=(uuid4().hex if resolved_collaboration_mode != "single" else ""),
         )
     else:
         runner = LoopRunner.resume(
@@ -1739,9 +1794,19 @@ def repl(
                 if not collaboration_goal.strip():
                     console.print(f"usage: {command} <goal>", style="dim", markup=False)
                     continue
+                collaboration_goal = collaboration_goal.strip()
+                decision = _confirmed_collaboration_mode(
+                    collaboration_goal,
+                    command[1:],
+                    confirmation_available=confirmation_available,
+                    read_line=read_line,
+                    console=console,
+                )
+                if decision is None:
+                    continue
                 run_collaboration_once(
-                    collaboration_goal.strip(),
-                    mode=command[1:],
+                    collaboration_goal,
+                    mode=decision.mode,
                     tier=tier,
                     model=model,
                     planner_model=None,
@@ -1769,24 +1834,54 @@ def repl(
                 console.print(f"[red]unknown command[/red] {goal!r}")
                 _print_command_menu(console)
                 continue
-            run_once(
-                goal,
-                tier=tier,
-                model=model,
-                client_factory=task_client_factory,
-                console=console,
-                asker=asker,
-                mcp=mcp,
-                confirmer=confirmer,
-                identity=identity,
-                container_image=container_image,
-                usage_total=usage_total,
-                images=staged_images,
-                stream=stream,
-                context_config=current_context,
-                memory_manager=memory_manager,
-                skills=current_skills,
-            )
+            decision = resolve_collaboration_mode(goal, None)
+            if decision.reason == "programming":
+                console.print("mode: triad (programming task)")
+            if decision.mode == "single":
+                run_once(
+                    goal,
+                    tier=tier,
+                    model=model,
+                    client_factory=task_client_factory,
+                    console=console,
+                    asker=asker,
+                    mcp=mcp,
+                    confirmer=confirmer,
+                    identity=identity,
+                    container_image=container_image,
+                    usage_total=usage_total,
+                    images=staged_images,
+                    stream=stream,
+                    context_config=current_context,
+                    memory_manager=memory_manager,
+                    skills=current_skills,
+                )
+            else:
+                run_collaboration_once(
+                    goal,
+                    mode=decision.mode,
+                    tier=tier,
+                    model=model,
+                    planner_model=None,
+                    evaluator_model=None,
+                    max_rejections=2,
+                    client_factory=task_client_factory,
+                    allowed_root=allowed_root,
+                    console=console,
+                    plan_confirmer=(
+                        _console_plan_confirmer(console, read_line)
+                        if confirmation_available
+                        else headless_plan_confirmer("deny")
+                    ),
+                    asker=asker,
+                    mcp=mcp,
+                    confirmer=confirmer,
+                    identity=identity,
+                    container_image=container_image,
+                    context_config=current_context,
+                    memory_manager=memory_manager,
+                    skills=current_skills,
+                )
             staged_images = None
     finally:
         display.stop()
@@ -2207,8 +2302,9 @@ def serve_http(
                 }
                 collaboration_mode = cast(str, options.get("collaboration_mode", "single"))
 
-                def build_loop_collaboration(iteration, remaining_rounds, suffix):
-                    del iteration, remaining_rounds, suffix
+                def build_loop_collaboration(iteration, remaining_rounds, suffix, registry):
+                    del iteration
+                    rounds_left = remaining_rounds
                     role_models = {
                         "planner": settings.service.planner_model or settings.model,
                         "generator": settings.model,
@@ -2217,6 +2313,9 @@ def serve_http(
 
                     def build_role(role, attempt, registry, prompt):
                         del attempt
+                        nonlocal rounds_left
+                        if rounds_left <= 0:
+                            raise CollaborationRoleConfigurationError
                         client = task_client_factory(role_models[role])
                         try:
                             task = Task(
@@ -2228,6 +2327,7 @@ def serve_http(
                                 ),
                                 allowed_root=settings.allowed_root,
                                 system_prompt=prompt,
+                                max_rounds=rounds_left,
                                 mcp=mcp if role == "generator" else None,
                                 confirmer=headless_confirmer if role == "generator" else None,
                                 allow_auto_approve=False,
@@ -2247,7 +2347,10 @@ def serve_http(
 
                         class OwnedRole:
                             def run(self, goal, *, cancel_event=None):
-                                return task.run(goal, cancel_event=cancel_event)
+                                nonlocal rounds_left
+                                outcome = task.run(goal, cancel_event=cancel_event)
+                                rounds_left = max(0, rounds_left - len(outcome.rounds))
+                                return outcome
 
                             def close(self):
                                 try:
@@ -2278,6 +2381,8 @@ def serve_http(
                             plan_confirmer=headless_plan_confirmer(
                                 settings.service.triad_plan_policy
                             ),
+                            generator_registry=registry,
+                            task_data_suffix=suffix,
                             audit_sink=audit_sink,
                             task_id=record.task_id,
                         )
@@ -2296,6 +2401,8 @@ def serve_http(
                             evaluator_model=role_models["evaluator"],
                             evaluator_tier=settings.service.evaluator_tier,
                             max_rejections=settings.service.max_rejections,
+                            generator_registry=registry,
+                            task_data_suffix=suffix,
                             audit_sink=audit_sink,
                             task_id=record.task_id,
                         )
@@ -2525,12 +2632,10 @@ def build_parser() -> argparse.ArgumentParser:
     loop_p.add_argument("--wall-clock-seconds", type=float, default=None, metavar="SECONDS")
     loop_p.add_argument("--max-consecutive-failures", type=int, default=None, metavar="INT")
     loop_p.add_argument("--resume", default=None, metavar="LOOP_ID", help="resume a durable Loop")
-    loop_p.add_argument(
-        "--collaboration-mode", choices=("single", "duo", "triad"), default="single"
-    )
+    loop_p.add_argument("--collaboration-mode", choices=("single", "duo", "triad"), default=None)
     loop_p.add_argument("--planner-model", default=None)
     loop_p.add_argument("--evaluator-model", default=None)
-    loop_p.add_argument("--max-rejections", type=int, default=2)
+    loop_p.add_argument("--max-rejections", type=int, default=None)
     sub.add_parser("models", help="list available models and their aliases")
     smoke_p = sub.add_parser("smoke", help="run a live smoke check against real models")
     smoke_p.add_argument(
@@ -2789,22 +2894,15 @@ def main(
                     confirmer=skill_confirmer,
                     diagnostic=identity_diagnostic,
                 )
-                decision = resolve_collaboration_mode(args.goal, args.mode)
-                if decision.override_required:
-                    if not interactive_identity:
-                        error_console.print(
-                            "[red]collaboration override requires confirmation[/red]"
-                        )
-                        return 2
-                    try:
-                        override = input("allow weaker collaboration mode? [y/N] ").strip().lower()
-                    except EOFError:
-                        override = ""
-                    if override not in {"y", "yes"}:
-                        return 1
-                    decision = resolve_collaboration_mode(
-                        args.goal, args.mode, allow_weaker_override=True
-                    )
+                decision = _confirmed_collaboration_mode(
+                    args.goal,
+                    args.mode,
+                    confirmation_available=interactive_identity,
+                    read_line=input,
+                    console=error_console,
+                )
+                if decision is None:
+                    return 1 if interactive_identity else 2
                 if decision.reason == "programming":
                     console.print("mode: triad (programming task)")
                 if decision.mode == "single":

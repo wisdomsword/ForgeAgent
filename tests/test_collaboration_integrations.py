@@ -2,19 +2,26 @@
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 import pytest
+from pydantic import BaseModel
 from rich.console import Console
 
 import forgeagent.cli as cli_module
 from forgeagent.cli import build_parser, repl, run_collaboration_once
+from forgeagent.client import MockClient
 from forgeagent.collaboration import (
     CollaborationReport,
     CollaborationRoleConfigurationError,
+    CollaborationRunner,
     CollaborationUsage,
+    headless_plan_confirmer,
 )
-from forgeagent.models import ModelCapability
+from forgeagent.models import AssistantMessage, ModelCapability, TokenUsage
+from forgeagent.task import Task
+from forgeagent.tools import Tool, ToolOutcome, default_registry
 
 
 def _report(**overrides: object) -> CollaborationReport:
@@ -37,6 +44,18 @@ def _report(**overrides: object) -> CollaborationReport:
     }
     values.update(overrides)
     return CollaborationReport(**values)
+
+
+def _reply(text: str) -> AssistantMessage:
+    return AssistantMessage(
+        content=text,
+        usage=TokenUsage(input_tokens=1, output_tokens=1, total_prompt_tokens=1),
+        stop_reason="end_turn",
+    )
+
+
+def _done() -> str:
+    return "---\ntask_status:\n  completed: true\n  confidence: 0.9\n---\ndone"
 
 
 def test_run_parser_accepts_collaboration_policy_flags():
@@ -117,6 +136,102 @@ def test_repl_duo_dispatches_only_the_goal(monkeypatch):
     assert calls == [("verify the report", "duo")]
 
 
+def test_repl_programming_goal_auto_routes_to_triad(monkeypatch):
+    calls: list[tuple[str, str]] = []
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: None)
+    monkeypatch.setattr(
+        cli_module,
+        "run_collaboration_once",
+        lambda goal, **kwargs: calls.append((goal, kwargs["mode"])) or _report(mode="triad"),
+    )
+    console = Console(record=True, force_terminal=False, file=__import__("io").StringIO())
+    inputs = iter(["Add a unit test", "quit"])
+
+    repl(
+        tier="restricted",
+        model="mock",
+        client_factory=lambda _model: SimpleNamespace(),
+        console=console,
+        read_line=lambda _prompt: next(inputs),
+        confirmation_available=False,
+        no_identity=True,
+        no_memory=True,
+        use_registry_snapshot=False,
+    )
+
+    assert calls == [("Add a unit test", "triad")]
+    assert "mode: triad (programming task)" in console.export_text()
+
+
+def test_repl_duo_programming_goal_requires_and_honors_interactive_confirmation(monkeypatch):
+    calls: list[tuple[str, str]] = []
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: None)
+    monkeypatch.setattr(
+        cli_module,
+        "run_collaboration_once",
+        lambda goal, **kwargs: calls.append((goal, kwargs["mode"])) or _report(),
+    )
+    inputs = iter(["/duo Add a unit test", "yes", "quit"])
+
+    repl(
+        tier="restricted",
+        model="mock",
+        client_factory=lambda _model: SimpleNamespace(),
+        read_line=lambda _prompt: next(inputs),
+        confirmation_available=True,
+        no_identity=True,
+        no_memory=True,
+        use_registry_snapshot=False,
+    )
+
+    assert calls == [("Add a unit test", "duo")]
+
+
+def test_repl_duo_programming_goal_rejection_does_not_run(monkeypatch):
+    calls: list[object] = []
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: None)
+    monkeypatch.setattr(cli_module, "run_collaboration_once", lambda *a, **k: calls.append((a, k)))
+    console = Console(record=True, force_terminal=False, file=__import__("io").StringIO())
+    inputs = iter(["/duo Add a unit test", "no", "quit"])
+
+    repl(
+        tier="restricted",
+        model="mock",
+        client_factory=lambda _model: SimpleNamespace(),
+        console=console,
+        read_line=lambda _prompt: next(inputs),
+        confirmation_available=True,
+        no_identity=True,
+        no_memory=True,
+        use_registry_snapshot=False,
+    )
+
+    assert calls == []
+
+
+def test_repl_duo_programming_goal_non_tty_rejects_without_reading_confirmation(monkeypatch):
+    calls: list[object] = []
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: None)
+    monkeypatch.setattr(cli_module, "run_collaboration_once", lambda *a, **k: calls.append((a, k)))
+    console = Console(record=True, force_terminal=False, file=__import__("io").StringIO())
+    inputs = iter(["/duo Add a unit test", "quit"])
+
+    repl(
+        tier="restricted",
+        model="mock",
+        client_factory=lambda _model: SimpleNamespace(),
+        console=console,
+        read_line=lambda _prompt: next(inputs),
+        confirmation_available=False,
+        no_identity=True,
+        no_memory=True,
+        use_registry_snapshot=False,
+    )
+
+    assert calls == []
+    assert "collaboration override requires confirmation" in console.export_text()
+
+
 def test_run_collaboration_wraps_role_client_configuration_errors(tmp_path, monkeypatch):
     capability = ModelCapability(
         model_id="mock",
@@ -195,6 +310,107 @@ def test_collaboration_renderer_omits_private_goal_and_absolute_path(monkeypatch
     assert "rejection_limit" in rendered
     assert secret not in rendered
     assert str(tmp_path) not in rendered
+
+
+def test_loop_context_is_untrusted_role_data_and_checkpoint_only_extends_generator(tmp_path):
+    plan = {
+        "name": "SubmitPlan",
+        "arguments": {
+            "items": [
+                {
+                    "id": "artifact",
+                    "behavior": "The requested artifact is present",
+                    "acceptance": "A reader can observe the requested content",
+                },
+                {
+                    "id": "quality",
+                    "behavior": "The artifact is internally consistent",
+                    "acceptance": "All observable statements agree",
+                },
+            ]
+        },
+    }
+    evaluation = {
+        "name": "SubmitEvaluation",
+        "arguments": {
+            "results": [
+                {
+                    "id": "artifact",
+                    "passed": True,
+                    "observed": "visible result",
+                    "expected": "visible result",
+                    "location": "artifact.txt",
+                },
+                {
+                    "id": "quality",
+                    "passed": True,
+                    "observed": "consistent result",
+                    "expected": "consistent result",
+                    "location": "artifact.txt",
+                },
+            ]
+        },
+    }
+    scripts = {
+        "planner": [_reply(f"<!-- ToolCall: {json.dumps(plan)} -->"), _reply(_done())],
+        "generator": [_reply(_done())],
+        "evaluator": [
+            _reply(f"<!-- ToolCall: {json.dumps(evaluation)} -->"),
+            _reply(_done()),
+        ],
+    }
+    role_data: dict[str, dict[str, object]] = {}
+    role_tools: dict[str, set[str]] = {}
+
+    class RecordingClient(MockClient):
+        def __init__(self, role: str):
+            super().__init__(scripts[role])
+            self.role = role
+
+        def complete(self, messages, params=None):
+            if self.role not in role_data:
+                role_data[self.role] = json.loads(str(messages[-1].content))
+            return super().complete(messages, params)
+
+    def build_role(role, attempt, registry, system_prompt):
+        del attempt
+        role_tools[role] = set(registry.arg_schemas())
+        return Task(RecordingClient(role), tool_registry=registry, system_prompt=system_prompt)
+
+    class CheckpointArgs(BaseModel):
+        pass
+
+    class CheckpointTool(Tool):
+        name = "Checkpoint"
+        args_model = CheckpointArgs
+        risk_level = "low"
+
+        def run(self, args, ctx):
+            del args, ctx
+            return ToolOutcome(tool=self.name, success=True)
+
+    extra_registry = default_registry()
+    extra_registry.register(CheckpointTool())
+    suffix = 'UNTRUSTED LOOP STATE\n{"handoff":"continue from durable item"}'
+    runner = CollaborationRunner.create(
+        mode="triad",
+        goal="create artifact",
+        allowed_root=str(tmp_path),
+        role_task_builder=build_role,
+        plan_confirmer=headless_plan_confirmer("preauthorize"),
+        generator_registry=extra_registry,
+        task_data_suffix=suffix,
+    )
+
+    report = runner.run("create artifact")
+    runner.close()
+    assert report.status == "completed"
+    assert role_data["planner"]["loop_context"] == suffix
+    assert role_data["generator"]["loop_context"] == suffix
+    assert "loop_context" not in role_data["evaluator"]
+    assert "Checkpoint" not in role_tools["planner"]
+    assert "Checkpoint" in role_tools["generator"]
+    assert "Checkpoint" not in role_tools["evaluator"]
 
 
 def test_cli_run_auto_routes_programming_goal_to_triad(monkeypatch):

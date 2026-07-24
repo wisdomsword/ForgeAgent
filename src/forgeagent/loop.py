@@ -79,7 +79,7 @@ class _RunnableTask(Protocol):
 
 
 TaskBuilder = Callable[[int, int, str, ToolRegistry], _RunnableTask]
-CollaborationBuilder = Callable[[int, int, str], _RunnableTask]
+CollaborationBuilder = Callable[[int, int, str, ToolRegistry], _RunnableTask]
 
 
 def _safe_text(value: Any, *, field: str, maximum: int, allow_empty: bool) -> str:
@@ -877,6 +877,7 @@ class LoopRunner:
                     self._checkpoint.iterations + 1,
                     self._checkpoint.budgets.max_rounds - self._checkpoint.rounds_used,
                     suffix,
+                    registry,
                 )
                 current_digest = getattr(task, "plan_digest", "")
                 if self._checkpoint.plan_digest and current_digest != self._checkpoint.plan_digest:

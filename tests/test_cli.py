@@ -37,6 +37,7 @@ from forgeagent.cli import (
     run_once,
 )
 from forgeagent.client import MockClient
+from forgeagent.collaboration import CollaborationReport, CollaborationUsage
 from forgeagent.evaluator import EvaluationRequest, EvaluatorResult
 from forgeagent.executor import TrustedBackend
 from forgeagent.loop import LoopBudgets, LoopCheckpointStore
@@ -54,7 +55,7 @@ from forgeagent.runtime import Runtime
 from forgeagent.skills import SkillDefinition, SkillRegistry
 from forgeagent.step import RoundResult, Step, Termination
 from forgeagent.task import TaskOutcome, TaskStatus
-from forgeagent.tools import ToolOutcome
+from forgeagent.tools import ToolOutcome, default_registry
 
 
 def _reply(
@@ -1297,6 +1298,30 @@ def test_main_loop_rejects_invalid_or_conflicting_inputs(argv):
     assert main(argv, client_factory=_factory([])) == 2
 
 
+@pytest.mark.parametrize(
+    "option",
+    [
+        ["--collaboration-mode", "duo"],
+        ["--planner-model", "planner"],
+        ["--evaluator-model", "evaluator"],
+        ["--max-rejections", "3"],
+    ],
+)
+def test_main_loop_resume_rejects_collaboration_policy_overrides(tmp_path, monkeypatch, option):
+    monkeypatch.chdir(tmp_path)
+    store = LoopCheckpointStore(str(tmp_path))
+    checkpoint = store.create("private initial goal", LoopBudgets(token_budget=25))
+    store.close()
+
+    assert (
+        main(
+            ["--no-identity", "--no-memory", "loop", "--resume", checkpoint.loop_id, *option],
+            client_factory=_factory([]),
+        )
+        == 2
+    )
+
+
 def test_main_loop_completes_with_mock_client_and_renders_safe_report(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     console = _console()
@@ -1355,6 +1380,97 @@ def test_run_loop_once_closes_runner_and_reuses_cli_assembly(monkeypatch, tmp_pa
 
     assert report.status == "completed"
     assert report.tokens_used == 1
+
+
+def test_collaborative_loop_shares_remaining_rounds_and_forwards_loop_context(
+    monkeypatch, tmp_path
+):
+    task_round_limits: list[int] = []
+    forwarded: dict[str, object] = {}
+    role_outcomes = iter(
+        [
+            TaskOutcome(
+                status=TaskStatus(completed=True, reason=Termination.COMPLETED),
+                rounds=[RoundResult(text=""), RoundResult(text="")],
+            ),
+            TaskOutcome(
+                status=TaskStatus(completed=True, reason=Termination.COMPLETED),
+                rounds=[RoundResult(text="")],
+            ),
+        ]
+    )
+
+    class RecordingTask:
+        def __init__(self, _client, **kwargs):
+            task_round_limits.append(kwargs["max_rounds"])
+
+        def run(self, _goal, *, cancel_event=None):
+            del cancel_event
+            return next(role_outcomes)
+
+        def close(self):
+            pass
+
+    class FakeCollaboration:
+        def __init__(self, builder):
+            self._builder = builder
+            self._state = SimpleNamespace(plan_digest="")
+
+        def run(self, _goal, *, cancel_event=None):
+            del cancel_event
+            generator = self._builder("generator", 1, default_registry(), "generator")
+            generator.run("generator data")
+            generator.close()
+            evaluator = self._builder("evaluator", 1, default_registry(), "evaluator")
+            evaluator.run("evaluator data")
+            evaluator.close()
+            return CollaborationReport(
+                collaboration_id="c" * 32,
+                mode="duo",
+                status="completed",
+                stop_reason="completed",
+                phase="completed",
+                plan_item_count=1,
+                passed_item_count=1,
+                failed_item_count=0,
+                generator_attempts=1,
+                evaluator_attempts=1,
+                rejections=0,
+                rounds=3,
+                usage=CollaborationUsage(),
+                usage_available=False,
+                evidence=(),
+            )
+
+        def close(self):
+            pass
+
+    class FakeCollaborationRunner:
+        @classmethod
+        def create(cls, **kwargs):
+            forwarded.update(kwargs)
+            return FakeCollaboration(kwargs["role_task_builder"])
+
+    monkeypatch.setattr(cli_module, "Task", RecordingTask)
+    monkeypatch.setattr(cli_module, "CollaborationRunner", FakeCollaborationRunner)
+    monkeypatch.setattr(cli_module, "_validate_client_context_policy", lambda *args: None)
+
+    report = run_loop_once(
+        "finish",
+        tier="trusted",
+        model="mock",
+        client_factory=lambda _model: SimpleNamespace(close=lambda: None),
+        allowed_root=str(tmp_path),
+        console=_console(),
+        token_budget=10,
+        max_rounds=3,
+        collaboration_mode="duo",
+    )
+
+    assert report.status == "completed"
+    assert task_round_limits == [3, 1]
+    assert "UNTRUSTED LOOP STATE" in forwarded["task_data_suffix"]
+    assert "Checkpoint" in forwarded["generator_registry"].arg_schemas()
 
 
 def test_run_loop_once_closes_each_fresh_iteration_client_once(monkeypatch, tmp_path):
