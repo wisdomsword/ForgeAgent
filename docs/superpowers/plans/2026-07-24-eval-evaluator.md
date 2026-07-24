@@ -221,7 +221,7 @@ git commit -m "feat: add safe evaluation metrics"
 - Consumes: a validated `EvaluationRecord`, caller-supplied absolute record path/directory, and `limit: int`.
 - Produces: `write_record(path: Path, record: EvaluationRecord) -> Path`; `read_record(path: Path) -> EvaluationRecord`; `append_trend(record_dir: Path, record: EvaluationRecord, limit: int = 20) -> TrendAppendResult`; `compare_latest(record_dir: Path, record: EvaluationRecord) -> TrendComparison` with nullable per-metric deltas and current/prior run IDs.
 
-- [ ] **Step 1: Write failing atomic-storage and trend tests**
+- [x] **Step 1: Write failing atomic-storage and trend tests**
 
 ```python
 def test_append_trend_compares_latest_compatible_record_and_bounds_index(tmp_path):
@@ -242,25 +242,25 @@ def test_corrupt_or_incompatible_history_is_ignored_with_fixed_diagnostic(tmp_pa
 
 Also test: `write_record` leaves no temporary file on replace success/failure; `read_record` rejects unknown schema/extra key/non-finite JSON; non-absolute caller path is rejected; invalid `limit`; duplicate run ID; retention removes only named record files listed by the index; and storage write failure does not mutate a previously valid index.
 
-- [ ] **Step 2: Run the storage tests to verify failure**
+- [x] **Step 2: Run the storage tests to verify failure**
 
 Run: `uv run pytest tests/test_evaluation.py -k 'record or trend or atomic' -v`
 
 Expected: FAIL because persistence/trend APIs are absent.
 
-- [ ] **Step 3: Implement atomic write, strict read, and bounded index**
+- [x] **Step 3: Implement atomic write, strict read, and bounded index**
 
 Use an explicit `record_dir.resolve()` supplied by the caller; reject a relative input before I/O. Write JSON with `ensure_ascii=True`, `allow_nan=False`, and a same-directory `NamedTemporaryFile`, then `os.replace()` exactly as golden runner `_atomic_write()` does. Use an index named `index.json` with schema `forgeagent.evaluation-trend.v1` and only `run_ids: list[str]`; each record lives at `record_dir / f"{run_id}.json"` after rejecting any run ID not matching `^[A-Za-z0-9_-]{1,64}$`.
 
 `append_trend()` must read the previous compatible record before changing files, compare only `schema == EVALUATION_SCHEMA` records, ignore corrupt/incompatible history using count-only diagnostic `ignored_invalid_history:N`, atomically write the current record and new index, then delete evicted record filenames only after the new index exists. `compare_latest()` returns `None` for any delta whose old or new metric is null; it must not subtract incompatible schemas or read paths not named by the index.
 
-- [ ] **Step 4: Run all offline evaluation tests and lint**
+- [x] **Step 4: Run all offline evaluation tests and lint**
 
 Run: `uv run pytest tests/test_evaluation.py -v && uv run ruff check src/forgeagent/evaluation.py tests/test_evaluation.py && uv run ruff format --check src/forgeagent/evaluation.py tests/test_evaluation.py`
 
 Expected: all PASS; every persistence assertion uses only temporary directories and no model/network.
 
-- [ ] **Step 5: Commit record persistence and trends**
+- [x] **Step 5: Commit record persistence and trends**
 
 ```bash
 git add src/forgeagent/evaluation.py tests/test_evaluation.py
@@ -277,7 +277,7 @@ git commit -m "feat: persist evaluation trends"
 - Consumes: `EvaluationRequest(task_description: str, expected_behavior: str, artifact_root: Path, artifacts: tuple[ArtifactManifestItem, ...])`, a selected `ModelClient`, and existing `Task`.
 - Produces: `ArtifactManifestItem(path: str, size_bytes: int)`; `EvaluatorResult(status: Literal["passed", "failed"], observed_evidence: tuple[str, ...], unmet_expectations: tuple[str, ...])`; `validate_artifact_manifest(root: Path, paths: Sequence[str]) -> tuple[ArtifactManifestItem, ...]`; `run_evaluator(client: ModelClient, request: EvaluationRequest) -> EvaluatorResult`.
 
-- [ ] **Step 1: Write failing artifact-boundary and isolation tests**
+- [x] **Step 1: Write failing artifact-boundary and isolation tests**
 
 ```python
 def test_manifest_rejects_escape_absolute_and_oversized_artifacts(tmp_path):
@@ -299,13 +299,13 @@ def test_evaluator_task_has_no_generator_context(monkeypatch, tmp_path):
 
 Add cases for root itself being a symlink/unreadable; non-file artifact; more than 20 artifacts; file above 64 KiB; total above 256 KiB; control characters; secret/absolute-path-like expected text rendered safely; `Task.close()` on both success/failure; malformed model result; and each parameterized known-bad artifact fixture returning `failed`.
 
-- [ ] **Step 2: Run focused tests to verify failure**
+- [x] **Step 2: Run focused tests to verify failure**
 
 Run: `uv run pytest tests/test_evaluator.py -v`
 
 Expected: FAIL with missing evaluator module/API.
 
-- [ ] **Step 3: Implement the smallest safe evaluator facade**
+- [x] **Step 3: Implement the smallest safe evaluator facade**
 
 Define fixed upper bounds as module constants (`MAX_ARTIFACTS = 20`, `MAX_ARTIFACT_BYTES = 64 * 1024`, `MAX_TOTAL_ARTIFACT_BYTES = 256 * 1024`, `MAX_EVIDENCE_ITEMS = 8`, `MAX_EVIDENCE_CHARS = 500`). Resolve the root once, require every supplied manifest name to be a nonempty relative POSIX path with no `..`, resolve each candidate, and require `candidate.is_relative_to(root)` and `candidate.is_file()` before collecting size. Never put an absolute path in the request/prompt/result; include only `item.path` and `item.size_bytes`.
 
@@ -322,13 +322,13 @@ evaluator_result:
 
 Construct a fresh `Task(client, tier="restricted", allowed_root=str(root), system_prompt=EVALUATOR_SYSTEM_PROMPT, max_rounds=2, memory_manager=None, skills=None, mcp=None, audit_sink=None)`. Use a dedicated registry containing only `FileReadTool()` and `FileListTool()` by extending `Task`/`Step` with an optional injected registry parameter only if that is the minimal established seam; do not expose Exec, Edit, FileWrite, WebFetch, Survey, MCP, or Skill. The facade feeds only task description, expected behavior, and bounded manifest. Parse only this evaluator-specific result shape; any parse/model/task failure maps to `EvaluatorResult(status="failed", observed_evidence=(), unmet_expectations=("evaluation unavailable",))`, never an exception string.
 
-- [ ] **Step 4: Run evaluator isolation tests**
+- [x] **Step 4: Run evaluator isolation tests**
 
 Run: `uv run pytest tests/test_evaluator.py -v && uv run ruff check src/forgeagent/evaluator.py tests/test_evaluator.py`
 
 Expected: PASS; fixtures prove every known failure is rejected and Generator-only dependencies are absent.
 
-- [ ] **Step 5: Commit the isolated evaluator core**
+- [x] **Step 5: Commit the isolated evaluator core**
 
 ```bash
 git add src/forgeagent/evaluator.py src/forgeagent/task.py src/forgeagent/step.py tests/test_evaluator.py

@@ -27,7 +27,7 @@ from .models import GenerationParams, ImageItem, Message, Role, StreamEventKind,
 from .runtime import Runtime
 from .skills import SkillRegistry
 from .step import RoundResult, Step, Termination
-from .tools import Asker, Confirmer, Tier
+from .tools import Asker, Confirmer, Tier, ToolRegistry
 
 
 def _backend_for_tier(
@@ -103,6 +103,7 @@ class Task:
         context_policy: ContextPolicy | None = None,
         memory_manager: MemoryManager | None = None,
         skills: SkillRegistry | None = None,
+        tool_registry: ToolRegistry | None = None,
     ):
         self._client = client
         self._tier = tier
@@ -135,6 +136,7 @@ class Task:
         self._task_id = task_id
         self._memory_manager = memory_manager
         self._skills = skills
+        self._tool_registry = tool_registry
         self._context_policy = context_policy or SlidingWindowContextPolicy(
             client.capability,
             params,
@@ -216,6 +218,7 @@ class Task:
             task_id=self._task_id,
             context_policy=self._context_policy,
             skills=self._skills,
+            registry=self._tool_registry,
         )
         rounds = step.run(messages)
         status = self._derive_status(rounds)

@@ -11,8 +11,9 @@ from forgeagent.memory import MemoryManager
 from forgeagent.models import AssistantMessage, StreamEvent, StreamEventKind, TokenUsage
 from forgeagent.protocol import MemoryCandidate
 from forgeagent.skills import SkillDefinition, SkillRegistry
-from forgeagent.step import Termination
+from forgeagent.step import RoundResult, Termination
 from forgeagent.task import Task, TaskStatus
+from forgeagent.tools import ToolRegistry
 
 
 def _reply(text: str, stop_reason: str = "end_turn") -> AssistantMessage:
@@ -104,6 +105,26 @@ def test_task_constructs_default_context_policy_once_and_forwards_it(monkeypatch
     assert len(constructed) == 1
     assert len(constructed[0]) == 3
     assert len(policies[0].views) == 1
+
+
+def test_task_forwards_injected_tool_registry_to_step(monkeypatch):
+    registry = ToolRegistry()
+    captured = None
+
+    class _Step:
+        def __init__(self, *args, **kwargs):
+            nonlocal captured
+            captured = kwargs.get("registry")
+
+        def run(self, messages):
+            return [RoundResult(text=_done(), stopped_reason=Termination.COMPLETED)]
+
+    monkeypatch.setattr("forgeagent.task.Step", _Step)
+
+    outcome = Task(MockClient(script=[]), tool_registry=registry).run("evaluate")
+
+    assert outcome.status.completed is True
+    assert captured is registry
 
 
 def test_task_forwards_audit_sink_and_task_id_to_core_events():
