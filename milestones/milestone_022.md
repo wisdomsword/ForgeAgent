@@ -40,7 +40,7 @@ Evaluator 组成，只有 Evaluator 的逐项全通过 verdict 能决定完成�
 - [x] 接入 CLI、REPL、HTTP、Loop 与审计，保持 ordinary/single 路径兼容
 - [x] 补齐 README、文本协议、HTTP、威胁模型与文档静态合同
 - [x] 完成全量门禁、全 diff 独立审查、两轮最终自审与缺陷修复
-- [x] 完成主分支本地合并决策与 OpenSpec 归档准备；归档提交随本里程碑收尾提交落地
+- [x] 本地 fast-forward 合并到主分支，并归档 OpenSpec change `2026-07-24-triad-mode`
 
 ## 交付物清单
 

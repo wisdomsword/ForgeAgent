@@ -4,5 +4,6 @@
   "openspec_tasks": "openspec/changes/triad-mode/tasks.md",
   "openspec_delta_spec": "openspec/changes/triad-mode/specs/audit-logging/spec.md",
   "handoff_context": "openspec/changes/triad-mode/.comet/handoff/design-context.json",
-  "handoff_markdown": "openspec/changes/triad-mode/.comet/handoff/design-context.md"
+  "handoff_markdown": "openspec/changes/triad-mode/.comet/handoff/design-context.md",
+  "archive_directory": "openspec/changes/archive/2026-07-24-triad-mode"
 }

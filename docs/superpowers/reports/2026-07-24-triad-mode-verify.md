@@ -142,3 +142,13 @@ loopback blackbox 无法绑定端口与 1 个嵌套 `uv build` 权限限制。�
 | Coherence | 实现遵循 OpenSpec design 与技术设计；仅增加 Loop-owned recover policy 以满足既有可恢复失败场景 |
 
 最终评估：All checks passed. Ready for archive.
+
+## 归档结果
+
+- 本地 `main` 已 fast-forward 到 M22 验证提交，并在合并结果上复验：`2069 passed, 11 skipped`。
+- Comet verify guard 通过，OpenSpec archive `7/7` 步骤成功。
+- delta specs 已合并到主 specs：`+9` requirements、`~3` requirements；新建
+  `openspec/specs/runtime-collaboration/spec.md`。
+- change 已移动到 `openspec/changes/archive/2026-07-24-triad-mode/`，其中
+  `.comet.yaml` 记录 `archived: true`。
+- 归档后 OpenSpec strict `17 passed, 0 failed`；文档/集成/Loop 定向回归 `44 passed`。

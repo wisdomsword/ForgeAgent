@@ -2,6 +2,8 @@
 comet_change: triad-mode
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-07-24-triad-mode
+status: final
 ---
 
 # M22 Triad Mode 技术设计
@@ -343,3 +345,4 @@ plan_digest: str = ""
 - Evaluator 可执行任意测试命令或写临时项目文件；
 - 模型分类路由、自动模型选择和 Planner 自动改规格；
 - 跨进程 file lock、distributed orchestration 和 exactly-once side effects。
+

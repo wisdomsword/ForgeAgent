@@ -2,6 +2,7 @@
 change: triad-mode
 design-doc: docs/superpowers/specs/2026-07-24-triad-mode-design.md
 base-ref: 2433b7689f275caef4e42c991317934d615aeb36
+archived-with: 2026-07-24-triad-mode
 ---
 
 # Triad Mode Implementation Plan
@@ -27,6 +28,7 @@ base-ref: 2433b7689f275caef4e42c991317934d615aeb36
 - Public reports and audit events never contain full goals, plan/verdict text, prompts, raw replies, tool arguments, file contents, credentials or absolute host paths.
 - Preserve all pre-existing untracked user/auxiliary files and do not stage them.
 
+archived-with: 2026-07-24-triad-mode
 ---
 
 ### Task 1: Collaboration Models, Store, Tools, and Routing
@@ -309,3 +311,4 @@ Create the report with exact commands/results, review findings/fixes, unverified
 - [x] **Step 7: Commit Task 5**
 
 Commit with `docs: complete M22 triad mode`.
+

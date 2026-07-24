@@ -51,3 +51,19 @@ TBD - created by archiving change skills-runtime. Update Purpose after archive.
 #### Scenario: 管道提交任务
 - **WHEN** 用户通过非 TTY 输入提交一个 goal
 - **THEN** MCP 可继续为任务提供能力，但启动 banner、Logo、MCP optional 状态和交互 prompt 不出现在输出中，既有任务结果仍被输出
+
+### Requirement: REPL exposes explicit Duo and Triad commands
+The REPL command table SHALL include `/duo <goal>` and `/triad <goal>` using the same completion, help, history and input compatibility paths as existing slash commands. Missing goals MUST produce bounded usage guidance without starting a task.
+
+#### Scenario: Duo slash command
+- **WHEN** a user submits `/duo verify this report`
+- **THEN** the REPL removes the command prefix and runs the remaining goal in Duo mode
+
+#### Scenario: Triad slash command
+- **WHEN** a user submits `/triad implement the parser`
+- **THEN** the REPL removes the command prefix and runs the remaining goal in Triad mode, including Planner confirmation
+
+#### Scenario: Slash candidates and help
+- **WHEN** a user types `/d`, `/t`, or requests `/help duo`
+- **THEN** candidates and help are derived from the shared command table and describe the collaboration cost and semantics
+

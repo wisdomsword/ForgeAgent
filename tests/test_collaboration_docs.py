@@ -102,7 +102,7 @@ def test_threat_model_covers_collaboration_role_and_state_boundaries() -> None:
 def test_m22_closeout_artifacts_record_final_gates() -> None:
     action_plan = _text("ACTION_PLAN.md")
     m22_row = next(line for line in action_plan.splitlines() if line.startswith("| **M22**"))
-    assert "已完成验证，待归档提交" in m22_row
+    assert "已完成并归档" in m22_row
     assert "2069 passed" in m22_row
     assert "M22 待启动" not in action_plan
 

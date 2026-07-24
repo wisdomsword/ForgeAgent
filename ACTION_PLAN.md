@@ -5,7 +5,7 @@
 > **M19 归档后补充（2026-07-24）**：Startup-Information 已完成并独立归档，补充真实 TTY ASCII Logo/启动摘要、MCP per-generation 有界 stderr 与固定脱敏诊断、非 TTY 零启动噪声；最终整合回归 `1504 passed, 11 skipped`，golden `20/20`，OpenSpec 全规格 `13/13`。
 > **M20 完成并归档（2026-07-24）**：Eval record/trend、20 项 manifest baseline 与显式独立 Evaluator 已完成；最终回归 `1617 passed, 11 skipped`，OpenSpec change 已归档。
 > **M21 完成并归档（2026-07-24）**：Loop Engineering 已完成；最终回归 `1758 passed, 11 skipped`，专项 `462 passed`，golden `20/20`，OpenSpec strict `16/16`；OpenSpec change 已归档。
-> **M22 已完成验证，待归档提交（2026-07-25）**：Duo/Triad core、Planner 确认、独立 Evaluator、编程任务路由和 CLI/REPL/HTTP/Loop 接入已完成；最终全量 `2069 passed, 11 skipped`、golden 20/20、Ruff、build、OpenSpec strict 与全 diff review 均通过。
+> **M22 已完成并归档（2026-07-25）**：Duo/Triad core、Planner 确认、独立 Evaluator、编程任务路由和 CLI/REPL/HTTP/Loop 接入已完成；最终全量 `2069 passed, 11 skipped`、golden 20/20、Ruff、build、OpenSpec strict 与全 diff review 均通过。
 > 调研基础：已通读 agent 核心执行链路（taskmgr → task/step → response 解析 → toolcalls → executor → runtime）、LLM 客户端层、提示词模板、配置与测试。
 
 ## 一、结论
@@ -72,7 +72,7 @@
 | **M19**         | Skills 运行时：SKILL.md 结构规范、渐进加载、模型自主匹配、失败分支语义、威胁模型更新（项目级 skill 注入面）。归档后补充 Startup-Information：真实 TTY Logo/能力摘要、MCP 有界脱敏诊断、非 TTY 零启动噪声。详见 `TECH_PATH.md` §三 M19。                                                                                           | 最终整合 pytest 1504 passed / 11 skipped；M19 人类验收焦点 15/15、离线 PTY 六项 PASS；Startup 真实 PTY；Ruff；golden 20/20；OpenSpec 全规格 13/13；两个 change 均已归档 | **已完成并归档，含补充（2026-07-24）** |
 | **M20**         | Eval 体系 + 独立 Evaluator：分层指标聚合（first_pass_correctness/correction_rounds/cache_hit_rate/golden 趋势）、opt-in 独立 Evaluator agent、golden manifest 防退化。详见 `TECH_PATH.md` §三 M20。                                                                                     | 最终回归 1617 passed / 11 skipped；专项 466 passed；golden 20/20；Ruff；build；OpenSpec strict；已知 fail 3/3 经 FileRead 反馈链检出 | **已完成并归档（2026-07-24）** |
 | **M21**         | Loop Engineering：trigger（CLI/HTTP/cron 示例）、checkpoint/resume、stop conditions（轮次/token 预算/墙钟/连续失败）、失败反馈环收敛、端到端 Loop 示例。详见 `TECH_PATH.md` §三 M21。                                                                                                              | 最终回归 1758 passed / 11 skipped；专项 462 passed；golden 20/20；Ruff；build；OpenSpec strict 16/16 | **已完成并归档（2026-07-24）** |
-| **M22**         | 运行时三角色协作（Triad Mode）：阶段一 Duo（Generator+Evaluator 独立验收、打回环、完成语义变更）；阶段二 Triad（+Planner 功能清单、禁删禁降、用户确认门）；`/duo`/`/triad` 指令 + 编程类任务强制路由。详见 `TECH_PATH.md` §三 M22。                                                                                               | 最终回归 2069 passed / 11 skipped；协作专项 281 passed；golden 20/20；Ruff；build；OpenSpec strict 17/17；完整 diff review 通过 | **已完成验证，待归档提交（2026-07-25）** |
+| **M22**         | 运行时三角色协作（Triad Mode）：阶段一 Duo（Generator+Evaluator 独立验收、打回环、完成语义变更）；阶段二 Triad（+Planner 功能清单、禁删禁降、用户确认门）；`/duo`/`/triad` 指令 + 编程类任务强制路由。详见 `TECH_PATH.md` §三 M22。                                                                                               | 最终回归 2069 passed / 11 skipped；协作专项 281 passed；golden 20/20；Ruff；build；OpenSpec strict 17/17；完整 diff review 通过 | **已完成并归档（2026-07-25）** |
 
 编码型子任务按 spec.md 原则派发给低算力 subagent，模板见 M1 交付的 subagent 任务模板。
 
