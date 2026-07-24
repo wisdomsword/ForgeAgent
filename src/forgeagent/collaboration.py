@@ -41,10 +41,22 @@ _HOW_ONLY_RE = re.compile(
 )
 _PROGRAM_ACTION_PATTERNS = (
     re.compile(rf"\b{term}\b", re.IGNORECASE)
-    for term in ("write", "create", "implement", "fix", "refactor", "tests?", "build")
+    for term in (
+        "write",
+        "create",
+        "modify",
+        "edit",
+        "update",
+        "implement",
+        "fix",
+        "refactor",
+        "tests?",
+        "build",
+    )
 )
 _PROGRAM_ACTION_PATTERNS = tuple(_PROGRAM_ACTION_PATTERNS) + tuple(
-    re.compile(re.escape(term)) for term in ("写", "创建", "实现", "修复", "重构", "测试", "构建")
+    re.compile(re.escape(term))
+    for term in ("写", "创建", "修改", "实现", "修复", "重构", "测试", "构建")
 )
 _PROGRAM_ARTIFACT_PATTERNS = tuple(
     re.compile(rf"\b{term}\b", re.IGNORECASE)
@@ -53,7 +65,7 @@ _PROGRAM_ARTIFACT_PATTERNS = tuple(
         "programs?",
         "scripts?",
         "api",
-        "classes?",
+        "class(?:es)?",
         "functions?",
         "tests?",
         "packages?",
@@ -70,8 +82,9 @@ _PROGRAM_FILES = re.compile(
 _QUOTED_TEXT = re.compile(r'"[^"\n]*"|\'[^\'\n]*\'|“[^”\n]*”|‘[^’\n]*’')
 _NEGATED_PROGRAM_ACTION = re.compile(
     r"\b(?:do\s+not|don't|dont|never|without)\s+(?:(?:\w+)[\s-]+){0,3}"
-    r"(?:write|create|implement|fix|refactor|test|tests|build)\b|"
-    r"(?:不要|无需|不需要|别|禁止|不应|不用).{0,8}(?:写|创建|实现|修复|重构|测试|构建)",
+    r"(?:write|create|modify|edit|update|implement|fix|refactor|test|tests|build)\b|"
+    r"(?:不要|无需|不需要|别|禁止|不应|不用)[^,，;；.!?。！？\n]{0,8}"
+    r"(?:写|创建|修改|实现|修复|重构|测试|构建)",
     re.IGNORECASE,
 )
 _CLAUSE_END = re.compile(r"[,，;；.!?。！？\n]")
@@ -151,7 +164,6 @@ def _safe_evaluation_item(item: EvaluationItem) -> EvaluationItem:
 def _routing_text(value: str) -> str:
     projected = list(value)
     excluded: list[tuple[int, int]] = []
-    excluded.extend(match.span() for match in _QUOTED_TEXT.finditer(value))
     for match in _NEGATED_PROGRAM_ACTION.finditer(value):
         clause_end = _CLAUSE_END.search(value, match.end(), min(len(value), match.start() + 160))
         excluded.append((match.start(), clause_end.start() if clause_end else len(value)))
@@ -162,18 +174,19 @@ def _routing_text(value: str) -> str:
 
 def _programming_signal(value: str) -> bool:
     routable = _routing_text(value)
-    if _PROGRAM_FILES.search(routable):
-        return True
+    quoted = tuple(match.span() for match in _QUOTED_TEXT.finditer(routable))
     actions = [
         match.span()
         for pattern in _PROGRAM_ACTION_PATTERNS
         for match in pattern.finditer(routable)
+        if not any(start <= match.start() and match.end() <= end for start, end in quoted)
     ]
     artifacts = [
         match.span()
         for pattern in _PROGRAM_ARTIFACT_PATTERNS
         for match in pattern.finditer(routable)
     ]
+    artifacts.extend(match.span() for match in _PROGRAM_FILES.finditer(routable))
     return any(action != artifact for action in actions for artifact in artifacts)
 
 
@@ -320,6 +333,13 @@ _ALLOWED_PHASE_TRANSITIONS = {
     "failed": frozenset({"failed"}),
 }
 _TERMINAL_STATUSES = frozenset({"completed", "stopped", "cancelled", "failed"})
+_PHASES_BY_STATUS = {
+    "active": frozenset({"planning", "needs_confirmation", "generator", "evaluator"}),
+    "completed": frozenset({"completed"}),
+    "stopped": frozenset({"stopped"}),
+    "cancelled": frozenset({"cancelled"}),
+    "failed": frozenset({"failed"}),
+}
 _FROZEN_STATE_FIELDS = (
     "collaboration_id",
     "mode",
@@ -338,10 +358,16 @@ _MONOTONIC_COUNTER_FIELDS = (
 )
 
 
+def _status_phase_is_valid(status: object, phase: object) -> bool:
+    return isinstance(status, str) and phase in _PHASES_BY_STATUS.get(status, ())
+
+
 def _validate_state_transition(current: CollaborationState, candidate: CollaborationState) -> None:
     if any(getattr(current, field) != getattr(candidate, field) for field in _FROZEN_STATE_FIELDS):
         raise CollaborationError("invalid collaboration state transition")
     if current.status in _TERMINAL_STATUSES and candidate.status != current.status:
+        raise CollaborationError("invalid collaboration state transition")
+    if not _status_phase_is_valid(candidate.status, candidate.phase):
         raise CollaborationError("invalid collaboration state transition")
     if candidate.phase not in _ALLOWED_PHASE_TRANSITIONS[current.phase]:
         raise CollaborationError("invalid collaboration state transition")
@@ -469,6 +495,8 @@ class CollaborationState(BaseModel):
     def _validate_invariants(self) -> CollaborationState:
         if self.stop_reason not in _STOP_REASONS[self.status]:
             raise ValueError("state status and stop reason are inconsistent")
+        if not _status_phase_is_valid(self.status, self.phase):
+            raise ValueError("state status and phase are inconsistent")
         if self.rejections > self.max_rejections:
             raise ValueError("rejections exceed max_rejections")
         if self.plan and self.plan_digest != plan_digest(self.plan):
@@ -514,6 +542,13 @@ class CollaborationReport(BaseModel):
     def schema(self) -> str:
         return self.schema_
 
+    @field_validator("collaboration_id")
+    @classmethod
+    def _validate_collaboration_id(cls, value: Any) -> str:
+        if not isinstance(value, str) or _COLLABORATION_ID_RE.fullmatch(value) is None:
+            raise ValueError("invalid collaboration id")
+        return value
+
     @field_validator(
         "plan_item_count",
         "passed_item_count",
@@ -534,6 +569,21 @@ class CollaborationReport(BaseModel):
         if type(value) is not bool:
             raise ValueError("usage_available must be a bool")
         return value
+
+    @field_validator("evidence", mode="before")
+    @classmethod
+    def _validate_evidence(cls, value: Any) -> tuple[str, ...]:
+        if not isinstance(value, (list, tuple)) or len(value) > MAX_PUBLIC_EVIDENCE_ITEMS:
+            raise ValueError("evidence is invalid")
+        if not all(isinstance(item, str) for item in value):
+            raise ValueError("evidence is invalid")
+        return tuple(_public_text(item) for item in value)
+
+    @model_validator(mode="after")
+    def _validate_counts(self) -> CollaborationReport:
+        if self.passed_item_count + self.failed_item_count > self.plan_item_count:
+            raise ValueError("report counts are inconsistent")
+        return self
 
     @classmethod
     def from_state(cls, state: CollaborationState) -> CollaborationReport:
@@ -717,6 +767,8 @@ class CollaborationStore:
             current = self.load(state.collaboration_id)
             if current.revision != expected_revision:
                 raise CollaborationError("collaboration revision is stale")
+            if not _status_phase_is_valid(state.status, state.phase):
+                raise CollaborationError("invalid collaboration state transition")
             try:
                 updated = CollaborationState.model_validate(
                     state.model_dump(mode="python") | {"revision": expected_revision + 1}

@@ -9,8 +9,10 @@ from pydantic import ValidationError
 
 from forgeagent.collaboration import (
     COLLABORATION_SCHEMA,
+    MAX_EVIDENCE_CHARS,
     MAX_ITEM_TEXT_CHARS,
     MAX_PLAN_ITEMS,
+    MAX_PUBLIC_EVIDENCE_ITEMS,
     AcceptanceItem,
     CollaborationReport,
     CollaborationState,
@@ -38,6 +40,27 @@ def _state(**overrides: object) -> CollaborationState:
     }
     values.update(overrides)
     return CollaborationState(**values)
+
+
+def _report_values(**overrides: object) -> dict[str, object]:
+    values: dict[str, object] = {
+        "collaboration_id": "a" * 32,
+        "mode": "duo",
+        "status": "active",
+        "stop_reason": None,
+        "phase": "generator",
+        "plan_item_count": 1,
+        "passed_item_count": 0,
+        "failed_item_count": 0,
+        "generator_attempts": 0,
+        "evaluator_attempts": 0,
+        "rejections": 0,
+        "rounds": 0,
+        "usage": CollaborationUsage(),
+        "usage_available": True,
+    }
+    values.update(overrides)
+    return values
 
 
 def test_models_reject_bool_coercion_nonfinite_and_extra_fields():
@@ -109,6 +132,34 @@ def test_completed_state_requires_all_passing_evaluation_and_public_report_masks
 
 
 @pytest.mark.parametrize(
+    ("status", "phase", "stop_reason"),
+    [
+        ("active", "completed", None),
+        ("active", "stopped", None),
+        ("completed", "generator", "completed"),
+        ("completed", "evaluator", "completed"),
+        ("stopped", "generator", "rejection_limit"),
+        ("cancelled", "evaluator", "cancelled"),
+        ("failed", "planning", "role_failed"),
+    ],
+)
+def test_state_requires_status_and_phase_to_describe_the_same_lifecycle_point(
+    status: str, phase: str, stop_reason: str | None
+):
+    overrides: dict[str, object] = {
+        "status": status,
+        "phase": phase,
+        "stop_reason": stop_reason,
+    }
+    if status == "completed":
+        overrides["last_evaluation"] = (
+            EvaluationItem(id="output", passed=True, observed="yes", expected="yes"),
+        )
+    with pytest.raises(ValidationError, match="status and phase"):
+        _state(**overrides)
+
+
+@pytest.mark.parametrize(
     "location", ["/tmp/result.txt", "C:/Users/admin/result.txt", r"C:\Users\admin\result.txt"]
 )
 def test_evaluation_rejects_absolute_location_forms(location: str):
@@ -119,28 +170,49 @@ def test_evaluation_rejects_absolute_location_forms(location: str):
 
 
 def test_public_models_reject_bool_and_integer_coercion():
-    report_values = {
-        "collaboration_id": "a" * 32,
-        "mode": "duo",
-        "status": "active",
-        "stop_reason": None,
-        "phase": "generator",
-        "plan_item_count": 1,
-        "passed_item_count": 0,
-        "failed_item_count": 0,
-        "generator_attempts": 0,
-        "evaluator_attempts": 0,
-        "rejections": 0,
-        "rounds": 0,
-        "usage": CollaborationUsage(),
-        "usage_available": True,
-    }
+    report_values = _report_values()
     with pytest.raises(ValidationError):
         CollaborationReport(**(report_values | {"plan_item_count": True}))
     with pytest.raises(ValidationError):
         CollaborationReport(**(report_values | {"usage_available": 1}))
     with pytest.raises(ValidationError):
         ModeDecision(mode="single", reason="default", override_required=1)
+
+
+def test_report_direct_validation_enforces_id_evidence_and_count_bounds(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setenv("COLLABORATION_REPORT_SECRET", "report-secret-for-test")
+
+    with pytest.raises(ValidationError, match="collaboration id"):
+        CollaborationReport(**_report_values(collaboration_id="not-an-id"))
+    with pytest.raises(ValidationError, match="evidence"):
+        CollaborationReport(
+            **_report_values(evidence=["item"] * (MAX_PUBLIC_EVIDENCE_ITEMS + 1))
+        )
+    with pytest.raises(ValidationError, match="counts"):
+        CollaborationReport(
+            **_report_values(passed_item_count=1, failed_item_count=1)
+        )
+
+    report = CollaborationReport(
+        **_report_values(
+            evidence=[
+                "x" * (MAX_EVIDENCE_CHARS + 20)
+                + " /Users/admin/private/result.txt report-secret-for-test"
+            ]
+        )
+    )
+
+    assert len(report.evidence[0]) == MAX_EVIDENCE_CHARS
+    safe = CollaborationReport(
+        **_report_values(
+            evidence=["/Users/admin/private/result.txt report-secret-for-test"]
+        )
+    )
+    assert "/Users/admin" not in safe.evidence[0]
+    assert "report-secret-for-test" not in safe.evidence[0]
+    assert "<redacted-path>" in safe.evidence[0]
 
 
 def test_submit_evaluation_schema_requires_nonempty_bounded_results():

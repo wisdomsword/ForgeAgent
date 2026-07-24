@@ -145,6 +145,30 @@ def test_store_rejects_nonmonotonic_state_transitions(
         store.save(current.model_copy(update=updates), expected_revision=0)
 
 
+def test_store_rejects_completed_status_in_an_execution_phase(tmp_path: Path):
+    plan = (AcceptanceItem(id="goal", behavior="goal", acceptance="goal"),)
+    evaluation = (
+        EvaluationItem(id="goal", passed=True, observed="yes", expected="yes"),
+    )
+    store = CollaborationStore(str(tmp_path))
+    current = store.create(
+        "Build an artifact",
+        "duo",
+        collaboration_id="7" * 32,
+        phase="evaluator",
+        plan=plan,
+        last_evaluation=evaluation,
+    )
+
+    with pytest.raises(CollaborationError):
+        store.save(
+            current.model_copy(
+                update={"status": "completed", "stop_reason": "completed"}
+            ),
+            expected_revision=0,
+        )
+
+
 def test_store_rejects_plan_fact_loss_before_plan_freezes(tmp_path: Path):
     store = CollaborationStore(str(tmp_path))
     current = store.create("Build an artifact", "triad", collaboration_id="4" * 32)

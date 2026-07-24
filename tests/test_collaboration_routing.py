@@ -11,7 +11,25 @@ from forgeagent.collaboration import resolve_collaboration_mode
     "goal",
     [
         "Create a Python script to parse records",
+        "Create a file named 'foo.py'",
+        'Modify "src/main.py"',
+        "Edit `package.json`",
+        "Write code",
+        "Implement an API",
+        "Fix the tests",
+        "Refactor this class",
+        "Test the package",
+        "Build the project",
         "修复这个代码项目中的测试",
+        "写一个脚本",
+        "创建一个程序",
+        "实现这个接口",
+        "重构这个类",
+        "测试这个包",
+        "构建这个项目",
+        '修改 "src/main.py"',
+        "不要解释作用，只修改 src/main.py",
+        "Do not summarize it; edit package.json",
         "Update package.json",
         "构建 src/main.go",
     ],
@@ -24,6 +42,20 @@ def test_programming_requests_route_to_triad(goal: str):
     "goal", ["Explain Python decorators", "Review this report", "解释这个函数的作用"]
 )
 def test_explanations_and_review_prose_do_not_false_positive(goal: str):
+    assert resolve_collaboration_mode(goal, None).mode == "single"
+
+
+@pytest.mark.parametrize(
+    "goal",
+    [
+        "Explain foo.py",
+        "Review src/main.py",
+        "Read package.json and summarize it",
+        "不要修改 src/main.py，只解释作用",
+        "Do not edit package.json; summarize it",
+    ],
+)
+def test_recognized_filename_requires_an_affirmative_programming_action(goal: str):
     assert resolve_collaboration_mode(goal, None).mode == "single"
 
 
