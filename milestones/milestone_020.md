@@ -76,8 +76,7 @@ Task、REPL、serve 和 offline golden 不调用 Evaluator；缺失指标保持 
 
 ## 续接指引
 
-M20 实现、验证与 `eval-evaluator` change 归档均已完成，当前保留在
-`codex/eval-evaluator` 分支。下一计划
-里程碑为 M21 Loop Engineering：在不把 M20 Evaluator 自动接入普通 Task 的前提下，设计
+M20 实现、验证与 `eval-evaluator` change 归档均已完成，已合入 `main`。下一计划里程碑为
+M21 Loop Engineering：在不把 M20 Evaluator 自动接入普通 Task 的前提下，设计
 trigger、checkpoint/resume、stop conditions 和收敛反馈环；M22 才讨论 Generator/Evaluator
 打回与 Planner 清单语义。继续保持 offline CI、20 项 trusted core 和显式真实模型成本边界。
