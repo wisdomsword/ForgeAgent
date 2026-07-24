@@ -372,7 +372,7 @@ def test_read_record_rejects_unknown_schema(tmp_path):
         "diagnostics": [],
     }
     dest.write_text(json.dumps(data), encoding="utf-8")
-    with pytest.raises((ValueError, Exception)):
+    with pytest.raises(ValueError):
         read_record(dest)
 
 
@@ -398,7 +398,7 @@ def test_read_record_rejects_extra_key(tmp_path):
         "unexpected_field": "boom",
     }
     dest.write_text(json.dumps(data), encoding="utf-8")
-    with pytest.raises((ValueError, ValidationError, Exception)):
+    with pytest.raises(ValidationError):
         read_record(dest)
 
 

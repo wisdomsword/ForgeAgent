@@ -312,16 +312,20 @@ def write_record(path: Path, record: EvaluationRecord) -> Path:
     json_text = json.dumps(data, ensure_ascii=True, allow_nan=False, indent=2)
 
     # Write to a sibling temp file, then atomically replace the destination.
-    fd, tmp_name = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+    tmp_name: str | None = None
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(json_text)
+        with tempfile.NamedTemporaryFile(
+            "w", encoding="utf-8", dir=path.parent, suffix=".tmp", delete=False
+        ) as tmp:
+            tmp.write(json_text)
+            tmp_name = tmp.name
         os.replace(tmp_name, path)
     except Exception:
-        try:
-            os.unlink(tmp_name)
-        except OSError:
-            pass
+        if tmp_name is not None:
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
         raise
 
     return path
@@ -366,16 +370,20 @@ def _write_index(record_dir: Path, run_ids: list[str]) -> None:
     data = {"schema": _TREND_SCHEMA, "run_ids": run_ids}
     json_text = json.dumps(data, ensure_ascii=True, allow_nan=False, indent=2)
     index_path = record_dir / "index.json"
-    fd, tmp_name = tempfile.mkstemp(dir=record_dir, suffix=".tmp")
+    tmp_name: str | None = None
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(json_text)
+        with tempfile.NamedTemporaryFile(
+            "w", encoding="utf-8", dir=record_dir, suffix=".tmp", delete=False
+        ) as tmp:
+            tmp.write(json_text)
+            tmp_name = tmp.name
         os.replace(tmp_name, index_path)
     except Exception:
-        try:
-            os.unlink(tmp_name)
-        except OSError:
-            pass
+        if tmp_name is not None:
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
         raise
 
 
@@ -441,10 +449,6 @@ def append_trend(
     - Corrupt/incompatible history files encountered during comparison emit
       ``ignored_invalid_history:N`` as a diagnostic.
     """
-    resolved = record_dir.resolve()
-    if not resolved.is_absolute():
-        raise ValueError(f"record_dir must be absolute, got {record_dir!r}")
-    # Reject if the caller passed a relative path that happens to resolve elsewhere.
     if not record_dir.is_absolute():
         raise ValueError(f"record_dir must be absolute, got {record_dir!r}")
 
