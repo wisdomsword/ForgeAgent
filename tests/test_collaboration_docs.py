@@ -99,19 +99,23 @@ def test_threat_model_covers_collaboration_role_and_state_boundaries() -> None:
         assert fragment.lower() in text.lower()
 
 
-def test_m22_closeout_artifacts_are_present_without_claiming_final_gates() -> None:
+def test_m22_closeout_artifacts_record_final_gates() -> None:
     action_plan = _text("ACTION_PLAN.md")
     m22_row = next(line for line in action_plan.splitlines() if line.startswith("| **M22**"))
-    assert "实现完成，待最终验证" in m22_row
+    assert "已完成验证，待归档提交" in m22_row
+    assert "2069 passed" in m22_row
     assert "M22 待启动" not in action_plan
 
     report = _text("docs/superpowers/reports/2026-07-24-triad-mode-verify.md")
-    assert "Task 1-4" in report
-    assert "最终全量验证待主流程补录" in report
+    assert "结论: PASS" in report
+    assert "2069 passed, 11 skipped" in report
+    assert "20/20 passed" in report
+    assert "Ready for archive" in report
 
     milestone = _text("milestones/milestone_022.md")
     assert "# 里程碑 M22: Triad Mode" in milestone
-    assert "- 状态: 进行中" in milestone
+    assert "- 状态: 已完成" in milestone
+    assert "2069 passed, 11 skipped" in milestone
     assert "M23" in milestone
     assert _text("milestones/latest").strip() == "milestone_022.md"
 

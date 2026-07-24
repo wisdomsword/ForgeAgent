@@ -268,20 +268,20 @@ Mark 4.1-4.4 complete. Commit with `feat: expose duo and triad runtime modes`.
 **Interfaces:**
 - Documents all public behavior already implemented; adds no new runtime behavior.
 
-- [ ] **Step 1: Write/update static contract RED tests**
+- [x] **Step 1: Write/update static contract RED tests**
 
 Assert README/HTTP/protocol/threat model state M22 mode names, completion ownership, Planner confirmation, evaluator read-only tools, headless policy, cost boundary, Loop freeze/resume and no new endpoint/dependency.
 
-- [ ] **Step 2: Run static contract tests and observe RED**
+- [x] **Step 2: Run static contract tests and observe RED**
 
 Run the focused documentation contract test files discovered via `rg -n 'ACTION_PLAN|README|threat-model|text-protocol|http-task-service' tests`.
 Expected: failures for missing M22 documentation.
 
-- [ ] **Step 3: Update documentation and ACTION_PLAN**
+- [x] **Step 3: Update documentation and ACTION_PLAN**
 
 Document exact CLI/REPL/HTTP examples, routing precedence, report fields, costs, security boundaries, opt-in real-model comparison and known limitations. Mark M22 in progress until final verification passes.
 
-- [ ] **Step 4: Run focused and full quality gates**
+- [x] **Step 4: Run focused and full quality gates**
 
 Run, in order:
 
@@ -298,14 +298,14 @@ git diff --check
 
 Expected: every command exits 0; record exact counts/output in the verification report.
 
-- [ ] **Step 5: Complete independent reviews and repair loops**
+- [x] **Step 5: Complete independent reviews and repair loops**
 
 Run a whole-diff code review, then two explicit self-reviews for requirements/code/docs consistency. For every Critical/Important or self-review defect, add a failing regression test, fix, re-run affected focused tests, then repeat the full gates.
 
-- [ ] **Step 6: Write verification report and milestone**
+- [x] **Step 6: Write verification report and milestone**
 
 Create the report with exact commands/results, review findings/fixes, unverified opt-in real-model work and residual risks. Create M22 milestone using `MILESTONE_GUIDE.md`, update `milestones/latest`, mark ACTION_PLAN and all OpenSpec tasks complete only after evidence exists.
 
-- [ ] **Step 7: Commit Task 5**
+- [x] **Step 7: Commit Task 5**
 
 Commit with `docs: complete M22 triad mode`.

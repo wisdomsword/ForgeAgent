@@ -2,9 +2,9 @@
 
 - Change: `triad-mode`
 - 基线提交: `2433b7689f275caef4e42c991317934d615aeb36`
-- 当前实现提交: `3ff3f6c`
-- 验证模式: full（收口中）
-- 结论: Task 1-4 已实现并完成逐任务审查；最终全量验证待主流程补录
+- 当前实现提交: `111d60a`
+- 验证模式: full
+- 结论: PASS；实现、逐任务审查、完整 diff 审查与全部完成门禁通过，可以归档
 
 ## 结果总览
 
@@ -15,7 +15,7 @@
 | Triad | Planner WHAT-only 计划、确认门、冻结 digest 与三角色隔离已实现 |
 | 入口 | CLI/REPL/HTTP/Loop 与安全报告/审计已接入；普通 single 路径保持兼容 |
 | 审查 | Task 1-4 均经独立 reviewer；Critical/Important 已在进入下一任务前修复 |
-| 完成门禁 | 文档静态合同正在补齐；全量 pytest/golden/Ruff/build/OpenSpec/diff 待最终执行 |
+| 完成门禁 | 协作专项 281 passed；全量 2069 passed / 11 skipped；golden 20/20；Ruff/build/OpenSpec strict/diff 全部通过 |
 
 ## Task 1-4 实现证据
 
@@ -68,25 +68,39 @@ M22 开始时，在受限 sandbox 中运行完整 suite 得到：
 在允许这些操作的环境已记录 `1758 passed, 11 skipped`。这些基线只说明环境差异；M22
 最终结论必须以当前 HEAD 重跑结果为准，不能沿用 M21 数字。
 
-## 待最终补录的完成门禁
+## 最终完成门禁
 
 ```text
-UV_CACHE_DIR=/tmp/forgeagent-m22-final-uv-cache uv run pytest -q \
+UV_CACHE_DIR=/tmp/forgeagent-m22-final2-uv-cache uv run pytest -q \
   tests/test_collaboration_models.py tests/test_collaboration_store.py \
   tests/test_collaboration_tools.py tests/test_collaboration_routing.py \
   tests/test_collaboration_runner.py tests/test_collaboration_planner.py \
   tests/test_collaboration_integrations.py tests/test_collaboration_docs.py
+# 281 passed in 0.63s
 
-UV_CACHE_DIR=/tmp/forgeagent-m22-final-uv-cache uv run pytest -q
-UV_CACHE_DIR=/tmp/forgeagent-m22-final-uv-cache uv run python -m tests.golden.runner \
-  --trusted-core --output-dir /tmp/forgeagent-m22-golden-final
-UV_CACHE_DIR=/tmp/forgeagent-m22-final-uv-cache uv run ruff format --check .
-UV_CACHE_DIR=/tmp/forgeagent-m22-final-uv-cache uv run ruff check .
-UV_CACHE_DIR=/tmp/forgeagent-m22-final-uv-cache uv build \
-  --out-dir /tmp/forgeagent-m22-dist-final
+UV_CACHE_DIR=/tmp/forgeagent-m22-final2-uv-cache uv run pytest -q
+# 2069 passed, 11 skipped in 86.56s
+
+UV_CACHE_DIR=/tmp/forgeagent-m22-final2-uv-cache uv run python -m tests.golden.runner \
+  --output-dir /tmp/forgeagent-m22-golden-final2
+# report.md: 20/20 passed (100.0%)
+
+UV_CACHE_DIR=/tmp/forgeagent-m22-final2-uv-cache uv run ruff format --check .
+# 100 files already formatted
+UV_CACHE_DIR=/tmp/forgeagent-m22-final2-uv-cache uv run ruff check .
+# All checks passed!
+UV_CACHE_DIR=/tmp/forgeagent-m22-final2-uv-cache uv build \
+  --out-dir /tmp/forgeagent-m22-dist-final2
+# sdist and wheel built successfully
 openspec validate --all --strict
+# 17 passed, 0 failed
 git diff --check 2433b7689f275caef4e42c991317934d615aeb36..HEAD
+# exit 0
 ```
+
+受限 sandbox 的完整 suite 为 `2042 passed, 23 skipped, 12 failed`，失败仍是 11 个 M16
+loopback blackbox 无法绑定端口与 1 个嵌套 `uv build` 权限限制。相同 HEAD 获准在非沙箱运行后
+为 `2069 passed, 11 skipped`，证明这些失败均为验证环境限制。
 
 ## 安全与兼容性核对
 
@@ -108,9 +122,23 @@ git diff --check 2433b7689f275caef4e42c991317934d615aeb36..HEAD
 - cooperative cancel 不能强杀正在进行的 provider/tool call，只在下一安全边界收敛。
 - Duo/Triad 和每次 rejection 都会增加模型调用、延迟和费用；usage 缺失明确投影为 unavailable。
 
-## Review 收口占位
+## Review 收口
 
-- [ ] 完整 M22 diff 独立 code review：待主流程执行并补录结论/修复。
-- [ ] 最终自审 1（OpenSpec/设计/实现/文档一致性）：待主流程执行。
-- [ ] 最终自审 2（状态机/权限/持久化/成本/兼容性）：待主流程执行。
-- [ ] OpenSpec archive、主分支合并与归档后复验：待主流程完成后补录。
+- [x] 完整 M22 diff 独立 code review：发现协作 Loop 可恢复角色失败被终态化，提交
+  `111d60a` 修复；定向复核 APPROVED。
+- [x] 最终自审 1（OpenSpec/设计/实现/文档一致性）：12 个 requirements、43 个 scenarios
+  均有实现/测试映射；Task 1-5 与 plan/OpenSpec 全部勾选，无设计漂移。
+- [x] 最终自审 2（状态机/权限/持久化/成本/兼容性）：确认 standalone 与 Loop 恢复策略分离、
+  Evaluator read-only、HTTP server-owned authority、计划冻结、增量 rounds/usage 记账、single 路径兼容。
+- [x] 独立复核：`/tmp/m22-sdd/final-rereview-report.md` 结论 APPROVED；无剩余
+  Critical/Important。
+
+## OpenSpec 完整验证
+
+| 维度 | 结果 |
+| --- | --- |
+| Completeness | 20/20 OpenSpec tasks 完成；12/12 requirements 已实现 |
+| Correctness | 43/43 scenarios 有代码路径与 focused/integration tests；最终门禁全绿 |
+| Coherence | 实现遵循 OpenSpec design 与技术设计；仅增加 Loop-owned recover policy 以满足既有可恢复失败场景 |
+
+最终评估：All checks passed. Ready for archive.

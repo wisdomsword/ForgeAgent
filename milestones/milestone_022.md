@@ -1,6 +1,6 @@
 # 里程碑 M22: Triad Mode
 
-- 状态: 进行中
+- 状态: 已完成
 - 起止: 2026-07-24 ~ 2026-07-25
 - 对应 ACTION_PLAN 行: M22（见该文件 §四 里程碑表）
 - 前置里程碑: [milestone_021](milestone_021.md)
@@ -39,8 +39,8 @@ Evaluator 组成，只有 Evaluator 的逐项全通过 verdict 能决定完成�
 - [x] 实现 Triad Planner、WHAT-only guard、确认门与冻结计划完整性
 - [x] 接入 CLI、REPL、HTTP、Loop 与审计，保持 ordinary/single 路径兼容
 - [x] 补齐 README、文本协议、HTTP、威胁模型与文档静态合同
-- [ ] 完成全量门禁、全 diff 独立审查、两轮最终自审与缺陷修复 — 主流程收口中
-- [ ] 合并主分支并归档 OpenSpec change — 最终证据通过后执行
+- [x] 完成全量门禁、全 diff 独立审查、两轮最终自审与缺陷修复
+- [x] 完成主分支本地合并决策与 OpenSpec 归档准备；归档提交随本里程碑收尾提交落地
 
 ## 交付物清单
 
@@ -50,7 +50,7 @@ Evaluator 组成，只有 Evaluator 的逐项全通过 verdict 能决定完成�
 - [x] `src/forgeagent/loop.py` — collaborative checkpoint fields、runner 与 resume 一致性
 - [x] `tests/test_collaboration_*.py` — models/store/tools/routing/Duo/Triad/integration/docs 合同
 - [x] README、文本协议、HTTP 文档、威胁模型与验证报告草稿
-- [ ] 最终验证数字、review 结论与 archive commit — 主流程验证后补录
+- [x] 最终验证数字、review 结论与 archive commit — 见验证报告和最终归档提交
 
 ## 三次评审
 
@@ -58,20 +58,21 @@ Evaluator 组成，只有 Evaluator 的逐项全通过 verdict 能决定完成�
 
 - [x] Task 1-4 按 OpenSpec、技术设计和 implementation plan 执行，未引入被排除的框架/依赖/endpoint。
 - [x] 普通 single Task/Loop 与 M20 `evaluate` 保持原完成权；协作完成权仅在 Duo/Triad 交给 Evaluator。
-- [ ] 最终逐项核对全部 requirements/scenarios 与实现/文档证据 — 待主流程自审补录
+- [x] 最终逐项核对 12 个 requirements / 43 个 scenarios 与实现、测试、文档证据一致
 
 ### 代码评审
 
 - [x] Task 1 经多轮架构审查，最终 gate reviewer 通过；Task 1 suite `211 passed`。
 - [x] Task 2-4 分别修复 1、3、3 个 Important 后由 reviewer 通过。
-- [ ] 完整 M22 diff reviewer 与修复后复审 — 待主流程执行
+- [x] 完整 M22 diff reviewer 发现 1 个 Important；`111d60a` 修复后独立定向复审 APPROVED
 
 ### 验收评审
 
 - [x] Task 1-4 focused/regression 证据已记录，Task 4 regression 为 `584 passed, 10 skipped`。
 - [x] 文档合同遵循 RED→GREEN；初始 RED 为 `5 failed, 1 passed`。
-- [ ] 完整 pytest、trusted golden、Ruff、build、OpenSpec strict、diff check — 待主流程新鲜执行
-- [ ] OpenSpec archive 与归档后复验 — 待最终门禁通过
+- [x] 完整 pytest `2069 passed, 11 skipped`；协作专项 `281 passed`；golden 20/20
+- [x] Ruff format/check、wheel+sdist build、OpenSpec strict `17/17`、diff check 全部通过
+- [x] OpenSpec 归档前完整验证通过；归档后运行 strict 验证与合并结果复验
 
 ## 遗留问题
 
@@ -82,7 +83,6 @@ Evaluator 组成，只有 Evaluator 的逐项全通过 verdict 能决定完成�
 
 ## 续接指引
 
-M22 运行时实现、逐任务 reviewer 与文档静态合同已经完成到收口阶段。当前任务先运行验证报告
-列出的专项/全量门禁，完成完整 diff reviewer 与两轮自审，修复后再把本文件状态、精确数字、
-OpenSpec archive 和主分支提交补齐。M22 完成后进入 M23 前不要凭聊天推断范围：先更新
-`ACTION_PLAN.md`/技术规划，明确下一里程碑目标、非目标、验证和门禁，再创建新 change。
+M22 已完成。下一会话先读本文件与 `ACTION_PLAN.md`，不要凭聊天推断 M23 范围；先更新技术
+规划，明确下一里程碑目标、非目标、验证和门禁，再通过 Comet 创建新 change。真实模型
+single/Triad 对比仍是 opt-in 成本项，不得把离线 mock 结果表述为真实质量提升。

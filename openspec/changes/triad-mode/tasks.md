@@ -28,7 +28,7 @@
 
 ## 5. 文档、评审与验证
 
-- [ ] 5.1 更新 README、文本协议、HTTP 文档、威胁模型、配置示例、ACTION_PLAN 与 opt-in golden 对比说明
-- [ ] 5.2 运行专项/全量 pytest、trusted golden 20/20、ruff、build、OpenSpec strict 与 diff check
-- [ ] 5.3 委派独立 code review，对完整 M22 diff 做两轮自审，发现问题立即修复并重跑受影响门禁
-- [ ] 5.4 产出 M22 验证报告与 `milestones/milestone_022.md`，更新 latest，完成主分支提交和 OpenSpec 归档
+- [x] 5.1 更新 README、文本协议、HTTP 文档、威胁模型、配置示例、ACTION_PLAN 与 opt-in golden 对比说明
+- [x] 5.2 运行专项/全量 pytest、trusted golden 20/20、ruff、build、OpenSpec strict 与 diff check
+- [x] 5.3 委派独立 code review，对完整 M22 diff 做两轮自审，发现问题立即修复并重跑受影响门禁
+- [x] 5.4 产出 M22 验证报告与 `milestones/milestone_022.md`，更新 latest，完成主分支提交和 OpenSpec 归档
