@@ -155,30 +155,30 @@ Mark tasks 1.1-1.4 and 2.1-2.3 complete only after their evidence passes. Commit
 - Produces: `PlanConfirmer`, Triad `CollaborationRunner.create()` path, headless `deny|preauthorize` adapter and stable plan phases.
 - Consumes: frozen plan tool/store/digest from Task 1 and Duo loop from Task 2.
 
-- [ ] **Step 1: Write Planner/Triad RED tests**
+- [x] **Step 1: Write Planner/Triad RED tests**
 
 Cover valid plan approve, deny/no confirmer, headless preauthorize, duplicate/HOW-only correction, tool commit + standalone completion, freeze after confirm, delete/reorder/change/digest mismatch, Planner role failures, full Triad reject/fix/pass and all-role context isolation.
 
-- [ ] **Step 2: Run Triad tests and observe RED**
+- [x] **Step 2: Run Triad tests and observe RED**
 
 Run: `uv run pytest -q tests/test_collaboration_planner.py tests/test_collaboration_runner.py -k triad`
 Expected: failures for missing Planner flow.
 
-- [ ] **Step 3: Implement minimum Planner and confirmation flow**
+- [x] **Step 3: Implement minimum Planner and confirmation flow**
 
 Run Planner Task with only `SubmitPlan`, render bounded summary to `PlanConfirmer`, persist approved/denied state, require exact digest at every later boundary and reuse Duo Generator/Evaluator loop after approval.
 
-- [ ] **Step 4: Run Triad tests and observe GREEN**
+- [x] **Step 4: Run Triad tests and observe GREEN**
 
 Run: `uv run pytest -q tests/test_collaboration_planner.py tests/test_collaboration_runner.py -k triad`
 Expected: all Triad tests pass.
 
-- [ ] **Step 5: Run complete collaboration core regression**
+- [x] **Step 5: Run complete collaboration core regression**
 
 Run: `uv run pytest -q tests/test_collaboration_models.py tests/test_collaboration_store.py tests/test_collaboration_tools.py tests/test_collaboration_routing.py tests/test_collaboration_runner.py tests/test_collaboration_planner.py && uv run ruff check src/forgeagent/collaboration.py tests/test_collaboration_*.py`
 Expected: all tests pass and Ruff exits 0.
 
-- [ ] **Step 6: Mark OpenSpec Triad core tasks and commit**
+- [x] **Step 6: Mark OpenSpec Triad core tasks and commit**
 
 Mark 3.1-3.3 complete. Commit with `feat: add planner confirmed triad mode`.
 

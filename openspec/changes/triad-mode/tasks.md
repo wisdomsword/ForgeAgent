@@ -14,10 +14,10 @@
 
 ## 3. Triad 阶段
 
-- [ ] 3.1 实现 Planner 计划生成、WHAT-only 校验、规范化 digest、交互确认和 headless deny/preauthorize
-- [ ] 3.2 实现冻结计划完整性守卫、Triad 逐项 Generator/Evaluator 流转与计划漂移 fail-closed
-- [ ] 3.3 添加离线 mock replay：确认/拒绝、禁删改降标、逐项通过、打回修复和 Planner/Generator/Evaluator 隔离
-- [ ] 3.4 完成 Triad 核心专项审查并修复 Critical/Important 问题后再接入口
+- [x] 3.1 实现 Planner 计划生成、WHAT-only 校验、规范化 digest、交互确认和 headless deny/preauthorize
+- [x] 3.2 实现冻结计划完整性守卫、Triad 逐项 Generator/Evaluator 流转与计划漂移 fail-closed
+- [x] 3.3 添加离线 mock replay：确认/拒绝、禁删改降标、逐项通过、打回修复和 Planner/Generator/Evaluator 隔离
+- [x] 3.4 完成 Triad 核心专项审查并修复 Critical/Important 问题后再接入口
 
 ## 4. CLI、REPL、HTTP 与 Loop 接入
 
