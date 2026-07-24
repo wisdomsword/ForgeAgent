@@ -813,7 +813,9 @@ class LoopRunner:
             raise LoopCheckpointError("Loop task failed without an outcome")
         self._record_outcome(outcome)
         reason = self._stop_reason(cancel_event=cancel_event, watchdog_event=watchdog_event)
-        if outcome.status.completed:
+        if reason in {"cancelled", "wall_clock"}:
+            self._stop(reason)
+        elif outcome.status.completed:
             self._save(status="completed", stop_reason="completed")
             self._audit_lifecycle("loop.stop", "completed")
         elif reason is not None:
@@ -928,21 +930,42 @@ class LoopRunner:
         )
 
     def _audit_lifecycle(self, event_type: str, result_status: str) -> None:
+        parameters: dict[str, object] = {
+            "schema": self._checkpoint.schema,
+            "loop_id": self._checkpoint.loop_id,
+            "trigger": self._trigger,
+            "revision": self._checkpoint.revision,
+            "iterations": self._checkpoint.iterations,
+            "rounds_used": self._checkpoint.rounds_used,
+            "tokens_used": self._checkpoint.tokens_used,
+            "elapsed_seconds": self._checkpoint.elapsed_seconds,
+            "consecutive_failures": self._checkpoint.consecutive_failures,
+            "completed_item_count": len(self._checkpoint.completed_items),
+            "open_question_count": len(self._checkpoint.open_questions),
+        }
+        if event_type in {"loop.start", "loop.resume"}:
+            parameters.update(
+                {
+                    "max_rounds": self._checkpoint.budgets.max_rounds,
+                    "token_budget": self._checkpoint.budgets.token_budget,
+                    "wall_clock_seconds": self._checkpoint.budgets.wall_clock_seconds,
+                    "max_consecutive_failures": (self._checkpoint.budgets.max_consecutive_failures),
+                }
+            )
+        elif event_type == "loop.stop":
+            parameters.update(
+                {
+                    "status": self._checkpoint.status,
+                    "stop_reason": self._checkpoint.stop_reason,
+                }
+            )
         emit_audit(
             self._audit_sink,
             AuditEvent(
                 event_type=event_type,
                 task_id=self._task_id,
                 risk_level="low",
-                parameters={
-                    "loop_id": self._checkpoint.loop_id,
-                    "trigger": self._trigger,
-                    "iterations": self._checkpoint.iterations,
-                    "rounds_used": self._checkpoint.rounds_used,
-                    "tokens_used": self._checkpoint.tokens_used,
-                    "completed_item_count": len(self._checkpoint.completed_items),
-                    "open_question_count": len(self._checkpoint.open_questions),
-                },
+                parameters=parameters,
                 result_status=result_status,
             ),
         )

@@ -312,6 +312,62 @@ def test_verified_completion_takes_priority_over_zero_usage(tmp_path: Path):
     runner.close()
 
 
+def test_external_cancel_set_during_completed_task_takes_priority(tmp_path: Path):
+    cancelled = threading.Event()
+
+    class _CancellingCompletedTask(_FakeTask):
+        def run(self, goal: str, *, cancel_event: threading.Event | None = None) -> TaskOutcome:
+            cancelled.set()
+            return super().run(goal, cancel_event=cancel_event)
+
+    def builder(iteration: int, remaining: int, suffix: str, registry: object) -> _FakeTask:
+        return _CancellingCompletedTask(
+            _outcome(completed=True, reason="completed", usage=TokenUsage(input_tokens=1))
+        )
+
+    runner = LoopRunner.create(
+        allowed_root=str(tmp_path),
+        task_builder=builder,
+        goal="finish",
+        budgets=_budgets(),
+        trigger="test",
+    )
+
+    report = runner.run(cancel_event=cancelled)
+    checkpoint = LoopCheckpointStore(str(tmp_path)).load(report.loop_id)
+
+    assert report.status == checkpoint.status == "cancelled"
+    assert report.stop_reason == checkpoint.stop_reason == "cancelled"
+    runner.close()
+
+
+def test_watchdog_set_during_completed_task_takes_priority(monkeypatch, tmp_path: Path):
+    class _ImmediateTimer:
+        daemon = False
+
+        def __init__(self, interval: float, callback) -> None:
+            del interval
+            self._callback = callback
+
+        def start(self) -> None:
+            self._callback()
+
+        def cancel(self) -> None:
+            pass
+
+    monkeypatch.setattr("forgeagent.loop.threading.Timer", _ImmediateTimer)
+    builder = _Builder(
+        [_outcome(completed=True, reason="completed", usage=TokenUsage(input_tokens=1))]
+    )
+    runner = _runner(tmp_path, builder)
+
+    report = runner.run()
+
+    assert report.status == "stopped"
+    assert report.stop_reason == "wall_clock"
+    runner.close()
+
+
 def test_client_errors_are_classified_before_usage_availability(tmp_path: Path):
     (tmp_path / "auth").mkdir()
     auth_builder = _Builder([_outcome(reason="client_error:auth", usage=None)])
@@ -493,6 +549,60 @@ def test_audit_emits_lifecycle_events_without_private_loop_text(tmp_path: Path):
 
     types = [event.event_type for event in sink.events]
     assert {"loop.start", "loop.checkpoint", "loop.iteration", "loop.stop"} <= set(types)
+    start = next(event for event in sink.events if event.event_type == "loop.start")
+    iteration = next(event for event in sink.events if event.event_type == "loop.iteration")
+    stop = next(event for event in sink.events if event.event_type == "loop.stop")
+    assert {
+        "schema",
+        "loop_id",
+        "trigger",
+        "max_rounds",
+        "token_budget",
+        "wall_clock_seconds",
+        "max_consecutive_failures",
+    } <= start.parameters.keys()
+    assert {
+        "schema",
+        "loop_id",
+        "trigger",
+        "revision",
+        "iterations",
+        "rounds_used",
+        "tokens_used",
+        "elapsed_seconds",
+        "consecutive_failures",
+        "completed_item_count",
+        "open_question_count",
+    } <= iteration.parameters.keys()
+    assert iteration.result_status == "completed"
+    assert {
+        "schema",
+        "loop_id",
+        "trigger",
+        "revision",
+        "status",
+        "stop_reason",
+        "iterations",
+        "rounds_used",
+        "tokens_used",
+        "elapsed_seconds",
+        "consecutive_failures",
+        "completed_item_count",
+        "open_question_count",
+    } <= stop.parameters.keys()
+    assert stop.parameters["status"] == "completed"
+    assert stop.parameters["stop_reason"] == "completed"
+    forbidden_keys = {
+        "goal",
+        "path",
+        "text",
+        "raw_failure",
+        "last_failure",
+        "handoff",
+        "completed_items",
+        "open_questions",
+    }
+    assert all(forbidden_keys.isdisjoint(event.parameters) for event in sink.events)
     serialized = "\n".join(event.model_dump_json() for event in sink.events)
     assert "private goal" not in serialized
     assert "handoff" not in serialized

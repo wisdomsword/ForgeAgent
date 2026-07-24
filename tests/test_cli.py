@@ -1357,6 +1357,112 @@ def test_run_loop_once_closes_runner_and_reuses_cli_assembly(monkeypatch, tmp_pa
     assert report.tokens_used == 1
 
 
+def test_run_loop_once_closes_each_fresh_iteration_client_once(monkeypatch, tmp_path):
+    clients = []
+    tasks = []
+
+    class CloseTrackingClient(MockClient):
+        def __init__(self):
+            super().__init__(script=[])
+            self.close_calls = 0
+
+        def close(self):
+            self.close_calls += 1
+
+    class IterationTask:
+        def __init__(self, client, **kwargs):
+            del kwargs
+            self.client = client
+            self.close_calls = 0
+            tasks.append(self)
+
+        def run(self, goal, *, cancel_event=None):
+            del goal, cancel_event
+            completed = len(tasks) == 2
+            return TaskOutcome(
+                status=TaskStatus(
+                    completed=completed,
+                    reason=Termination.COMPLETED if completed else Termination.MAX_ROUNDS,
+                ),
+                rounds=[RoundResult(text="", usage=TokenUsage(input_tokens=1))],
+            )
+
+        def close(self):
+            self.close_calls += 1
+
+    def client_factory(model):
+        del model
+        client = CloseTrackingClient()
+        clients.append(client)
+        return client
+
+    monkeypatch.setattr(cli_module, "Task", IterationTask)
+
+    report = run_loop_once(
+        "finish",
+        tier="trusted",
+        model="mock",
+        client_factory=client_factory,
+        allowed_root=str(tmp_path),
+        console=_console(),
+        token_budget=10,
+    )
+
+    assert report.status == "completed"
+    assert len(clients) == len(tasks) == 2
+    assert [client.close_calls for client in clients] == [1, 1]
+    assert [task.close_calls for task in tasks] == [1, 1]
+
+
+@pytest.mark.parametrize("failure_stage", ["construct", "run", "close"])
+def test_run_loop_once_closes_owned_client_once_on_task_failure(
+    monkeypatch, tmp_path, failure_stage
+):
+    class CloseTrackingClient(MockClient):
+        def __init__(self):
+            super().__init__(script=[])
+            self.close_calls = 0
+
+        def close(self):
+            self.close_calls += 1
+
+    client = CloseTrackingClient()
+
+    class FailingTask:
+        def __init__(self, model_client, **kwargs):
+            del model_client, kwargs
+            if failure_stage == "construct":
+                raise RuntimeError("construct failed")
+
+        def run(self, goal, *, cancel_event=None):
+            del goal, cancel_event
+            if failure_stage == "run":
+                raise RuntimeError("run failed")
+            return TaskOutcome(
+                status=TaskStatus(completed=True, reason=Termination.COMPLETED),
+                rounds=[RoundResult(text="", usage=TokenUsage(input_tokens=1))],
+            )
+
+        def close(self):
+            if failure_stage == "close":
+                raise RuntimeError("close failed")
+
+    monkeypatch.setattr(cli_module, "Task", FailingTask)
+
+    with pytest.raises(RuntimeError, match=failure_stage):
+        run_loop_once(
+            "finish",
+            tier="trusted",
+            model="mock",
+            client_factory=lambda model: client,
+            allowed_root=str(tmp_path),
+            console=_console(),
+            token_budget=10,
+        )
+
+    assert client.close_calls == 1
+
+
 def test_run_loop_once_sigint_requests_cancel_and_restores_handler(monkeypatch, tmp_path):
     previous_calls: list[int] = []
 

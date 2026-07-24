@@ -740,24 +740,58 @@ def run_loop_once(
     root = str(Path.cwd().resolve()) if allowed_root is None else allowed_root
     resolved_context_config = context_config or ContextConfig()
 
-    def build_task(iteration: int, remaining_rounds: int, suffix: str, registry) -> Task:
+    def build_task(iteration: int, remaining_rounds: int, suffix: str, registry):
+        del iteration
         client = client_factory(model)
-        _validate_client_context_policy(client, resolved_context_config)
-        return Task(
-            client,
-            tier=tier,
-            allowed_root=root,
-            system_prompt=_loop_system_prompt(identity, memory_manager, suffix),
-            max_rounds=remaining_rounds,
-            asker=asker,
-            mcp=mcp,
-            confirmer=confirmer,
-            container_image=container_image,
-            context_config=resolved_context_config,
-            memory_manager=memory_manager,
-            skills=skills,
-            tool_registry=registry,
-        )
+        client_closed = False
+
+        def close_client() -> None:
+            nonlocal client_closed
+            if client_closed:
+                return
+            client_closed = True
+            close = getattr(client, "close", None)
+            if callable(close):
+                close()
+
+        try:
+            _validate_client_context_policy(client, resolved_context_config)
+            task = Task(
+                client,
+                tier=tier,
+                allowed_root=root,
+                system_prompt=_loop_system_prompt(identity, memory_manager, suffix),
+                max_rounds=remaining_rounds,
+                asker=asker,
+                mcp=mcp,
+                confirmer=confirmer,
+                container_image=container_image,
+                context_config=resolved_context_config,
+                memory_manager=memory_manager,
+                skills=skills,
+                tool_registry=registry,
+            )
+        except BaseException:
+            close_client()
+            raise
+
+        class OwnedLoopTask:
+            def __init__(self) -> None:
+                self._closed = False
+
+            def run(self, task_goal: str, *, cancel_event=None):
+                return task.run(task_goal, cancel_event=cancel_event)
+
+            def close(self) -> None:
+                if self._closed:
+                    return
+                self._closed = True
+                try:
+                    task.close()
+                finally:
+                    close_client()
+
+        return OwnedLoopTask()
 
     if resume is None:
         runner = LoopRunner.create(
