@@ -78,5 +78,15 @@ def test_loop_examples_avoid_daemon_and_dependency_mutations() -> None:
     assert "user-installed" in index
     assert "daemon" in index
     assert "not" in index.lower()
+    assert "[Unit]" in index
+    assert "[Service]" in index
+    assert "WorkingDirectory=" in index
+    assert "ExecStart=" in index
+    assert "[Timer]" in index
+    assert "OnCalendar=" in index or "OnUnitActiveSec=" in index
+    assert "Persistent=true" in index
+    assert "WantedBy=timers.target" in index
+    assert "systemctl --user enable --now" in index
+    assert ".timer" in index
     for prohibited in ("pip install", "uv add", "update", "git commit", "git push", "pull request"):
         assert prohibited not in combined

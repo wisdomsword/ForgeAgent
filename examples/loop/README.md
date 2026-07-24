@@ -32,12 +32,36 @@ Use a user-installed plist whose `ProgramArguments` runs one resume:
 
 ## systemd
 
-Use a user-installed service plus timer. The service's command is one resume:
+Use these two user-installed units: a service that runs one resume and a timer
+that triggers it. Save them as `~/.config/systemd/user/forgeagent-loop.service`
+and `~/.config/systemd/user/forgeagent-loop.timer` after replacing paths and
+`LOOP_ID`.
 
 ```ini
+[Unit]
+Description=ForgeAgent Loop resume
+
 [Service]
 WorkingDirectory=/path/to/project
 ExecStart=/path/to/uv run forgeagent loop --resume LOOP_ID
+```
+
+```ini
+[Unit]
+Description=Run the ForgeAgent Loop resume hourly
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+Enable only the timer for this pair:
+
+```sh
+systemctl --user enable --now forgeagent-loop.timer
 ```
 
 Avoid a timer interval shorter than a possible Loop duration. No scheduler daemon is
