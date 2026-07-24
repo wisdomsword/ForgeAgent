@@ -503,6 +503,55 @@ def test_running_cancel_is_cooperative_and_terminal_is_not_overwritten():
         service.shutdown(1.0)
 
 
+def test_cancel_during_loop_close_preserves_completed_report():
+    close_started = threading.Event()
+    release_close = threading.Event()
+
+    class ClosingLoopRunner(_FakeLoopRunner):
+        def close(self) -> None:
+            close_started.set()
+            assert release_close.wait(1.0)
+
+    report = _loop_report(status="completed", stop_reason="completed")
+    service = TaskService(
+        factory=lambda _record: ClosingLoopRunner(report),
+        config=CONFIG,
+    )
+    try:
+        record = service.submit("goal", {"mode": "loop", "token_budget": 10})
+        assert close_started.wait(1.0)
+
+        assert service.cancel(record.task_id)["status"] == "running"
+        release_close.set()
+
+        view = service.wait(record.task_id, timeout=1.0)
+        assert view["status"] == "completed"
+        assert view["reason"] == "completed"
+        assert view["loop_id"] == report.loop_id
+        assert view["iterations"] == report.iterations
+        assert service.cancel(record.task_id) == view
+    finally:
+        release_close.set()
+        service.shutdown(1.0)
+
+
+def test_cancelled_loop_report_remains_cancelled():
+    report = _loop_report(status="cancelled", stop_reason="cancelled")
+    service = TaskService(
+        factory=lambda _record: _FakeLoopRunner(report),
+        config=CONFIG,
+    )
+    try:
+        record = service.submit("goal", {"mode": "loop", "token_budget": 10})
+        view = service.wait(record.task_id, timeout=1.0)
+
+        assert view["status"] == "cancelled"
+        assert view["reason"] == "cancelled"
+        assert service.cancel(record.task_id) == view
+    finally:
+        service.shutdown(1.0)
+
+
 def test_worker_failure_is_safe_and_does_not_affect_another_task():
     def factory(record: TaskRecord) -> _FakeTask:
         if record.goal == "broken":

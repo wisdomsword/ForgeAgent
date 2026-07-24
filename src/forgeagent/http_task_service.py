@@ -393,9 +393,10 @@ class TaskService:
             if record.ended_at is not None:
                 return
             record.audit_degraded = audit_degraded
-            if record.cancel_event.is_set():
+            if record.cancel_event.is_set() and (
+                loop_report is None or loop_report.status == "active"
+            ):
                 record.outcome = outcome
-                record.loop_report = loop_report
                 self._set_cancelled_locked(record)
             elif failed or (outcome is None and loop_report is None):
                 record.status = "failed"
