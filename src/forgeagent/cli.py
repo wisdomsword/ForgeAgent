@@ -782,7 +782,7 @@ def run_loop_once(
         report = runner.run()
     finally:
         runner.close()
-    _render_loop_report(report, console or Console())
+    _render_loop_report(report, console if console is not None else Console())
     return report
 
 

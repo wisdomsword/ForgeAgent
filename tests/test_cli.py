@@ -1336,7 +1336,9 @@ def test_main_loop_resume_uses_checkpoint_goal_without_disclosing_it(monkeypatch
         )
         == 0
     )
-    assert "private initial goal" not in resume_console.export_text()
+    rendered = resume_console.export_text()
+    assert "private initial goal" not in rendered
+    assert resumed_id in rendered
 
 
 def test_run_loop_once_closes_runner_and_reuses_cli_assembly(monkeypatch, tmp_path):
