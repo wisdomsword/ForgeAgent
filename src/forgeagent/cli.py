@@ -1809,7 +1809,8 @@ def serve_http(
     try:
         mcp = build_mcp_manager()
 
-        def task_factory(record: TaskRecord) -> Task:
+        def task_factory(record: TaskRecord) -> Task | LoopRunner:
+            options = getattr(record, "options", {})
             memory_manager = _make_memory_manager(
                 settings.allowed_root,
                 identity=identity,
@@ -1817,6 +1818,67 @@ def serve_http(
                 no_identity=settings.no_identity,
                 audit_sink=audit_sink,
             )
+            if options.get("mode") == "loop":
+
+                def build_loop_task(iteration, remaining_rounds, suffix, registry):
+                    del iteration
+                    client = task_client_factory(settings.model)
+                    task = Task(
+                        client,
+                        tier=settings.tier,
+                        allowed_root=settings.allowed_root,
+                        system_prompt=_loop_system_prompt(identity, memory_manager, suffix),
+                        max_rounds=remaining_rounds,
+                        mcp=mcp,
+                        confirmer=headless_confirmer,
+                        allow_auto_approve=False,
+                        container_image=settings.container_image,
+                        audit_sink=audit_sink,
+                        task_id=record.task_id,
+                        context_config=settings.service.context_config,
+                        memory_manager=memory_manager,
+                        skills=skills,
+                        tool_registry=registry,
+                    )
+
+                    class OwnedLoopTask:
+                        def run(self, goal, *, cancel_event=None):
+                            return task.run(goal, cancel_event=cancel_event)
+
+                        def close(self):
+                            try:
+                                task.close()
+                            finally:
+                                close = getattr(client, "close", None)
+                                if callable(close):
+                                    close()
+
+                    return OwnedLoopTask()
+
+                common = {
+                    "allowed_root": settings.allowed_root,
+                    "task_builder": build_loop_task,
+                    "trigger": "http",
+                    "audit_sink": audit_sink,
+                    "task_id": record.task_id,
+                    "with_mcp": mcp is not None,
+                    "skills": skills,
+                }
+                resume_loop_id = options.get("resume_loop_id")
+                if isinstance(resume_loop_id, str):
+                    return LoopRunner.resume(loop_id=resume_loop_id, **common)
+                budgets = LoopBudgets(
+                    token_budget=options["token_budget"],
+                    max_rounds=options["max_rounds"],
+                    wall_clock_seconds=options["wall_clock_seconds"],
+                    max_consecutive_failures=options["max_consecutive_failures"],
+                )
+                return LoopRunner.create(
+                    goal=record.goal,
+                    budgets=budgets,
+                    loop_id=record.task_id,
+                    **common,
+                )
             return Task(
                 task_client_factory(settings.model),
                 tier=settings.tier,

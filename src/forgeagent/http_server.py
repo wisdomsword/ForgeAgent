@@ -6,6 +6,7 @@ import hmac
 import ipaddress
 import json
 import logging
+import math
 import re
 import socket
 import threading
@@ -26,6 +27,18 @@ _logger = logging.getLogger(__name__)
 _READ_TIMEOUT_SECONDS = 10.0
 _TASK_PATH = re.compile(r"/tasks/([0-9a-f]{32})\Z")
 _CANCEL_PATH = re.compile(r"/tasks/([0-9a-f]{32})/cancel\Z")
+_LOOP_ID = re.compile(r"[0-9a-f]{32}\Z")
+_NEW_LOOP_KEYS = frozenset(
+    {
+        "goal",
+        "mode",
+        "token_budget",
+        "max_rounds",
+        "wall_clock_seconds",
+        "max_consecutive_failures",
+    }
+)
+_RESUME_LOOP_KEYS = frozenset({"mode", "resume_loop_id"})
 _ERROR_DETAILS = {
     "unauthorized": "Authentication required.",
     "not_found": "Task not found.",
@@ -223,13 +236,9 @@ class ForgeRequestHandler(BaseHTTPRequestHandler):
 
     def _submit(self) -> None:
         body = self._read_json()
-        if set(body) != {"goal"}:
-            raise HttpError(400, "invalid_request")
-        goal = body["goal"]
-        if not isinstance(goal, str) or not goal.strip():
-            raise HttpError(400, "invalid_request")
+        goal, options = _parse_task_submission(body)
         try:
-            response = self.server.task_service.submit_view(goal, {})
+            response = self.server.task_service.submit_view(goal, options)
         except ServiceCapacityError:
             self._audit("http.capacity_rejection", result_status="capacity_exceeded")
             raise HttpError(429, "capacity_exceeded") from None
@@ -359,3 +368,41 @@ def create_http_server(
     ):
         raise ValueError("HTTP bearer token is invalid")
     return _ForgeHttpServer(config, service)
+
+
+def _parse_task_submission(body: dict[str, object]) -> tuple[str, dict[str, object]]:
+    keys = frozenset(body)
+    if keys == {"goal"}:
+        goal = body["goal"]
+        if isinstance(goal, str) and goal.strip():
+            return goal, {}
+        raise HttpError(400, "invalid_request")
+    if keys == _RESUME_LOOP_KEYS:
+        loop_id = body["resume_loop_id"]
+        if body["mode"] == "loop" and isinstance(loop_id, str) and _LOOP_ID.fullmatch(loop_id):
+            return "", {"mode": "loop", "resume_loop_id": loop_id}
+        raise HttpError(400, "invalid_request")
+    if keys == _NEW_LOOP_KEYS:
+        goal = body["goal"]
+        if not isinstance(goal, str) or not goal.strip() or body["mode"] != "loop":
+            raise HttpError(400, "invalid_request")
+        if not all(
+            _positive_integer(body[name])
+            for name in ("token_budget", "max_rounds", "max_consecutive_failures")
+        ) or not _positive_number(body["wall_clock_seconds"]):
+            raise HttpError(400, "invalid_request")
+        return goal, {name: body[name] for name in body if name != "goal"}
+    raise HttpError(400, "invalid_request")
+
+
+def _positive_integer(value: object) -> bool:
+    return type(value) is int and value > 0
+
+
+def _positive_number(value: object) -> bool:
+    return (
+        not isinstance(value, bool)
+        and isinstance(value, (int, float))
+        and math.isfinite(value)
+        and value > 0
+    )
