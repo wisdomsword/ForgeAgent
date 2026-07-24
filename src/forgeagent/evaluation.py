@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import json
 import math
+import os
+import re
+import tempfile
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -257,4 +262,271 @@ def aggregate_metrics(
             cache_hit_rate=cache_hit_rate,
         ),
         diagnostics=tuple(diagnostics),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Persistence types
+# ---------------------------------------------------------------------------
+
+_TREND_SCHEMA = "forgeagent.evaluation-trend.v1"
+_RUN_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+@dataclass(frozen=True)
+class TrendComparison:
+    """Per-metric deltas between the current run and the latest prior compatible run."""
+
+    current_run_id: str
+    prior_run_id: str | None
+    deltas: dict[str, float | None]  # metric name → delta or None if either value is null
+
+
+@dataclass(frozen=True)
+class TrendAppendResult:
+    """Result of appending a record to a trend index."""
+
+    record_path: Path
+    comparison: TrendComparison
+    diagnostics: tuple[str, ...]
+
+
+# ---------------------------------------------------------------------------
+# Atomic I/O helpers
+# ---------------------------------------------------------------------------
+
+
+def write_record(path: Path, record: EvaluationRecord) -> Path:
+    """Write *record* as JSON to *path* using an atomic temp-then-replace strategy.
+
+    Raises ValueError if *path* is not absolute.
+    """
+    if not path.is_absolute():
+        raise ValueError(f"path must be absolute, got {path!r}")
+
+    data = record.model_dump(mode="python")
+    # Convert tuple diagnostics to list for JSON serialisation.
+    if isinstance(data.get("diagnostics"), tuple):
+        data["diagnostics"] = list(data["diagnostics"])
+
+    json_text = json.dumps(data, ensure_ascii=True, allow_nan=False, indent=2)
+
+    # Write to a sibling temp file, then atomically replace the destination.
+    fd, tmp_name = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(json_text)
+        os.replace(tmp_name, path)
+    except Exception:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
+
+    return path
+
+
+def read_record(path: Path) -> EvaluationRecord:
+    """Read and validate a forgeagent.evaluation.v1 record from *path*.
+
+    Raises ValueError for wrong schema; raises ValidationError for extra keys or bad values.
+    """
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise ValueError(f"Expected a JSON object, got {type(raw).__name__}")
+    schema_field = raw.get("schema")
+    if schema_field != EVALUATION_SCHEMA:
+        raise ValueError(f"Unsupported schema {schema_field!r}; expected {EVALUATION_SCHEMA!r}")
+    # model_validate with extra="forbid" (set on EvaluationRecord) rejects unknown keys.
+    return EvaluationRecord.model_validate(raw)
+
+
+# ---------------------------------------------------------------------------
+# Index helpers
+# ---------------------------------------------------------------------------
+
+
+def _load_index(record_dir: Path) -> dict[str, Any]:
+    """Return the parsed index or an empty-run-ids dict if missing/corrupt."""
+    index_path = record_dir / "index.json"
+    if not index_path.exists():
+        return {"schema": _TREND_SCHEMA, "run_ids": []}
+    try:
+        data = json.loads(index_path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict) or not isinstance(data.get("run_ids"), list):
+            return {"schema": _TREND_SCHEMA, "run_ids": []}
+        return data
+    except Exception:
+        return {"schema": _TREND_SCHEMA, "run_ids": []}
+
+
+def _write_index(record_dir: Path, run_ids: list[str]) -> None:
+    """Atomically write the trend index."""
+    data = {"schema": _TREND_SCHEMA, "run_ids": run_ids}
+    json_text = json.dumps(data, ensure_ascii=True, allow_nan=False, indent=2)
+    index_path = record_dir / "index.json"
+    fd, tmp_name = tempfile.mkstemp(dir=record_dir, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(json_text)
+        os.replace(tmp_name, index_path)
+    except Exception:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
+
+
+def _compute_deltas(
+    current: EvaluationRecord, prior: EvaluationRecord | None
+) -> dict[str, float | None]:
+    """Return per-metric deltas; None when either side is null."""
+    deltas: dict[str, float | None] = {}
+    for name in METRIC_NAMES:
+        cur_val: float | None = getattr(current.metrics, name)
+        pri_val: float | None = getattr(prior.metrics, name) if prior is not None else None
+        if cur_val is None or pri_val is None:
+            deltas[name] = None
+        else:
+            deltas[name] = cur_val - pri_val
+    return deltas
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+
+def compare_latest(record_dir: Path, record: EvaluationRecord) -> TrendComparison:
+    """Compare *record* with the latest compatible record stored in *record_dir*.
+
+    Returns TrendComparison with prior_run_id=None when no prior record exists.
+    """
+    index = _load_index(record_dir)
+    run_ids: list[str] = index.get("run_ids", [])
+
+    prior: EvaluationRecord | None = None
+    for rid in reversed(run_ids):
+        candidate_path = record_dir / f"{rid}.json"
+        if not candidate_path.exists():
+            continue
+        try:
+            candidate = read_record(candidate_path)
+            if candidate.schema == EVALUATION_SCHEMA:
+                prior = candidate
+                break
+        except Exception:
+            continue
+
+    return TrendComparison(
+        current_run_id=record.run_id,
+        prior_run_id=prior.run_id if prior is not None else None,
+        deltas=_compute_deltas(record, prior),
+    )
+
+
+def append_trend(
+    record_dir: Path,
+    record: EvaluationRecord,
+    limit: int = 20,
+) -> TrendAppendResult:
+    """Append *record* to the bounded trend index in *record_dir*.
+
+    - *record_dir* must be absolute (after resolve).
+    - *limit* must be >= 1.
+    - Raises ValueError on duplicate run_id, invalid run_id format, or bad arguments.
+    - Old record files are deleted only after the new index is written.
+    - Corrupt/incompatible history files encountered during comparison emit
+      ``ignored_invalid_history:N`` as a diagnostic.
+    """
+    resolved = record_dir.resolve()
+    if not resolved.is_absolute():
+        raise ValueError(f"record_dir must be absolute, got {record_dir!r}")
+    # Reject if the caller passed a relative path that happens to resolve elsewhere.
+    if not record_dir.is_absolute():
+        raise ValueError(f"record_dir must be absolute, got {record_dir!r}")
+
+    if limit < 1:
+        raise ValueError(f"limit must be >= 1, got {limit!r}")
+
+    if not _RUN_ID_RE.match(record.run_id):
+        raise ValueError(f"run_id {record.run_id!r} does not match required pattern")
+
+    index = _load_index(record_dir)
+    run_ids: list[str] = list(index.get("run_ids", []))
+
+    if record.run_id in run_ids:
+        raise ValueError(f"Duplicate run_id {record.run_id!r} already in index")
+
+    # Count files listed in the index that exist (we'll report corrupt/incompatible ones).
+    invalid_count = 0
+    # Also track any non-index files we stumble upon (we must not delete those).
+    prior: EvaluationRecord | None = None
+
+    # Read previous compatible record from index BEFORE any writes.
+    for rid in reversed(run_ids):
+        candidate_path = record_dir / f"{rid}.json"
+        if not candidate_path.exists():
+            # Listed in index but missing on disk — count as invalid.
+            invalid_count += 1
+            continue
+        try:
+            candidate = read_record(candidate_path)
+            if candidate.schema == EVALUATION_SCHEMA:
+                prior = candidate
+                break
+            else:
+                invalid_count += 1
+        except Exception:
+            invalid_count += 1
+
+    # Also scan for files in the directory that are NOT listed in the index
+    # (e.g. a corrupt JSON the caller placed there) — count them towards invalid.
+    index_set = set(run_ids)
+    for f in record_dir.iterdir():
+        if f.suffix == ".json" and f.stem not in index_set and f.name != "index.json":
+            try:
+                candidate = read_record(f)
+                if candidate.schema != EVALUATION_SCHEMA:
+                    invalid_count += 1
+            except Exception:
+                invalid_count += 1
+
+    # Write the new record file atomically.
+    record_path = record_dir / f"{record.run_id}.json"
+    write_record(record_path, record)
+
+    # Build updated run_ids list, trim to limit (keep newest).
+    new_run_ids = run_ids + [record.run_id]
+    evicted_ids = new_run_ids[:-limit] if len(new_run_ids) > limit else []
+    trimmed_ids = new_run_ids[-limit:]
+
+    # Write new index atomically.
+    _write_index(record_dir, trimmed_ids)
+
+    # Delete evicted record files ONLY after the new index exists.
+    # Only delete files that were listed in the OLD index (evicted_ids is a subset).
+    for rid in evicted_ids:
+        evicted_path = record_dir / f"{rid}.json"
+        try:
+            evicted_path.unlink()
+        except OSError:
+            pass
+
+    diagnostics: tuple[str, ...] = ()
+    if invalid_count > 0:
+        diagnostics = (f"ignored_invalid_history:{invalid_count}",)
+
+    comparison = TrendComparison(
+        current_run_id=record.run_id,
+        prior_run_id=prior.run_id if prior is not None else None,
+        deltas=_compute_deltas(record, prior),
+    )
+
+    return TrendAppendResult(
+        record_path=record_path,
+        comparison=comparison,
+        diagnostics=diagnostics,
     )

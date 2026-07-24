@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import json
+import os
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
 
@@ -9,9 +13,13 @@ from forgeagent.audit import AuditEvent
 from forgeagent.evaluation import (
     EVALUATION_SCHEMA,
     EvaluationMetrics,
+    EvaluationRecord,
     TaskOutcomeProjection,
     aggregate_metrics,
+    append_trend,
     project_audit_event,
+    read_record,
+    write_record,
 )
 
 # ---------------------------------------------------------------------------
@@ -269,10 +277,208 @@ def test_evaluation_record_schema_constant() -> None:
 
 
 def test_empty_task_outcomes_yields_null_first_pass_not_zero():
-    record = aggregate_metrics(
+    record_obj = aggregate_metrics(
         {"schema": "forgeagent.golden.v1", "total": 1, "passed": 1, "results": [{}]},
         [],
         task_outcomes=[],
     )
-    assert record.metrics.first_pass_correctness is None
-    assert record.metrics.correction_rounds is None
+    assert record_obj.metrics.first_pass_correctness is None
+    assert record_obj.metrics.correction_rounds is None
+
+
+# ---------------------------------------------------------------------------
+# Helpers for persistence / trend tests
+# ---------------------------------------------------------------------------
+
+
+def make_record(run_id: str = "test-run", golden_pass_rate: float = 90.0) -> EvaluationRecord:
+    return EvaluationRecord(
+        schema=EVALUATION_SCHEMA,
+        run_id=run_id,
+        created_at="2026-07-24T00:00:00.000Z",
+        source_schema="forgeagent.golden.v1",
+        metrics=EvaluationMetrics(
+            golden_pass_rate=golden_pass_rate,
+            first_pass_correctness=None,
+            correction_rounds=None,
+            cache_hit_rate=None,
+        ),
+        diagnostics=(),
+    )
+
+
+def read_index(record_dir: Path) -> dict:
+    return json.loads((record_dir / "index.json").read_text(encoding="utf-8"))
+
+
+# ---------------------------------------------------------------------------
+# 16. append_trend compares latest compatible record and bounds index
+# ---------------------------------------------------------------------------
+
+
+def test_append_trend_compares_latest_compatible_record_and_bounds_index(tmp_path):
+    old = make_record(run_id="20260724-old", golden_pass_rate=90.0)
+    new = make_record(run_id="20260724-new", golden_pass_rate=95.0)
+    append_trend(tmp_path, old, limit=1)
+    appended = append_trend(tmp_path, new, limit=1)
+    assert appended.comparison.prior_run_id == "20260724-old"
+    assert appended.comparison.deltas["golden_pass_rate"] == 5.0
+    assert read_index(tmp_path)["run_ids"] == ["20260724-new"]
+
+
+# ---------------------------------------------------------------------------
+# 17. Corrupt or incompatible history is ignored with fixed diagnostic
+# ---------------------------------------------------------------------------
+
+
+def test_corrupt_or_incompatible_history_is_ignored_with_fixed_diagnostic(tmp_path):
+    (tmp_path / "broken.json").write_text("{", encoding="utf-8")
+    result = append_trend(tmp_path, make_record(run_id="current"))
+    assert result.diagnostics == ("ignored_invalid_history:1",)
+
+
+# ---------------------------------------------------------------------------
+# 18. write_record leaves no temp file on success
+# ---------------------------------------------------------------------------
+
+
+def test_write_record_leaves_no_temp_file_on_success(tmp_path):
+    rec = make_record()
+    dest = tmp_path / "eval.json"
+    write_record(dest, rec)
+    tmp_files = list(tmp_path.glob("*.tmp"))
+    assert tmp_files == [], f"Unexpected .tmp files: {tmp_files}"
+    assert dest.exists()
+
+
+# ---------------------------------------------------------------------------
+# 19. read_record rejects unknown schema
+# ---------------------------------------------------------------------------
+
+
+def test_read_record_rejects_unknown_schema(tmp_path):
+    dest = tmp_path / "bad.json"
+    data = {
+        "schema": "wrong.schema.v99",
+        "run_id": "abc",
+        "created_at": "2026-07-24T00:00:00.000Z",
+        "source_schema": None,
+        "metrics": {
+            "golden_pass_rate": None,
+            "first_pass_correctness": None,
+            "correction_rounds": None,
+            "cache_hit_rate": None,
+        },
+        "diagnostics": [],
+    }
+    dest.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises((ValueError, Exception)):
+        read_record(dest)
+
+
+# ---------------------------------------------------------------------------
+# 20. read_record rejects extra key
+# ---------------------------------------------------------------------------
+
+
+def test_read_record_rejects_extra_key(tmp_path):
+    dest = tmp_path / "extra.json"
+    data = {
+        "schema": EVALUATION_SCHEMA,
+        "run_id": "abc",
+        "created_at": "2026-07-24T00:00:00.000Z",
+        "source_schema": None,
+        "metrics": {
+            "golden_pass_rate": None,
+            "first_pass_correctness": None,
+            "correction_rounds": None,
+            "cache_hit_rate": None,
+        },
+        "diagnostics": [],
+        "unexpected_field": "boom",
+    }
+    dest.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises((ValueError, ValidationError, Exception)):
+        read_record(dest)
+
+
+# ---------------------------------------------------------------------------
+# 21. Non-absolute path rejected
+# ---------------------------------------------------------------------------
+
+
+def test_non_absolute_path_rejected(tmp_path):
+    rec = make_record()
+    with pytest.raises(ValueError):
+        write_record(Path("relative/path.json"), rec)
+
+
+def test_non_absolute_dir_rejected_in_append_trend():
+    rec = make_record()
+    with pytest.raises(ValueError):
+        append_trend(Path("relative/dir"), rec)
+
+
+# ---------------------------------------------------------------------------
+# 22. Invalid limit rejected
+# ---------------------------------------------------------------------------
+
+
+def test_invalid_limit_rejected(tmp_path):
+    rec = make_record()
+    with pytest.raises(ValueError):
+        append_trend(tmp_path, rec, limit=0)
+
+
+# ---------------------------------------------------------------------------
+# 23. Duplicate run_id rejected
+# ---------------------------------------------------------------------------
+
+
+def test_duplicate_run_id_rejected(tmp_path):
+    rec = make_record(run_id="dup-run")
+    append_trend(tmp_path, rec)
+    with pytest.raises(ValueError):
+        append_trend(tmp_path, rec)
+
+
+# ---------------------------------------------------------------------------
+# 24. Retention removes only index-listed files
+# ---------------------------------------------------------------------------
+
+
+def test_retention_removes_only_index_listed_files(tmp_path):
+    r1 = make_record(run_id="run-1", golden_pass_rate=80.0)
+    r2 = make_record(run_id="run-2", golden_pass_rate=85.0)
+    # Write an unrelated file that should NOT be removed
+    unrelated = tmp_path / "unrelated.json"
+    unrelated.write_text("{}", encoding="utf-8")
+    append_trend(tmp_path, r1, limit=1)
+    append_trend(tmp_path, r2, limit=1)
+    # run-1 should be evicted, but unrelated.json must survive
+    assert not (tmp_path / "run-1.json").exists()
+    assert unrelated.exists()
+
+
+# ---------------------------------------------------------------------------
+# 25. Storage write failure does not mutate valid index
+# ---------------------------------------------------------------------------
+
+
+def test_storage_write_failure_does_not_mutate_valid_index(tmp_path):
+    # Seed a valid index with one record
+    r1 = make_record(run_id="safe-run", golden_pass_rate=70.0)
+    append_trend(tmp_path, r1, limit=5)
+    original_index = read_index(tmp_path)
+
+    # Make the record directory read-only so the next write_record call fails
+    os.chmod(tmp_path, 0o555)
+    try:
+        r2 = make_record(run_id="fail-run", golden_pass_rate=75.0)
+        with pytest.raises(OSError):
+            append_trend(tmp_path, r2, limit=5)
+    finally:
+        os.chmod(tmp_path, 0o755)
+
+    # Index must be unchanged
+    assert read_index(tmp_path) == original_index
