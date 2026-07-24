@@ -261,3 +261,18 @@ def test_evaluation_record_schema_constant() -> None:
     record = aggregate_metrics(valid_golden_report())
     assert record.schema == EVALUATION_SCHEMA
     assert EVALUATION_SCHEMA == "forgeagent.evaluation.v1"
+
+
+# ---------------------------------------------------------------------------
+# 15. Empty task_outcomes list → first_pass_correctness is None (not 0.0)
+# ---------------------------------------------------------------------------
+
+
+def test_empty_task_outcomes_yields_null_first_pass_not_zero():
+    record = aggregate_metrics(
+        {"schema": "forgeagent.golden.v1", "total": 1, "passed": 1, "results": [{}]},
+        [],
+        task_outcomes=[],
+    )
+    assert record.metrics.first_pass_correctness is None
+    assert record.metrics.correction_rounds is None
