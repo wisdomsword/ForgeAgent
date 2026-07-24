@@ -13,7 +13,7 @@
 ## 3. 运行入口
 
 - [x] 3.1 新增 `forgeagent loop` 新建/resume CLI、参数校验、输出与退出码，并保持 `run`/REPL 不变
-- [ ] 3.2 扩展现有 HTTP submit schema、runner factory、公开投影和 cancellation 以支持 Loop 模式
+- [x] 3.2 扩展现有 HTTP submit schema、runner factory、公开投影和 cancellation 以支持 Loop 模式
 - [ ] 3.3 添加 cron/launchd/systemd 调用示例和只产出报告的端到端 Loop 示例
 
 ## 4. 验证与文档

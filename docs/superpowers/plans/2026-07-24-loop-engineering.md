@@ -203,35 +203,35 @@ Commit with message `feat: expose loop CLI`.
 - `TaskRecord.public_view()` always adds `mode`; Loop terminal views add bounded report counters only.
 - The worker factory may return `Task` or `LoopRunner`, both exposing compatible `run(..., cancel_event=...)` and `close()`.
 
-- [ ] **Step 1: Write service runner/public-view RED tests**
+- [x] **Step 1: Write service runner/public-view RED tests**
 
 Cover ordinary Task compatibility, Loop result projection, running Loop view, queued/running/terminal cancellation, TTL/capacity, two Loop isolation, same-ID overlapping resume fail closed, resource close, and no checkpoint text/path in public snapshots.
 
-- [ ] **Step 2: Run service tests and verify RED**
+- [x] **Step 2: Run service tests and verify RED**
 
 Run: `UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run pytest -q tests/test_http_task_service.py -k 'loop or mode or ordinary'`
 
 Expected: missing mode/Loop support failures.
 
-- [ ] **Step 3: Generalize the worker without duplicating registry logic**
+- [x] **Step 3: Generalize the worker without duplicating registry logic**
 
 Introduce the smallest local protocol/type union required. Preserve existing Task branches and error projection. Store LoopReport privately; do not convert it into fake `TaskOutcome` rounds.
 
-- [ ] **Step 4: Write strict HTTP body RED tests**
+- [x] **Step 4: Write strict HTTP body RED tests**
 
 Cover all three accepted key sets, unknown/security-sensitive fields, bool-as-int/nonfinite/range errors, resume with goal/budgets, server-owned checkpoint root, submit/query/cancel audit and safe response.
 
-- [ ] **Step 5: Run handler tests and verify RED**
+- [x] **Step 5: Run handler tests and verify RED**
 
 Run: `UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run pytest -q tests/test_http_server.py -k 'loop or submit or invalid_request'`
 
 Expected: Loop bodies rejected before implementation.
 
-- [ ] **Step 6: Implement handler parsing and server factory selection**
+- [x] **Step 6: Implement handler parsing and server factory selection**
 
 Keep `/tasks` as the only submit endpoint. Validate exact key sets before calling service. `serve_http` derives Loop store from existing `allowed_root`; HTTP callers never pass checkpoint paths, tier, model, identity, confirmer or credentials.
 
-- [ ] **Step 7: Run HTTP/CLI integration regressions**
+- [x] **Step 7: Run HTTP/CLI integration regressions**
 
 Run:
 
@@ -243,7 +243,7 @@ UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run pytest -q \
 
 Expected: all pass; loopback-only tests may require the already-approved elevated rerun for final verification, not test weakening.
 
-- [ ] **Step 8: Mark OpenSpec task 3.2 complete and commit**
+- [x] **Step 8: Mark OpenSpec task 3.2 complete and commit**
 
 Commit with message `feat: submit loops over HTTP`.
 
