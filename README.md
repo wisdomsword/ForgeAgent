@@ -8,12 +8,65 @@
 人工复测 hotfix）、M19 Skills Runtime（程序性知识从 Memory 分流到可验证、快照化、渐进
 加载的 Skill）、M20 Eval（离线评估记录、趋势与显式 opt-in 独立 Evaluator）与 M21 Loop
 Engineering（有界的耐久多 Task 迭代、版本化 checkpoint/resume、stop conditions、
-HTTP/CLI/cron 调度示例）。收尾记录见
+HTTP/CLI/cron 调度示例）。M22 Duo/Triad 协作运行时已实现，最终全量验证与归档仍在进行。
+收尾记录见
 [`milestone_017.md`](milestones/milestone_017.md)、[`milestone_018.md`](milestones/milestone_018.md)、
 [`milestone_019.md`](milestones/milestone_019.md)、[`milestone_020.md`](milestones/milestone_020.md)
 和 [`milestone_021.md`](milestones/milestone_021.md)。M19 已通过无 API Key、无网络的本地
 人类验收；归档后补充的 Startup-Information 已完成真实 TTY 启动标识、能力摘要、MCP
 脱敏诊断和非 TTY 零启动噪声，并作为独立 OpenSpec change 归档。
+
+## M22 Duo / Triad（独立验收）
+
+协作模式位于普通 `Task` 上层，不改变 single 模式的 `TaskOutcome` 或两阶段完成语义：
+
+- Duo 串行运行 Generator → Evaluator。Generator 的 `completed: true` 只表示“提交验收”；
+  独立 Evaluator 对冻结验收项全部判定通过后，协作结果才是 `completed`。
+- Triad 在 Duo 前增加 Planner。Planner 只定义 WHAT（可观察行为与验收标准），计划必须由
+  交互用户确认后冻结；条目、顺序和 `plan_digest` 在 Generator/Evaluator 与 Loop resume 中
+  均不能删除、重排、替换或降标。
+- Evaluator 使用独立 Task/client/runtime/registry，默认 restricted，只注册 `FileRead`、
+  `FileList` 和 `SubmitEvaluation`，没有 Exec、写、编辑、Web、MCP、Skill 或 Survey 工具。
+- 每次拒绝都会用有界、脱敏证据启动 fresh Generator。`--max-rejections` 默认 2、最大 10；
+  达到上限以 `rejection_limit` 停止，不会无限重试。
+
+CLI 示例：
+
+```bash
+# 非编程目标可显式使用 Duo；角色模型缺省时沿用 --model
+uv run forgeagent run --mode duo \
+  --evaluator-model claude-haiku-4-5 \
+  --max-rejections 2 \
+  "核对 report.json 是否满足说明"
+
+# Triad 会先展示 Planner 清单并请求确认
+uv run forgeagent run --mode triad \
+  --planner-model claude-haiku-4-5 \
+  --evaluator-model claude-haiku-4-5 \
+  "实现 CSV 汇总程序并添加测试"
+```
+
+REPL 提供 `/duo <goal>` 和 `/triad <goal>`，并复用 `/help`、completion 与历史路径。
+缺少 goal 时只显示 usage，不启动任务。
+
+路由优先级是：显式 triad > 编程任务强制 triad > 显式 duo/single > 默认 single。编程任务
+由有界、确定性的中英文动作词 + 代码产物/文件规则识别，不调用分类模型。显式较弱模式与
+编程强制 Triad 冲突时，交互 CLI 要求确认；确认后相当于
+`allow_weaker_override=true`。非 TTY CLI 无确认通道时拒绝；HTTP 只能由服务端配置
+`allow_weaker_override` 预授权，客户端不能提交该策略。
+
+公开报告仅显示 collaboration ID、mode/status/reason/phase、计划/通过/失败数、角色尝试、
+rejections、rounds、归一化 usage、`usage_available` 与最多 8 条掩码后证据摘要；不显示完整
+goal、计划/verdict 正文、prompt、模型回复、工具参数、文件内容、credential 或绝对路径。
+
+成本边界：Duo 至少比 single 多一次独立模型会话；Triad 再增加 Planner，且每次打回都会
+新增 Generator + Evaluator 调用。角色可选不同模型以控制成本，但 `usage_available=false`
+表示某次 provider 未提供可靠用量，不能把缺失 usage 当作零。真实模型的 single/Triad
+质量对比属于 opt-in，不是离线 CI 门禁。
+
+已知限制：v1 严格串行，不并行角色；Evaluator 没有 Exec，只能读取 Generator 已产出的
+文件/测试报告；CLI 协作模式暂不接受图片；协作状态没有公开 resume API；headless Triad
+默认拒绝自动批准计划。
 
 ## M21 Loop（有界的耐久迭代）
 
@@ -41,8 +94,18 @@ wall clock 与连续失败均按整个 Loop 累计；wall clock 是协作超时�
 工具调用，只会在其返回后的安全边界停止。token usage 缺失不会被当成零而绕过预算。
 
 Loop 会产生模型调用费用，token budget 只是上限而非报价。M20 的独立 Evaluator 仍是
-显式 opt-in，普通 Loop 不会自动调用它；M22 的 Generator/Evaluator/Triad 打回语义也不在
-M21 范围内。
+单独的显式 opt-in `evaluate` 命令；M22 collaborative Loop 则通过
+`--collaboration-mode duo|triad` 显式冻结协作模式、state ID 与计划摘要。普通 single Loop
+不会自动创建 Planner 或 Evaluator。
+
+```bash
+uv run forgeagent loop "实现并验证依赖报告生成器" \
+  --collaboration-mode triad \
+  --planner-model claude-haiku-4-5 \
+  --evaluator-model claude-haiku-4-5 \
+  --max-rejections 2 \
+  --token-budget 12000
+```
 
 ### HTTP 与外部调度
 
@@ -123,6 +186,8 @@ REPL 内输入 `/` 加回车查看指令菜单，或直接 `/help`。当前支�
 - `/mcp [status|enable <s>|disable <s>]` — 看 MCP server 连接状态与工具清单、启停某个 server
 - `/memory` — 查看当前 session/project memory（已掩码）
 - `/remember <session|project> <key>=<value>` — 显式保存一条陈述性事实
+- `/duo <goal>` — Generator + 独立 Evaluator；比 single 产生更多模型调用
+- `/triad <goal>` — Planner 确认 + Generator/Evaluator；成本最高
 - `/reload` — 重读 `~/.forgeagent/{models,config}.yaml`，配置写错时当场报错而非等到下次 run
 - `/help [command]` — 列出全部指令，或查看某个指令的详细用法
 

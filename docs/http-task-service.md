@@ -39,7 +39,21 @@ allowlist:
   - mcp/github/create_issue
   - file/write/project.txt
   - web/https/example.com/443/
+planner_model: claude-haiku-4-5
+evaluator_model: claude-haiku-4-5
+evaluator_tier: restricted
+max_rejections: 2
+triad_plan_policy: deny
+allow_weaker_override: false
 ```
+
+The collaboration settings are also server-owned. Blank role model settings inherit
+the service's main model. `evaluator_tier` accepts `restricted` or `container` only;
+`max_rejections` is 1-10. `triad_plan_policy: deny` is the safe default: headless
+Triad stops with `needs_confirmation` after Planner submission and does not start the
+Generator. `preauthorize` approves the bounded submitted plan without a human channel.
+`allow_weaker_override` controls whether an explicit task/Duo request may bypass a
+deterministic programming-task Triad route. Clients cannot submit any of these fields.
 
 The service uses four workers, a queue of 32, at most 256 retained records, and a
 one-hour terminal-result TTL by default. Limits are server-owned. Running tasks are
@@ -64,10 +78,12 @@ the four raw counts `input_tokens`, `output_tokens`, `cached_tokens`, and
 
 Every route requires exactly one `Authorization: Bearer <token>` header. The request
 body is JSON with `Content-Type: application/json`, a declared `Content-Length`, and
-a 64 KiB default limit. `POST /tasks` accepts only a non-empty string `goal`; unknown
-fields and all security-sensitive options are rejected. The server, not the client,
-chooses `tier`, `backend`, `allowed_root`, `container_image`, identity/trust,
-credentials, confirmer, and MCP policy.
+a 64 KiB default limit. A plain non-empty `goal` remains an ordinary Task unless the
+deterministic programming rule selects Triad. Clients may select only the documented
+low-risk task/Loop mode fields; unknown fields and all security-sensitive options are
+rejected. The server, not the client, chooses `tier`, `backend`, `allowed_root`,
+`container_image`, identity/trust, credentials, confirmer, MCP policy, role model,
+Evaluator tier, rejection limit, Planner approval and weaker-mode override policy.
 
 | Method | Route | Result |
 | --- | --- | --- |
@@ -75,16 +91,53 @@ credentials, confirmer, and MCP policy.
 | `GET` | `/tasks/{32-hex-id}` | `200` bounded lifecycle/result projection |
 | `POST` | `/tasks/{32-hex-id}/cancel` | `200` or `202` idempotent cancellation acknowledgement |
 
+Accepted task bodies include:
+
+```json
+{"goal": "核对 report.json 的结果", "mode": "duo"}
+```
+
+```json
+{"goal": "实现 parser.py 并添加测试", "mode": "triad"}
+```
+
+New collaborative Loop bodies use the existing endpoint and Loop budgets, with one
+additional low-risk frozen field:
+
+```json
+{
+  "goal": "实现并验证依赖报告生成器",
+  "mode": "loop",
+  "collaboration_mode": "triad",
+  "token_budget": 12000,
+  "max_rounds": 20,
+  "wall_clock_seconds": 900,
+  "max_consecutive_failures": 3
+}
+```
+
+Loop resume remains `{"mode":"loop","resume_loop_id":"..."}` and cannot include
+goal, collaboration mode or budget replacements. No collaboration-specific endpoint
+is added; collaboration state paths and IDs are server-owned implementation details.
+
 There is no HTTP shutdown or health-control endpoint. The process owner controls
 shutdown and closes the listener, task workers, and shared MCP manager in that order.
 The JSON error shape is always `{"error":{"kind":"...","detail":"..."}}`.
 It contains stable safe text, never a traceback, bearer token, API key, host path,
 prompt, raw tool arguments, or file content.
 
-Terminal responses expose only `status`, `reason`, a fixed safe `detail`, bounded
-`round_count`, aggregate token usage, and `audit_degraded`. Model prose and tool
-outcomes are retained only inside the process/audit policy and are not serialized by
-the HTTP projection.
+Terminal ordinary responses expose only `status`, `reason`, a fixed safe `detail`,
+bounded `round_count`, aggregate token usage, and `audit_degraded`. Running Duo/Triad
+views additionally expose public mode and stable phase. Terminal collaboration views
+add plan/pass/fail counts, Generator/Evaluator attempts, rejections,
+`usage_available`, normalized usage and bounded masked evidence. They never serialize
+the goal, plan/verdict body, prompt, role conversation, raw tool outcome, credential,
+artifact content or absolute path.
+
+The Evaluator is read-only at the product tool boundary: its registry contains only
+`FileRead`, `FileList`, and `SubmitEvaluation`, and its tier is constrained by the
+server. Planner confirmation is separate from the HTTP FileWrite/WebFetch/MCP
+allowlist; `triad_plan_policy` cannot be supplied in a request.
 
 Cancellation is cooperative. Queued work is cancelled before constructing a Task;
 running work observes the event at the next model-round or tool boundary. It does

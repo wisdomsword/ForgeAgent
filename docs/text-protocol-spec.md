@@ -160,8 +160,53 @@ these stop reasons: `completed`, `cancelled`, `wall_clock`,
 `token_usage_unavailable`, `token_budget`, `max_rounds`, `consecutive_failures`,
 `unrecoverable_failure`, or `checkpoint_error`. `wall_clock` is cooperative: an
 in-flight model or tool call is not force-killed, and the stop is observed at the
-next safe boundary. M20 Evaluator is not part of the Loop protocol, and M22 Triad
-accept/reject semantics are intentionally excluded.
+next safe boundary. M20 Evaluator is not part of the Loop protocol. An M22
+collaborative Loop freezes `collaboration_mode`, `collaboration_id`, and (after
+confirmation) `plan_digest` as additive `forgeagent.loop.v1` fields. Old checkpoints
+without them remain single. Resume rejects mode or digest drift instead of replacing
+the accepted completion standard.
+
+## Runtime collaboration contract
+
+M22 runtime collaboration uses the separate durable schema
+`forgeagent.collaboration.v1`. It is a Task-level controller, not a new model-output
+marker and not a change to ordinary `TaskStatus`/`TaskOutcome`.
+
+In Duo, ForgeAgent creates one fixed `goal` acceptance item, then runs fresh
+Generator and Evaluator Tasks. In Triad, a fresh Planner first calls `SubmitPlan` with
+bounded, unique `{id, behavior, acceptance}` items. The plan is normalized and hashed;
+an interactive confirmer or server-owned headless policy must approve it before the
+Generator starts. Confirmation freezes the items, their order and `plan_digest`.
+
+Generator 的 `completed: true` 在 Duo/Triad 中只表示提交验收，不拥有协作完成权。The
+Evaluator receives the original goal as framed task data, the frozen acceptance items,
+and access to observable artifacts. It must call `SubmitEvaluation` with exactly one
+bounded result for every frozen ID, then finish with a standalone clean completion.
+Only a complete all-pass verdict makes the collaboration `completed`. A rejection
+starts a fresh Generator with bounded evidence until `max_rejections` is exhausted.
+
+Role tool registries are deliberately asymmetric:
+
+- Planner: `SubmitPlan` only.
+- Generator: the caller-owned ordinary task registry.
+- Evaluator: `FileRead`, `FileList`, and `SubmitEvaluation` only; no Exec, FileWrite,
+  Edit, WebFetch, MCP, Skill, Survey, or Memory state. A caller-approved immutable
+  identity prompt may still be composed for the fresh Task; role conversation and
+  mutable runtime state are not shared.
+
+The public collaboration report contains only stable fields: `collaboration_id`,
+mode, status, stop reason, phase, `plan_item_count`, `passed_item_count`,
+`failed_item_count`, `generator_attempts`, `evaluator_attempts`, `rejections`, rounds,
+normalized usage, `usage_available`, and bounded masked evidence summaries. Full goal,
+plan/verdict text, prompts, raw replies, tool arguments, artifact contents, credentials
+and absolute host paths remain private. Stable stop classes include confirmation,
+rejection limit, invalid role submission, role/configuration failure, state failure and
+cooperative cancellation.
+
+The collaboration state and tool payloads are untrusted persisted/task data. JSON
+framing, strict Pydantic validation, secret masking and text bounds do not grant them
+instruction authority or expand the selected sandbox, confirmer, root, model or tool
+registry.
 
 ## Independent Evaluator result
 
@@ -195,8 +240,11 @@ require a TTY confirmer; MCP skips confirmation only for the configured per-serv
 without reading input. `FileRead` and `FileList` do not block for confirmation.
 `--interactive` controls Survey only.
 
-REPL embedded commands require a slash prefix: `/model` (list or switch model),
-`/search`, `/image`, `/mcp`, `/memory`, `/remember`, `/reload`, `/help`, and `/` (command menu). Unknown
+REPL embedded commands require a slash prefix: `/duo`, `/triad`, `/model` (list or
+switch model), `/search`, `/image`, `/mcp`, `/memory`, `/remember`, `/reload`, `/help`,
+and `/` (command menu). `/duo <goal>` selects Generator + Evaluator; `/triad <goal>`
+selects Planner confirmation + Generator/Evaluator. Missing goals return bounded usage
+guidance. Unknown
 slash commands are rejected. Bare `models`, `reload`, `mcp`, and `mcp ...` are
 ordinary model goals. The top-level `forgeagent models` CLI subcommand remains a
 separate command and is not REPL routing.
