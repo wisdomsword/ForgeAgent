@@ -347,7 +347,7 @@ git commit -m "feat: add isolated evaluator facade"
 - Consumes: `forgeagent evaluate --model MODEL_ID --artifact-root PATH --task-description TEXT --expected-behavior TEXT --artifact RELATIVE_PATH [--artifact ...] [--golden-report PATH] [--audit-jsonl PATH] [--record-dir ABSOLUTE_PATH]`.
 - Produces: exit `0` only for evaluator `passed` and successful requested persistence; exit `1` for evaluator `failed`; exit `2` for credential/model/artifact/record preflight or persistence failure; safe console summary with relative artifact paths and nullable metric/delta values.
 
-- [ ] **Step 1: Write failing CLI contract tests**
+- [x] **Step 1: Write failing CLI contract tests**
 
 ```python
 def test_evaluate_fails_before_artifact_read_when_model_is_unusable(monkeypatch, tmp_path, capsys):
@@ -365,25 +365,25 @@ def test_evaluate_constructs_isolated_facade_and_never_runs_on_golden_offline(mo
 
 Add parser/help tests, a no-network injected-client test, null metric summary test, failed evaluator exit `1`, persistence failure exit `2` after evaluation without claiming pass, and a regression test that `tests.golden.runner.main()` never imports/calls `run_evaluator`.
 
-- [ ] **Step 2: Run focused CLI tests to verify failure**
+- [x] **Step 2: Run focused CLI tests to verify failure**
 
 Run: `uv run pytest tests/test_cli.py -k 'evaluate' -v`
 
 Expected: FAIL because `evaluate` is not a parser command.
 
-- [ ] **Step 3: Implement command parsing, ordered preflight, and safe rendering**
+- [x] **Step 3: Implement command parsing, ordered preflight, and safe rendering**
 
 Add only an `evaluate` subparser; do not add evaluator flags to `run`, `serve`, `smoke`, or golden runner. Make `--model`, `--artifact-root`, `--task-description`, `--expected-behavior`, and one-or-more `--artifact` required. Model/client construction occurs before artifact traversal. For an optional golden/audit input, use `aggregate_metrics()` only after strict file JSON/JSONL parsing; missing optional evidence produces null metrics/diagnostics rather than reaching into arbitrary home directories.
 
 Call the evaluator facade with a new client and `artifact_root`; do not call `resolve_cli_identity`, `_make_memory_manager`, `_load_skill_registry`, `build_mcp_manager`, or create `JsonlAuditSink` on this path. If `--record-dir` is present, require an absolute path, assemble the evaluation record from safe projections, then call `append_trend()`. Render status, bounded evidence, unmet expectations, metric values (`n/a` for null), and deltas; never render raw exception/provider messages or absolute root paths.
 
-- [ ] **Step 4: Run CLI and cross-boundary regression tests**
+- [x] **Step 4: Run CLI and cross-boundary regression tests**
 
 Run: `uv run pytest tests/test_cli.py -k 'evaluate or golden' -v && uv run pytest tests/test_evaluator.py tests/test_evaluation.py -v`
 
 Expected: PASS; ordinary `run`, `serve`, and offline golden tests continue to have no evaluator call path.
 
-- [ ] **Step 5: Commit the opt-in CLI integration**
+- [x] **Step 5: Commit the opt-in CLI integration**
 
 ```bash
 git add src/forgeagent/cli.py tests/test_cli.py tests/test_evaluation.py tests/test_evaluator.py

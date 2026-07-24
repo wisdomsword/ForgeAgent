@@ -12,8 +12,8 @@
 ## 3. 独立 Evaluator
 
 - [x] 3.1 定义有界 evaluator 契约、产物 manifest 校验和固定安全结果投影。
-- [ ] 3.2 接入显式 opt-in CLI evaluator，使用不带 Generator 上下文、Memory 或 project Skills 的独立 Task 会话。
-- [ ] 3.3 增加 mock-client 隔离测试与已知失败产物 fixture，断言 100% 检出；所有真实模型调用保持 opt-in。
+- [x] 3.2 接入显式 opt-in CLI evaluator，使用不带 Generator 上下文、Memory 或 project Skills 的独立 Task 会话。
+- [x] 3.3 增加 mock-client 隔离测试与已知失败产物 fixture，断言 100% 检出；所有真实模型调用保持 opt-in。
 
 ## 4. 文档与完成
 

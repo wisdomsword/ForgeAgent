@@ -25,7 +25,7 @@ import sys
 import threading
 import time
 import unicodedata
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, fields
 from pathlib import Path
@@ -46,6 +46,21 @@ from .anthropic_client import AnthropicClient
 from .audit import AuditSink, JsonlAuditSink
 from .client import ModelClient
 from .context import ContextConfig, SlidingWindowContextPolicy, load_context_config
+from .evaluation import (
+    METRIC_NAMES,
+    EvaluationMetrics,
+    EvaluationRecord,
+    TrendAppendResult,
+    aggregate_metrics,
+    append_trend,
+)
+from .evaluator import (
+    EvaluationRequest,
+    EvaluatorPreflightError,
+    EvaluatorResult,
+    run_evaluator,
+    validate_artifact_manifest,
+)
 from .executor import ContainerRuntimeError
 from .headless import HeadlessConfirmer
 from .http_config import HttpServiceConfig
@@ -1764,7 +1779,128 @@ def build_parser() -> argparse.ArgumentParser:
         help="server-owned HTTP service configuration",
     )
     serve_p.add_argument("--once", action="store_true", help=argparse.SUPPRESS)
+    evaluate_p = sub.add_parser(
+        "evaluate", help="evaluate declared artifacts with an isolated real-model session"
+    )
+    evaluate_p.add_argument("--model", dest="evaluate_model", required=True)
+    evaluate_p.add_argument("--artifact-root", required=True, metavar="PATH")
+    evaluate_p.add_argument("--task-description", required=True, metavar="TEXT")
+    evaluate_p.add_argument("--expected-behavior", required=True, metavar="TEXT")
+    evaluate_p.add_argument(
+        "--artifact", dest="artifacts", action="append", required=True, metavar="PATH"
+    )
+    evaluate_p.add_argument("--golden-report", default=None, metavar="PATH")
+    evaluate_p.add_argument("--audit-jsonl", default=None, metavar="PATH")
+    evaluate_p.add_argument("--record-dir", default=None, metavar="ABSOLUTE_PATH")
     return parser
+
+
+def _load_strict_json(path: Path) -> object:
+    return json.loads(
+        path.read_text(encoding="utf-8"),
+        parse_constant=lambda value: (_ for _ in ()).throw(
+            ValueError(f"non-finite JSON value: {value}")
+        ),
+    )
+
+
+def _evaluation_record(
+    golden_report_path: str | None, audit_jsonl_path: str | None
+) -> EvaluationRecord:
+    golden_report: Mapping[str, object] | None = None
+    audit_events: list[Mapping[str, object]] = []
+    if golden_report_path is not None:
+        loaded = _load_strict_json(Path(golden_report_path))
+        if not isinstance(loaded, dict):
+            raise ValueError("golden report must be a JSON object")
+        golden_report = loaded
+    if audit_jsonl_path is not None:
+        for line in Path(audit_jsonl_path).read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            loaded = json.loads(
+                line,
+                parse_constant=lambda value: (_ for _ in ()).throw(
+                    ValueError(f"non-finite JSON value: {value}")
+                ),
+            )
+            if not isinstance(loaded, dict):
+                raise ValueError("audit line must be a JSON object")
+            audit_events.append(loaded)
+    if golden_report is None:
+        if audit_events:
+            projected = aggregate_metrics({}, audit_events=audit_events)
+            return EvaluationRecord(metrics=projected.metrics)
+        return EvaluationRecord(metrics=EvaluationMetrics())
+    return aggregate_metrics(golden_report, audit_events=audit_events)
+
+
+def _metric_text(value: float | None) -> str:
+    return "n/a" if value is None else f"{value:.4g}"
+
+
+def _render_evaluation(
+    console: Console,
+    result: EvaluatorResult,
+    record: EvaluationRecord,
+    trend: TrendAppendResult | None,
+    artifacts: list[str],
+) -> None:
+    console.print(f"evaluation status: {result.status}")
+    console.print(f"artifacts: {', '.join(artifacts)}")
+    for item in result.observed_evidence:
+        console.print(f"observed: {item}")
+    for item in result.unmet_expectations:
+        console.print(f"unmet: {item}")
+    for name in METRIC_NAMES:
+        console.print(f"{name}: {_metric_text(getattr(record.metrics, name))}")
+    if trend is not None:
+        for name in METRIC_NAMES:
+            console.print(f"delta.{name}: {_metric_text(trend.comparison.deltas[name])}")
+
+
+def _run_evaluate_command(
+    args: argparse.Namespace,
+    *,
+    client_factory: ClientFactory,
+    console: Console,
+    error_console: Console,
+) -> int:
+    try:
+        client = client_factory(args.evaluate_model)
+    except Exception:
+        error_console.print("[red]evaluation preflight failed[/red]")
+        return 2
+
+    try:
+        artifact_root = Path(args.artifact_root)
+        artifacts = validate_artifact_manifest(artifact_root, args.artifacts)
+        record = _evaluation_record(args.golden_report, args.audit_jsonl)
+        record_dir = Path(args.record_dir) if args.record_dir is not None else None
+        if record_dir is not None and not record_dir.is_absolute():
+            raise ValueError("record directory must be absolute")
+    except (EvaluatorPreflightError, OSError, UnicodeError, ValueError, json.JSONDecodeError):
+        error_console.print("[red]evaluation preflight failed[/red]")
+        return 2
+
+    request = EvaluationRequest(
+        task_description=args.task_description,
+        expected_behavior=args.expected_behavior,
+        artifact_root=artifact_root,
+        artifacts=artifacts,
+    )
+    result = run_evaluator(client, request)
+    trend = None
+    if record_dir is not None:
+        try:
+            record_dir.mkdir(parents=True, exist_ok=True)
+            trend = append_trend(record_dir, record)
+        except (OSError, ValueError):
+            error_console.print("[red]evaluation persistence failed[/red]")
+            return 2
+
+    _render_evaluation(console, result, record, trend, args.artifacts)
+    return 0 if result.status == "passed" else 1
 
 
 def main(
@@ -1798,6 +1934,13 @@ def main(
                 once=args.once,
             )
             return 0
+        if args.command == "evaluate":
+            return _run_evaluate_command(
+                args,
+                client_factory=client_factory,
+                console=console,
+                error_console=error_console,
+            )
         allowed_root = str(Path.cwd().resolve())
         interactive_identity = console.is_terminal and sys.stdin.isatty()
         identity_confirmer = (

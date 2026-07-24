@@ -56,7 +56,7 @@ def valid_outcome(cached: int, prompt: int) -> AuditEvent:
         (
             [valid_outcome(cached=20, prompt=100)],
             [TaskOutcomeProjection(True, 1)],
-            (100.0, 1.0, 0.0, 0.2),
+            (100.0, 100.0, 0.0, 0.2),
         ),
         # no cache events, no task_outcomes → last three None
         (
@@ -220,6 +220,14 @@ def test_no_completed_outcomes_yields_null_correction_rounds() -> None:
     record = aggregate_metrics(valid_golden_report(), task_outcomes=outcomes)
     assert record.metrics.correction_rounds is None
     assert record.metrics.first_pass_correctness == 0.0
+
+
+def test_first_pass_correctness_is_reported_as_a_percentage() -> None:
+    outcomes = [TaskOutcomeProjection(True, 1), TaskOutcomeProjection(True, 2)]
+
+    record = aggregate_metrics(valid_golden_report(), task_outcomes=outcomes)
+
+    assert record.metrics.first_pass_correctness == 50.0
 
 
 # ---------------------------------------------------------------------------

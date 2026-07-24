@@ -1391,6 +1391,15 @@ def test_standalone_offline_runner_ignores_hostile_parent_mcp_config(tmp_path):
     assert payload["pass_rate"] == 100.0
 
 
+def test_offline_golden_never_calls_evaluator(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "forgeagent.evaluator.run_evaluator",
+        lambda *args, **kwargs: pytest.fail("offline golden must not call evaluator"),
+    )
+
+    assert main(["--output-dir", str(tmp_path / "offline")]) == 0
+
+
 def test_real_main_preserves_caller_home_and_parses_custom_model_without_network(tmp_path):
     home = tmp_path / "caller-home"
     config_dir = home / ".forgeagent"

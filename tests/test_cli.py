@@ -36,6 +36,7 @@ from forgeagent.cli import (
     run_once,
 )
 from forgeagent.client import MockClient
+from forgeagent.evaluator import EvaluationRequest, EvaluatorResult
 from forgeagent.executor import TrustedBackend
 from forgeagent.mcp_manager import MCPManager, MCPServerConfig, MCPServerDiagnostic
 from forgeagent.model_registry import RegistryError
@@ -2883,6 +2884,271 @@ def test_noninteractive_commands_do_not_render_repl_startup_information(
 def test_models_command_lists_registered_models():
     code = main(["models"], client_factory=_factory([]))  # factory unused by `models`
     assert code == 0
+
+
+# --- explicit evaluator command (M20) ---------------------------------------
+
+
+def _evaluate_argv(tmp_path, *extra: str) -> list[str]:
+    return [
+        "evaluate",
+        "--model",
+        "mock-evaluator",
+        "--artifact-root",
+        str(tmp_path),
+        "--task-description",
+        "check result",
+        "--expected-behavior",
+        "result is correct",
+        "--artifact",
+        "result.txt",
+        *extra,
+    ]
+
+
+def test_evaluate_parser_requires_explicit_contract(tmp_path):
+    args = build_parser().parse_args(_evaluate_argv(tmp_path))
+
+    assert args.command == "evaluate"
+    assert args.evaluate_model == "mock-evaluator"
+    assert args.artifacts == ["result.txt"]
+
+
+def test_evaluate_fails_before_artifact_read_when_model_is_unusable(monkeypatch, tmp_path, capsys):
+    inspected = False
+
+    def observe_manifest(root, paths):
+        nonlocal inspected
+        inspected = True
+        raise AssertionError("artifact inspection must happen after model preflight")
+
+    def fail_client(model):
+        raise RegistryError("secret provider detail")
+
+    monkeypatch.setattr(cli_module, "validate_artifact_manifest", observe_manifest)
+
+    code = main(_evaluate_argv(tmp_path), client_factory=fail_client)
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert not inspected
+    assert "evaluation preflight failed" in captured.err
+    assert "secret provider detail" not in captured.err
+
+
+def test_evaluate_constructs_only_declared_isolated_request(monkeypatch, tmp_path, capsys):
+    (tmp_path / "result.txt").write_text("ok", encoding="utf-8")
+    captured_request: EvaluationRequest | None = None
+
+    def fake_run_evaluator(client, request):
+        nonlocal captured_request
+        captured_request = request
+        return EvaluatorResult(
+            status="passed",
+            observed_evidence=("result matched",),
+            unmet_expectations=(),
+        )
+
+    monkeypatch.setattr(cli_module, "run_evaluator", fake_run_evaluator)
+    monkeypatch.setattr(
+        cli_module,
+        "resolve_cli_identity",
+        lambda **kwargs: pytest.fail("evaluate must not load identity"),
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "_make_memory_manager",
+        lambda *args, **kwargs: pytest.fail("evaluate must not load memory"),
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "_load_skill_registry",
+        lambda **kwargs: pytest.fail("evaluate must not load skills"),
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "build_mcp_manager",
+        lambda: pytest.fail("evaluate must not load MCP"),
+    )
+
+    code = main(_evaluate_argv(tmp_path), client_factory=_factory([]))
+
+    rendered = capsys.readouterr().out
+    assert code == 0
+    assert captured_request is not None
+    assert captured_request.task_description == "check result"
+    assert captured_request.expected_behavior == "result is correct"
+    assert captured_request.artifacts[0].path == "result.txt"
+    assert str(tmp_path) not in rendered
+    assert "passed" in rendered
+
+
+def test_evaluate_failed_result_returns_one(monkeypatch, tmp_path):
+    (tmp_path / "result.txt").write_text("wrong", encoding="utf-8")
+    monkeypatch.setattr(
+        cli_module,
+        "run_evaluator",
+        lambda client, request: EvaluatorResult(
+            status="failed",
+            observed_evidence=("wrong value",),
+            unmet_expectations=("expected value missing",),
+        ),
+    )
+
+    assert main(_evaluate_argv(tmp_path), client_factory=_factory([])) == 1
+
+
+def test_evaluate_renders_null_metrics_as_na(monkeypatch, tmp_path, capsys):
+    (tmp_path / "result.txt").write_text("ok", encoding="utf-8")
+    monkeypatch.setattr(
+        cli_module,
+        "run_evaluator",
+        lambda client, request: EvaluatorResult("passed", (), ()),
+    )
+
+    code = main(_evaluate_argv(tmp_path), client_factory=_factory([]))
+
+    assert code == 0
+    assert "n/a" in capsys.readouterr().out
+
+
+def test_evaluate_persistence_failure_returns_two_without_claiming_pass(
+    monkeypatch, tmp_path, capsys
+):
+    (tmp_path / "result.txt").write_text("ok", encoding="utf-8")
+    record_dir = tmp_path / "records"
+    monkeypatch.setattr(
+        cli_module,
+        "run_evaluator",
+        lambda client, request: EvaluatorResult("passed", (), ()),
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "append_trend",
+        lambda *args, **kwargs: (_ for _ in ()).throw(OSError("private path")),
+    )
+
+    code = main(
+        _evaluate_argv(tmp_path, "--record-dir", str(record_dir)),
+        client_factory=_factory([]),
+    )
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "evaluation persistence failed" in captured.err
+    assert "private path" not in captured.err
+    assert "passed" not in captured.out
+
+
+def test_evaluate_rejects_relative_record_directory_before_model_call(monkeypatch, tmp_path):
+    (tmp_path / "result.txt").write_text("ok", encoding="utf-8")
+    called = False
+
+    def fake_run_evaluator(client, request):
+        nonlocal called
+        called = True
+        return EvaluatorResult("passed", (), ())
+
+    monkeypatch.setattr(cli_module, "run_evaluator", fake_run_evaluator)
+
+    code = main(
+        _evaluate_argv(tmp_path, "--record-dir", "relative-records"),
+        client_factory=_factory([]),
+    )
+
+    assert code == 2
+    assert not called
+
+
+def test_evaluate_loads_optional_golden_and_audit_evidence(monkeypatch, tmp_path, capsys):
+    (tmp_path / "result.txt").write_text("ok", encoding="utf-8")
+    golden_report = tmp_path / "golden.json"
+    golden_report.write_text(
+        json.dumps({"schema": "forgeagent.golden.v1", "total": 4, "passed": 3}),
+        encoding="utf-8",
+    )
+    audit_jsonl = tmp_path / "audit.jsonl"
+    audit_jsonl.write_text(
+        json.dumps(
+            {
+                "event_type": "llm.outcome",
+                "result_status": "success",
+                "parameters": {"usage": {"cached_tokens": 5, "total_prompt_tokens": 20}},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "run_evaluator",
+        lambda client, request: EvaluatorResult("passed", (), ()),
+    )
+
+    code = main(
+        _evaluate_argv(
+            tmp_path,
+            "--golden-report",
+            str(golden_report),
+            "--audit-jsonl",
+            str(audit_jsonl),
+        ),
+        client_factory=_factory([]),
+    )
+
+    rendered = capsys.readouterr().out
+    assert code == 0
+    assert "golden_pass_rate: 75" in rendered
+    assert "cache_hit_rate: 0.25" in rendered
+
+
+def test_evaluate_uses_audit_metrics_without_golden_report(monkeypatch, tmp_path, capsys):
+    (tmp_path / "result.txt").write_text("ok", encoding="utf-8")
+    audit_jsonl = tmp_path / "audit.jsonl"
+    audit_jsonl.write_text(
+        json.dumps(
+            {
+                "event_type": "llm.outcome",
+                "result_status": "success",
+                "parameters": {"usage": {"cached_tokens": 1, "total_prompt_tokens": 4}},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "run_evaluator",
+        lambda client, request: EvaluatorResult("passed", (), ()),
+    )
+
+    code = main(
+        _evaluate_argv(tmp_path, "--audit-jsonl", str(audit_jsonl)),
+        client_factory=_factory([]),
+    )
+
+    assert code == 0
+    assert "cache_hit_rate: 0.25" in capsys.readouterr().out
+
+
+def test_evaluate_persists_record_to_absolute_directory(monkeypatch, tmp_path):
+    (tmp_path / "result.txt").write_text("ok", encoding="utf-8")
+    record_dir = (tmp_path / "records").resolve()
+    monkeypatch.setattr(
+        cli_module,
+        "run_evaluator",
+        lambda client, request: EvaluatorResult("passed", (), ()),
+    )
+
+    code = main(
+        _evaluate_argv(tmp_path, "--record-dir", str(record_dir)),
+        client_factory=_factory([]),
+    )
+
+    assert code == 0
+    index = json.loads((record_dir / "index.json").read_text(encoding="utf-8"))
+    assert len(index["run_ids"]) == 1
+    assert (record_dir / f"{index['run_ids'][0]}.json").is_file()
 
 
 def test_print_models_shows_canonical_and_aliases():

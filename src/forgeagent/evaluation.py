@@ -245,7 +245,7 @@ def aggregate_metrics(
 
         if n_total > 0:
             n_first_pass = sum(1 for o in outcomes_list if o.completed and o.round_count == 1)
-            first_pass_correctness = n_first_pass / n_total
+            first_pass_correctness = 100.0 * n_first_pass / n_total
 
         completed = [o for o in outcomes_list if o.completed]
         if completed:
