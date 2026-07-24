@@ -65,10 +65,11 @@ endpoint、workflow framework、跨进程 exactly-once 或 M22 Duo/Triad 验收�
 
 ### 验收评审
 
-- [x] 完整回归：`1758 passed, 11 skipped`；合并 main 后专项：`452 passed, 10 skipped`。
+- [x] 完整回归：`1758 passed, 11 skipped`；归档提交后专项：`462 passed`。
 - [x] trusted golden：`20/20 passed (100.0%)`；Ruff format/check 与 diff check 通过。
 - [x] wheel/sdist 构建成功；OpenSpec strict 在归档前后均为 `16 passed, 0 failed`。
 - [x] OpenSpec archive 7/7 steps succeeded，主 specs 已合并，归档状态 `archived: true`。
+- [x] 修正归档后 ACTION_PLAN 静态契约测试仍要求“进行中”的收尾遗漏，并重跑完整门禁。
 
 ## 遗留问题
 

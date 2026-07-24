@@ -1,9 +1,10 @@
 # M21 Loop Engineering 验证报告
 
 - Change: `loop-engineering`
-- 验证提交: `602fe6a5f88f2f7aeaf504c850f93a06a67569d8`
+- 实现验证提交: `602fe6a5f88f2f7aeaf504c850f93a06a67569d8`
+- 归档提交: `bd819af`
 - 验证模式: full
-- 结论: PASS，可归档
+- 结论: PASS，已合并 `main` 并归档
 
 ## 结果总览
 
@@ -50,6 +51,39 @@ Successfully built forgeagent-0.1.0.tar.gz and forgeagent-0.1.0-py3-none-any.whl
 openspec validate --all --strict
 Totals: 16 passed, 0 failed (16 items)
 ```
+
+归档提交后再次执行完成门禁：
+
+```text
+UV_CACHE_DIR=/tmp/forgeagent-m21-final-uv-cache uv run pytest -q
+1758 passed, 11 skipped in 76.43s
+
+UV_CACHE_DIR=/tmp/forgeagent-m21-final-uv-cache uv run pytest -q \
+  tests/test_loop_checkpoint.py tests/test_loop_runner.py tests/test_cli.py \
+  tests/test_http_task_service.py tests/test_http_server.py
+462 passed in 5.84s
+
+UV_CACHE_DIR=/tmp/forgeagent-m21-final-uv-cache uv run ruff check .
+All checks passed!
+
+UV_CACHE_DIR=/tmp/forgeagent-m21-final-uv-cache uv run ruff format --check .
+91 files already formatted
+
+UV_CACHE_DIR=/tmp/forgeagent-m21-final-uv-cache uv run python -m tests.golden.runner \
+  --output-dir /tmp/forgeagent-m21-golden-post-archive
+Summary: 20/20 passed (100.0%)
+
+UV_CACHE_DIR=/tmp/forgeagent-m21-final-uv-cache uv build \
+  --out-dir /tmp/forgeagent-m21-dist-post-archive
+Successfully built forgeagent-0.1.0.tar.gz and forgeagent-0.1.0-py3-none-any.whl
+
+openspec validate --all --strict
+Totals: 16 passed, 0 failed (16 items)
+```
+
+首次归档后全量测试暴露 1 个收尾契约遗漏：`tests/test_loop_docs.py` 仍要求 ACTION_PLAN
+把 M21 标为“进行中”。该测试已改为校验“已完成并归档”及最终实证计数，专项 6/6 与随后
+完整套件均通过；这不是 Loop 运行时回归。
 
 Sandbox 内首次全量测试为 `1726 passed, 23 skipped, 12 failed`；11 项失败来自 loopback 端口权限，1 项来自嵌套 `uv build` 权限。使用相同命令提升权限后得到上方最终通过结果，未弱化测试。
 

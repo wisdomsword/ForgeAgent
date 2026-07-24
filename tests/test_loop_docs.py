@@ -59,12 +59,14 @@ def test_golden_seed_marks_loop_acceptance_as_offline_and_evaluator_exclusion() 
     assert "M22" in text
 
 
-def test_action_plan_marks_m21_as_in_progress_without_final_counts() -> None:
+def test_action_plan_marks_m21_completed_with_final_counts() -> None:
     text = _text("ACTION_PLAN.md")
 
-    assert "**M21**" in text
-    assert "进行中" in text
-    assert "checkpoint 中断-恢复端到端测试" in text
+    m21_row = next(line for line in text.splitlines() if line.startswith("| **M21**"))
+    assert "已完成并归档" in m21_row
+    assert "1758 passed / 11 skipped" in m21_row
+    assert "462 passed" in m21_row
+    assert "OpenSpec strict 16/16" in m21_row
 
 
 def test_loop_examples_avoid_daemon_and_dependency_mutations() -> None:
