@@ -665,6 +665,8 @@ class LoopRunner:
         trigger: str,
         audit_sink: AuditSink | None,
         task_id: str | None,
+        with_mcp: bool,
+        skills: SkillRegistry | None,
     ) -> None:
         self._store = store
         self._checkpoint = checkpoint
@@ -672,6 +674,8 @@ class LoopRunner:
         self._trigger = trigger
         self._audit_sink = audit_sink
         self._task_id = task_id
+        self._with_mcp = with_mcp
+        self._skills = skills
         self._run_lock = threading.Lock()
         self._closed = False
         self._started_at: float | None = None
@@ -689,6 +693,8 @@ class LoopRunner:
         audit_sink: AuditSink | None = None,
         task_id: str | None = None,
         loop_id: str | None = None,
+        with_mcp: bool = False,
+        skills: SkillRegistry | None = None,
     ) -> LoopRunner:
         store = LoopCheckpointStore(allowed_root, audit_sink=audit_sink, task_id=task_id)
         try:
@@ -703,6 +709,8 @@ class LoopRunner:
             trigger=trigger,
             audit_sink=audit_sink,
             task_id=task_id,
+            with_mcp=with_mcp,
+            skills=skills,
         )
         runner._audit_lifecycle("loop.start", "started")
         return runner
@@ -717,6 +725,8 @@ class LoopRunner:
         trigger: str,
         audit_sink: AuditSink | None = None,
         task_id: str | None = None,
+        with_mcp: bool = False,
+        skills: SkillRegistry | None = None,
     ) -> LoopRunner:
         store = LoopCheckpointStore(allowed_root, audit_sink=audit_sink, task_id=task_id)
         try:
@@ -731,6 +741,8 @@ class LoopRunner:
             trigger=trigger,
             audit_sink=audit_sink,
             task_id=task_id,
+            with_mcp=with_mcp,
+            skills=skills,
         )
         runner._audit_lifecycle("loop.resume", "resumed")
         return runner
@@ -775,7 +787,12 @@ class LoopRunner:
         combined_cancel = _CombinedCancelEvent(cancel_event, watchdog_event)
         timer = threading.Timer(remaining_wall, watchdog_event.set)
         timer.daemon = True
-        registry = build_loop_registry(store=self._store, checkpoint=self._checkpoint)
+        registry = build_loop_registry(
+            store=self._store,
+            checkpoint=self._checkpoint,
+            with_mcp=self._with_mcp,
+            skills=self._skills,
+        )
         suffix = self._render_suffix()
         task: _RunnableTask | None = None
         outcome: TaskOutcome | None = None

@@ -17,9 +17,10 @@ from forgeagent.loop import (
     LoopRunner,
 )
 from forgeagent.models import TokenUsage
+from forgeagent.skills import SkillDefinition, SkillRegistry
 from forgeagent.step import RoundResult
 from forgeagent.task import TaskOutcome, TaskStatus
-from forgeagent.tools import ToolOutcome
+from forgeagent.tools import ToolOutcome, default_registry
 
 
 def _budgets(**overrides: object) -> LoopBudgets:
@@ -83,6 +84,21 @@ def _runner(tmp_path: Path, builder: _Builder, **kwargs: object) -> LoopRunner:
         goal="finish the work",
         budgets=_budgets(**kwargs),
         trigger="test",
+    )
+
+
+def _skills() -> SkillRegistry:
+    return SkillRegistry(
+        {
+            "review-python": SkillDefinition(
+                name="review-python",
+                trigger="Review Python changes.",
+                steps="Inspect the diff.",
+                failure_branches="Stop when the diff is unavailable.",
+                completion_criteria="All findings are recorded.",
+                source="user",
+            )
+        }
     )
 
 
@@ -198,6 +214,53 @@ def test_prose_answer_does_not_complete_a_loop(tmp_path: Path):
 
     assert report.status == "completed"
     assert report.iterations == 2
+    runner.close()
+
+
+@pytest.mark.parametrize("resumed", [False, True])
+def test_runner_preserves_mcp_and_skill_tool_assembly_for_every_iteration(
+    tmp_path: Path, resumed: bool
+):
+    builder = _Builder(
+        [
+            _outcome(reason="retry", usage=TokenUsage(input_tokens=1)),
+            _outcome(completed=True, reason="completed", usage=TokenUsage(input_tokens=1)),
+        ]
+    )
+    skills = _skills()
+    if resumed:
+        store = LoopCheckpointStore(str(tmp_path))
+        checkpoint = store.create("finish the work", _budgets(), loop_id="c" * 32)
+        store.close()
+        runner = LoopRunner.resume(
+            allowed_root=str(tmp_path),
+            task_builder=builder,
+            loop_id=checkpoint.loop_id,
+            trigger="test",
+            with_mcp=True,
+            skills=skills,
+        )
+    else:
+        runner = LoopRunner.create(
+            allowed_root=str(tmp_path),
+            task_builder=builder,
+            goal="finish the work",
+            budgets=_budgets(),
+            trigger="test",
+            with_mcp=True,
+            skills=skills,
+        )
+
+    report = runner.run()
+
+    assert report.status == "completed"
+    assert len(builder.calls) == 2
+    assert all(
+        {"MCP", "Skill", "Checkpoint"} <= set(call[3].arg_schemas()) for call in builder.calls
+    )
+    assert builder.calls[0][3] is not builder.calls[1][3]
+    assert "MCP" not in default_registry().arg_schemas()
+    assert "Skill" not in default_registry().arg_schemas()
     runner.close()
 
 
