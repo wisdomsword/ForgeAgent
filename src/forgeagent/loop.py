@@ -73,12 +73,13 @@ class LoopCheckpointError(Exception):
 
 
 class _RunnableTask(Protocol):
-    def run(self, goal: str, *, cancel_event: threading.Event | None = None) -> TaskOutcome: ...
+    def run(self, goal: str, *, cancel_event: threading.Event | None = None) -> object: ...
 
     def close(self) -> None: ...
 
 
 TaskBuilder = Callable[[int, int, str, ToolRegistry], _RunnableTask]
+CollaborationBuilder = Callable[[int, int, str], _RunnableTask]
 
 
 def _safe_text(value: Any, *, field: str, maximum: int, allow_empty: bool) -> str:
@@ -189,6 +190,9 @@ with warnings.catch_warnings():
         open_questions: tuple[str, ...] = ()
         handoff: str = ""
         last_failure: str = ""
+        collaboration_mode: Literal["single", "duo", "triad"] = "single"
+        collaboration_id: str = ""
+        plan_digest: str = ""
 
         @field_validator("loop_id")
         @classmethod
@@ -243,6 +247,22 @@ with warnings.catch_warnings():
                 value, field="last_failure", maximum=MAX_FAILURE_CHARS, allow_empty=True
             )
 
+        @field_validator("collaboration_id")
+        @classmethod
+        def _validate_collaboration_id(cls, value: Any) -> str:
+            if value and (not isinstance(value, str) or _LOOP_ID_RE.fullmatch(value) is None):
+                raise ValueError("invalid collaboration id")
+            return value
+
+        @field_validator("plan_digest")
+        @classmethod
+        def _validate_plan_digest(cls, value: Any) -> str:
+            if value and (
+                not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None
+            ):
+                raise ValueError("invalid plan digest")
+            return value
+
         @model_validator(mode="after")
         def _validate_invariants(self) -> LoopCheckpoint:
             if self.stop_reason not in _STOP_REASONS_BY_STATUS[self.status]:
@@ -251,6 +271,10 @@ with warnings.catch_warnings():
                 raise ValueError("rounds_used exceeds max_rounds")
             if self.consecutive_failures > self.budgets.max_consecutive_failures:
                 raise ValueError("consecutive_failures exceeds its budget")
+            if self.collaboration_mode == "single" and (self.collaboration_id or self.plan_digest):
+                raise ValueError("single loop cannot freeze collaboration state")
+            if self.collaboration_mode != "single" and not self.collaboration_id:
+                raise ValueError("collaborative loop requires a collaboration id")
             return self
 
 
@@ -278,6 +302,7 @@ with warnings.catch_warnings():
         completed_item_count: int
         open_question_count: int
         usage_available: bool
+        collaboration_mode: Literal["single", "duo", "triad"] = "single"
 
         @field_validator("loop_id")
         @classmethod
@@ -331,6 +356,7 @@ with warnings.catch_warnings():
                 completed_item_count=len(checkpoint.completed_items),
                 open_question_count=len(checkpoint.open_questions),
                 usage_available=checkpoint.usage_available,
+                collaboration_mode=checkpoint.collaboration_mode,
             )
 
 
@@ -468,12 +494,26 @@ class LoopCheckpointStore:
         )
 
     def create(
-        self, goal: str, budgets: LoopBudgets, *, loop_id: str | None = None
+        self,
+        goal: str,
+        budgets: LoopBudgets,
+        *,
+        loop_id: str | None = None,
+        collaboration_mode: Literal["single", "duo", "triad"] = "single",
+        collaboration_id: str = "",
+        plan_digest: str = "",
     ) -> LoopCheckpoint:
         with self._lock:
             effective_id = uuid4().hex if loop_id is None else loop_id
             try:
-                checkpoint = LoopCheckpoint(loop_id=effective_id, goal=goal, budgets=budgets)
+                checkpoint = LoopCheckpoint(
+                    loop_id=effective_id,
+                    goal=goal,
+                    budgets=budgets,
+                    collaboration_mode=collaboration_mode,
+                    collaboration_id=collaboration_id,
+                    plan_digest=plan_digest,
+                )
             except ValidationError as error:
                 raise LoopCheckpointError("invalid checkpoint") from error
             name = self._checkpoint_name(checkpoint.loop_id)
@@ -662,6 +702,7 @@ class LoopRunner:
         store: LoopCheckpointStore,
         checkpoint: LoopCheckpoint,
         task_builder: TaskBuilder,
+        collaboration_builder: CollaborationBuilder | None,
         trigger: str,
         audit_sink: AuditSink | None,
         task_id: str | None,
@@ -671,6 +712,7 @@ class LoopRunner:
         self._store = store
         self._checkpoint = checkpoint
         self._task_builder = task_builder
+        self._collaboration_builder = collaboration_builder
         self._trigger = trigger
         self._audit_sink = audit_sink
         self._task_id = task_id
@@ -687,6 +729,10 @@ class LoopRunner:
         *,
         allowed_root: str,
         task_builder: TaskBuilder,
+        collaboration_builder: CollaborationBuilder | None = None,
+        collaboration_mode: Literal["single", "duo", "triad"] = "single",
+        collaboration_id: str = "",
+        plan_digest: str = "",
         goal: str,
         budgets: LoopBudgets,
         trigger: str,
@@ -698,7 +744,14 @@ class LoopRunner:
     ) -> LoopRunner:
         store = LoopCheckpointStore(allowed_root, audit_sink=audit_sink, task_id=task_id)
         try:
-            checkpoint = store.create(goal, budgets, loop_id=loop_id)
+            checkpoint = store.create(
+                goal,
+                budgets,
+                loop_id=loop_id,
+                collaboration_mode=collaboration_mode,
+                collaboration_id=collaboration_id,
+                plan_digest=plan_digest,
+            )
         except Exception:
             store.close()
             raise
@@ -706,6 +759,7 @@ class LoopRunner:
             store=store,
             checkpoint=checkpoint,
             task_builder=task_builder,
+            collaboration_builder=collaboration_builder,
             trigger=trigger,
             audit_sink=audit_sink,
             task_id=task_id,
@@ -721,6 +775,9 @@ class LoopRunner:
         *,
         allowed_root: str,
         task_builder: TaskBuilder,
+        collaboration_builder: CollaborationBuilder | None = None,
+        expected_collaboration_mode: Literal["single", "duo", "triad"] | None = None,
+        expected_plan_digest: str | None = None,
         loop_id: str,
         trigger: str,
         audit_sink: AuditSink | None = None,
@@ -731,6 +788,13 @@ class LoopRunner:
         store = LoopCheckpointStore(allowed_root, audit_sink=audit_sink, task_id=task_id)
         try:
             checkpoint = store.load(loop_id)
+            if (
+                expected_collaboration_mode is not None
+                and checkpoint.collaboration_mode != expected_collaboration_mode
+            ) or (
+                expected_plan_digest is not None and checkpoint.plan_digest != expected_plan_digest
+            ):
+                raise ValueError("frozen collaboration state does not match")
         except Exception:
             store.close()
             raise
@@ -738,6 +802,7 @@ class LoopRunner:
             store=store,
             checkpoint=checkpoint,
             task_builder=task_builder,
+            collaboration_builder=collaboration_builder,
             trigger=trigger,
             audit_sink=audit_sink,
             task_id=task_id,
@@ -795,16 +860,35 @@ class LoopRunner:
         )
         suffix = self._render_suffix()
         task: _RunnableTask | None = None
-        outcome: TaskOutcome | None = None
+        outcome: object | None = None
         try:
             timer.start()
-            task = self._task_builder(
-                self._checkpoint.iterations + 1,
-                self._checkpoint.budgets.max_rounds - self._checkpoint.rounds_used,
-                suffix,
-                registry,
-            )
+            if self._checkpoint.collaboration_mode == "single":
+                task = self._task_builder(
+                    self._checkpoint.iterations + 1,
+                    self._checkpoint.budgets.max_rounds - self._checkpoint.rounds_used,
+                    suffix,
+                    registry,
+                )
+            else:
+                if self._collaboration_builder is None:
+                    raise LoopCheckpointError("collaboration builder is unavailable")
+                task = self._collaboration_builder(
+                    self._checkpoint.iterations + 1,
+                    self._checkpoint.budgets.max_rounds - self._checkpoint.rounds_used,
+                    suffix,
+                )
+                current_digest = getattr(task, "plan_digest", "")
+                if self._checkpoint.plan_digest and current_digest != self._checkpoint.plan_digest:
+                    raise LoopCheckpointError("frozen collaboration state does not match")
             outcome = task.run(self._checkpoint.goal, cancel_event=combined_cancel)
+            if self._checkpoint.collaboration_mode != "single":
+                digest = getattr(task, "plan_digest", self._checkpoint.plan_digest)
+                if digest != self._checkpoint.plan_digest:
+                    candidate = self._checkpoint.model_copy(update={"plan_digest": digest})
+                    self._checkpoint = self._store.save(
+                        candidate, expected_revision=self._checkpoint.revision
+                    )
         finally:
             timer.cancel()
             if task is not None:
@@ -815,34 +899,44 @@ class LoopRunner:
         reason = self._stop_reason(cancel_event=cancel_event, watchdog_event=watchdog_event)
         if reason in {"cancelled", "wall_clock"}:
             self._stop(reason)
-        elif outcome.status.completed:
+        elif _outcome_completed(outcome):
             self._save(status="completed", stop_reason="completed")
             self._audit_lifecycle("loop.stop", "completed")
         elif reason is not None:
             self._stop(reason)
 
-    def _record_outcome(self, outcome: TaskOutcome) -> None:
+    def _record_outcome(self, outcome: object) -> None:
         # CheckpointTool owns a per-iteration copy and may have committed durable progress.
         # Reload before automatic accounting so that update is never overwritten.
         self._checkpoint = self._store.load(self._checkpoint.loop_id)
-        rounds = len(outcome.rounds)
+        rounds = len(outcome.rounds) if isinstance(outcome, TaskOutcome) else outcome.rounds
         usage_available = self._checkpoint.usage_available
         tokens = 0
         provider_reply_seen = False
-        for round_result in outcome.rounds:
-            usage = round_result.usage
-            if usage is None:
-                continue
-            provider_reply_seen = True
-            tokens += (
-                usage.input_tokens
-                + usage.output_tokens
-                + usage.cached_tokens
-                + usage.reasoning_tokens
+        if not isinstance(outcome, TaskOutcome):
+            provider_reply_seen = outcome.rounds > 0
+            tokens = (
+                outcome.usage.input_tokens
+                + outcome.usage.output_tokens
+                + outcome.usage.cached_tokens
+                + outcome.usage.reasoning_tokens
             )
+            usage_available = usage_available and outcome.usage_available
+        else:
+            for round_result in outcome.rounds:
+                usage = round_result.usage
+                if usage is None:
+                    continue
+                provider_reply_seen = True
+                tokens += (
+                    usage.input_tokens
+                    + usage.output_tokens
+                    + usage.cached_tokens
+                    + usage.reasoning_tokens
+                )
         if provider_reply_seen and tokens == 0:
             usage_available = False
-        success = outcome.status.completed
+        success = _outcome_completed(outcome)
         failure_count = 0 if success else self._checkpoint.consecutive_failures + 1
         candidate = self._checkpoint.model_copy(
             update={
@@ -853,10 +947,15 @@ class LoopRunner:
                 "consecutive_failures": failure_count,
                 "usage_available": usage_available,
                 "last_failure": "" if success else _failure_summary(outcome),
+                "plan_digest": (
+                    getattr(outcome, "plan_digest", self._checkpoint.plan_digest)
+                    if self._checkpoint.collaboration_mode != "single"
+                    else ""
+                ),
             }
         )
         self._checkpoint = self._store.save(candidate, expected_revision=self._checkpoint.revision)
-        self._audit_lifecycle("loop.iteration", outcome.status.reason)
+        self._audit_lifecycle("loop.iteration", _outcome_reason(outcome))
 
     def _stop_reason(
         self,
@@ -882,7 +981,13 @@ class LoopRunner:
         ):
             return "consecutive_failures"
         if self._checkpoint.last_failure.startswith(
-            ("client_error:auth", "client_error:invalid_request")
+            (
+                "client_error:auth",
+                "client_error:invalid_request",
+                "rejection_limit",
+                "state_failure",
+                "unrecoverable_failure",
+            )
         ):
             return "unrecoverable_failure"
         return None
@@ -982,7 +1087,27 @@ class _CombinedCancelEvent:
         return self._watchdog.is_set() or (self._external is not None and self._external.is_set())
 
 
-def _failure_summary(outcome: TaskOutcome) -> str:
+def _outcome_completed(outcome: object) -> bool:
+    return (
+        outcome.status.completed
+        if isinstance(outcome, TaskOutcome)
+        else outcome.status == "completed"
+    )
+
+
+def _outcome_reason(outcome: object) -> str:
+    if not isinstance(outcome, TaskOutcome):
+        return outcome.stop_reason or outcome.status
+    return outcome.status.reason
+
+
+def _failure_summary(outcome: object) -> str:
+    if not isinstance(outcome, TaskOutcome):
+        return _safe_failure_text(
+            f"{outcome.stop_reason or outcome.status}; rounds={outcome.rounds}; "
+            f"passed={outcome.passed_item_count}; failed={outcome.failed_item_count}; "
+            f"rejections={outcome.rejections}"
+        )
     parse_errors = sum(len(round_result.parse_errors) for round_result in outcome.rounds)
     tool_successes = sum(
         tool_outcome.success

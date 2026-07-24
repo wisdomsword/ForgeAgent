@@ -38,6 +38,8 @@ _NEW_LOOP_KEYS = frozenset(
         "max_consecutive_failures",
     }
 )
+_NEW_COLLABORATIVE_LOOP_KEYS = _NEW_LOOP_KEYS | {"collaboration_mode"}
+_TASK_MODE_KEYS = frozenset({"goal", "mode"})
 _RESUME_LOOP_KEYS = frozenset({"mode", "resume_loop_id"})
 _ERROR_DETAILS = {
     "unauthorized": "Authentication required.",
@@ -377,12 +379,18 @@ def _parse_task_submission(body: dict[str, object]) -> tuple[str, dict[str, obje
         if isinstance(goal, str) and goal.strip():
             return goal, {}
         raise HttpError(400, "invalid_request")
+    if keys == _TASK_MODE_KEYS:
+        goal = body["goal"]
+        mode = body["mode"]
+        if isinstance(goal, str) and goal.strip() and mode in {"task", "duo", "triad"}:
+            return goal, {"mode": mode}
+        raise HttpError(400, "invalid_request")
     if keys == _RESUME_LOOP_KEYS:
         loop_id = body["resume_loop_id"]
         if body["mode"] == "loop" and isinstance(loop_id, str) and _LOOP_ID.fullmatch(loop_id):
             return "", {"mode": "loop", "resume_loop_id": loop_id}
         raise HttpError(400, "invalid_request")
-    if keys == _NEW_LOOP_KEYS:
+    if keys in {_NEW_LOOP_KEYS, _NEW_COLLABORATIVE_LOOP_KEYS}:
         goal = body["goal"]
         if not isinstance(goal, str) or not goal.strip() or body["mode"] != "loop":
             raise HttpError(400, "invalid_request")
@@ -390,6 +398,9 @@ def _parse_task_submission(body: dict[str, object]) -> tuple[str, dict[str, obje
             _positive_integer(body[name])
             for name in ("token_budget", "max_rounds", "max_consecutive_failures")
         ) or not _positive_number(body["wall_clock_seconds"]):
+            raise HttpError(400, "invalid_request")
+        collaboration_mode = body.get("collaboration_mode", "single")
+        if collaboration_mode not in {"single", "duo", "triad"}:
             raise HttpError(400, "invalid_request")
         return goal, {name: body[name] for name in body if name != "goal"}
     raise HttpError(400, "invalid_request")

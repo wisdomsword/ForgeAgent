@@ -67,6 +67,12 @@ class HttpServiceConfig:
     audit_retention_files: int = 5
     allowlist: tuple[str, ...] = ()
     context_config: ContextConfig = dataclass_field(default_factory=ContextConfig)
+    planner_model: str = ""
+    evaluator_model: str = ""
+    evaluator_tier: str = "restricted"
+    max_rejections: int = 2
+    triad_plan_policy: str = "deny"
+    allow_weaker_override: bool = False
 
     @classmethod
     def from_sources(
@@ -81,6 +87,29 @@ class HttpServiceConfig:
         host = str(values.get("bind_host", "127.0.0.1"))
         allowlist = values.get("allowlist", ())
         context_value = values.get("context", {})
+
+        planner_model = values.get("planner_model", "")
+        evaluator_model = values.get("evaluator_model", "")
+        for field_name, value in (
+            ("planner_model", planner_model),
+            ("evaluator_model", evaluator_model),
+        ):
+            if not isinstance(value, str) or any(ord(character) < 32 for character in value):
+                raise ValueError(f"{field_name} must be a valid model id")
+            if field_name in values and not value.strip():
+                raise ValueError(f"{field_name} must be a valid model id")
+        evaluator_tier = values.get("evaluator_tier", "restricted")
+        if evaluator_tier not in {"restricted", "container"}:
+            raise ValueError("evaluator_tier must be restricted or container")
+        max_rejections = _integer_value(values, "max_rejections", 2)
+        if not 1 <= max_rejections <= 10:
+            raise ValueError("max_rejections must be between 1 and 10")
+        triad_plan_policy = values.get("triad_plan_policy", "deny")
+        if triad_plan_policy not in {"deny", "preauthorize"}:
+            raise ValueError("triad_plan_policy must be deny or preauthorize")
+        allow_weaker_override = values.get("allow_weaker_override", False)
+        if type(allow_weaker_override) is not bool:
+            raise ValueError("allow_weaker_override must be a bool")
 
         try:
             if not isinstance(context_value, Mapping):
@@ -130,6 +159,12 @@ class HttpServiceConfig:
             audit_retention_files=_integer_value(values, "audit_retention_files", 5),
             allowlist=tuple(allowlist),
             context_config=context_config,
+            planner_model=planner_model,
+            evaluator_model=evaluator_model,
+            evaluator_tier=evaluator_tier,
+            max_rejections=max_rejections,
+            triad_plan_policy=triad_plan_policy,
+            allow_weaker_override=allow_weaker_override,
         )
         if not 1 <= result.port <= 65535:
             raise ValueError("port must be between 1 and 65535")

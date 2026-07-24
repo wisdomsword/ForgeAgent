@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from forgeagent.collaboration import CollaborationReport, CollaborationUsage
 from forgeagent.http_config import HttpServiceConfig
 from forgeagent.http_task_service import (
     ServiceCapacityError,
@@ -128,6 +129,69 @@ class _FakeLoopRunner:
     def close(self) -> None:
         if self._events is not None:
             self._events.append("loop.close")
+
+
+def _collaboration_report(**overrides: object) -> CollaborationReport:
+    values: dict[str, object] = {
+        "collaboration_id": "b" * 32,
+        "mode": "triad",
+        "status": "completed",
+        "stop_reason": "completed",
+        "phase": "completed",
+        "plan_item_count": 2,
+        "passed_item_count": 2,
+        "failed_item_count": 0,
+        "generator_attempts": 1,
+        "evaluator_attempts": 1,
+        "rejections": 0,
+        "rounds": 3,
+        "usage": CollaborationUsage(input_tokens=4, output_tokens=3),
+        "usage_available": True,
+        "evidence": (),
+    }
+    values.update(overrides)
+    return CollaborationReport(**values)
+
+
+def test_collaboration_record_projects_running_and_terminal_safe_fields():
+    record = TaskRecord(task_id="a" * 32, goal="private goal", options={"mode": "triad"})
+
+    running = record.public_view()
+    assert running["mode"] == "triad"
+    assert running["phase"] == "planning"
+    assert "goal" not in running
+
+    record.status = "completed"
+    record.reason = "completed"
+    record.collaboration_report = _collaboration_report()
+    record.ended_at = 1.0
+    terminal = record.public_view()
+    assert terminal["plan_item_count"] == 2
+    assert terminal["round_count"] == 3
+    assert terminal["usage"]["input_tokens"] == 4
+    assert "goal" not in terminal
+
+
+def test_programming_submission_is_publicly_routed_to_triad_before_worker_runs():
+    started = threading.Event()
+    release = threading.Event()
+
+    def run(_goal, _cancel_event):
+        started.set()
+        release.wait(1.0)
+        return _outcome()
+
+    service = TaskService(
+        factory=lambda _record: _FakeTask(run),
+        config=CONFIG,
+    )
+    view = service.submit_view("Add a unit test", {})
+
+    assert view["mode"] == "triad"
+    assert view["phase"] == "planning"
+    release.set()
+    service.wait(view["task_id"])
+    service.shutdown(1.0)
 
 
 class _Clock:

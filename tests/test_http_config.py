@@ -117,9 +117,52 @@ def test_http_config_rejects_invalid_audit_path_types_and_blank_strings(audit_pa
 
 
 def test_http_config_uses_documented_defaults():
-    assert HttpServiceConfig.from_sources(config={"token": "secret"}, env={}) == (
-        HttpServiceConfig(token="secret")
+    config = HttpServiceConfig.from_sources(config={"token": "secret"}, env={})
+
+    assert config == HttpServiceConfig(token="secret")
+    assert config.evaluator_tier == "restricted"
+    assert config.max_rejections == 2
+    assert config.triad_plan_policy == "deny"
+    assert config.allow_weaker_override is False
+
+
+def test_http_config_accepts_server_owned_collaboration_policy():
+    config = HttpServiceConfig.from_sources(
+        config={
+            "token": "secret",
+            "planner_model": "planner-model",
+            "evaluator_model": "evaluator-model",
+            "evaluator_tier": "container",
+            "max_rejections": 4,
+            "triad_plan_policy": "preauthorize",
+            "allow_weaker_override": True,
+        },
+        env={},
     )
+
+    assert config.planner_model == "planner-model"
+    assert config.evaluator_model == "evaluator-model"
+    assert config.evaluator_tier == "container"
+    assert config.max_rejections == 4
+    assert config.triad_plan_policy == "preauthorize"
+    assert config.allow_weaker_override is True
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("evaluator_tier", "trusted"),
+        ("max_rejections", True),
+        ("max_rejections", 0),
+        ("triad_plan_policy", "ask"),
+        ("allow_weaker_override", 1),
+        ("planner_model", ""),
+        ("evaluator_model", "bad\nmodel"),
+    ],
+)
+def test_http_config_rejects_invalid_collaboration_policy(field, value):
+    with pytest.raises(ValueError, match=field):
+        HttpServiceConfig.from_sources(config={"token": "secret", field: value}, env={})
 
 
 def test_http_config_owns_validated_context_defaults_and_explicit_values():

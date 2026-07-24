@@ -31,6 +31,7 @@ from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 from urllib.parse import parse_qsl, quote, unquote, urlencode, urlsplit, urlunsplit
+from uuid import uuid4
 
 import yaml
 from prompt_toolkit import PromptSession
@@ -45,6 +46,15 @@ from . import http_server
 from .anthropic_client import AnthropicClient
 from .audit import AuditSink, JsonlAuditSink
 from .client import ModelClient
+from .collaboration import (
+    CollaborationReport,
+    CollaborationRole,
+    CollaborationRoleConfigurationError,
+    CollaborationRunner,
+    CollaborationStore,
+    headless_plan_confirmer,
+    resolve_collaboration_mode,
+)
 from .context import ContextConfig, SlidingWindowContextPolicy, load_context_config
 from .executor import ContainerRuntimeError
 from .headless import HeadlessConfirmer
@@ -657,6 +667,166 @@ def run_once(
     return outcome
 
 
+def _render_collaboration_report(report: CollaborationReport, console: Console) -> None:
+    console.print(f"collaboration id: {report.collaboration_id}")
+    console.print(f"mode: {report.mode}")
+    console.print(f"status: {report.status}")
+    console.print(f"stop reason: {report.stop_reason or 'active'}")
+    console.print(f"phase: {report.phase}")
+    console.print(
+        "counters: "
+        f"plan={report.plan_item_count} passed={report.passed_item_count} "
+        f"failed={report.failed_item_count} generator={report.generator_attempts} "
+        f"evaluator={report.evaluator_attempts} rejections={report.rejections} "
+        f"rounds={report.rounds} usage_available={report.usage_available}"
+    )
+    for item in report.evidence:
+        console.print(f"evidence: {item}", markup=False)
+
+
+def _console_plan_confirmer(
+    console: Console, read_line: Callable[[str], str] = input
+) -> Callable[[str], bool]:
+    def confirm(summary: str) -> bool:
+        console.print("[bold yellow]approve collaboration plan[/bold yellow]")
+        console.print(summary, markup=False)
+        try:
+            answer = read_line("approve plan? [y/N] ").strip().lower()
+        except EOFError:
+            return False
+        return answer in {"y", "yes"}
+
+    return confirm
+
+
+def run_collaboration_once(
+    goal: str,
+    *,
+    mode: str,
+    tier: Tier,
+    model: str,
+    planner_model: str | None,
+    evaluator_model: str | None,
+    max_rejections: int,
+    client_factory: ClientFactory,
+    allowed_root: str | None = None,
+    console: Console | None = None,
+    plan_confirmer: Callable[[str], bool] | None = None,
+    asker: Asker | None = None,
+    mcp: MCPManager | None = None,
+    confirmer: Confirmer | None = None,
+    identity: ApprovedIdentity | None = None,
+    container_image: str | None = None,
+    context_config: ContextConfig | None = None,
+    memory_manager: MemoryManager | None = None,
+    skills: SkillRegistry | None = None,
+    audit_sink: AuditSink | None = None,
+    task_id: str | None = None,
+) -> CollaborationReport:
+    if mode not in {"duo", "triad"}:
+        raise ValueError("collaboration mode must be duo or triad")
+    root = str(Path.cwd().resolve()) if allowed_root is None else allowed_root
+    output = console or Console()
+    resolved_context = context_config or ContextConfig()
+    role_models = {
+        "planner": planner_model or model,
+        "generator": model,
+        "evaluator": evaluator_model or model,
+    }
+
+    for selected_model in dict.fromkeys(
+        role_models[role]
+        for role in (("planner",) if mode == "triad" else ()) + ("generator", "evaluator")
+    ):
+        probe = None
+        try:
+            probe = client_factory(selected_model)
+            _validate_client_context_policy(probe, resolved_context)
+        except Exception as error:
+            raise CollaborationRoleConfigurationError from error
+        finally:
+            close = getattr(probe, "close", None)
+            if callable(close):
+                close()
+
+    def build_role_task(role: CollaborationRole, attempt: int, registry, system_prompt: str):
+        del attempt
+        client = None
+        task = None
+        try:
+            client = client_factory(role_models[role])
+            _validate_client_context_policy(client, resolved_context)
+            task = Task(
+                client,
+                tier="restricted" if role == "evaluator" else tier,
+                allowed_root=root,
+                system_prompt=system_prompt,
+                max_rounds=10,
+                asker=asker if role == "generator" else None,
+                mcp=mcp if role == "generator" else None,
+                confirmer=confirmer if role == "generator" else None,
+                identity=identity,
+                container_image=container_image,
+                context_config=resolved_context,
+                memory_manager=memory_manager if role == "generator" else None,
+                skills=skills if role == "generator" else None,
+                tool_registry=registry,
+                audit_sink=audit_sink,
+                task_id=task_id,
+            )
+        except BaseException as error:
+            if task is not None:
+                task.close()
+            if client is not None:
+                close = getattr(client, "close", None)
+                if callable(close):
+                    close()
+            if not isinstance(error, Exception):
+                raise
+            raise CollaborationRoleConfigurationError from error
+
+        class OwnedRoleTask:
+            def __init__(self) -> None:
+                self._closed = False
+
+            def run(self, task_goal: str, *, cancel_event=None):
+                return task.run(task_goal, cancel_event=cancel_event)
+
+            def close(self) -> None:
+                if self._closed:
+                    return
+                self._closed = True
+                try:
+                    task.close()
+                finally:
+                    close = getattr(client, "close", None)
+                    if callable(close):
+                        close()
+
+        return OwnedRoleTask()
+
+    runner = CollaborationRunner.create(
+        mode=mode,
+        goal=goal,
+        allowed_root=root,
+        role_task_builder=build_role_task,
+        plan_confirmer=plan_confirmer,
+        planner_model=role_models["planner"],
+        generator_model=role_models["generator"],
+        evaluator_model=role_models["evaluator"],
+        evaluator_tier="restricted",
+        max_rejections=max_rejections,
+        audit_sink=audit_sink,
+        task_id=task_id,
+    )
+    try:
+        report = runner.run(goal)
+    finally:
+        runner.close()
+    _render_collaboration_report(report, output)
+    return report
+
+
 def _loop_system_prompt(
     identity: ApprovedIdentity | None,
     memory_manager: MemoryManager | None,
@@ -712,6 +882,11 @@ def run_loop_once(
     wall_clock_seconds: float | None = None,
     max_consecutive_failures: int | None = None,
     resume: str | None = None,
+    collaboration_mode: str = "single",
+    planner_model: str | None = None,
+    evaluator_model: str | None = None,
+    max_rejections: int = 2,
+    plan_confirmer: Callable[[str], bool] | None = None,
 ) -> LoopReport:
     """Run one durable Loop through the same Task assembly as the CLI run command."""
     if resume is None:
@@ -793,6 +968,95 @@ def run_loop_once(
 
         return OwnedLoopTask()
 
+    def build_collaboration(iteration: int, remaining_rounds: int, suffix: str):
+        del iteration, remaining_rounds, suffix
+        role_models = {
+            "planner": planner_model or model,
+            "generator": model,
+            "evaluator": evaluator_model or model,
+        }
+
+        def build_role(role: CollaborationRole, attempt: int, registry, prompt: str):
+            del attempt
+            client = None
+            task = None
+            try:
+                client = client_factory(role_models[role])
+                _validate_client_context_policy(client, resolved_context_config)
+                task = Task(
+                    client,
+                    tier="restricted" if role == "evaluator" else tier,
+                    allowed_root=root,
+                    system_prompt=prompt,
+                    asker=asker if role == "generator" else None,
+                    mcp=mcp if role == "generator" else None,
+                    confirmer=confirmer if role == "generator" else None,
+                    container_image=container_image,
+                    context_config=resolved_context_config,
+                    memory_manager=memory_manager if role == "generator" else None,
+                    skills=skills if role == "generator" else None,
+                    tool_registry=registry,
+                )
+            except Exception as error:
+                if task is not None:
+                    task.close()
+                close = getattr(client, "close", None)
+                if callable(close):
+                    close()
+                raise CollaborationRoleConfigurationError from error
+
+            class OwnedRole:
+                def run(self, task_goal: str, *, cancel_event=None):
+                    return task.run(task_goal, cancel_event=cancel_event)
+
+                def close(self):
+                    try:
+                        task.close()
+                    finally:
+                        close = getattr(client, "close", None)
+                        if callable(close):
+                            close()
+
+            return OwnedRole()
+
+        loop_id = runner._checkpoint.collaboration_id
+        state_path = Path(root) / ".forgeagent" / "collaborations" / f"{loop_id}.json"
+        if state_path.exists():
+            store = CollaborationStore(root)
+            state = store.load(loop_id)
+            collaboration = CollaborationRunner(
+                store=store,
+                state=state,
+                role_task_builder=build_role,
+                plan_confirmer=plan_confirmer,
+            )
+        else:
+            collaboration = CollaborationRunner.create(
+                mode=runner._checkpoint.collaboration_mode,
+                goal=runner._checkpoint.goal,
+                allowed_root=root,
+                collaboration_id=loop_id,
+                role_task_builder=build_role,
+                plan_confirmer=plan_confirmer,
+                planner_model=role_models["planner"],
+                generator_model=role_models["generator"],
+                evaluator_model=role_models["evaluator"],
+                max_rejections=max_rejections,
+            )
+
+        class OwnedCollaboration:
+            @property
+            def plan_digest(self):
+                return collaboration._state.plan_digest
+
+            def run(self, task_goal: str, *, cancel_event=None):
+                return collaboration.run(task_goal, cancel_event=cancel_event)
+
+            def close(self):
+                collaboration.close()
+
+        return OwnedCollaboration()
+
     if resume is None:
         runner = LoopRunner.create(
             allowed_root=root,
@@ -802,6 +1066,9 @@ def run_loop_once(
             trigger="cli",
             with_mcp=mcp is not None,
             skills=skills,
+            collaboration_builder=(build_collaboration if collaboration_mode != "single" else None),
+            collaboration_mode=collaboration_mode,
+            collaboration_id=uuid4().hex if collaboration_mode != "single" else "",
         )
     else:
         runner = LoopRunner.resume(
@@ -811,6 +1078,7 @@ def run_loop_once(
             trigger="cli",
             with_mcp=mcp is not None,
             skills=skills,
+            collaboration_builder=build_collaboration,
         )
     cancel_event = threading.Event()
     previous_sigint = None
@@ -1001,6 +1269,8 @@ def _handle_image_command(goal: str, console: Console) -> tuple[list[ImageItem] 
 # Usage lines for every `/`-prefixed command — the single source `/help` and the bare
 # `/` auto-menu (design doc §3.5) both render from, so the two never drift apart.
 _SLASH_COMMAND_USAGE: dict[str, str] = {
+    "/duo": "/duo <goal> — Generator plus independent Evaluator (higher cost)",
+    "/triad": "/triad <goal> — Planner confirmation, Generator, and Evaluator (highest cost)",
     "/model": "/model [id-or-alias] — list models, or switch this session's model",
     "/search": "/search <query> — web search; results are printed only, never sent to the model",
     "/image": "/image <path> [goal...] — attach image(s) (file or directory) to a goal",
@@ -1459,6 +1729,42 @@ def repl(
             if goal == "/help" or goal.startswith("/help "):
                 _handle_help_command(goal, console)
                 continue
+            if (
+                goal == "/duo"
+                or goal.startswith("/duo ")
+                or goal == "/triad"
+                or goal.startswith("/triad ")
+            ):
+                command, _, collaboration_goal = goal.partition(" ")
+                if not collaboration_goal.strip():
+                    console.print(f"usage: {command} <goal>", style="dim", markup=False)
+                    continue
+                run_collaboration_once(
+                    collaboration_goal.strip(),
+                    mode=command[1:],
+                    tier=tier,
+                    model=model,
+                    planner_model=None,
+                    evaluator_model=None,
+                    max_rejections=2,
+                    client_factory=task_client_factory,
+                    allowed_root=allowed_root,
+                    console=console,
+                    plan_confirmer=(
+                        _console_plan_confirmer(console, read_line)
+                        if confirmation_available
+                        else headless_plan_confirmer("deny")
+                    ),
+                    asker=asker,
+                    mcp=mcp,
+                    confirmer=confirmer,
+                    identity=identity,
+                    container_image=container_image,
+                    context_config=current_context,
+                    memory_manager=memory_manager,
+                    skills=current_skills,
+                )
+                continue
             if goal.startswith("/"):
                 console.print(f"[red]unknown command[/red] {goal!r}")
                 _print_command_menu(console)
@@ -1843,7 +2149,7 @@ def serve_http(
     try:
         mcp = build_mcp_manager()
 
-        def task_factory(record: TaskRecord) -> Task | LoopRunner:
+        def task_factory(record: TaskRecord) -> Task | LoopRunner | CollaborationRunner:
             options = getattr(record, "options", {})
             memory_manager = _make_memory_manager(
                 settings.allowed_root,
@@ -1853,6 +2159,7 @@ def serve_http(
                 audit_sink=audit_sink,
             )
             if options.get("mode") == "loop":
+                loop_runner: LoopRunner | None = None
 
                 def build_loop_task(iteration, remaining_rounds, suffix, registry):
                     del iteration
@@ -1898,20 +2205,221 @@ def serve_http(
                     "with_mcp": mcp is not None,
                     "skills": skills,
                 }
+                collaboration_mode = cast(str, options.get("collaboration_mode", "single"))
+
+                def build_loop_collaboration(iteration, remaining_rounds, suffix):
+                    del iteration, remaining_rounds, suffix
+                    role_models = {
+                        "planner": settings.service.planner_model or settings.model,
+                        "generator": settings.model,
+                        "evaluator": settings.service.evaluator_model or settings.model,
+                    }
+
+                    def build_role(role, attempt, registry, prompt):
+                        del attempt
+                        client = task_client_factory(role_models[role])
+                        try:
+                            task = Task(
+                                client,
+                                tier=(
+                                    settings.service.evaluator_tier
+                                    if role == "evaluator"
+                                    else settings.tier
+                                ),
+                                allowed_root=settings.allowed_root,
+                                system_prompt=prompt,
+                                mcp=mcp if role == "generator" else None,
+                                confirmer=headless_confirmer if role == "generator" else None,
+                                allow_auto_approve=False,
+                                container_image=settings.container_image,
+                                audit_sink=audit_sink,
+                                task_id=record.task_id,
+                                context_config=settings.service.context_config,
+                                memory_manager=memory_manager if role == "generator" else None,
+                                skills=skills if role == "generator" else None,
+                                tool_registry=registry,
+                            )
+                        except Exception as error:
+                            close = getattr(client, "close", None)
+                            if callable(close):
+                                close()
+                            raise CollaborationRoleConfigurationError from error
+
+                        class OwnedRole:
+                            def run(self, goal, *, cancel_event=None):
+                                return task.run(goal, cancel_event=cancel_event)
+
+                            def close(self):
+                                try:
+                                    task.close()
+                                finally:
+                                    close = getattr(client, "close", None)
+                                    if callable(close):
+                                        close()
+
+                        return OwnedRole()
+
+                    if loop_runner is None:
+                        raise LoopCheckpointError("Loop collaboration is unavailable")
+                    collaboration_id = loop_runner._checkpoint.collaboration_id
+                    state_path = (
+                        Path(settings.allowed_root)
+                        / ".forgeagent"
+                        / "collaborations"
+                        / f"{collaboration_id}.json"
+                    )
+                    if state_path.exists():
+                        store = CollaborationStore(settings.allowed_root)
+                        state = store.load(collaboration_id)
+                        collaboration = CollaborationRunner(
+                            store=store,
+                            state=state,
+                            role_task_builder=build_role,
+                            plan_confirmer=headless_plan_confirmer(
+                                settings.service.triad_plan_policy
+                            ),
+                            audit_sink=audit_sink,
+                            task_id=record.task_id,
+                        )
+                    else:
+                        collaboration = CollaborationRunner.create(
+                            mode=loop_runner._checkpoint.collaboration_mode,
+                            goal=record.goal,
+                            allowed_root=settings.allowed_root,
+                            collaboration_id=collaboration_id,
+                            role_task_builder=build_role,
+                            plan_confirmer=headless_plan_confirmer(
+                                settings.service.triad_plan_policy
+                            ),
+                            planner_model=role_models["planner"],
+                            generator_model=role_models["generator"],
+                            evaluator_model=role_models["evaluator"],
+                            evaluator_tier=settings.service.evaluator_tier,
+                            max_rejections=settings.service.max_rejections,
+                            audit_sink=audit_sink,
+                            task_id=record.task_id,
+                        )
+
+                    class OwnedCollaboration:
+                        @property
+                        def plan_digest(self):
+                            return collaboration._state.plan_digest
+
+                        def run(self, goal, *, cancel_event=None):
+                            return collaboration.run(goal, cancel_event=cancel_event)
+
+                        def close(self):
+                            collaboration.close()
+
+                    return OwnedCollaboration()
+
+                common["collaboration_builder"] = (
+                    build_loop_collaboration if collaboration_mode != "single" else None
+                )
                 resume_loop_id = options.get("resume_loop_id")
                 if isinstance(resume_loop_id, str):
-                    return LoopRunner.resume(loop_id=resume_loop_id, **common)
+                    common["collaboration_builder"] = build_loop_collaboration
+                    loop_runner = LoopRunner.resume(loop_id=resume_loop_id, **common)
+                    return loop_runner
                 budgets = LoopBudgets(
                     token_budget=options["token_budget"],
                     max_rounds=options["max_rounds"],
                     wall_clock_seconds=options["wall_clock_seconds"],
                     max_consecutive_failures=options["max_consecutive_failures"],
                 )
-                return LoopRunner.create(
+                loop_runner = LoopRunner.create(
                     goal=record.goal,
                     budgets=budgets,
                     loop_id=record.task_id,
+                    collaboration_mode=collaboration_mode,
+                    collaboration_id=(uuid4().hex if collaboration_mode != "single" else ""),
                     **common,
+                )
+                return loop_runner
+            record_goal = getattr(record, "goal", "")
+            requested = options.get("mode")
+            requested_mode = (
+                None
+                if requested is None
+                else "single"
+                if requested == "task"
+                else cast(str, requested)
+            )
+            decision = (
+                resolve_collaboration_mode(
+                    record_goal,
+                    requested_mode,
+                    allow_weaker_override=settings.service.allow_weaker_override,
+                )
+                if record_goal
+                else resolve_collaboration_mode("ordinary request", requested_mode)
+            )
+            if decision.override_required:
+                raise CollaborationRoleConfigurationError
+            if decision.mode in {"duo", "triad"}:
+                role_models = {
+                    "planner": settings.service.planner_model or settings.model,
+                    "generator": settings.model,
+                    "evaluator": settings.service.evaluator_model or settings.model,
+                }
+
+                def build_role(role, attempt, registry, prompt):
+                    del attempt
+                    client = task_client_factory(role_models[role])
+                    try:
+                        task = Task(
+                            client,
+                            tier=(
+                                settings.service.evaluator_tier
+                                if role == "evaluator"
+                                else settings.tier
+                            ),
+                            allowed_root=settings.allowed_root,
+                            system_prompt=prompt,
+                            mcp=mcp if role == "generator" else None,
+                            confirmer=headless_confirmer if role == "generator" else None,
+                            allow_auto_approve=False,
+                            container_image=settings.container_image,
+                            audit_sink=audit_sink,
+                            task_id=record.task_id,
+                            context_config=settings.service.context_config,
+                            memory_manager=memory_manager if role == "generator" else None,
+                            skills=skills if role == "generator" else None,
+                            tool_registry=registry,
+                        )
+                    except Exception as error:
+                        close = getattr(client, "close", None)
+                        if callable(close):
+                            close()
+                        raise CollaborationRoleConfigurationError from error
+
+                    class OwnedRole:
+                        def run(self, goal, *, cancel_event=None):
+                            return task.run(goal, cancel_event=cancel_event)
+
+                        def close(self):
+                            try:
+                                task.close()
+                            finally:
+                                close = getattr(client, "close", None)
+                                if callable(close):
+                                    close()
+
+                    return OwnedRole()
+
+                return CollaborationRunner.create(
+                    mode=decision.mode,
+                    goal=record_goal,
+                    allowed_root=settings.allowed_root,
+                    role_task_builder=build_role,
+                    plan_confirmer=headless_plan_confirmer(settings.service.triad_plan_policy),
+                    planner_model=role_models["planner"],
+                    generator_model=role_models["generator"],
+                    evaluator_model=role_models["evaluator"],
+                    evaluator_tier=settings.service.evaluator_tier,
+                    max_rejections=settings.service.max_rejections,
+                    audit_sink=audit_sink,
+                    task_id=record.task_id,
                 )
             return Task(
                 task_client_factory(settings.model),
@@ -1995,6 +2503,10 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command")
     run_p = sub.add_parser("run", help="run a single goal and exit")
     run_p.add_argument("goal", help="the task goal")
+    run_p.add_argument("--mode", choices=("single", "duo", "triad"), default=None)
+    run_p.add_argument("--planner-model", default=None)
+    run_p.add_argument("--evaluator-model", default=None)
+    run_p.add_argument("--max-rejections", type=int, default=2)
     run_p.add_argument(
         "--interactive",
         action="store_true",
@@ -2013,6 +2525,12 @@ def build_parser() -> argparse.ArgumentParser:
     loop_p.add_argument("--wall-clock-seconds", type=float, default=None, metavar="SECONDS")
     loop_p.add_argument("--max-consecutive-failures", type=int, default=None, metavar="INT")
     loop_p.add_argument("--resume", default=None, metavar="LOOP_ID", help="resume a durable Loop")
+    loop_p.add_argument(
+        "--collaboration-mode", choices=("single", "duo", "triad"), default="single"
+    )
+    loop_p.add_argument("--planner-model", default=None)
+    loop_p.add_argument("--evaluator-model", default=None)
+    loop_p.add_argument("--max-rejections", type=int, default=2)
     sub.add_parser("models", help="list available models and their aliases")
     smoke_p = sub.add_parser("smoke", help="run a live smoke check against real models")
     smoke_p.add_argument(
@@ -2271,26 +2789,75 @@ def main(
                     confirmer=skill_confirmer,
                     diagnostic=identity_diagnostic,
                 )
-                outcome = run_once(
-                    args.goal,
-                    tier=args.tier,
-                    model=args.model,
-                    client_factory=runtime_client_factory,
-                    console=console,
-                    asker=make_console_asker(console) if args.interactive else None,
-                    mcp=mcp,
-                    confirmer=confirmer,
-                    identity=identity,
-                    container_image=args.container_image,
-                    images=images,
-                    stream=args.stream,
-                    context_config=context_config,
-                    memory_manager=memory_manager,
-                    skills=skills,
-                )
+                decision = resolve_collaboration_mode(args.goal, args.mode)
+                if decision.override_required:
+                    if not interactive_identity:
+                        error_console.print(
+                            "[red]collaboration override requires confirmation[/red]"
+                        )
+                        return 2
+                    try:
+                        override = input("allow weaker collaboration mode? [y/N] ").strip().lower()
+                    except EOFError:
+                        override = ""
+                    if override not in {"y", "yes"}:
+                        return 1
+                    decision = resolve_collaboration_mode(
+                        args.goal, args.mode, allow_weaker_override=True
+                    )
+                if decision.reason == "programming":
+                    console.print("mode: triad (programming task)")
+                if decision.mode == "single":
+                    outcome = run_once(
+                        args.goal,
+                        tier=args.tier,
+                        model=args.model,
+                        client_factory=runtime_client_factory,
+                        console=console,
+                        asker=make_console_asker(console) if args.interactive else None,
+                        mcp=mcp,
+                        confirmer=confirmer,
+                        identity=identity,
+                        container_image=args.container_image,
+                        images=images,
+                        stream=args.stream,
+                        context_config=context_config,
+                        memory_manager=memory_manager,
+                        skills=skills,
+                    )
+                else:
+                    if images:
+                        raise ValueError("images are unavailable in collaboration mode")
+                    outcome = run_collaboration_once(
+                        args.goal,
+                        mode=decision.mode,
+                        tier=args.tier,
+                        model=args.model,
+                        planner_model=args.planner_model,
+                        evaluator_model=args.evaluator_model,
+                        max_rejections=args.max_rejections,
+                        client_factory=runtime_client_factory,
+                        allowed_root=allowed_root,
+                        console=console,
+                        plan_confirmer=(
+                            _console_plan_confirmer(console)
+                            if interactive_identity
+                            else headless_plan_confirmer("deny")
+                        ),
+                        asker=make_console_asker(console) if args.interactive else None,
+                        mcp=mcp,
+                        confirmer=confirmer,
+                        identity=identity,
+                        container_image=args.container_image,
+                        context_config=context_config,
+                        memory_manager=memory_manager,
+                        skills=skills,
+                    )
             finally:
                 if mcp is not None:
                     mcp.close()
+            if isinstance(outcome, CollaborationReport):
+                return 0 if outcome.status == "completed" else 1
             return 0 if outcome.status.solved else 1
         if args.command == "loop":
             context_config = _load_cli_context_config()
@@ -2346,6 +2913,11 @@ def main(
                     wall_clock_seconds=args.wall_clock_seconds,
                     max_consecutive_failures=args.max_consecutive_failures,
                     resume=args.resume,
+                    collaboration_mode=args.collaboration_mode,
+                    planner_model=args.planner_model,
+                    evaluator_model=args.evaluator_model,
+                    max_rejections=args.max_rejections,
+                    plan_confirmer=headless_plan_confirmer("deny"),
                 )
             finally:
                 if mcp is not None:
@@ -2387,6 +2959,9 @@ def main(
         return 2
     except ContainerRuntimeError as exc:
         error_console.print(f"[red]container error[/red]: {exc}")
+        return 2
+    except CollaborationRoleConfigurationError:
+        error_console.print("[red]collaboration role configuration failed[/red]")
         return 2
     except MCPStartupError as exc:
         error_console.print(f"[red]MCP startup error[/red]: {exc}")

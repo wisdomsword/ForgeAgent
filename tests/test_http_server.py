@@ -21,6 +21,7 @@ from forgeagent.http_server import (
     HttpError,
     _ForgeHttpServer,
     _parse_content_length,
+    _parse_task_submission,
     create_http_server,
 )
 from forgeagent.http_task_service import ServiceCapacityError, TaskRecord, TaskService
@@ -68,6 +69,49 @@ def _outcome() -> TaskOutcome:
         status=TaskStatus(completed=True, reason=Termination.COMPLETED),
         rounds=[RoundResult(text="private answer")],
     )
+
+
+@pytest.mark.parametrize("mode", ["task", "duo", "triad"])
+def test_submission_parser_accepts_strict_task_and_collaboration_modes(mode):
+    goal, options = _parse_task_submission({"goal": "verify output", "mode": mode})
+
+    assert goal == "verify output"
+    assert options == {"mode": mode}
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"goal": "x", "mode": "unknown"},
+        {"goal": "x", "mode": "duo", "evaluator_model": "owned-by-client"},
+        {"goal": "x", "mode": "triad", "max_rejections": 9},
+        {"goal": "x", "mode": "triad", "triad_plan_policy": "preauthorize"},
+    ],
+)
+def test_submission_parser_rejects_unknown_and_server_owned_collaboration_fields(body):
+    with pytest.raises(HttpError, match="invalid_request"):
+        _parse_task_submission(body)
+
+
+def test_submission_parser_accepts_loop_collaboration_mode_only_on_create():
+    body = {
+        "goal": "implement parser.py",
+        "mode": "loop",
+        "collaboration_mode": "triad",
+        "token_budget": 100,
+        "max_rounds": 10,
+        "wall_clock_seconds": 60,
+        "max_consecutive_failures": 3,
+    }
+
+    goal, options = _parse_task_submission(body)
+
+    assert goal == "implement parser.py"
+    assert options["collaboration_mode"] == "triad"
+    with pytest.raises(HttpError, match="invalid_request"):
+        _parse_task_submission(
+            {"mode": "loop", "resume_loop_id": "a" * 32, "collaboration_mode": "triad"}
+        )
 
 
 def _request(

@@ -30,6 +30,18 @@ from forgeagent.loop import (
 from forgeagent.tools import default_registry
 
 
+def test_loop_module_does_not_import_collaboration_on_single_hot_path():
+    import ast
+    from pathlib import Path
+
+    tree = ast.parse(Path("src/forgeagent/loop.py").read_text(encoding="utf-8"))
+
+    assert not any(
+        isinstance(node, ast.ImportFrom) and node.module == "collaboration"
+        for node in ast.walk(tree)
+    )
+
+
 def _budgets(**overrides: object) -> LoopBudgets:
     values: dict[str, object] = {"token_budget": 100}
     values.update(overrides)
@@ -158,7 +170,33 @@ def test_report_is_safe_projection_model():
         "completed_item_count": 1,
         "open_question_count": 1,
         "usage_available": True,
+        "collaboration_mode": "single",
     }
+
+
+def test_old_checkpoint_defaults_to_single_collaboration_mode():
+    payload = _checkpoint().model_dump(mode="json")
+    payload.pop("collaboration_mode", None)
+    payload.pop("collaboration_id", None)
+    payload.pop("plan_digest", None)
+
+    loaded = LoopCheckpoint.model_validate(payload)
+
+    assert loaded.collaboration_mode == "single"
+    assert loaded.collaboration_id == ""
+    assert loaded.plan_digest == ""
+
+
+def test_collaborative_checkpoint_freezes_mode_id_and_digest():
+    checkpoint = _checkpoint(
+        collaboration_mode="triad",
+        collaboration_id="b" * 32,
+        plan_digest="c" * 64,
+    )
+
+    assert checkpoint.collaboration_mode == "triad"
+    assert checkpoint.collaboration_id == "b" * 32
+    assert checkpoint.plan_digest == "c" * 64
 
 
 @pytest.mark.parametrize(

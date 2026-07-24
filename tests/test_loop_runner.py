@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from forgeagent.audit import AuditEvent
+from forgeagent.collaboration import CollaborationReport, CollaborationUsage
 from forgeagent.loop import (
     MAX_FAILURE_CHARS,
     CheckpointArgs,
@@ -85,6 +86,145 @@ def _runner(tmp_path: Path, builder: _Builder, **kwargs: object) -> LoopRunner:
         budgets=_budgets(**kwargs),
         trigger="test",
     )
+
+
+@dataclass
+class _FakeCollaborationRunner:
+    report: CollaborationReport
+    plan_digest: str = "d" * 64
+    closed: int = 0
+
+    def run(self, goal: str, *, cancel_event=None) -> CollaborationReport:
+        return self.report
+
+    def close(self) -> None:
+        self.closed += 1
+
+
+def _collaboration_report(**overrides: object) -> CollaborationReport:
+    values: dict[str, object] = {
+        "collaboration_id": "c" * 32,
+        "mode": "duo",
+        "status": "completed",
+        "stop_reason": "completed",
+        "phase": "completed",
+        "plan_item_count": 1,
+        "passed_item_count": 1,
+        "failed_item_count": 0,
+        "generator_attempts": 1,
+        "evaluator_attempts": 1,
+        "rejections": 0,
+        "rounds": 4,
+        "usage": CollaborationUsage(input_tokens=5, output_tokens=3),
+        "usage_available": True,
+        "evidence": (),
+    }
+    values.update(overrides)
+    return CollaborationReport(**values)
+
+
+def test_collaboration_iteration_accumulates_all_role_rounds_and_tokens(tmp_path: Path):
+    single_builder = _Builder([])
+    runners: list[_FakeCollaborationRunner] = []
+
+    def collaboration_builder(*args):
+        runner = _FakeCollaborationRunner(_collaboration_report())
+        runners.append(runner)
+        return runner
+
+    runner = LoopRunner.create(
+        allowed_root=str(tmp_path),
+        task_builder=single_builder,
+        collaboration_builder=collaboration_builder,
+        collaboration_mode="duo",
+        collaboration_id="c" * 32,
+        goal="finish the work",
+        budgets=_budgets(),
+        trigger="test",
+    )
+
+    report = runner.run()
+
+    assert report.status == "completed"
+    assert report.rounds_used == 4
+    assert report.tokens_used == 8
+    assert report.collaboration_mode == "duo"
+    assert single_builder.calls == []
+    assert runners[0].closed == 1
+    runner.close()
+
+
+def test_resume_rejects_collaboration_mode_or_digest_mismatch(tmp_path: Path):
+    runner = LoopRunner.create(
+        allowed_root=str(tmp_path),
+        task_builder=_Builder([]),
+        collaboration_builder=lambda *args: None,
+        collaboration_mode="triad",
+        collaboration_id="c" * 32,
+        plan_digest="d" * 64,
+        goal="finish the work",
+        budgets=_budgets(),
+        trigger="test",
+    )
+    loop_id = runner._checkpoint.loop_id
+    runner.close()
+
+    with pytest.raises(ValueError, match="frozen collaboration"):
+        LoopRunner.resume(
+            allowed_root=str(tmp_path),
+            task_builder=_Builder([]),
+            loop_id=loop_id,
+            trigger="test",
+            expected_collaboration_mode="duo",
+        )
+    with pytest.raises(ValueError, match="frozen collaboration"):
+        LoopRunner.resume(
+            allowed_root=str(tmp_path),
+            task_builder=_Builder([]),
+            loop_id=loop_id,
+            trigger="test",
+            expected_plan_digest="e" * 64,
+        )
+
+
+def test_collaboration_rejection_limit_stops_loop_without_another_iteration(tmp_path: Path):
+    reports = iter(
+        [
+            _collaboration_report(
+                status="stopped",
+                stop_reason="rejection_limit",
+                phase="stopped",
+                passed_item_count=0,
+                failed_item_count=1,
+                rejections=2,
+            ),
+            _collaboration_report(),
+        ]
+    )
+    built: list[_FakeCollaborationRunner] = []
+
+    def collaboration_builder(*args):
+        runner = _FakeCollaborationRunner(next(reports))
+        built.append(runner)
+        return runner
+
+    runner = LoopRunner.create(
+        allowed_root=str(tmp_path),
+        task_builder=_Builder([]),
+        collaboration_builder=collaboration_builder,
+        collaboration_mode="duo",
+        collaboration_id="c" * 32,
+        goal="finish the work",
+        budgets=_budgets(),
+        trigger="test",
+    )
+
+    report = runner.run()
+
+    assert report.status == "failed"
+    assert report.stop_reason == "unrecoverable_failure"
+    assert len(built) == 1
+    runner.close()
 
 
 def _skills() -> SkillRegistry:

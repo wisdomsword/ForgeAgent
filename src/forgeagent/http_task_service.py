@@ -15,6 +15,7 @@ from typing import Protocol
 from uuid import uuid4
 
 from .audit import AuditSink
+from .collaboration import CollaborationReport, resolve_collaboration_mode
 from .http_config import HttpServiceConfig
 from .loop import LoopReport
 from .step import Termination
@@ -80,6 +81,7 @@ class TaskRecord:
     detail: str | None = None
     outcome: TaskOutcome | None = field(default=None, repr=False)
     loop_report: LoopReport | None = field(default=None, repr=False)
+    collaboration_report: CollaborationReport | None = field(default=None, repr=False)
     cancel_event: threading.Event = field(default_factory=threading.Event, repr=False)
     audit_degraded: bool = False
     future: Future[None] | None = field(default=None, repr=False)
@@ -88,7 +90,8 @@ class TaskRecord:
     ended_at: float | None = None
 
     def public_view(self, *, service_audit_degraded: bool = False) -> dict[str, object]:
-        mode = "loop" if self.options.get("mode") == "loop" else "task"
+        requested_mode = self.options.get("mode", "task")
+        mode = requested_mode if requested_mode in {"loop", "duo", "triad"} else "task"
         outcome_status = self.outcome.status if self.outcome is not None else None
         report_reason = self.loop_report.stop_reason if self.loop_report is not None else None
         reason = (
@@ -107,6 +110,26 @@ class TaskRecord:
             "usage": _usage_summary(self.outcome),
             "audit_degraded": self.audit_degraded or service_audit_degraded,
         }
+        if mode in {"duo", "triad"}:
+            report = self.collaboration_report
+            view["phase"] = (
+                report.phase
+                if report is not None
+                else ("planning" if mode == "triad" else "generator")
+            )
+            if report is not None and self.ended_at is not None:
+                view.update(
+                    round_count=report.rounds,
+                    usage=report.usage.model_dump(mode="json"),
+                    plan_item_count=report.plan_item_count,
+                    passed_item_count=report.passed_item_count,
+                    failed_item_count=report.failed_item_count,
+                    generator_attempts=report.generator_attempts,
+                    evaluator_attempts=report.evaluator_attempts,
+                    rejections=report.rejections,
+                    usage_available=report.usage_available,
+                    evidence=list(report.evidence),
+                )
         if self.loop_report is not None and self.ended_at is not None:
             report = self.loop_report
             view.update(
@@ -126,7 +149,7 @@ class TaskRecord:
 class TaskRunner(Protocol):
     def run(
         self, goal: str, *, cancel_event: threading.Event | None = None
-    ) -> TaskOutcome | LoopReport: ...
+    ) -> TaskOutcome | LoopReport | CollaborationReport: ...
 
     def close(self) -> None: ...
 
@@ -209,6 +232,10 @@ class TaskService:
             if type(value) is float and not math.isfinite(value):
                 raise TypeError("Task options must use finite scalar values.")
             option_snapshot[key] = value
+        if option_snapshot.get("mode") is None:
+            decision = resolve_collaboration_mode(goal, None)
+            if decision.mode == "triad":
+                option_snapshot["mode"] = "triad"
 
         with self._lock:
             if not self._accepting:
@@ -364,6 +391,7 @@ class TaskService:
         task: TaskRunner | None = None
         outcome: TaskOutcome | None = None
         loop_report: LoopReport | None = None
+        collaboration_report: CollaborationReport | None = None
         failed = False
         process_control_error: BaseException | None = None
         audit_degraded = False
@@ -372,6 +400,8 @@ class TaskService:
             result = task.run(record.goal, cancel_event=record.cancel_event)
             if isinstance(result, LoopReport):
                 loop_report = result
+            elif isinstance(result, CollaborationReport):
+                collaboration_report = result
             else:
                 outcome = result
         except BaseException as error:
@@ -398,7 +428,9 @@ class TaskService:
             ):
                 record.outcome = outcome
                 self._set_cancelled_locked(record)
-            elif failed or (outcome is None and loop_report is None):
+            elif failed or (
+                outcome is None and loop_report is None and collaboration_report is None
+            ):
                 record.status = "failed"
                 record.reason = "internal_error"
                 record.detail = "Task execution failed."
@@ -406,9 +438,13 @@ class TaskService:
             else:
                 record.outcome = outcome
                 record.loop_report = loop_report
+                record.collaboration_report = collaboration_report
                 if loop_report is not None:
                     record.status = loop_report.status
                     record.reason = loop_report.stop_reason
+                elif collaboration_report is not None:
+                    record.status = collaboration_report.status
+                    record.reason = collaboration_report.stop_reason
                 else:
                     assert outcome is not None
                     record.status = outcome.status.reason
@@ -493,7 +529,12 @@ def _public_status_reason(
         return status, None
     if status == "failed" and reason == "internal_error":
         return status, reason
-    if mode == "loop" and status in {"completed", "stopped", "cancelled", "failed"}:
+    if mode in {"loop", "duo", "triad"} and status in {
+        "completed",
+        "stopped",
+        "cancelled",
+        "failed",
+    }:
         return status, reason
     if status == reason and reason in _PUBLIC_TERMINAL_REASONS:
         return status, reason
