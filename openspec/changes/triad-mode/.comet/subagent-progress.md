@@ -1,0 +1,30 @@
+# Subagent Progress
+
+- Change: triad-mode
+- Review mode: thorough
+- Current task: Task 1: Collaboration Models, Store, Tools, and Routing
+- OpenSpec mapping: 1.1-1.4
+- Phase: task-implementation
+- Base commit: 637f87f
+- Implementer: `/root/m22_task1_impl` completed DONE_WITH_CONCERNS
+- Review/fix round: architectural correction after exception review (user-authorized autonomous continuation)
+- RED evidence: models import RED; frozen-plan replacement and evaluation-ordering RED. Store/tools/routing initial RED incomplete.
+- GREEN evidence: architecture correction reached 197 focused passed; Ruff format/check and diff clean.
+- Commit: f288e86 + 92d0933 + 5274e07 + a33143b + 924d358
+- Files: src/forgeagent/collaboration.py; four collaboration test files
+- Reviewer: `/root/m22_task1_review` rejected; 0 Critical, 4 Important, 1 Minor
+- Fix agent: `/root/m22_task1_fix1` completed; all findings addressed with RED/GREEN evidence
+- Re-reviewer: `/root/m22_task1_rereview` rejected; 3 Important remain
+- Final fix agent: `/root/m22_task1_fix2` completed; all 3 findings addressed with RED/GREEN evidence
+- Final reviewer: `/root/m22_task1_final_review` rejected; 3 Important remain
+- Exception fix agent: `/root/m22_task1_exception_fix` completed; all 3 findings addressed with RED/GREEN evidence
+- Exception final reviewer: `/root/m22_task1_exception_review` rejected; 3 Important remain
+- Findings: non-canonical creation/lifecycle states, bypassable durable evidence projection, and incomplete direct-programming routing categories
+- Architecture fix agent: `/root/m22_task1_arch_fix` completed; canonical lifecycle, evidence boundary, and category router implemented
+- Architecture gate reviewer: `/root/m22_task1_gate_review` rejected; 2 Important remain (terminal snapshot mutability; bare Chinese `再` clause split)
+- Gate fix agent: `/root/m22_task1_gate_fix` completed; commit b8f9c1b
+- Gate re-review: APPROVED; targeted 26 passed, full Task 1 suite 211 passed, Ruff/diff clean
+- Current task: Task 2: Duo Runner and Independent Evaluation Loop
+- OpenSpec mapping: 2.1-2.4
+- Decision note: user explicitly authorized autonomous choices and continuation until M22 completion; two self-reviews confirmed the remaining findings are one Task 1 contract problem. The correction centralizes invariants at the state model, store constructor, and deterministic router instead of adding more sample-specific patches.
+- Baseline: restricted run produced 1734 passed, 23 skipped; 11 loopback blackbox and 1 nested build failed from sandbox permissions. M21 archived HEAD evidence is 1758 passed, 11 skipped.

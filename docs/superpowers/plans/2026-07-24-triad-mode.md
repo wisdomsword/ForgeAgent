@@ -43,61 +43,61 @@ base-ref: 2433b7689f275caef4e42c991317934d615aeb36
 - Produces: `CollaborationStore.create/load/save/close`, `SubmitPlanTool`, `SubmitEvaluationTool`, `build_planner_registry()`, `build_evaluator_registry()`, `resolve_collaboration_mode()`.
 - Consumes: `AuditSink`, `AuditEvent`, secret masking, `FileReadTool`, `FileListTool`, `ToolRegistry`, `ToolOutcome`, `ToolContext`.
 
-- [ ] **Step 1: Write strict model and report tests**
+- [x] **Step 1: Write strict model and report tests**
 
 Add tests for strict bool/int rejection, non-finite values, control/format characters, item/byte limits, unique plan IDs, exact evaluation coverage, completed-state invariants, digest stability and public evidence masking.
 
-- [ ] **Step 2: Run model tests and observe RED**
+- [x] **Step 2: Run model tests and observe RED**
 
 Run: `uv run pytest -q tests/test_collaboration_models.py`
 Expected: collection/import failure because `forgeagent.collaboration` does not exist.
 
-- [ ] **Step 3: Implement the minimum strict models and helpers**
+- [x] **Step 3: Implement the minimum strict models and helpers**
 
 Implement the exact public types listed above, bounded `_safe_text()`, stable plan digest, normalized usage accumulation, state validators and `CollaborationReport.from_state()`.
 
-- [ ] **Step 4: Run model tests and observe GREEN**
+- [x] **Step 4: Run model tests and observe GREEN**
 
 Run: `uv run pytest -q tests/test_collaboration_models.py`
 Expected: all tests pass.
 
-- [ ] **Step 5: Write store RED tests**
+- [x] **Step 5: Write store RED tests**
 
 Cover create/load/save, 0600 atomic replacement, stale revision, symlink root/file, directory inode replacement, corrupt/oversize/unknown schema, replace failure preserving old state and idempotent close. Mirror M21 checkpoint threat vectors without importing its private methods.
 
-- [ ] **Step 6: Run store tests and observe RED**
+- [x] **Step 6: Run store tests and observe RED**
 
 Run: `uv run pytest -q tests/test_collaboration_store.py`
 Expected: failures for missing `CollaborationStore` behavior.
 
-- [ ] **Step 7: Implement the minimum store**
+- [x] **Step 7: Implement the minimum store**
 
 Use fixed `.forgeagent/collaborations` directory fd, `O_NOFOLLOW`, relative open/replace/fsync, revision compare, size bounds and masked fixed public errors.
 
-- [ ] **Step 8: Run store tests and observe GREEN**
+- [x] **Step 8: Run store tests and observe GREEN**
 
 Run: `uv run pytest -q tests/test_collaboration_store.py`
 Expected: all tests pass.
 
-- [ ] **Step 9: Write tools and routing RED tests**
+- [x] **Step 9: Write tools and routing RED tests**
 
 Test plan tool commit-before-success, duplicate/HOW-only rejection, immutable plan digest, evaluation exact ID coverage, read-only evaluator registry, bilingual programming table, explicit-mode conflict and no false positive for explanation/review prose.
 
-- [ ] **Step 10: Run tools/routing tests and observe RED**
+- [x] **Step 10: Run tools/routing tests and observe RED**
 
 Run: `uv run pytest -q tests/test_collaboration_tools.py tests/test_collaboration_routing.py`
 Expected: failures for missing tools/registries/router.
 
-- [ ] **Step 11: Implement tools, registries, and router**
+- [x] **Step 11: Implement tools, registries, and router**
 
 Planner registry contains only `SubmitPlan`; evaluator registry contains only `FileRead`, `FileList`, `SubmitEvaluation`. Implement NFKC/lower/bounded deterministic routing with `allow_weaker_override`.
 
-- [ ] **Step 12: Run all Task 1 tests and Ruff**
+- [x] **Step 12: Run all Task 1 tests and Ruff**
 
 Run: `uv run pytest -q tests/test_collaboration_models.py tests/test_collaboration_store.py tests/test_collaboration_tools.py tests/test_collaboration_routing.py && uv run ruff check src/forgeagent/collaboration.py tests/test_collaboration_*.py`
 Expected: all tests pass and Ruff exits 0.
 
-- [ ] **Step 13: Commit Task 1**
+- [x] **Step 13: Commit Task 1**
 
 Run: `git add src/forgeagent/collaboration.py tests/test_collaboration_models.py tests/test_collaboration_store.py tests/test_collaboration_tools.py tests/test_collaboration_routing.py && git commit -m "feat: add collaboration state foundation"`
 

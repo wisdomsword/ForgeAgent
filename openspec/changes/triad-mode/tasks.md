@@ -1,9 +1,9 @@
 ## 1. 协作核心与持久化
 
-- [ ] 1.1 以 TDD 定义协作 mode、冻结计划、逐项 verdict、状态/report、usage 和 stable reason 的严格模型与不变量
-- [ ] 1.2 实现 symlink-safe、revision-safe、原子且有界的 `CollaborationStore`，覆盖损坏、换绑、竞态和关闭路径
-- [ ] 1.3 实现 `SubmitPlan`/`SubmitEvaluation` 结构化工具、角色专用 registry 与 prompt 数据投影
-- [ ] 1.4 实现纯函数编程任务路由、显式模式冲突和表驱动中英文/文件产物边界测试
+- [x] 1.1 以 TDD 定义协作 mode、冻结计划、逐项 verdict、状态/report、usage 和 stable reason 的严格模型与不变量
+- [x] 1.2 实现 symlink-safe、revision-safe、原子且有界的 `CollaborationStore`，覆盖损坏、换绑、竞态和关闭路径
+- [x] 1.3 实现 `SubmitPlan`/`SubmitEvaluation` 结构化工具、角色专用 registry 与 prompt 数据投影
+- [x] 1.4 实现纯函数编程任务路由、显式模式冲突和表驱动中英文/文件产物边界测试
 
 ## 2. Duo 阶段
 
