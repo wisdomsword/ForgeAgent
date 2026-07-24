@@ -15,6 +15,7 @@ from forgeagent.collaboration import (
     SubmitPlanTool,
     build_evaluator_registry,
     build_planner_registry,
+    plan_digest,
 )
 
 
@@ -51,16 +52,18 @@ def test_submit_plan_commits_before_success_and_rejects_duplicate_and_how_only(t
 
 def test_submit_evaluation_requires_exact_frozen_ids_and_registry_is_read_only(tmp_path: Path):
     store = CollaborationStore(str(tmp_path))
-    state = store.create(
-        "Build an artifact",
-        "triad",
-        collaboration_id="b" * 32,
-        phase="generator",
-        plan=(
-            AcceptanceItem(id="first", behavior="first", acceptance="first"),
-            AcceptanceItem(id="second", behavior="second", acceptance="second"),
-        ),
+    initial = store.create("Build an artifact", "triad", collaboration_id="b" * 32)
+    plan = (
+        AcceptanceItem(id="first", behavior="first", acceptance="first"),
+        AcceptanceItem(id="second", behavior="second", acceptance="second"),
     )
+    submitted = store.save(
+        initial.model_copy(
+            update={"phase": "needs_confirmation", "plan": plan, "plan_digest": plan_digest(plan)}
+        ),
+        expected_revision=0,
+    )
+    state = store.save(submitted.model_copy(update={"phase": "generator"}), expected_revision=1)
     tool = SubmitEvaluationTool(store, state)
     missing = tool.run(SubmitEvaluationArgs.model_construct(results=()), None)
     correct = tool.run(

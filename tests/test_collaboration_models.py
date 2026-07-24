@@ -35,6 +35,7 @@ def _state(**overrides: object) -> CollaborationState:
         "collaboration_id": "a" * 32,
         "mode": "triad",
         "goal": "Create an artifact",
+        "phase": "generator",
         "plan": _plan(),
         "plan_digest": plan_digest(_plan()),
     }
@@ -176,14 +177,85 @@ def test_triad_execution_phases_require_a_frozen_plan(phase: str):
         _state(plan=(), plan_digest="", phase=phase)
 
 
-@pytest.mark.parametrize("phase", ["planning", "needs_confirmation"])
-def test_triad_planner_phases_allow_a_pre_plan_state(phase: str):
-    assert _state(plan=(), plan_digest="", phase=phase).phase == phase
+def test_triad_planning_is_the_only_active_state_without_a_plan():
+    assert _state(plan=(), plan_digest="", phase="planning").phase == "planning"
+
+    with pytest.raises(ValidationError, match="planning"):
+        _state(phase="planning")
+    with pytest.raises(ValidationError, match="confirmation"):
+        _state(plan=(), plan_digest="", phase="needs_confirmation")
+
+    assert _state(phase="needs_confirmation").phase == "needs_confirmation"
+
+
+def test_terminal_states_require_only_history_needed_for_their_stop_reason():
+    for status, reason in (("cancelled", "cancelled"), ("failed", "role_failed")):
+        state = _state(
+            plan=(),
+            plan_digest="",
+            status=status,
+            phase=status,
+            stop_reason=reason,
+        )
+        assert state.status == status
+
+    with pytest.raises(ValidationError, match="confirmation"):
+        _state(
+            plan=(),
+            plan_digest="",
+            status="stopped",
+            phase="stopped",
+            stop_reason="needs_confirmation",
+        )
+    with pytest.raises(ValidationError, match="rejection"):
+        _state(status="stopped", phase="stopped", stop_reason="rejection_limit")
+
+    confirmation = _state(status="stopped", phase="stopped", stop_reason="needs_confirmation")
+    rejection = _state(
+        status="stopped",
+        phase="stopped",
+        stop_reason="rejection_limit",
+        rejections=2,
+        last_evaluation=(
+            EvaluationItem(id="output", passed=False, observed="missing", expected="file exists"),
+        ),
+    )
+    assert confirmation.plan and rejection.last_evaluation
 
 
 def test_empty_plan_requires_empty_digest():
     with pytest.raises(ValidationError, match="empty plan"):
         _state(plan=(), plan_digest="f" * 64, phase="planning")
+
+
+def test_evaluation_is_projected_when_it_enters_direct_state(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    secret = "direct-state-secret-value"
+    host_path = "/Users/admin/private/result.txt"
+    monkeypatch.setenv("COLLABORATION_DIRECT_SECRET", secret)
+
+    state = _state(
+        phase="evaluator",
+        last_evaluation=(
+            {
+                "id": "output",
+                "passed": False,
+                "observed": f"found {secret} at {host_path}",
+                "expected": f"remove {secret} from {host_path}",
+                "location": "result.txt",
+            },
+        ),
+    )
+    durable = state.model_dump_json()
+    monkeypatch.delenv("COLLABORATION_DIRECT_SECRET")
+    report = CollaborationReport.from_state(state).model_dump_json()
+
+    assert secret not in durable
+    assert host_path not in durable
+    assert secret not in report
+    assert host_path not in report
+    assert "redacted" in durable.lower()
 
 
 @pytest.mark.parametrize(

@@ -39,64 +39,55 @@ _HOW_ONLY_RE = re.compile(
     r"使用\s*(?:某库|.*库)|调用\s*(?:某\s*)?api|按.*算法实现)",
     re.IGNORECASE,
 )
-_PROGRAM_ACTION_PATTERNS = (
-    re.compile(rf"\b{term}\b", re.IGNORECASE)
-    for term in (
-        "write",
-        "create",
-        "modify",
-        "edit",
-        "update",
-        "implement",
-        "fix",
-        "refactor",
-        "tests?",
-        "build",
-    )
-)
-_PROGRAM_ACTION_PATTERNS = tuple(_PROGRAM_ACTION_PATTERNS) + tuple(
-    re.compile(re.escape(term))
-    for term in ("写", "创建", "修改", "更新", "实现", "修复", "重构", "测试", "构建")
-)
-_PROGRAM_ARTIFACT_PATTERNS = tuple(
-    re.compile(rf"\b{term}\b", re.IGNORECASE)
-    for term in (
-        "code",
-        "programs?",
-        "scripts?",
-        "api",
-        "class(?:es)?",
-        "functions?",
-        "tests?",
-        "packages?",
-        "projects?",
-    )
-) + tuple(
-    re.compile(re.escape(term))
-    for term in ("代码", "程序", "脚本", "接口", "类", "函数", "测试", "包", "项目")
-)
-_PROGRAM_FILES = re.compile(
-    r"(?:^|[\s`'\"/])(?:[\w.-]+\.(?:py|ts|js|rs|go)|pyproject\.toml|package\.json)(?:$|[\s`'\",.:])",
+_CLAUSE_SPLIT = re.compile(
+    r"[,，;；!?。！？\n]+|\.(?=\s|$)|\b(?:and\s+)?then\b|(?:然后|随后|再)",
     re.IGNORECASE,
 )
-_QUOTED_TEXT = re.compile(r'"[^"\n]*"|\'[^\'\n]*\'|“[^”\n]*”|‘[^’\n]*’')
-_NEGATED_PROGRAM_ACTION = re.compile(
-    r"\b(?:do\s+not|don't|dont|never|without)\s+(?:(?:\w+)[\s-]+){0,3}"
-    r"(?:write|create|modify|edit|update|implement|fix|refactor|test|tests|build)\b|"
-    r"(?:不要|无需|不需要|别|禁止|不应|不用)[^,，;；.!?。！？\n]{0,8}"
-    r"(?:写|创建|修改|实现|修复|重构|测试|构建)",
+_REQUEST_PREFIX = re.compile(
+    r"^\s*(?:(?:please|kindly)\s+|(?:can|could|would|will)\s+you\s+|"
+    r"i\s+(?:need|want)\s+you\s+to\s+|(?:请帮我|请(?:你)?|帮我|麻烦你|劳烦你|先|只)\s*)*",
     re.IGNORECASE,
 )
-_CLAUSE_END = re.compile(
-    r"[,，;；!?。！？\n]|\.(?!\w)|\b(?:and\s+)?then\b|(?:然后|随后)", re.IGNORECASE
+_NEGATED_REQUEST = re.compile(
+    r"^(?:do\s+not|don't|dont|never|without|no\s+need\s+to|need\s+not|avoid|"
+    r"refrain\s+from)\b|^(?:不要|无需|不需要|别|禁止|不应|不用|避免)",
+    re.IGNORECASE,
 )
-_NON_PROGRAMMING_FRAMING = (
-    re.compile(r"^\s*(?:please\s+)?(?:explain|review|read)\b", re.IGNORECASE),
-    re.compile(r"^\s*(?:please\s+)?tell\s+me\s+(?:why|how)\b", re.IGNORECASE),
-    re.compile(r"^\s*(?:how\s+to|why\b)", re.IGNORECASE),
-    re.compile(r"^\s*(?:请)?(?:解释|说明|审查|审阅|阅读|查看)"),
-    re.compile(r"^\s*(?:请)?告诉我(?:为什么|如何|怎么|怎样)"),
-    re.compile(r"^\s*(?:如何|怎么|怎样|为什么)"),
+_NON_PROGRAMMING_FRAMING = re.compile(
+    r"^(?:(?:explain|review|read|summarize|describe|discuss|analyze|inspect)\b|"
+    r"tell\s+me\s+(?:why|how)\b|(?:how\s+to|why\b)|"
+    r"(?:解释|说明|审查|审阅|阅读|查看|总结|描述|讨论|分析)|"
+    r"告诉我(?:为什么|如何|怎么|怎样)|(?:如何|怎么|怎样|为什么))",
+    re.IGNORECASE,
+)
+_PROGRAM_ACTION = re.compile(
+    r"^(?:add|remove|delete|rename|write|create|modify|edit|update|implement|fix|"
+    r"refactor|test|build)\b",
+    re.IGNORECASE,
+)
+_PROGRAM_ACTION_ZH = re.compile(
+    r"^(?:添加|新增|移除|删除|重命名|编写|写|创建|修改|编辑|更新|实现|修复|重构|测试|构建)"
+)
+_NON_PROGRAM_TARGET = re.compile(
+    r"^(?:(?:an?|the|some|new|old|existing)\s+){0,3}"
+    r"(?:examples?|documentation|docs?|instructions?|explanations?|descriptions?|"
+    r"summar(?:y|ies)|reports?|polic(?:y|ies)|messages?|prompts?|prose)\b",
+    re.IGNORECASE,
+)
+_QUOTED_TEXT = re.compile(r'`[^`\n]*`|"[^"\n]*"|\'[^\'\n]*\'|“[^”\n]*”|‘[^’\n]*’')
+_PROGRAM_ARTIFACT = re.compile(
+    r"\b(?:source\s+code|unit\s+tests?|integration\s+tests?|code|programs?|scripts?|"
+    r"apis?|class(?:es)?|functions?|modules?|files?|source|tests?|packages?|projects?|"
+    r"build\s+(?:configuration|config))\b|"
+    r"(?:源代码|源码|单元测试|集成测试|软件包|构建配置|代码|程序|脚本|接口|类|函数|"
+    r"模块|文件|测试|包|项目)",
+    re.IGNORECASE,
+)
+_PROGRAM_FILE = re.compile(
+    r"(?<![\w.-])(?:[\w./-]+\.(?:py|ts|tsx|js|jsx|rs|go|java|kt|rb|php|swift|c|cc|"
+    r"cpp|h|hpp|cs|sh|bash|zsh)|pyproject\.toml|package\.json|cargo\.toml|go\.mod|"
+    r"build\.gradle|settings\.gradle|pom\.xml|makefile)(?![\w.-])",
+    re.IGNORECASE,
 )
 _WINDOWS_ABSOLUTE_PATH = re.compile(
     r"(?i)(?<![a-z0-9])[a-z]:[\\/](?:[^\\/\s\x00-\x1f]+[\\/])*[^\\/\s\x00-\x1f]*"
@@ -176,40 +167,44 @@ def _safe_evaluation_item(item: EvaluationItem) -> EvaluationItem:
     )
 
 
-def _routing_text(value: str) -> str:
-    projected = list(value)
-    excluded: list[tuple[int, int]] = []
-    for match in _NEGATED_PROGRAM_ACTION.finditer(value):
-        clause_end = _CLAUSE_END.search(value, match.end(), min(len(value), match.start() + 160))
-        excluded.append((match.start(), clause_end.start() if clause_end else len(value)))
-    clause_start = 0
-    for clause_end in (*_CLAUSE_END.finditer(value), None):
-        clause_stop = len(value) if clause_end is None else clause_end.start()
-        clause = value[clause_start:clause_stop]
-        if any(pattern.match(clause) for pattern in _NON_PROGRAMMING_FRAMING):
-            excluded.append((clause_start, clause_stop))
-        clause_start = len(value) if clause_end is None else clause_end.end()
-    for start, end in excluded:
-        projected[start:end] = " " * (end - start)
-    return "".join(projected)
+def _direct_programming_clause(value: str) -> bool:
+    clause = value.strip()
+    clause = clause[_REQUEST_PREFIX.match(clause).end() :].strip()
+    if not clause or _NEGATED_REQUEST.match(clause) or _NON_PROGRAMMING_FRAMING.match(clause):
+        return False
+    action = _PROGRAM_ACTION.match(clause) or _PROGRAM_ACTION_ZH.match(clause)
+    if action is None:
+        return False
+    target = clause[action.end() :].strip()
+    if not target or _NON_PROGRAM_TARGET.match(target):
+        return False
+    unquoted = _QUOTED_TEXT.sub(" ", target)
+    quoted_file = any(
+        _PROGRAM_FILE.search(match.group()) for match in _QUOTED_TEXT.finditer(target)
+    )
+    return (
+        _PROGRAM_ARTIFACT.search(unquoted) is not None
+        or _PROGRAM_FILE.search(unquoted) is not None
+        or quoted_file
+    )
+
+
+def _programming_clauses(value: str) -> tuple[str, ...]:
+    masked = list(value)
+    for match in _QUOTED_TEXT.finditer(value):
+        masked[match.start() : match.end()] = " " * (match.end() - match.start())
+    projected = "".join(masked)
+    clauses: list[str] = []
+    start = 0
+    for separator in _CLAUSE_SPLIT.finditer(projected):
+        clauses.append(value[start : separator.start()])
+        start = separator.end()
+    clauses.append(value[start:])
+    return tuple(clauses)
 
 
 def _programming_signal(value: str) -> bool:
-    routable = _routing_text(value)
-    quoted = tuple(match.span() for match in _QUOTED_TEXT.finditer(routable))
-    actions = [
-        match.span()
-        for pattern in _PROGRAM_ACTION_PATTERNS
-        for match in pattern.finditer(routable)
-        if not any(start <= match.start() and match.end() <= end for start, end in quoted)
-    ]
-    artifacts = [
-        match.span()
-        for pattern in _PROGRAM_ARTIFACT_PATTERNS
-        for match in pattern.finditer(routable)
-    ]
-    artifacts.extend(match.span() for match in _PROGRAM_FILES.finditer(routable))
-    return any(action != artifact for action in actions for artifact in artifacts)
+    return any(_direct_programming_clause(clause) for clause in _programming_clauses(value))
 
 
 class AcceptanceItem(BaseModel):
@@ -237,7 +232,7 @@ class AcceptanceItem(BaseModel):
 
 
 class EvaluationItem(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
+    model_config = ConfigDict(frozen=True, extra="forbid", revalidate_instances="always")
 
     id: str
     passed: bool
@@ -262,9 +257,10 @@ class EvaluationItem(BaseModel):
     @field_validator("observed", "expected")
     @classmethod
     def _validate_evidence(cls, value: Any, info: Any) -> str:
-        return _safe_text(
+        safe = _safe_text(
             value, field=info.field_name, maximum=MAX_EVIDENCE_CHARS, allow_empty=True
         )
+        return _public_text(safe)
 
     @field_validator("location")
     @classmethod
@@ -332,8 +328,13 @@ def plan_digest(items: list[AcceptanceItem] | tuple[AcceptanceItem, ...]) -> str
 
 
 def _duo_plan(goal: str) -> tuple[AcceptanceItem, ...]:
+    _ = goal
     return (
-        AcceptanceItem(id="goal", behavior=goal, acceptance="External artifacts satisfy the goal"),
+        AcceptanceItem(
+            id="goal",
+            behavior="Satisfy the original task goal",
+            acceptance="External artifacts satisfy the original task goal",
+        ),
     )
 
 
@@ -517,7 +518,12 @@ class CollaborationState(BaseModel):
     def _validate_evaluation(cls, value: Any) -> tuple[EvaluationItem, ...]:
         if not isinstance(value, (list, tuple)) or len(value) > MAX_PLAN_ITEMS:
             raise ValueError("evaluation is invalid")
-        return tuple(EvaluationItem.model_validate(item) for item in value)
+        return tuple(
+            EvaluationItem.model_validate(
+                item.model_dump(mode="python") if isinstance(item, EvaluationItem) else item
+            )
+            for item in value
+        )
 
     @model_validator(mode="after")
     def _validate_invariants(self) -> CollaborationState:
@@ -535,20 +541,31 @@ class CollaborationState(BaseModel):
             ids = tuple(item.id for item in self.last_evaluation)
             if ids != tuple(item.id for item in self.plan):
                 raise ValueError("evaluation must cover plan ids in plan order")
+        if self.mode == "duo":
+            if self.status == "active" and self.phase not in {"generator", "evaluator"}:
+                raise ValueError("duo phase must be generator or evaluator while active")
+            if self.plan != _duo_plan(self.goal):
+                raise ValueError("duo requires the system acceptance plan")
+        elif self.status == "active":
+            if self.phase == "planning" and self.plan:
+                raise ValueError("triad planning must not have a plan")
+            if self.phase == "needs_confirmation" and not self.plan:
+                raise ValueError("triad confirmation requires a submitted plan")
+            if self.phase in {"generator", "evaluator"} and not self.plan:
+                raise ValueError("triad requires a confirmed plan before generator")
+        if self.status == "stopped" and self.stop_reason == "needs_confirmation" and not self.plan:
+            raise ValueError("needs confirmation stop requires a submitted plan")
         if (
-            self.mode == "duo"
-            and self.status == "active"
-            and self.phase
-            not in {
-                "generator",
-                "evaluator",
-            }
+            self.status == "stopped"
+            and self.stop_reason == "rejection_limit"
+            and (
+                not self.plan
+                or not self.last_evaluation
+                or all(item.passed for item in self.last_evaluation)
+                or self.rejections != self.max_rejections
+            )
         ):
-            raise ValueError("duo phase must be generator or evaluator while active")
-        if self.mode == "duo" and self.plan != _duo_plan(self.goal):
-            raise ValueError("duo requires the system acceptance plan")
-        if self.mode == "triad" and self.phase in {"generator", "evaluator"} and not self.plan:
-            raise ValueError("triad requires a confirmed plan before generator")
+            raise ValueError("rejection limit stop requires exhausted failing evaluation")
         if self.status == "completed" and (
             not self.last_evaluation or not all(item.passed for item in self.last_evaluation)
         ):
@@ -734,19 +751,30 @@ class CollaborationStore:
         mode: Literal["duo", "triad"],
         *,
         collaboration_id: str | None = None,
-        **values: Any,
+        planner_model: str = "",
+        generator_model: str = "",
+        evaluator_model: str = "",
+        evaluator_tier: Literal["restricted", "container"] = "restricted",
+        max_rejections: int = DEFAULT_MAX_REJECTIONS,
+        usage_available: bool = True,
     ) -> CollaborationState:
         with self._lock:
             identifier = uuid4().hex if collaboration_id is None else collaboration_id
-            if mode == "duo" and "plan" not in values:
-                values["plan"] = _duo_plan(goal)
-            values.setdefault("phase", "generator" if mode == "duo" else "planning")
-            values.setdefault(
-                "plan_digest", plan_digest(values["plan"]) if values.get("plan") else ""
-            )
+            plan = _duo_plan(goal) if mode == "duo" else ()
             try:
                 state = CollaborationState(
-                    collaboration_id=identifier, goal=goal, mode=mode, **values
+                    collaboration_id=identifier,
+                    goal=goal,
+                    mode=mode,
+                    phase="generator" if mode == "duo" else "planning",
+                    plan=plan,
+                    plan_digest=plan_digest(plan) if plan else "",
+                    planner_model=planner_model,
+                    generator_model=generator_model,
+                    evaluator_model=evaluator_model,
+                    evaluator_tier=evaluator_tier,
+                    max_rejections=max_rejections,
+                    usage_available=usage_available,
                 )
             except ValidationError as error:
                 raise CollaborationError("invalid collaboration state") from error
