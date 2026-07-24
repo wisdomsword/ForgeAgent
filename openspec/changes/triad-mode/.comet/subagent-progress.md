@@ -24,7 +24,9 @@
 - Architecture gate reviewer: `/root/m22_task1_gate_review` rejected; 2 Important remain (terminal snapshot mutability; bare Chinese `再` clause split)
 - Gate fix agent: `/root/m22_task1_gate_fix` completed; commit b8f9c1b
 - Gate re-review: APPROVED; targeted 26 passed, full Task 1 suite 211 passed, Ruff/diff clean
-- Current task: Task 2: Duo Runner and Independent Evaluation Loop
-- OpenSpec mapping: 2.1-2.4
+- Task 2 implementer: `/root/m22_task2_duo` completed; commits bdc381f + cd8602b
+- Task 2 review: APPROVED after one Important fix; focused runner 18 passed, collaboration regression 229 passed
+- Current task: Task 3: Planner Confirmation and Triad State Machine
+- OpenSpec mapping: 3.1-3.4
 - Decision note: user explicitly authorized autonomous choices and continuation until M22 completion; two self-reviews confirmed the remaining findings are one Task 1 contract problem. The correction centralizes invariants at the state model, store constructor, and deterministic router instead of adding more sample-specific patches.
 - Baseline: restricted run produced 1734 passed, 23 skipped; 11 loopback blackbox and 1 nested build failed from sandbox permissions. M21 archived HEAD evidence is 1758 passed, 11 skipped.

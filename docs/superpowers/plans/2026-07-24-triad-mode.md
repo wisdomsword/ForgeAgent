@@ -112,34 +112,34 @@ Run: `git add src/forgeagent/collaboration.py tests/test_collaboration_models.py
 - Consumes: Task 1 state/store/tools and existing `Task`, `TaskOutcome`, `TokenUsage`, `AuditSink`.
 - Produces: `RoleTaskBuilder`, `CollaborationRunner.create()`, `.run()`, `.close()` and stable Duo stop reasons.
 
-- [ ] **Step 1: Write Duo RED mock replays**
+- [x] **Step 1: Write Duo RED mock replays**
 
 Use real `Task` + `MockClient` role builders to cover Generator strict completion -> Evaluator reject -> fresh Generator fix -> Evaluator pass; wrong completion interception; exact rejection limit; missing/invalid verdict; evaluator refused/failed/client error; cancellation precedence; fresh clients/registries; all resources closed; rounds/usage aggregation.
 
-- [ ] **Step 2: Run Duo tests and observe RED**
+- [x] **Step 2: Run Duo tests and observe RED**
 
 Run: `uv run pytest -q tests/test_collaboration_runner.py -k duo`
 Expected: failures for missing runner.
 
-- [ ] **Step 3: Implement minimum Duo state machine**
+- [x] **Step 3: Implement minimum Duo state machine**
 
 Create the system `goal` acceptance item, build fresh Generator/Evaluator Tasks, treat Generator completed as submission, require committed evaluator verdict plus standalone completion, persist each boundary, revalidate every item on every attempt and stop at `max_rejections`.
 
-- [ ] **Step 4: Run Duo tests and observe GREEN**
+- [x] **Step 4: Run Duo tests and observe GREEN**
 
 Run: `uv run pytest -q tests/test_collaboration_runner.py -k duo`
 Expected: all Duo tests pass.
 
-- [ ] **Step 5: Add Duo audit and safe prompt tests**
+- [x] **Step 5: Add Duo audit and safe prompt tests**
 
 Assert role/evaluation/rejection/stop events contain allowlisted counters and no goal/plan/evidence/path content; assert reject evidence is JSON task data and Generator conversations are fresh.
 
-- [ ] **Step 6: Run Task 2 focused regression**
+- [x] **Step 6: Run Task 2 focused regression**
 
 Run: `uv run pytest -q tests/test_collaboration_runner.py tests/test_task.py tests/test_evaluator.py tests/test_audit.py && uv run ruff check src/forgeagent/collaboration.py tests/test_collaboration_runner.py`
 Expected: all tests pass and Ruff exits 0.
 
-- [ ] **Step 7: Mark OpenSpec Duo tasks and commit**
+- [x] **Step 7: Mark OpenSpec Duo tasks and commit**
 
 Mark tasks 1.1-1.4 and 2.1-2.3 complete only after their evidence passes. Commit with `feat: add duo evaluation loop`.
 

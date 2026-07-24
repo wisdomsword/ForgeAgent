@@ -7,10 +7,10 @@
 
 ## 2. Duo 阶段
 
-- [ ] 2.1 实现 fresh Generator/Evaluator Task builder、只读 Evaluator 能力和角色资源关闭
-- [ ] 2.2 实现 Duo 提交验收、逐项判定、证据打回、默认 2 次 rejection 上限、取消和失败优先级
-- [ ] 2.3 添加离线 mock replay：错误完成被拦截、拒绝后修复通过、反复拒绝停止、角色异常与 usage 聚合
-- [ ] 2.4 完成 Duo 专项审查并修复 Critical/Important 问题后再进入 Triad
+- [x] 2.1 实现 fresh Generator/Evaluator Task builder、只读 Evaluator 能力和角色资源关闭
+- [x] 2.2 实现 Duo 提交验收、逐项判定、证据打回、默认 2 次 rejection 上限、取消和失败优先级
+- [x] 2.3 添加离线 mock replay：错误完成被拦截、拒绝后修复通过、反复拒绝停止、角色异常与 usage 聚合
+- [x] 2.4 完成 Duo 专项审查并修复 Critical/Important 问题后再进入 Triad
 
 ## 3. Triad 阶段
 
