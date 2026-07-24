@@ -706,7 +706,8 @@ def test_triad_plan_audit_never_contains_goal_or_plan_text(tmp_path: Path):
     plan_events = [event for event in events if event.event_type == "collaboration.plan"]
     assert [event.result_status for event in plan_events] == ["submitted", "denied"]
     assert all(
-        set(event.parameters) <= {"mode", "plan_item_count", "digest_prefix", "revision"}
+        set(event.parameters)
+        <= {"mode", "collaboration_id", "plan_item_count", "digest_prefix", "revision"}
         for event in plan_events
     )
 

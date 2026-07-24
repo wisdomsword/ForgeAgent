@@ -19,7 +19,7 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 ## 当前状态与流程
 
-项目处于**规划阶段**：尚无 ForgeAgent 代码，无构建系统（技术选型以批准后的 `ACTION_PLAN.md` 为准，倾向 uv + Python ≥3.11）。行动计划见 `ACTION_PLAN.md`，须经用户评审批准后才能开始方案设计和编码——不要跳过这一步。
+项目已有可运行的 ForgeAgent 实现、uv 构建系统与完整测试环路；M0-M10、M13、M15-M22 已完成并归档，M11/M12/M14 按用户裁决跳过。当前状态以 `ACTION_PLAN.md` 和 `milestones/latest` 为准。新的非平凡变更必须按仓库 Comet/OpenSpec 流程建立并验证，不得把历史规划文档中的待办描述当作当前状态。
 
 参考项目自带测试（进入 `resource/agent/` 安装依赖后 `pytest tests/unit -v`），仅用于验证对参考实现的理解，不属于本项目开发环路。
 

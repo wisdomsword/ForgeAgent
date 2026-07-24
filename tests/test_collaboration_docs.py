@@ -100,10 +100,16 @@ def test_threat_model_covers_collaboration_role_and_state_boundaries() -> None:
 
 
 def test_m22_closeout_artifacts_record_final_gates() -> None:
+    readme = _text("README.md")
+    assert "M22 Duo/Triad 协作运行时已完成并归档" in readme
+    assert "最终全量验证与归档仍在进行" not in readme
+    assert "milestone_022.md" in readme
+
     action_plan = _text("ACTION_PLAN.md")
     m22_row = next(line for line in action_plan.splitlines() if line.startswith("| **M22**"))
     assert "已完成并归档" in m22_row
     assert "2069 passed" in m22_row
+    assert "归档后复核" in action_plan
     assert "M22 待启动" not in action_plan
 
     report = _text("docs/superpowers/reports/2026-07-24-triad-mode-verify.md")
@@ -116,8 +122,31 @@ def test_m22_closeout_artifacts_record_final_gates() -> None:
     assert "# 里程碑 M22: Triad Mode" in milestone
     assert "- 状态: 已完成" in milestone
     assert "2069 passed, 11 skipped" in milestone
+    assert "../openspec/changes/archive/2026-07-24-triad-mode/" in milestone
+    assert "../openspec/changes/triad-mode/" not in milestone
     assert "M23" in milestone
     assert _text("milestones/latest").strip() == "milestone_022.md"
+
+    agents = _text("AGENTS.md")
+    assert "项目处于**规划阶段**" not in agents
+    assert "M15-M22 已完成并归档" in agents
+
+    technical_path = _text("TECH_PATH.md")
+    assert "M15-M22 均已完成并归档" in technical_path
+    assert "M22 已裁决" in technical_path
+    assert "它们不是当前待决事项" in technical_path
+
+    report = _text("docs/superpowers/reports/2026-07-24-triad-mode-verify.md")
+    assert "验证实现提交: `111d60a`" in report
+    assert "当前实现提交" not in report
+
+    main_spec = _text("openspec/specs/runtime-collaboration/spec.md")
+    assert "TBD - created by archiving change triad-mode" not in main_spec
+    assert "Duo/Triad" in main_spec.split("## Requirements", 1)[0]
+
+    audit_spec = _text("openspec/specs/audit-logging/spec.md")
+    assert "TBD - created by archiving change http-task-service" not in audit_spec
+    assert "JSONL" in audit_spec.split("## Requirements", 1)[0]
 
 
 def test_m22_adds_no_runtime_dependency() -> None:

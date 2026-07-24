@@ -2,7 +2,8 @@
 
 - Change: `triad-mode`
 - 基线提交: `2433b7689f275caef4e42c991317934d615aeb36`
-- 当前实现提交: `111d60a`
+- 验证实现提交: `111d60a`
+- 归档状态提交: `489999a`
 - 验证模式: full
 - 结论: PASS；实现、逐任务审查、完整 diff 审查与全部完成门禁通过，可以归档
 
@@ -152,3 +153,11 @@ loopback blackbox 无法绑定端口与 1 个嵌套 `uv build` 权限限制。�
 - change 已移动到 `openspec/changes/archive/2026-07-24-triad-mode/`，其中
   `.comet.yaml` 记录 `archived: true`。
 - 归档后 OpenSpec strict `17 passed, 0 failed`；文档/集成/Loop 定向回归 `44 passed`。
+
+## 归档后复核
+
+2026-07-25 的独立复核发现 Planner HOW 校验只覆盖 `acceptance`、协作审计未完整实现
+route 与角色异常 lifecycle。后续 hotfix `collaboration-contract-hotfix` 补齐双字段校验、
+`collaboration.route` 和角色 start/outcome 安全字段；最终证据以该 hotfix 验证报告为准。
+修复后的全量结果为 `2073 passed, 11 skipped`，golden `20/20`，OpenSpec strict
+`18/18`。

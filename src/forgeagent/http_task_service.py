@@ -15,7 +15,13 @@ from typing import Protocol
 from uuid import uuid4
 
 from .audit import AuditSink
-from .collaboration import CollaborationReport, resolve_collaboration_mode
+from .collaboration import (
+    CollaborationMode,
+    CollaborationReport,
+    ModeDecision,
+    emit_collaboration_route,
+    resolve_collaboration_mode,
+)
 from .http_config import HttpServiceConfig
 from .loop import LoopReport
 from .step import Termination
@@ -232,8 +238,24 @@ class TaskService:
             if type(value) is float and not math.isfinite(value):
                 raise TypeError("Task options must use finite scalar values.")
             option_snapshot[key] = value
-        if option_snapshot.get("mode") is None:
-            decision = resolve_collaboration_mode(goal, None)
+        requested = option_snapshot.get("mode")
+        requested_mode: CollaborationMode | None = (
+            None
+            if requested is None
+            else "single"
+            if requested == "task"
+            else requested
+            if requested in {"duo", "triad"}
+            else None
+        )
+        decision: ModeDecision | None = None
+        if requested != "loop":
+            decision = resolve_collaboration_mode(
+                goal,
+                requested_mode,
+                allow_weaker_override=self._config.allow_weaker_override,
+            )
+        if requested is None and decision is not None:
             if decision.mode == "triad":
                 option_snapshot["mode"] = "triad"
 
@@ -252,6 +274,13 @@ class TaskService:
                 created_at=self._clock(),
             )
             self._records[record.task_id] = record
+            if decision is not None:
+                emit_collaboration_route(
+                    self._audit_sink,
+                    decision,
+                    requested_mode,
+                    task_id=record.task_id,
+                )
             loop_id = _record_loop_id(record)
             if loop_id is not None and loop_id in self._active_resume_ids:
                 record.status = "failed"

@@ -53,6 +53,8 @@ from .collaboration import (
     CollaborationRoleConfigurationError,
     CollaborationRunner,
     CollaborationStore,
+    ModeDecision,
+    emit_collaboration_route,
     headless_plan_confirmer,
     resolve_collaboration_mode,
 )
@@ -723,11 +725,23 @@ def run_collaboration_once(
     skills: SkillRegistry | None = None,
     audit_sink: AuditSink | None = None,
     task_id: str | None = None,
+    route_decision: ModeDecision | None = None,
 ) -> CollaborationReport:
     if mode not in {"duo", "triad"}:
         raise ValueError("collaboration mode must be duo or triad")
     root = str(Path.cwd().resolve()) if allowed_root is None else allowed_root
     output = console or Console()
+    audited_requested_mode = (
+        cast(CollaborationMode, mode)
+        if route_decision is None or route_decision.reason == "explicit"
+        else None
+    )
+    emit_collaboration_route(
+        audit_sink,
+        route_decision or ModeDecision(mode=cast(CollaborationMode, mode), reason="explicit"),
+        audited_requested_mode,
+        task_id=task_id,
+    )
     resolved_context = context_config or ContextConfig()
     role_models = {
         "planner": planner_model or model,
@@ -817,6 +831,7 @@ def run_collaboration_once(
         evaluator_model=role_models["evaluator"],
         evaluator_tier="restricted",
         max_rejections=max_rejections,
+        execution_tier=tier,
         audit_sink=audit_sink,
         task_id=task_id,
     )
@@ -1071,7 +1086,7 @@ def run_loop_once(
         loop_id = runner._checkpoint.collaboration_id
         state_path = Path(root) / ".forgeagent" / "collaborations" / f"{loop_id}.json"
         if state_path.exists():
-            store = CollaborationStore(root)
+            store = CollaborationStore(root, loop_id=runner._checkpoint.loop_id)
             state = store.load(loop_id)
             collaboration = CollaborationRunner(
                 store=store,
@@ -1081,6 +1096,8 @@ def run_loop_once(
                 generator_registry=registry,
                 task_data_suffix=suffix,
                 recover_role_failures=True,
+                execution_tier=tier,
+                loop_id=runner._checkpoint.loop_id,
             )
         else:
             collaboration = CollaborationRunner.create(
@@ -1097,6 +1114,8 @@ def run_loop_once(
                 generator_registry=registry,
                 task_data_suffix=suffix,
                 recover_role_failures=True,
+                execution_tier=tier,
+                loop_id=runner._checkpoint.loop_id,
             )
 
         class OwnedCollaboration:
@@ -1809,6 +1828,7 @@ def repl(
                 run_collaboration_once(
                     collaboration_goal,
                     mode=decision.mode,
+                    route_decision=decision,
                     tier=tier,
                     model=model,
                     planner_model=None,
@@ -1862,6 +1882,7 @@ def repl(
                 run_collaboration_once(
                     goal,
                     mode=decision.mode,
+                    route_decision=decision,
                     tier=tier,
                     model=model,
                     planner_model=None,
@@ -2374,7 +2395,12 @@ def serve_http(
                         / f"{collaboration_id}.json"
                     )
                     if state_path.exists():
-                        store = CollaborationStore(settings.allowed_root)
+                        store = CollaborationStore(
+                            settings.allowed_root,
+                            audit_sink=audit_sink,
+                            task_id=record.task_id,
+                            loop_id=loop_runner._checkpoint.loop_id,
+                        )
                         state = store.load(collaboration_id)
                         collaboration = CollaborationRunner(
                             store=store,
@@ -2386,8 +2412,10 @@ def serve_http(
                             generator_registry=registry,
                             task_data_suffix=suffix,
                             recover_role_failures=True,
+                            execution_tier=settings.tier,
                             audit_sink=audit_sink,
                             task_id=record.task_id,
+                            loop_id=loop_runner._checkpoint.loop_id,
                         )
                     else:
                         collaboration = CollaborationRunner.create(
@@ -2407,8 +2435,10 @@ def serve_http(
                             generator_registry=registry,
                             task_data_suffix=suffix,
                             recover_role_failures=True,
+                            execution_tier=settings.tier,
                             audit_sink=audit_sink,
                             task_id=record.task_id,
+                            loop_id=loop_runner._checkpoint.loop_id,
                         )
 
                     class OwnedCollaboration:
@@ -2529,6 +2559,7 @@ def serve_http(
                     evaluator_model=role_models["evaluator"],
                     evaluator_tier=settings.service.evaluator_tier,
                     max_rejections=settings.service.max_rejections,
+                    execution_tier=settings.tier,
                     audit_sink=audit_sink,
                     task_id=record.task_id,
                 )
@@ -2933,6 +2964,7 @@ def main(
                     outcome = run_collaboration_once(
                         args.goal,
                         mode=decision.mode,
+                        route_decision=decision,
                         tier=args.tier,
                         model=args.model,
                         planner_model=args.planner_model,

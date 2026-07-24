@@ -90,6 +90,8 @@ class _AuditSink:
 
 
 def _runner(tmp_path: Path, builder: _RoleBuilder, **kwargs) -> CollaborationRunner:
+    kwargs.setdefault("generator_model", "generator-model")
+    kwargs.setdefault("evaluator_model", "evaluator-model")
     return CollaborationRunner.create(
         mode="duo",
         goal="write PRIVATE_GOAL artifact",
@@ -147,6 +149,15 @@ def test_recover_role_failures_requires_strict_bool(tmp_path: Path):
 
     with pytest.raises(ValueError, match="recover_role_failures must be a bool"):
         _runner(tmp_path, builder, recover_role_failures=1)
+
+
+def test_execution_tier_and_loop_id_are_validated(tmp_path: Path):
+    builder = _RoleBuilder({("generator", 1): [_reply(_done())]})
+
+    with pytest.raises(ValueError, match="execution_tier is invalid"):
+        _runner(tmp_path, builder, execution_tier="host")
+    with pytest.raises(ValueError, match="invalid loop id"):
+        _runner(tmp_path, builder, loop_id="not-a-loop-id")
 
 
 @pytest.mark.parametrize(
@@ -231,14 +242,21 @@ def test_duo_audit_projection_uses_only_safe_counters(tmp_path: Path):
         }
     )
 
-    report = _runner(tmp_path, builder, max_rejections=0, audit_sink=sink).run(
+    report = _runner(
+        tmp_path,
+        builder,
+        max_rejections=0,
+        audit_sink=sink,
+        loop_id="b" * 32,
+    ).run(
         "write PRIVATE_GOAL artifact"
     )
 
     assert report.stop_reason == "rejection_limit"
     collaboration_events = [e for e in sink.events if e.event_type.startswith("collaboration.")]
     assert {e.event_type for e in collaboration_events} >= {
-        "collaboration.role",
+        "collaboration.role.start",
+        "collaboration.role.outcome",
         "collaboration.evaluation",
         "collaboration.rejection",
         "collaboration.stop",
@@ -249,10 +267,22 @@ def test_duo_audit_projection_uses_only_safe_counters(tmp_path: Path):
     assert "PRIVATE_PATH" not in rendered
     allowed = {
         "mode",
+        "collaboration_id",
+        "loop_id",
         "role",
+        "phase",
+        "model",
+        "tier",
         "attempt",
         "round_count",
         "completed",
+        "usage_available",
+        "input_tokens",
+        "output_tokens",
+        "cached_tokens",
+        "reasoning_tokens",
+        "total_prompt_tokens",
+        "cost",
         "plan_item_count",
         "passed_item_count",
         "failed_item_count",
@@ -263,6 +293,19 @@ def test_duo_audit_projection_uses_only_safe_counters(tmp_path: Path):
         "revision",
     }
     assert all(set(event.parameters) <= allowed for event in collaboration_events)
+    assert all(event.parameters["loop_id"] == "b" * 32 for event in collaboration_events)
+    role_events = [event for event in collaboration_events if ".role." in event.event_type]
+    assert [event.event_type for event in role_events] == [
+        "collaboration.role.start",
+        "collaboration.role.outcome",
+        "collaboration.role.start",
+        "collaboration.role.outcome",
+    ]
+    assert {event.parameters["model"] for event in role_events} == {
+        "generator-model",
+        "evaluator-model",
+    }
+    assert all(event.duration_ms is not None for event in role_events)
 
 
 def test_duo_close_is_idempotent_and_run_after_close_fails(tmp_path: Path):
@@ -275,15 +318,30 @@ def test_duo_close_is_idempotent_and_run_after_close_fails(tmp_path: Path):
 
 
 def test_duo_role_exception_becomes_stable_failure(tmp_path: Path):
+    sink = _AuditSink()
+
     class _BrokenBuilder:
         def __call__(self, role, attempt, registry, system_prompt):
             raise RuntimeError("private role construction failure")
 
-    report = _runner(tmp_path, _BrokenBuilder()).run("write PRIVATE_GOAL artifact")
+    report = _runner(
+        tmp_path,
+        _BrokenBuilder(),
+        generator_model="generator-model",
+        audit_sink=sink,
+    ).run("write PRIVATE_GOAL artifact")
 
     assert report.status == "failed"
     assert report.stop_reason == "role_failed"
     assert "private role construction failure" not in repr(report)
+    role_events = [event for event in sink.events if ".role." in event.event_type]
+    assert [event.event_type for event in role_events] == [
+        "collaboration.role.start",
+        "collaboration.role.outcome",
+    ]
+    assert role_events[-1].result_status == "role_error"
+    assert role_events[-1].parameters["usage_available"] is False
+    assert "private role construction failure" not in repr(role_events)
 
 
 def test_duo_role_configuration_exception_is_unrecoverable_without_leaking_details(tmp_path: Path):

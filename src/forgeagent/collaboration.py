@@ -9,6 +9,7 @@ import os
 import re
 import stat
 import threading
+import time
 import unicodedata
 import weakref
 from collections.abc import Callable
@@ -685,7 +686,12 @@ class CollaborationStore:
     """Atomic, symlink-safe collaboration snapshots under one project root."""
 
     def __init__(
-        self, allowed_root: str, *, audit_sink: AuditSink | None = None, task_id: str | None = None
+        self,
+        allowed_root: str,
+        *,
+        audit_sink: AuditSink | None = None,
+        task_id: str | None = None,
+        loop_id: str | None = None,
     ) -> None:
         try:
             self._no_follow = os.O_NOFOLLOW
@@ -693,7 +699,9 @@ class CollaborationStore:
         except AttributeError:
             raise CollaborationError("safe file access is unavailable") from None
         self._lock = threading.RLock()
-        self._audit_sink, self._task_id = audit_sink, task_id
+        if loop_id is not None and _COLLABORATION_ID_RE.fullmatch(loop_id) is None:
+            raise CollaborationError("invalid loop id")
+        self._audit_sink, self._task_id, self._loop_id = audit_sink, task_id, loop_id
         self._root = self._directory(Path(allowed_root), required=True, root=None)
         directory = self._root
         for part in (".forgeagent", "collaborations"):
@@ -902,17 +910,21 @@ class CollaborationStore:
                 pass
 
     def _audit(self, state: CollaborationState, result_status: str) -> None:
+        parameters: dict[str, object] = {
+            "mode": state.mode,
+            "collaboration_id": state.collaboration_id,
+            "revision": state.revision,
+            "plan_item_count": len(state.plan),
+        }
+        if self._loop_id is not None:
+            parameters["loop_id"] = self._loop_id
         emit_audit(
             self._audit_sink,
             AuditEvent(
                 event_type="collaboration.state",
                 task_id=self._task_id,
                 risk_level="low",
-                parameters={
-                    "mode": state.mode,
-                    "revision": state.revision,
-                    "plan_item_count": len(state.plan),
-                },
+                parameters=parameters,
                 result_status=result_status,
             ),
         )
@@ -954,7 +966,11 @@ class SubmitPlanTool(Tool):
     def run(self, args: BaseModel, ctx: ToolContext | None) -> ToolOutcome:
         try:
             validated = SubmitPlanArgs.model_validate(args.model_dump(mode="python"))
-            if any(_HOW_ONLY_RE.match(item.acceptance) for item in validated.items):
+            if any(
+                _HOW_ONLY_RE.match(text)
+                for item in validated.items
+                for text in (item.behavior, item.acceptance)
+            ):
                 return ToolOutcome(
                     tool=self.name,
                     success=False,
@@ -1175,11 +1191,17 @@ class CollaborationRunner:
         generator_registry: ToolRegistry | None = None,
         task_data_suffix: str = "",
         recover_role_failures: bool = False,
+        execution_tier: Literal["trusted", "restricted", "container"] = "restricted",
         audit_sink: AuditSink | None = None,
         task_id: str | None = None,
+        loop_id: str | None = None,
     ) -> None:
         if type(recover_role_failures) is not bool:
             raise ValueError("recover_role_failures must be a bool")
+        if execution_tier not in {"trusted", "restricted", "container"}:
+            raise ValueError("execution_tier is invalid")
+        if loop_id is not None and _COLLABORATION_ID_RE.fullmatch(loop_id) is None:
+            raise ValueError("invalid loop id")
         self._store = store
         self._state = state
         self._frozen_plan = state.plan
@@ -1189,8 +1211,10 @@ class CollaborationRunner:
         self._generator_registry = generator_registry
         self._task_data_suffix = task_data_suffix
         self._recover_role_failures = recover_role_failures
+        self._execution_tier = execution_tier
         self._audit_sink = audit_sink
         self._task_id = task_id
+        self._loop_id = loop_id
         self._run_lock = threading.Lock()
         self._closed = False
 
@@ -1206,6 +1230,7 @@ class CollaborationRunner:
         generator_registry: ToolRegistry | None = None,
         task_data_suffix: str = "",
         recover_role_failures: bool = False,
+        execution_tier: Literal["trusted", "restricted", "container"] = "restricted",
         collaboration_id: str | None = None,
         planner_model: str = "",
         generator_model: str = "",
@@ -1214,8 +1239,20 @@ class CollaborationRunner:
         max_rejections: int = DEFAULT_MAX_REJECTIONS,
         audit_sink: AuditSink | None = None,
         task_id: str | None = None,
+        loop_id: str | None = None,
     ) -> CollaborationRunner:
-        store = CollaborationStore(allowed_root, audit_sink=audit_sink, task_id=task_id)
+        if type(recover_role_failures) is not bool:
+            raise ValueError("recover_role_failures must be a bool")
+        if execution_tier not in {"trusted", "restricted", "container"}:
+            raise ValueError("execution_tier is invalid")
+        if loop_id is not None and _COLLABORATION_ID_RE.fullmatch(loop_id) is None:
+            raise ValueError("invalid loop id")
+        store = CollaborationStore(
+            allowed_root,
+            audit_sink=audit_sink,
+            task_id=task_id,
+            loop_id=loop_id,
+        )
         try:
             state = store.create(
                 goal,
@@ -1238,8 +1275,10 @@ class CollaborationRunner:
             generator_registry=generator_registry,
             task_data_suffix=task_data_suffix,
             recover_role_failures=recover_role_failures,
+            execution_tier=execution_tier,
             audit_sink=audit_sink,
             task_id=task_id,
+            loop_id=loop_id,
         )
 
     def run(self, goal: str, *, cancel_event: threading.Event | None = None) -> CollaborationReport:
@@ -1491,23 +1530,76 @@ class CollaborationRunner:
         data: str,
         cancel_event: threading.Event | None,
     ) -> TaskOutcome:
-        task = self._role_task_builder(role, attempt, registry, prompt)
-        try:
-            outcome = task.run(data, cancel_event=cancel_event)
-        finally:
-            _close_role_task(task)
+        started = time.monotonic()
+        model = getattr(self._state, f"{role}_model")
+        tier = self._state.evaluator_tier if role == "evaluator" else self._execution_tier
+        common = {
+            "mode": self._state.mode,
+            "role": role,
+            "phase": self._state.phase,
+            "model": model,
+            "tier": tier,
+            "attempt": attempt,
+        }
         self._emit(
-            "collaboration.role",
+            "collaboration.role.start",
+            common,
+            "started",
+            attempt=attempt,
+            duration_ms=0,
+        )
+        task: _RunnableRoleTask | None = None
+        try:
+            task = self._role_task_builder(role, attempt, registry, prompt)
+            try:
+                outcome = task.run(data, cancel_event=cancel_event)
+            finally:
+                _close_role_task(task)
+        except CollaborationRoleConfigurationError:
+            self._emit_role_failure(common, attempt, started, "configuration_error")
+            raise
+        except Exception:
+            self._emit_role_failure(common, attempt, started, "role_error")
+            raise
+        except BaseException:
+            self._emit_role_failure(common, attempt, started, "interrupted")
+            raise
+        usage, available = _task_usage(outcome)
+        self._emit(
+            "collaboration.role.outcome",
             {
-                "mode": self._state.mode,
-                "role": role,
-                "attempt": attempt,
+                **common,
                 "round_count": len(outcome.rounds),
                 "completed": outcome.status.completed,
+                "usage_available": available,
+                **usage.model_dump(mode="json"),
             },
             outcome.status.reason,
+            attempt=attempt,
+            duration_ms=max(0, int((time.monotonic() - started) * 1000)),
         )
         return outcome
+
+    def _emit_role_failure(
+        self,
+        common: dict[str, object],
+        attempt: int,
+        started: float,
+        status: str,
+    ) -> None:
+        self._emit(
+            "collaboration.role.outcome",
+            {
+                **common,
+                "round_count": 0,
+                "completed": False,
+                "usage_available": False,
+                **CollaborationUsage().model_dump(mode="json"),
+            },
+            status,
+            attempt=attempt,
+            duration_ms=max(0, int((time.monotonic() - started) * 1000)),
+        )
 
     def _persist_role_boundary(
         self,
@@ -1591,15 +1683,28 @@ class CollaborationRunner:
             "passed" if all(item.passed for item in self._state.last_evaluation) else "rejected",
         )
 
-    def _emit(self, event_type: str, parameters: dict[str, object], result_status: str) -> None:
+    def _emit(
+        self,
+        event_type: str,
+        parameters: dict[str, object],
+        result_status: str,
+        *,
+        attempt: int | None = None,
+        duration_ms: int | None = None,
+    ) -> None:
+        parameters = {"collaboration_id": self._state.collaboration_id, **parameters}
+        if self._loop_id is not None:
+            parameters["loop_id"] = self._loop_id
         emit_audit(
             self._audit_sink,
             AuditEvent(
                 event_type=event_type,
                 task_id=self._task_id,
                 risk_level="low",
+                attempt=attempt,
                 parameters=parameters,
                 result_status=result_status,
+                duration_ms=duration_ms,
             ),
         )
 
@@ -1620,6 +1725,34 @@ class ModeDecision(BaseModel):
         if type(value) is not bool:
             raise ValueError("override_required must be a bool")
         return value
+
+
+def emit_collaboration_route(
+    audit_sink: AuditSink | None,
+    decision: ModeDecision,
+    requested_mode: CollaborationMode | None,
+    *,
+    task_id: str | None = None,
+    loop_id: str | None = None,
+) -> bool:
+    """Audit a deterministic routing decision without retaining the task goal."""
+    return emit_audit(
+        audit_sink,
+        AuditEvent(
+            event_type="collaboration.route",
+            task_id=task_id,
+            risk_level="low",
+            parameters={
+                "mode": decision.mode,
+                "reason": decision.reason,
+                "requested_mode": requested_mode or "default",
+                "override_required": decision.override_required,
+                **({"loop_id": loop_id} if loop_id is not None else {}),
+            },
+            result_status=decision.reason,
+            duration_ms=0,
+        ),
+    )
 
 
 def resolve_collaboration_mode(

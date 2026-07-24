@@ -766,6 +766,22 @@ class LoopRunner:
             with_mcp=with_mcp,
             skills=skills,
         )
+        emit_audit(
+            audit_sink,
+            AuditEvent(
+                event_type="collaboration.route",
+                task_id=task_id,
+                risk_level="low",
+                parameters={
+                    "mode": checkpoint.collaboration_mode,
+                    "reason": "explicit",
+                    "requested_mode": checkpoint.collaboration_mode,
+                    "override_required": False,
+                    "loop_id": checkpoint.loop_id,
+                },
+                result_status="selected",
+            ),
+        )
         runner._audit_lifecycle("loop.start", "started")
         return runner
 
@@ -808,6 +824,22 @@ class LoopRunner:
             task_id=task_id,
             with_mcp=with_mcp,
             skills=skills,
+        )
+        emit_audit(
+            audit_sink,
+            AuditEvent(
+                event_type="collaboration.route",
+                task_id=task_id,
+                risk_level="low",
+                parameters={
+                    "mode": checkpoint.collaboration_mode,
+                    "reason": "explicit",
+                    "requested_mode": checkpoint.collaboration_mode,
+                    "override_required": False,
+                    "loop_id": checkpoint.loop_id,
+                },
+                result_status="selected",
+            ),
         )
         runner._audit_lifecycle("loop.resume", "resumed")
         return runner

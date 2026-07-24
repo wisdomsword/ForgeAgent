@@ -1,7 +1,8 @@
 # runtime-collaboration Specification
 
 ## Purpose
-TBD - created by archiving change triad-mode. Update Purpose after archive.
+定义隔离、串行的 Duo/Triad 运行时协作、冻结验收计划、独立评估与 single 模式兼容路由。
+
 ## Requirements
 ### Requirement: 协作模式使用隔离角色与串行编排
 ForgeAgent SHALL 提供 `single`、`duo` 和 `triad` 三种运行模式。Duo MUST 按 Generator → Evaluator 串行执行；Triad MUST 按 Planner → 确认 → Generator ⇄ Evaluator 串行执行。每个角色 MUST 使用独立 Task、conversation、runtime、tool registry 与模型 client，不得共享另一角色的模型历史或可变执行状态。
@@ -88,4 +89,3 @@ Evaluator 失败 SHALL 把有界、脱敏、逐项证据返回新的 Generator T
 #### Scenario: 普通结果未改变
 - **WHEN** single 任务结束
 - **THEN** 现有调用方仍收到原 `TaskOutcome` 形状，不需要解析协作字段
-

@@ -19,6 +19,9 @@ scratch/
 # Generated golden-validation reports
 artifacts/
 
+# Local task captures may contain prompts, paths, and provider diagnostics.
+work/
+
 # Python
 __pycache__/
 *.pyc

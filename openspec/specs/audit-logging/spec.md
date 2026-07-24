@@ -1,7 +1,7 @@
 # audit-logging Specification
 
 ## Purpose
-TBD - created by archiving change http-task-service. Update Purpose after archive.
+定义核心执行、HTTP 生命周期、Loop 与协作运行时的稳定、可关联、最小披露 JSONL 审计合同。
 ## Requirements
 ### Requirement: Core-layer audit events cover the execution boundary
 
@@ -127,4 +127,3 @@ The collaboration path MUST emit audit events for mode routing, role start/outco
 #### Scenario: Collaboration stops
 - **WHEN** collaboration completes, exhausts rejection attempts, fails, needs confirmation or is cancelled
 - **THEN** one event records mode, terminal reason and cumulative counters, and serialization failure follows existing audit-degraded behavior
-

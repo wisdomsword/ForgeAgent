@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from forgeagent.audit import AuditEvent
 from forgeagent.collaboration import CollaborationReport, CollaborationUsage
 from forgeagent.http_config import HttpServiceConfig
 from forgeagent.http_task_service import (
@@ -31,6 +32,15 @@ CONFIG = HttpServiceConfig(
     max_records=8,
     terminal_ttl_seconds=60.0,
 )
+
+
+class _AuditSink:
+    def __init__(self) -> None:
+        self.events: list[AuditEvent] = []
+
+    def emit(self, event: AuditEvent) -> bool:
+        self.events.append(event)
+        return True
 
 
 def _outcome(
@@ -192,6 +202,26 @@ def test_programming_submission_is_publicly_routed_to_triad_before_worker_runs()
     release.set()
     service.wait(view["task_id"])
     service.shutdown(1.0)
+
+
+def test_programming_submission_audits_safe_route_before_worker_runs():
+    sink = _AuditSink()
+    service = TaskService(factory=_instant_factory, config=CONFIG, audit_sink=sink)
+
+    view = service.submit_view("Add PRIVATE_GOAL unit test", {})
+    service.wait(view["task_id"])
+    service.shutdown(1.0)
+
+    route = next(event for event in sink.events if event.event_type == "collaboration.route")
+    assert route.task_id == view["task_id"]
+    assert route.result_status == "programming"
+    assert route.parameters == {
+        "mode": "triad",
+        "reason": "programming",
+        "requested_mode": "default",
+        "override_required": False,
+    }
+    assert "PRIVATE_GOAL" not in repr(route)
 
 
 class _Clock:

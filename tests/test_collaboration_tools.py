@@ -46,8 +46,21 @@ def test_submit_plan_commits_before_success_and_rejects_duplicate_and_how_only(t
         ),
         None,
     )
+    behavior_how = SubmitPlanTool(store, state).run(
+        SubmitPlanArgs(
+            items=[
+                AcceptanceItem(
+                    id="behavior-how",
+                    behavior="Implement with the requests library",
+                    acceptance="The client returns HTTP 200",
+                )
+            ]
+        ),
+        None,
+    )
     assert duplicate.success is False
     assert how_only.success is False
+    assert behavior_how.success is False
 
 
 def test_submit_evaluation_requires_exact_frozen_ids_and_registry_is_read_only(tmp_path: Path):

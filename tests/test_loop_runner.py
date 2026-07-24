@@ -749,6 +749,44 @@ def test_audit_emits_lifecycle_events_without_private_loop_text(tmp_path: Path):
     runner.close()
 
 
+@pytest.mark.parametrize("collaboration_mode", ["single", "triad"])
+def test_loop_audits_route_with_loop_correlation(
+    tmp_path: Path, collaboration_mode: str
+):
+    sink = _AuditSink()
+    runner = LoopRunner.create(
+        allowed_root=str(tmp_path),
+        task_builder=_Builder([]),
+        collaboration_builder=(
+            lambda *_args: _FakeCollaborationRunner(
+                _collaboration_report(status="completed", stop_reason="completed")
+            )
+            if collaboration_mode != "single"
+            else None
+        ),
+        collaboration_mode=collaboration_mode,
+        collaboration_id="b" * 32 if collaboration_mode != "single" else "",
+        goal="private goal",
+        budgets=_budgets(),
+        trigger="test",
+        audit_sink=sink,
+        task_id="c" * 32,
+    )
+
+    route = next(event for event in sink.events if event.event_type == "collaboration.route")
+
+    assert route.task_id == "c" * 32
+    assert route.parameters == {
+        "mode": collaboration_mode,
+        "reason": "explicit",
+        "requested_mode": collaboration_mode,
+        "override_required": False,
+        "loop_id": runner._checkpoint.loop_id,
+    }
+    assert "private goal" not in repr(route)
+    runner.close()
+
+
 def test_runner_preserves_checkpoint_committed_by_its_fresh_task(tmp_path: Path):
     class _CheckpointingTask(_FakeTask):
         def __init__(self, registry: object) -> None:
