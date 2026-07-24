@@ -357,6 +357,7 @@ class LoopCheckpointStore:
         self._root = self._safe_directory(Path(allowed_root), must_exist=True, root=None)
         self._loop_directory = self._prepare_loop_directory()
         self._loop_directory_descriptor = self._open_loop_directory()
+        self._closed = False
         self._directory_finalizer = weakref.finalize(
             self, os.close, self._loop_directory_descriptor
         )
@@ -410,6 +411,8 @@ class LoopCheckpointStore:
         return f"{loop_id}.json"
 
     def _ensure_directory_binding(self) -> None:
+        if self._closed:
+            raise LoopCheckpointError("checkpoint store is closed")
         try:
             path_details = os.lstat(self._loop_directory)
             descriptor_details = os.fstat(self._loop_directory_descriptor)
@@ -425,6 +428,9 @@ class LoopCheckpointStore:
 
     def close(self) -> None:
         with self._lock:
+            if self._closed:
+                return
+            self._closed = True
             self._directory_finalizer()
 
     def _audit(self, checkpoint: LoopCheckpoint, result_status: str) -> None:
@@ -560,6 +566,7 @@ class LoopCheckpointStore:
                 dst_dir_fd=self._loop_directory_descriptor,
             )
             os.fsync(self._loop_directory_descriptor)
+            self._ensure_directory_binding()
         except LoopCheckpointError:
             raise
         except (OSError, TypeError) as error:

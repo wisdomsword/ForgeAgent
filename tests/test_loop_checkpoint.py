@@ -312,15 +312,50 @@ def test_store_fails_closed_when_loop_directory_is_replaced_by_symlink(tmp_path:
     assert not (outside / ("5" * 32 + ".json")).exists()
 
 
-def test_store_close_is_idempotent_and_fails_closed(tmp_path: Path):
+def test_store_close_fails_closed_after_descriptor_number_is_reused(tmp_path: Path):
     store = LoopCheckpointStore(str(tmp_path))
     created = store.create("Build it", _budgets(), loop_id="6" * 32)
+    descriptor = store._loop_directory_descriptor
+    loops = tmp_path / ".forgeagent" / "loops"
 
     store.close()
     store.close()
+    reused_descriptor = os.open(loops, os.O_RDONLY | os.O_DIRECTORY)
+    assert reused_descriptor == descriptor
+
+    try:
+        with pytest.raises(LoopCheckpointError):
+            store.load(created.loop_id)
+        with pytest.raises(LoopCheckpointError):
+            store.save(created.model_copy(update={"handoff": "next"}), expected_revision=0)
+        with pytest.raises(LoopCheckpointError):
+            store.create("Another", _budgets(), loop_id="7" * 32)
+    finally:
+        os.close(reused_descriptor)
+
+
+def test_store_save_fails_if_loop_directory_is_replaced_during_write(tmp_path: Path, monkeypatch):
+    root = tmp_path / "root"
+    root.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    store = LoopCheckpointStore(str(root))
+    created = store.create("Build it", _budgets(), loop_id="8" * 32)
+    loops = root / ".forgeagent" / "loops"
+    original_loops = tmp_path / "original-loops"
+    original_replace = os.replace
+
+    def replace_then_swap(source, destination, **kwargs):
+        original_replace(source, destination, **kwargs)
+        loops.rename(original_loops)
+        loops.symlink_to(outside, target_is_directory=True)
+
+    monkeypatch.setattr(os, "replace", replace_then_swap)
 
     with pytest.raises(LoopCheckpointError):
-        store.load(created.loop_id)
+        store.save(created.model_copy(update={"handoff": "next"}), expected_revision=0)
+
+    assert not (outside / (created.loop_id + ".json")).exists()
 
 
 def test_atomic_save_replaces_snapshot_and_stale_revision_preserves_old_bytes(tmp_path: Path):

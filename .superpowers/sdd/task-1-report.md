@@ -134,3 +134,44 @@ passed
 ### Remaining risk
 
 - The pinned descriptor prevents path replacement from escaping the project root, but it is intentionally not a cross-process lock. Concurrent processes can still race revisions or external side effects; that remains outside M21 Task 1.
+
+## Independent review fix 3
+
+### Verified findings
+
+- `close()` previously closed the directory fd only through its finalizer. If the OS reused the same fd number, the store could operate on the unrelated reused descriptor. The store now records an explicit closed state before releasing the fd, makes `close()` idempotent, and rejects every subsequent public operation before descriptor access.
+- A directory replacement after the pre-write binding check but after `os.replace()` could make `save()` or `create()` report success even though the published path no longer contained the snapshot. `_write()` now verifies the path-to-fd inode binding again after replacement and directory fsync, before audit emission or successful return.
+
+### RED
+
+```text
+UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run pytest -q tests/test_loop_checkpoint.py -k 'descriptor_number or replaced_during_write'
+FAILED test_store_close_fails_closed_after_descriptor_number_is_reused
+Failed: DID NOT RAISE LoopCheckpointError
+FAILED test_store_save_fails_if_loop_directory_is_replaced_during_write
+Failed: DID NOT RAISE LoopCheckpointError
+2 failed, 64 deselected in 0.10s
+```
+
+### GREEN
+
+```text
+UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run pytest -q tests/test_loop_checkpoint.py -k 'descriptor_number or replaced_during_write'
+2 passed, 64 deselected in 0.08s
+
+UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run pytest -q tests/test_loop_checkpoint.py tests/test_tools.py tests/test_evaluator.py
+153 passed in 0.16s
+
+UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run ruff check src/forgeagent/loop.py tests/test_loop_checkpoint.py
+All checks passed!
+
+UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run ruff format --check src/forgeagent/loop.py tests/test_loop_checkpoint.py
+2 files already formatted
+
+git diff --check
+passed
+```
+
+### Remaining risk
+
+- If the directory is renamed during a write, the new snapshot may exist only in the pinned old inode. The operation nevertheless fails closed and emits no successful audit; automatic rollback of that unreachable inode is intentionally not added.
