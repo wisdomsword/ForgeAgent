@@ -38,13 +38,9 @@ M18 已把程序性 Memory 候选拒绝为 `procedure_requires_Skill`；M19 只�
 每个 Skill 只允许以下布局：
 
 ```markdown
-archived-with: 2026-07-23-skills-runtime
-status: final
 ---
 name: review-python
 trigger: Use when reviewing Python changes before completion.
-archived-with: 2026-07-23-skills-runtime
-status: final
 ---
 
 ## Steps

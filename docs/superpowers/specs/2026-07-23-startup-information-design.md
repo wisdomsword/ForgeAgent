@@ -35,7 +35,7 @@ interactive = console.is_terminal and sys.stdin.isatty()
 
 ## 3. Logo 与降级
 
-Logo 源码是 ASCII 字符串常量，不读取外部资源。宽度足够时使用多行 `ForgeAgent` 字标；不足时使用单行 `ForgeAgent`。颜色依次使用 red、yellow、green、cyan、blue、magenta、bright_magenta，并按字符列平移，形成连续七色变化。
+Logo 源码是 ASCII 字符串常量，不读取外部资源。宽度足够时使用多行 `ForgeAgent` 字标；不足时使用单行 `ForgeAgent`。颜色调色板依次为 red、yellow、green、cyan、blue、magenta、bright_magenta；整段字标每帧取调色板中的一种颜色，按 `int(time.monotonic() * 8) % len(palette)` 随时间以 8 FPS 依次循环，形成连续七色变化。
 
 以下条件只输出稳定、无动画的必要内容或完全不输出启动 UI：
 

@@ -254,9 +254,5 @@ symlink 逃逸拒绝、TOCTOU（冻结快照复用）、跨进程 headless 复�
 - `res/prompts/default_soul.md`：bootstrap 可替换内容而无需修改代码。
 - AGENTS.md archiving：归档逻辑属于 bootstrap-runtime-identity，M15 不实现。
 
-archived-with: 2026-07-21-compose-runtime-identity
-status: final
----
-
 *本 Design Doc 由 Comet brainstorming skill 按 SDD 流程创建；canonical spec 在 `openspec/changes/compose-runtime-identity/specs/` 下；正式 spec 更新须通过 comet-guard。*
 
