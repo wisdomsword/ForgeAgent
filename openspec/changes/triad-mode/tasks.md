@@ -21,10 +21,10 @@
 
 ## 4. CLI、REPL、HTTP 与 Loop 接入
 
-- [ ] 4.1 为 `run` 增加模式/角色模型/打回参数，为 REPL 增加 `/duo`、`/triad`、help/completion 和安全输出
-- [ ] 4.2 扩展 HTTP strict schema、server-owned 协作策略、runner union、状态/终态投影、取消/容量/TTL 和安全错误
-- [ ] 4.3 扩展 Loop checkpoint/runner 冻结协作 mode、state ID、计划 digest、累计预算和 resume 一致性，保持 single Loop 不变
-- [ ] 4.4 添加 CLI/REPL/HTTP/Loop 集成、普通路径零变化、并发隔离和审计静态契约测试
+- [x] 4.1 为 `run` 增加模式/角色模型/打回参数，为 REPL 增加 `/duo`、`/triad`、help/completion 和安全输出
+- [x] 4.2 扩展 HTTP strict schema、server-owned 协作策略、runner union、状态/终态投影、取消/容量/TTL 和安全错误
+- [x] 4.3 扩展 Loop checkpoint/runner 冻结协作 mode、state ID、计划 digest、累计预算和 resume 一致性，保持 single Loop 不变
+- [x] 4.4 添加 CLI/REPL/HTTP/Loop 集成、普通路径零变化、并发隔离和审计静态契约测试
 
 ## 5. 文档、评审与验证
 

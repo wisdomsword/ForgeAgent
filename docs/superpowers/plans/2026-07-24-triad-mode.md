@@ -203,51 +203,51 @@ Mark 3.1-3.3 complete. Commit with `feat: add planner confirmed triad mode`.
 - Consumes: `CollaborationRunner`, `CollaborationReport`, `resolve_collaboration_mode`, `PlanConfirmer`.
 - Produces: CLI flags, `/duo`, `/triad`, strict HTTP mode/config, report projections and Loop frozen collaboration fields.
 
-- [ ] **Step 1: Write CLI/REPL RED tests**
+- [x] **Step 1: Write CLI/REPL RED tests**
 
 Cover parser defaults/validation, programming auto-route notice, weaker-mode interactive override, role model preflight, exit codes, safe report output, slash help/completion/missing goal, non-TTY compatibility and ordinary run zero change.
 
-- [ ] **Step 2: Run CLI/REPL tests and observe RED**
+- [x] **Step 2: Run CLI/REPL tests and observe RED**
 
 Run: `uv run pytest -q tests/test_cli.py tests/test_collaboration_integrations.py -k 'collaboration or duo or triad'`
 Expected: failures for missing entry wiring.
 
-- [ ] **Step 3: Implement CLI/REPL integration**
+- [x] **Step 3: Implement CLI/REPL integration**
 
 Add arguments and shared command metadata, construct role clients/backends/tasks without refactoring `run_once`, render only bounded report fields and close all owners.
 
-- [ ] **Step 4: Write HTTP RED tests**
+- [x] **Step 4: Write HTTP RED tests**
 
 Cover strict task/duo/triad/loop bodies, server-owned forbidden fields, plan deny/preauthorize, programming auto-route, public running/terminal phase, cancellation/capacity/TTL/concurrency and no sensitive projection.
 
-- [ ] **Step 5: Run HTTP tests and observe RED**
+- [x] **Step 5: Run HTTP tests and observe RED**
 
 Run: `uv run pytest -q tests/test_http_config.py tests/test_http_task_service.py tests/test_http_server.py -k 'collaboration or duo or triad or mode'`
 Expected: failures for missing HTTP support.
 
-- [ ] **Step 6: Implement HTTP integration**
+- [x] **Step 6: Implement HTTP integration**
 
 Extend config with conservative defaults, strict request parser and runner union; keep endpoint set unchanged and client authority limited to mode/low-risk Loop fields.
 
-- [ ] **Step 7: Write Loop RED tests**
+- [x] **Step 7: Write Loop RED tests**
 
 Cover old checkpoint defaults to single, new frozen mode/ID/digest, collaborative runner report accumulation, resume mismatch rejection, single Loop no collaboration import/call, and cancellation/usage accounting.
 
-- [ ] **Step 8: Run Loop tests and observe RED**
+- [x] **Step 8: Run Loop tests and observe RED**
 
 Run: `uv run pytest -q tests/test_loop_checkpoint.py tests/test_loop_runner.py -k collaboration`
 Expected: failures for missing frozen fields/runner path.
 
-- [ ] **Step 9: Implement Loop integration**
+- [x] **Step 9: Implement Loop integration**
 
 Add optional backwards-compatible checkpoint fields, freeze on create, verify on resume, route each iteration to Task or CollaborationRunner and add all role rounds/tokens to existing cumulative budgets.
 
-- [ ] **Step 10: Run Task 4 regression**
+- [x] **Step 10: Run Task 4 regression**
 
 Run: `uv run pytest -q tests/test_cli.py tests/test_http_config.py tests/test_http_task_service.py tests/test_http_server.py tests/test_loop_checkpoint.py tests/test_loop_runner.py tests/test_collaboration_integrations.py tests/test_audit.py && uv run ruff check src/forgeagent/cli.py src/forgeagent/http_config.py src/forgeagent/http_server.py src/forgeagent/http_task_service.py src/forgeagent/loop.py tests/test_collaboration_integrations.py`
 Expected: all tests pass and Ruff exits 0.
 
-- [ ] **Step 11: Mark integration tasks and commit**
+- [x] **Step 11: Mark integration tasks and commit**
 
 Mark 4.1-4.4 complete. Commit with `feat: expose duo and triad runtime modes`.
 

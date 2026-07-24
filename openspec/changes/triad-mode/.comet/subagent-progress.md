@@ -28,7 +28,9 @@
 - Task 2 review: APPROVED after one Important fix; focused runner 18 passed, collaboration regression 229 passed
 - Task 3 implementer: `/root/m22_task3_triad` completed; commits 5396b3b + 41f05e4
 - Task 3 review: APPROVED after 3 Important fixes; recovery/confirmation/cancel targeted 20 passed, related regression 365 passed
-- Current task: Task 4: CLI, REPL, HTTP, Loop, and Audit Integration
-- OpenSpec mapping: 4.1-4.4
+- Task 4 implementer: `/root/m22_task4_integrations` completed; commits 6f3a133 + 89c533e
+- Task 4 review: APPROVED after 3 Important fixes; targeted 18 passed, Task4 regression 584 passed/10 skipped
+- Current task: Task 5: Documentation, Static Contracts, and Completion Gates
+- OpenSpec mapping: 5.1-5.4
 - Decision note: user explicitly authorized autonomous choices and continuation until M22 completion; two self-reviews confirmed the remaining findings are one Task 1 contract problem. The correction centralizes invariants at the state model, store constructor, and deterministic router instead of adding more sample-specific patches.
 - Baseline: restricted run produced 1734 passed, 23 skipped; 11 loopback blackbox and 1 nested build failed from sandbox permissions. M21 archived HEAD evidence is 1758 passed, 11 skipped.
