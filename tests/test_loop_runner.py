@@ -9,10 +9,17 @@ from pathlib import Path
 import pytest
 
 from forgeagent.audit import AuditEvent
-from forgeagent.loop import CheckpointArgs, LoopBudgets, LoopCheckpointStore, LoopRunner
+from forgeagent.loop import (
+    MAX_FAILURE_CHARS,
+    CheckpointArgs,
+    LoopBudgets,
+    LoopCheckpointStore,
+    LoopRunner,
+)
 from forgeagent.models import TokenUsage
 from forgeagent.step import RoundResult
 from forgeagent.task import TaskOutcome, TaskStatus
+from forgeagent.tools import ToolOutcome
 
 
 def _budgets(**overrides: object) -> LoopBudgets:
@@ -159,7 +166,9 @@ def test_resume_uses_frozen_goal_and_budgets_and_injects_completed_items(tmp_pat
         ),
         expected_revision=checkpoint.revision,
     )
-    builder = _Builder([_outcome(completed=True, reason="completed", usage=TokenUsage())])
+    builder = _Builder(
+        [_outcome(completed=True, reason="completed", usage=TokenUsage(input_tokens=1))]
+    )
     runner = LoopRunner.resume(
         allowed_root=str(tmp_path), task_builder=builder, loop_id=checkpoint.loop_id, trigger="test"
     )
@@ -218,13 +227,111 @@ def test_budget_stops_at_the_first_safe_boundary(
 
 
 def test_missing_usage_stops_after_a_successful_zero_usage_iteration(tmp_path: Path):
-    builder = _Builder([_outcome(reason="failed", usage=None)])
+    builder = _Builder([_outcome(reason="failed", usage=TokenUsage())])
     runner = _runner(tmp_path, builder)
 
     report = runner.run()
 
     assert report.stop_reason == "token_usage_unavailable"
     assert report.usage_available is False
+    runner.close()
+
+
+def test_zero_usage_takes_priority_over_task_completion(tmp_path: Path):
+    builder = _Builder([_outcome(completed=True, reason="completed", usage=TokenUsage())])
+    runner = _runner(tmp_path, builder)
+
+    report = runner.run()
+
+    assert report.status == "stopped"
+    assert report.stop_reason == "token_usage_unavailable"
+    runner.close()
+
+
+def test_client_errors_are_classified_before_usage_availability(tmp_path: Path):
+    (tmp_path / "auth").mkdir()
+    auth_builder = _Builder([_outcome(reason="client_error:auth", usage=None)])
+    auth_runner = _runner(tmp_path / "auth", auth_builder)
+
+    auth_report = auth_runner.run()
+
+    assert auth_report.stop_reason == "unrecoverable_failure"
+    auth_runner.close()
+
+    (tmp_path / "network").mkdir()
+    network_builder = _Builder(
+        [
+            _outcome(reason="client_error:network", usage=None),
+            _outcome(completed=True, reason="completed", usage=TokenUsage(input_tokens=1)),
+        ]
+    )
+    network_runner = _runner(tmp_path / "network", network_builder)
+
+    network_report = network_runner.run()
+
+    assert network_report.status == "completed"
+    assert network_report.iterations == 2
+    network_runner.close()
+
+
+def test_failure_summary_is_bounded_after_metadata_is_added(tmp_path: Path):
+    builder = _Builder(
+        [
+            _outcome(
+                reason="failed",
+                detail="x" * MAX_FAILURE_CHARS,
+                usage=TokenUsage(input_tokens=1),
+            )
+        ]
+    )
+    runner = _runner(tmp_path, builder, max_consecutive_failures=1)
+
+    report = runner.run()
+    store = LoopCheckpointStore(str(tmp_path))
+    checkpoint = store.load(report.loop_id)
+
+    assert report.stop_reason == "consecutive_failures"
+    assert len(checkpoint.last_failure) == MAX_FAILURE_CHARS
+    store.close()
+    runner.close()
+
+
+def test_failure_summary_counts_parse_and_tool_results_without_tool_detail(tmp_path: Path):
+    failure = TaskOutcome(
+        status=TaskStatus(completed=False, reason="failed", detail="safe status detail"),
+        rounds=[
+            RoundResult(
+                text="",
+                usage=TokenUsage(input_tokens=1),
+                parse_errors=["first", "second"],
+                outcomes=[
+                    ToolOutcome(tool="Exec", success=True, detail="private-success-detail"),
+                    ToolOutcome(tool="Exec", success=False, detail="private-failure-detail"),
+                ],
+            ),
+            RoundResult(
+                text="",
+                usage=TokenUsage(input_tokens=1),
+                parse_errors=["third"],
+                outcomes=[ToolOutcome(tool="Edit", success=False, detail="another-private-detail")],
+            ),
+        ],
+    )
+    builder = _Builder(
+        [failure, _outcome(completed=True, reason="completed", usage=TokenUsage(input_tokens=1))]
+    )
+    runner = _runner(tmp_path, builder)
+
+    report = runner.run()
+
+    assert report.status == "completed"
+    suffix = builder.calls[1][2]
+    assert "parse_errors=3" in suffix
+    assert "tool_successes=1" in suffix
+    assert "tool_failures=2" in suffix
+    assert "private-success-detail" not in suffix
+    assert "private-failure-detail" not in suffix
+    assert "another-private-detail" not in suffix
     runner.close()
 
 
@@ -252,8 +359,8 @@ def test_unrecoverable_client_error_stops_but_network_error_can_recover(tmp_path
     (tmp_path / "network").mkdir()
     network_builder = _Builder(
         [
-            _outcome(reason="client_error:network", usage=TokenUsage()),
-            _outcome(completed=True, reason="completed", usage=TokenUsage()),
+            _outcome(reason="client_error:network", usage=None),
+            _outcome(completed=True, reason="completed", usage=TokenUsage(input_tokens=1)),
         ]
     )
     network_runner = _runner(tmp_path / "network", network_builder)
@@ -285,7 +392,9 @@ def test_reentrant_run_is_rejected_and_every_created_task_is_closed(tmp_path: Pa
     created: list[_ReentrantTask] = []
 
     def builder(iteration: int, remaining: int, suffix: str, registry: object) -> _ReentrantTask:
-        task = _ReentrantTask(_outcome(completed=True, reason="completed", usage=TokenUsage()))
+        task = _ReentrantTask(
+            _outcome(completed=True, reason="completed", usage=TokenUsage(input_tokens=1))
+        )
         created.append(task)
         return task
 
@@ -304,7 +413,9 @@ def test_reentrant_run_is_rejected_and_every_created_task_is_closed(tmp_path: Pa
 
 def test_audit_emits_lifecycle_events_without_private_loop_text(tmp_path: Path):
     sink = _AuditSink()
-    builder = _Builder([_outcome(completed=True, reason="completed", usage=TokenUsage())])
+    builder = _Builder(
+        [_outcome(completed=True, reason="completed", usage=TokenUsage(input_tokens=1))]
+    )
     runner = LoopRunner.create(
         allowed_root=str(tmp_path),
         task_builder=builder,
@@ -327,7 +438,9 @@ def test_audit_emits_lifecycle_events_without_private_loop_text(tmp_path: Path):
 def test_runner_preserves_checkpoint_committed_by_its_fresh_task(tmp_path: Path):
     class _CheckpointingTask(_FakeTask):
         def __init__(self, registry: object) -> None:
-            super().__init__(_outcome(completed=True, reason="completed", usage=TokenUsage()))
+            super().__init__(
+                _outcome(completed=True, reason="completed", usage=TokenUsage(input_tokens=1))
+            )
             self._registry = registry
 
         def run(self, goal: str, *, cancel_event: threading.Event | None = None) -> TaskOutcome:

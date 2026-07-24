@@ -796,11 +796,11 @@ class LoopRunner:
             raise LoopCheckpointError("Loop task failed without an outcome")
         self._record_outcome(outcome)
         reason = self._stop_reason(cancel_event=cancel_event, watchdog_event=watchdog_event)
-        if outcome.status.completed:
+        if reason is not None:
+            self._stop(reason)
+        elif outcome.status.completed:
             self._save(status="completed", stop_reason="completed")
             self._audit_lifecycle("loop.stop", "completed")
-        elif reason is not None:
-            self._stop(reason)
 
     def _record_outcome(self, outcome: TaskOutcome) -> None:
         # CheckpointTool owns a per-iteration copy and may have committed durable progress.
@@ -809,20 +809,20 @@ class LoopRunner:
         rounds = len(outcome.rounds)
         usage_available = self._checkpoint.usage_available
         tokens = 0
+        provider_reply_seen = False
         for round_result in outcome.rounds:
             usage = round_result.usage
             if usage is None:
-                # Client failures have no provider response to account for. They are
-                # classified separately instead of masquerading as a successful zero-use call.
-                if not outcome.status.reason.startswith("client_error:"):
-                    usage_available = False
                 continue
+            provider_reply_seen = True
             tokens += (
                 usage.input_tokens
                 + usage.output_tokens
                 + usage.cached_tokens
                 + usage.reasoning_tokens
             )
+        if provider_reply_seen and tokens == 0:
+            usage_available = False
         success = outcome.status.completed
         failure_count = 0 if success else self._checkpoint.consecutive_failures + 1
         candidate = self._checkpoint.model_copy(
@@ -943,9 +943,23 @@ class _CombinedCancelEvent:
 
 
 def _failure_summary(outcome: TaskOutcome) -> str:
+    parse_errors = sum(len(round_result.parse_errors) for round_result in outcome.rounds)
+    tool_successes = sum(
+        tool_outcome.success
+        for round_result in outcome.rounds
+        for tool_outcome in round_result.outcomes
+    )
+    tool_failures = sum(
+        not tool_outcome.success
+        for round_result in outcome.rounds
+        for tool_outcome in round_result.outcomes
+    )
     detail = outcome.status.detail or ""
-    clean = _safe_failure_text(detail)
-    return f"{outcome.status.reason}; rounds={len(outcome.rounds)}; detail={clean}"
+    return _safe_failure_text(
+        f"{outcome.status.reason}; rounds={len(outcome.rounds)}; "
+        f"parse_errors={parse_errors}; tool_successes={tool_successes}; "
+        f"tool_failures={tool_failures}; detail={detail}"
+    )
 
 
 def _safe_failure_text(value: str) -> str:
