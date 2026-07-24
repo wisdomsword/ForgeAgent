@@ -6,7 +6,7 @@
 - TDD mode: tdd
 - Current task: Task 6 — M21 verification, reviews, evidence, and build handoff
 - OpenSpec mapping: 4.1 recovery tests; 4.2 stop/convergence/isolation; 4.4 full verification/reviews
-- Stage: implementer-dispatch
+- Stage: final-review-complete
 - Review/fix round: 0/2
 - Task 1 commits: `b4fee57`, `2d50a5e`, `6101141`, `300ff4c`
 - Task 1 evidence: 153 passed across checkpoint/tools/evaluator; Ruff and format checks passed
@@ -23,4 +23,6 @@
 - Task 5 commits: `fa56bfb`, `5dc745d`
 - Task 5 evidence: 118 docs/protocol/golden-runner tests passed; Ruff and format checks passed
 - Task 5 review: no Critical/Important findings after one fix round
-- Task 6 verification commit: pending
+- Task 6 evidence: full 1758 passed / 11 skipped; golden 20/20; build pass; OpenSpec 16/16; Ruff/diff pass
+- Final review: no Critical/Important findings after two fix rounds (`4266a64`, `602fe6a`)
+- Verification report: `docs/superpowers/reports/2026-07-24-loop-engineering-verify.md`

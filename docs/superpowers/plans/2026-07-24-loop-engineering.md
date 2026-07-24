@@ -305,7 +305,7 @@ Commit with message `docs: explain loop engineering`.
 **Interfaces:**
 - Verification report maps every delta requirement/scenario and OpenSpec task to implementation/test evidence, includes exact outputs, accepted limitations, review findings/fixes, and verified commit.
 
-- [ ] **Step 1: Run focused M21 tests**
+- [x] **Step 1: Run focused M21 tests**
 
 Run:
 
@@ -317,7 +317,7 @@ UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run pytest -q \
 
 Expected: all pass.
 
-- [ ] **Step 2: Run Ruff and diff checks**
+- [x] **Step 2: Run Ruff and diff checks**
 
 Run:
 
@@ -329,13 +329,13 @@ git diff --check d24abc04fa5f92c64621b2dd5d22ee598031a860..HEAD
 
 Expected: exit 0.
 
-- [ ] **Step 3: Run complete suite with required permissions**
+- [x] **Step 3: Run complete suite with required permissions**
 
 Run: `UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run pytest -q`
 
 If sandbox output shows loopback or nested build permission failures, rerun the exact command with approved escalation. Expected final evidence: zero failures.
 
-- [ ] **Step 4: Run trusted golden, package build, and OpenSpec validation**
+- [x] **Step 4: Run trusted golden, package build, and OpenSpec validation**
 
 Run:
 
@@ -349,18 +349,18 @@ openspec validate --all --strict
 
 Expected: trusted golden reports 20/20 and both remaining commands exit 0.
 
-- [ ] **Step 5: Perform independent whole-change code review**
+- [x] **Step 5: Perform independent whole-change code review**
 
 Review the full diff from base-ref for correctness, checkpoint security/data loss, cancellation/concurrency, budget off-by-one, public disclosure, ordinary-path regression, tests, and YAGNI. Fix every Critical/Important finding with a failing regression test first; rerun relevant verification and request re-review until clean.
 
-- [ ] **Step 6: Perform two final self-reviews**
+- [x] **Step 6: Perform two final self-reviews**
 
 First pass: requirement-by-requirement OpenSpec/Design/plan coverage and internal consistency. Second pass: code/data-flow review for stale revision, duplicate side effects, timer races, close paths, secret/path leaks, M20/M22 scope creep, missing docs/tests. Immediately fix and verify any issue.
 
-- [ ] **Step 7: Write verification report and final evidence**
+- [x] **Step 7: Write verification report and final evidence**
 
 Record exact command outputs, review findings/fixes, known limitations, final HEAD, and confirmation that evaluator is not automatic. Update ACTION_PLAN M21 status using only fresh evidence.
 
-- [ ] **Step 8: Mark all remaining OpenSpec tasks complete and commit**
+- [x] **Step 8: Mark all remaining OpenSpec tasks complete and commit**
 
 Commit with message `chore: verify M21 loop engineering`. Then run the Comet build guard; archive/milestone work occurs only after verify passes.

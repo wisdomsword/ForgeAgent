@@ -8,7 +8,7 @@ subagent_dispatch: confirmed
 tdd_mode: tdd
 review_mode: thorough
 isolation: branch
-verify_mode: null
+verify_mode: full
 auto_transition: true
 base_ref: 20939c9d409e88535c899f6d12cb3ac829473d2e
 design_doc: docs/superpowers/specs/2026-07-24-loop-engineering-design.md

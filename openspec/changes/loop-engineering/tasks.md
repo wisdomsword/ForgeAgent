@@ -18,7 +18,7 @@
 
 ## 4. 验证与文档
 
-- [ ] 4.1 添加 checkpoint 中断恢复、不重做已完成条目、损坏/逃逸/原子失败的确定性测试
-- [ ] 4.2 添加每种停止条件、失败收敛、usage unavailable、并发隔离和审计最小披露测试
+- [x] 4.1 添加 checkpoint 中断恢复、不重做已完成条目、损坏/逃逸/原子失败的确定性测试
+- [x] 4.2 添加每种停止条件、失败收敛、usage unavailable、并发隔离和审计最小披露测试
 - [x] 4.3 更新 README、文本协议、威胁模型、ACTION_PLAN 与 golden 候选/可信核心边界说明
-- [ ] 4.4 运行专项/全量/golden/Ruff/build/OpenSpec strict 验证并完成技术、代码、验收三轮评审
+- [x] 4.4 运行专项/全量/golden/Ruff/build/OpenSpec strict 验证并完成技术、代码、验收三轮评审
