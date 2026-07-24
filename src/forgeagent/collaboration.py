@@ -1,0 +1,802 @@
+"""Durable, restricted state primitives for Duo and Triad collaboration."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import math
+import os
+import re
+import stat
+import threading
+import unicodedata
+import weakref
+from pathlib import Path, PurePosixPath
+from typing import Any, Literal
+from uuid import uuid4
+
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+
+from .audit import AuditEvent, AuditSink, emit_audit
+from .secret_policy import mask_audit_data, sensitive_env_values
+from .tools import FileListTool, FileReadTool, Tool, ToolContext, ToolOutcome, ToolRegistry
+
+COLLABORATION_SCHEMA = "forgeagent.collaboration.v1"
+MAX_STATE_BYTES = 256 * 1024
+MAX_PLAN_ITEMS = 50
+MAX_ITEM_ID_CHARS = 64
+MAX_ITEM_TEXT_CHARS = 1000
+MAX_EVIDENCE_CHARS = 500
+MAX_PUBLIC_EVIDENCE_ITEMS = 8
+DEFAULT_MAX_REJECTIONS = 2
+MAX_REJECTIONS = 10
+MAX_GOAL_CHARS = 4000
+
+_ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,63}$")
+_COLLABORATION_ID_RE = re.compile(r"^[0-9a-f]{32}$")
+_HOW_ONLY_RE = re.compile(
+    r"^\s*(?:use|import|install|call\s+(?:a\s+)?(?:library|api)|implement\s+with|"
+    r"使用\s*(?:某库|.*库)|调用\s*(?:某\s*)?api|按.*算法实现)",
+    re.IGNORECASE,
+)
+_PROGRAM_ACTIONS = (
+    "write",
+    "create",
+    "implement",
+    "fix",
+    "refactor",
+    "test",
+    "build",
+    "写",
+    "创建",
+    "实现",
+    "修复",
+    "重构",
+    "测试",
+    "构建",
+)
+_PROGRAM_ARTIFACTS = (
+    "code",
+    "program",
+    "script",
+    "api",
+    "class",
+    "function",
+    "test",
+    "package",
+    "project",
+    "代码",
+    "程序",
+    "脚本",
+    "接口",
+    "类",
+    "函数",
+    "测试",
+    "包",
+    "项目",
+)
+_PROGRAM_FILES = re.compile(
+    r"(?:^|[\s`'\"/])(?:[\w.-]+\.(?:py|ts|js|rs|go)|pyproject\.toml|package\.json)(?:$|[\s`'\",.:])",
+    re.IGNORECASE,
+)
+
+CollaborationMode = Literal["single", "duo", "triad"]
+CollaborationRole = Literal["planner", "generator", "evaluator"]
+CollaborationStatus = Literal["active", "completed", "stopped", "cancelled", "failed"]
+CollaborationPhase = Literal[
+    "planning",
+    "needs_confirmation",
+    "generator",
+    "evaluator",
+    "completed",
+    "stopped",
+    "cancelled",
+    "failed",
+]
+
+
+class CollaborationError(Exception):
+    """The collaboration state cannot be safely used."""
+
+
+def _safe_text(value: Any, *, field: str, maximum: int, allow_empty: bool = False) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"{field} must be a string")
+    if len(value) > maximum:
+        raise ValueError(f"{field} is too long")
+    if any(
+        unicodedata.category(character) in {"Cc", "Cf", "Cs", "Zl", "Zp"} for character in value
+    ):
+        raise ValueError(f"{field} contains unsafe characters")
+    normalized = value if allow_empty else value.strip()
+    if not allow_empty and not normalized:
+        raise ValueError(f"{field} must not be blank")
+    return normalized
+
+
+def _nonnegative_int(value: Any, *, field: str) -> int:
+    if type(value) is not int or value < 0:
+        raise ValueError(f"{field} must be a non-negative integer")
+    return value
+
+
+def _nonnegative_number(value: Any, *, field: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field} must be a non-negative finite number")
+    number = float(value)
+    if not math.isfinite(number) or number < 0:
+        raise ValueError(f"{field} must be a non-negative finite number")
+    return number
+
+
+def _public_text(value: str, *, maximum: int = MAX_EVIDENCE_CHARS) -> str:
+    projected = mask_audit_data(value, sensitive_env_values())
+    assert isinstance(projected, str)
+    rendered: list[str] = []
+    for character in projected:
+        point = ord(character)
+        if unicodedata.category(character) in {"Cc", "Cf", "Cs", "Zl", "Zp"}:
+            rendered.append(f"\\x{point:02x}" if point <= 255 else f"\\u{point:04x}")
+        else:
+            rendered.append(character)
+    return "".join(rendered)[:maximum]
+
+
+class AcceptanceItem(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    id: str
+    behavior: str
+    acceptance: str
+
+    @field_validator("id")
+    @classmethod
+    def _validate_id(cls, value: Any) -> str:
+        if (
+            not isinstance(value, str)
+            or len(value) > MAX_ITEM_ID_CHARS
+            or _ID_RE.fullmatch(value) is None
+        ):
+            raise ValueError("invalid acceptance item id")
+        return value
+
+    @field_validator("behavior", "acceptance")
+    @classmethod
+    def _validate_text(cls, value: Any, info: Any) -> str:
+        return _safe_text(value, field=info.field_name, maximum=MAX_ITEM_TEXT_CHARS)
+
+
+class EvaluationItem(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    id: str
+    passed: bool
+    observed: str
+    expected: str
+    location: str = ""
+
+    @field_validator("id")
+    @classmethod
+    def _validate_id(cls, value: Any) -> str:
+        if not isinstance(value, str) or _ID_RE.fullmatch(value) is None:
+            raise ValueError("invalid evaluation item id")
+        return value
+
+    @field_validator("passed", mode="before")
+    @classmethod
+    def _validate_passed(cls, value: Any) -> bool:
+        if type(value) is not bool:
+            raise ValueError("passed must be a bool")
+        return value
+
+    @field_validator("observed", "expected")
+    @classmethod
+    def _validate_evidence(cls, value: Any, info: Any) -> str:
+        return _safe_text(
+            value, field=info.field_name, maximum=MAX_EVIDENCE_CHARS, allow_empty=True
+        )
+
+    @field_validator("location")
+    @classmethod
+    def _validate_location(cls, value: Any) -> str:
+        value = _safe_text(value, field="location", maximum=MAX_ITEM_TEXT_CHARS, allow_empty=True)
+        if not value:
+            return value
+        path = PurePosixPath(value)
+        if "\\" in value or path.is_absolute() or ".." in path.parts or path.as_posix() != value:
+            raise ValueError("location must be a canonical relative path")
+        return value
+
+    @model_validator(mode="after")
+    def _failed_item_has_evidence(self) -> EvaluationItem:
+        if not self.passed and (not self.observed.strip() or not self.expected.strip()):
+            raise ValueError("failed evaluation requires observed and expected evidence")
+        return self
+
+
+class CollaborationUsage(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cached_tokens: int = 0
+    reasoning_tokens: int = 0
+    total_prompt_tokens: int = 0
+    cost: float = 0.0
+
+    @field_validator(
+        "input_tokens",
+        "output_tokens",
+        "cached_tokens",
+        "reasoning_tokens",
+        "total_prompt_tokens",
+        mode="before",
+    )
+    @classmethod
+    def _validate_counter(cls, value: Any, info: Any) -> int:
+        return _nonnegative_int(value, field=info.field_name)
+
+    @field_validator("cost", mode="before")
+    @classmethod
+    def _validate_cost(cls, value: Any) -> float:
+        return _nonnegative_number(value, field="cost")
+
+    def add(self, other: CollaborationUsage | None) -> CollaborationUsage:
+        if other is None:
+            return self
+        return CollaborationUsage(
+            **{name: getattr(self, name) + getattr(other, name) for name in self.model_fields}
+        )
+
+
+def plan_digest(items: list[AcceptanceItem] | tuple[AcceptanceItem, ...]) -> str:
+    payload = [item.model_dump(mode="json") for item in items]
+    encoded = json.dumps(payload, ensure_ascii=True, separators=(",", ":"), sort_keys=True).encode()
+    return hashlib.sha256(encoded).hexdigest()
+
+
+_STOP_REASONS: dict[str, frozenset[str | None]] = {
+    "active": frozenset({None}),
+    "completed": frozenset({"completed"}),
+    "stopped": frozenset({"needs_confirmation", "rejection_limit"}),
+    "cancelled": frozenset({"cancelled"}),
+    "failed": frozenset(
+        {"state_failure", "unrecoverable_failure", "invalid_role_submission", "role_failed"}
+    ),
+}
+
+
+class CollaborationState(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    schema: Literal[COLLABORATION_SCHEMA] = COLLABORATION_SCHEMA
+    collaboration_id: str
+    mode: Literal["duo", "triad"]
+    status: CollaborationStatus = "active"
+    phase: CollaborationPhase = "planning"
+    stop_reason: str | None = None
+    revision: int = 0
+    goal: str
+    plan: tuple[AcceptanceItem, ...] = ()
+    plan_digest: str = ""
+    planner_model: str = ""
+    generator_model: str = ""
+    evaluator_model: str = ""
+    evaluator_tier: Literal["restricted", "container"] = "restricted"
+    max_rejections: int = DEFAULT_MAX_REJECTIONS
+    generator_attempts: int = 0
+    evaluator_attempts: int = 0
+    rejections: int = 0
+    rounds: int = 0
+    usage: CollaborationUsage = Field(default_factory=CollaborationUsage)
+    usage_available: bool = True
+    last_evaluation: tuple[EvaluationItem, ...] = ()
+
+    @field_validator("collaboration_id")
+    @classmethod
+    def _validate_collaboration_id(cls, value: Any) -> str:
+        if not isinstance(value, str) or _COLLABORATION_ID_RE.fullmatch(value) is None:
+            raise ValueError("invalid collaboration id")
+        return value
+
+    @field_validator("goal")
+    @classmethod
+    def _validate_goal(cls, value: Any) -> str:
+        return _safe_text(value, field="goal", maximum=MAX_GOAL_CHARS)
+
+    @field_validator("planner_model", "generator_model", "evaluator_model")
+    @classmethod
+    def _validate_model_id(cls, value: Any, info: Any) -> str:
+        return _safe_text(
+            value, field=info.field_name, maximum=MAX_ITEM_TEXT_CHARS, allow_empty=True
+        )
+
+    @field_validator(
+        "revision",
+        "generator_attempts",
+        "evaluator_attempts",
+        "rejections",
+        "rounds",
+        mode="before",
+    )
+    @classmethod
+    def _validate_counter(cls, value: Any, info: Any) -> int:
+        return _nonnegative_int(value, field=info.field_name)
+
+    @field_validator("max_rejections", mode="before")
+    @classmethod
+    def _validate_max_rejections(cls, value: Any) -> int:
+        if type(value) is not int or not 0 <= value <= MAX_REJECTIONS:
+            raise ValueError("max_rejections is invalid")
+        return value
+
+    @field_validator("usage_available", mode="before")
+    @classmethod
+    def _validate_usage_available(cls, value: Any) -> bool:
+        if type(value) is not bool:
+            raise ValueError("usage_available must be a bool")
+        return value
+
+    @field_validator("plan", mode="before")
+    @classmethod
+    def _validate_plan(cls, value: Any) -> tuple[AcceptanceItem, ...]:
+        if not isinstance(value, (list, tuple)) or len(value) > MAX_PLAN_ITEMS:
+            raise ValueError("plan is invalid")
+        items = tuple(AcceptanceItem.model_validate(item) for item in value)
+        if len({item.id for item in items}) != len(items):
+            raise ValueError("plan ids must be unique")
+        return items
+
+    @field_validator("plan_digest")
+    @classmethod
+    def _validate_digest(cls, value: Any) -> str:
+        if not isinstance(value, str) or (value and re.fullmatch(r"[0-9a-f]{64}", value) is None):
+            raise ValueError("invalid plan digest")
+        return value
+
+    @field_validator("last_evaluation", mode="before")
+    @classmethod
+    def _validate_evaluation(cls, value: Any) -> tuple[EvaluationItem, ...]:
+        if not isinstance(value, (list, tuple)) or len(value) > MAX_PLAN_ITEMS:
+            raise ValueError("evaluation is invalid")
+        return tuple(EvaluationItem.model_validate(item) for item in value)
+
+    @model_validator(mode="after")
+    def _validate_invariants(self) -> CollaborationState:
+        if self.stop_reason not in _STOP_REASONS[self.status]:
+            raise ValueError("state status and stop reason are inconsistent")
+        if self.rejections > self.max_rejections:
+            raise ValueError("rejections exceed max_rejections")
+        if self.plan and self.plan_digest != plan_digest(self.plan):
+            raise ValueError("plan digest does not match plan")
+        if self.last_evaluation:
+            ids = tuple(item.id for item in self.last_evaluation)
+            if ids != tuple(item.id for item in self.plan):
+                raise ValueError("evaluation must cover plan ids in plan order")
+        if self.mode == "duo" and not self.plan:
+            raise ValueError("duo requires a frozen plan")
+        if self.mode == "triad" and self.phase == "generator" and not self.plan:
+            raise ValueError("triad requires a confirmed plan before generator")
+        if self.status == "completed" and (
+            not self.last_evaluation or not all(item.passed for item in self.last_evaluation)
+        ):
+            raise ValueError("completed state requires passing evaluation")
+        return self
+
+
+class CollaborationReport(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    schema: Literal[COLLABORATION_SCHEMA] = COLLABORATION_SCHEMA
+    collaboration_id: str
+    mode: Literal["duo", "triad"]
+    status: CollaborationStatus
+    stop_reason: str | None
+    phase: CollaborationPhase
+    plan_item_count: int
+    passed_item_count: int
+    failed_item_count: int
+    generator_attempts: int
+    evaluator_attempts: int
+    rejections: int
+    rounds: int
+    usage: CollaborationUsage
+    usage_available: bool
+    evidence: tuple[str, ...] = ()
+
+    @classmethod
+    def from_state(cls, state: CollaborationState) -> CollaborationReport:
+        evidence = tuple(
+            _public_text(f"{item.id}: {item.observed}; expected: {item.expected}; {item.location}")
+            for item in state.last_evaluation[:MAX_PUBLIC_EVIDENCE_ITEMS]
+        )
+        return cls(
+            collaboration_id=state.collaboration_id,
+            mode=state.mode,
+            status=state.status,
+            stop_reason=state.stop_reason,
+            phase=state.phase,
+            plan_item_count=len(state.plan),
+            passed_item_count=sum(item.passed for item in state.last_evaluation),
+            failed_item_count=sum(not item.passed for item in state.last_evaluation),
+            generator_attempts=state.generator_attempts,
+            evaluator_attempts=state.evaluator_attempts,
+            rejections=state.rejections,
+            rounds=state.rounds,
+            usage=state.usage,
+            usage_available=state.usage_available,
+            evidence=evidence,
+        )
+
+
+class CollaborationStore:
+    """Atomic, symlink-safe collaboration snapshots under one project root."""
+
+    def __init__(
+        self, allowed_root: str, *, audit_sink: AuditSink | None = None, task_id: str | None = None
+    ) -> None:
+        self._lock = threading.RLock()
+        self._audit_sink, self._task_id = audit_sink, task_id
+        self._root = self._directory(Path(allowed_root), required=True, root=None)
+        directory = self._root
+        for part in (".forgeagent", "collaborations"):
+            directory = self._directory(directory / part, required=False, root=self._root)
+        self._directory_path = directory
+        try:
+            self._directory_fd = os.open(
+                directory, os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0)
+            )
+        except OSError as error:
+            raise CollaborationError("collaboration directory is unavailable") from error
+        self._closed = False
+        self._finalizer = weakref.finalize(self, os.close, self._directory_fd)
+
+    @staticmethod
+    def _directory(path: Path, *, required: bool, root: Path | None) -> Path:
+        try:
+            details = os.lstat(path)
+        except FileNotFoundError:
+            if required:
+                raise CollaborationError("collaboration root is unavailable") from None
+            path.mkdir()
+            details = os.lstat(path)
+        except OSError:
+            raise CollaborationError("collaboration root is unavailable") from None
+        resolved = Path(os.path.realpath(path))
+        if (
+            stat.S_ISLNK(details.st_mode)
+            or not stat.S_ISDIR(details.st_mode)
+            or (root is not None and not resolved.is_relative_to(root))
+        ):
+            raise CollaborationError("collaboration path is unsafe")
+        return resolved
+
+    def _name(self, collaboration_id: str) -> str:
+        if (
+            not isinstance(collaboration_id, str)
+            or _COLLABORATION_ID_RE.fullmatch(collaboration_id) is None
+        ):
+            raise CollaborationError("invalid collaboration id")
+        return f"{collaboration_id}.json"
+
+    def _ensure_binding(self) -> None:
+        if self._closed:
+            raise CollaborationError("collaboration store is closed")
+        try:
+            path_details = os.lstat(self._directory_path)
+            descriptor_details = os.fstat(self._directory_fd)
+        except OSError as error:
+            raise CollaborationError("collaboration directory is unavailable") from error
+        if (
+            stat.S_ISLNK(path_details.st_mode)
+            or not stat.S_ISDIR(path_details.st_mode)
+            or (path_details.st_dev, path_details.st_ino)
+            != (descriptor_details.st_dev, descriptor_details.st_ino)
+        ):
+            raise CollaborationError("collaboration directory is unsafe")
+
+    def close(self) -> None:
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+            self._finalizer()
+
+    def create(
+        self,
+        goal: str,
+        mode: Literal["duo", "triad"],
+        *,
+        collaboration_id: str | None = None,
+        **values: Any,
+    ) -> CollaborationState:
+        with self._lock:
+            identifier = uuid4().hex if collaboration_id is None else collaboration_id
+            if mode == "duo" and "plan" not in values:
+                values["plan"] = (
+                    AcceptanceItem(
+                        id="goal", behavior=goal, acceptance="External artifacts satisfy the goal"
+                    ),
+                )
+            values.setdefault("phase", "generator" if mode == "duo" else "planning")
+            values.setdefault(
+                "plan_digest", plan_digest(values["plan"]) if values.get("plan") else ""
+            )
+            try:
+                state = CollaborationState(
+                    collaboration_id=identifier, goal=goal, mode=mode, **values
+                )
+            except ValidationError as error:
+                raise CollaborationError("invalid collaboration state") from error
+            name = self._name(identifier)
+            self._ensure_binding()
+            try:
+                os.stat(name, dir_fd=self._directory_fd, follow_symlinks=False)
+            except FileNotFoundError:
+                self._write(name, state)
+                self._audit(state, "created")
+                return state
+            except OSError as error:
+                raise CollaborationError("collaboration file is invalid") from error
+            raise CollaborationError("collaboration already exists")
+
+    def load(self, collaboration_id: str) -> CollaborationState:
+        with self._lock:
+            name = self._name(collaboration_id)
+            self._ensure_binding()
+            try:
+                descriptor = os.open(
+                    name,
+                    os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+                    dir_fd=self._directory_fd,
+                )
+                with os.fdopen(descriptor, "r", encoding="utf-8") as handle:
+                    details = os.fstat(handle.fileno())
+                    if not stat.S_ISREG(details.st_mode) or details.st_size > MAX_STATE_BYTES:
+                        raise CollaborationError("collaboration file is invalid")
+                    raw = handle.read(MAX_STATE_BYTES + 1)
+                if len(raw.encode("utf-8")) > MAX_STATE_BYTES:
+                    raise CollaborationError("collaboration file is invalid")
+                state = CollaborationState.model_validate(
+                    json.loads(raw, parse_constant=lambda _: (_ for _ in ()).throw(ValueError()))
+                )
+            except CollaborationError:
+                raise
+            except (
+                OSError,
+                UnicodeError,
+                ValueError,
+                json.JSONDecodeError,
+                ValidationError,
+            ) as error:
+                raise CollaborationError("collaboration file is invalid") from error
+            if state.collaboration_id != collaboration_id:
+                raise CollaborationError("collaboration file is invalid")
+            return state
+
+    def save(self, state: CollaborationState, *, expected_revision: int) -> CollaborationState:
+        if type(expected_revision) is not int or expected_revision < 0:
+            raise CollaborationError("invalid collaboration revision")
+        with self._lock:
+            current = self.load(state.collaboration_id)
+            if current.revision != expected_revision:
+                raise CollaborationError("collaboration revision is stale")
+            if current.plan and state.plan != current.plan:
+                raise CollaborationError("frozen collaboration plan cannot change")
+            try:
+                updated = CollaborationState.model_validate(
+                    state.model_dump(mode="python") | {"revision": expected_revision + 1}
+                )
+            except ValidationError as error:
+                raise CollaborationError("invalid collaboration state") from error
+            self._write(self._name(updated.collaboration_id), updated)
+            self._audit(updated, "saved")
+            return updated
+
+    def _write(self, name: str, state: CollaborationState) -> None:
+        payload = (
+            json.dumps(
+                state.model_dump(mode="json"),
+                ensure_ascii=True,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+            + b"\n"
+        )
+        if len(payload) > MAX_STATE_BYTES:
+            raise CollaborationError("collaboration state is too large")
+        temporary_name = f".collaboration.{uuid4().hex}"
+        try:
+            self._ensure_binding()
+            descriptor = os.open(
+                temporary_name,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
+                0o600,
+                dir_fd=self._directory_fd,
+            )
+            with os.fdopen(descriptor, "wb") as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(
+                temporary_name,
+                name,
+                src_dir_fd=self._directory_fd,
+                dst_dir_fd=self._directory_fd,
+            )
+            os.fsync(self._directory_fd)
+            self._ensure_binding()
+        except CollaborationError:
+            raise
+        except (OSError, TypeError) as error:
+            raise CollaborationError("collaboration save failed") from error
+        finally:
+            try:
+                os.unlink(temporary_name, dir_fd=self._directory_fd)
+            except (FileNotFoundError, OSError, TypeError):
+                pass
+
+    def _audit(self, state: CollaborationState, result_status: str) -> None:
+        emit_audit(
+            self._audit_sink,
+            AuditEvent(
+                event_type="collaboration.state",
+                task_id=self._task_id,
+                risk_level="low",
+                parameters={
+                    "mode": state.mode,
+                    "revision": state.revision,
+                    "plan_item_count": len(state.plan),
+                },
+                result_status=result_status,
+            ),
+        )
+
+
+class SubmitPlanArgs(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    items: tuple[AcceptanceItem, ...]
+
+    @field_validator("items", mode="before")
+    @classmethod
+    def _validate_items(cls, value: Any) -> tuple[AcceptanceItem, ...]:
+        if not isinstance(value, (list, tuple)) or not value or len(value) > MAX_PLAN_ITEMS:
+            raise ValueError("items must be a non-empty bounded list")
+        items = tuple(AcceptanceItem.model_validate(item) for item in value)
+        if len({item.id for item in items}) != len(items):
+            raise ValueError("plan ids must be unique")
+        return items
+
+
+class SubmitEvaluationArgs(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    results: tuple[EvaluationItem, ...]
+
+
+class SubmitPlanTool(Tool):
+    name, args_model, risk_level = "SubmitPlan", SubmitPlanArgs, "low"
+
+    def __init__(self, store: CollaborationStore, state: CollaborationState) -> None:
+        self._store, self._state = store, state
+
+    def run(self, args: BaseModel, ctx: ToolContext | None) -> ToolOutcome:
+        try:
+            validated = SubmitPlanArgs.model_validate(args.model_dump(mode="python"))
+            if any(_HOW_ONLY_RE.match(item.acceptance) for item in validated.items):
+                return ToolOutcome(
+                    tool=self.name,
+                    success=False,
+                    detail=(
+                        "SubmitPlan rejected: acceptance must describe observable behavior, "
+                        "not implementation"
+                    ),
+                )
+            if self._state.plan and self._state.plan != validated.items:
+                return ToolOutcome(
+                    tool=self.name,
+                    success=False,
+                    detail="SubmitPlan rejected: frozen plan cannot change",
+                )
+            state = self._state.model_copy(
+                update={
+                    "plan": validated.items,
+                    "plan_digest": plan_digest(validated.items),
+                    "phase": "needs_confirmation",
+                }
+            )
+            self._state = self._store.save(state, expected_revision=self._state.revision)
+            return ToolOutcome(
+                tool=self.name,
+                success=True,
+                detail=(
+                    f"plan saved items={len(validated.items)} digest={self._state.plan_digest[:12]}"
+                ),
+            )
+        except (AttributeError, ValidationError, CollaborationError):
+            return ToolOutcome(
+                tool=self.name, success=False, detail="SubmitPlan rejected: invalid plan"
+            )
+
+
+class SubmitEvaluationTool(Tool):
+    name, args_model, risk_level = "SubmitEvaluation", SubmitEvaluationArgs, "low"
+
+    def __init__(self, store: CollaborationStore, state: CollaborationState) -> None:
+        self._store, self._state = store, state
+
+    def run(self, args: BaseModel, ctx: ToolContext | None) -> ToolOutcome:
+        try:
+            validated = SubmitEvaluationArgs.model_validate(args.model_dump(mode="python"))
+            results = tuple(EvaluationItem.model_validate(item) for item in validated.results)
+            results_by_id = {item.id: item for item in results}
+            if len(results_by_id) != len(results) or set(results_by_id) != {
+                item.id for item in self._state.plan
+            }:
+                return ToolOutcome(
+                    tool=self.name,
+                    success=False,
+                    detail="SubmitEvaluation rejected: results must cover frozen plan ids",
+                )
+            results = tuple(results_by_id[item.id] for item in self._state.plan)
+            state = self._state.model_copy(
+                update={"last_evaluation": results, "phase": "evaluator"}
+            )
+            self._state = self._store.save(state, expected_revision=self._state.revision)
+            return ToolOutcome(
+                tool=self.name,
+                success=True,
+                detail=(
+                    f"evaluation saved passed={sum(item.passed for item in results)} "
+                    f"failed={sum(not item.passed for item in results)}"
+                ),
+            )
+        except (AttributeError, ValidationError, CollaborationError):
+            return ToolOutcome(
+                tool=self.name,
+                success=False,
+                detail="SubmitEvaluation rejected: invalid evaluation",
+            )
+
+
+def build_planner_registry(*, store: CollaborationStore, state: CollaborationState) -> ToolRegistry:
+    registry = ToolRegistry()
+    registry.register(SubmitPlanTool(store, state))
+    return registry
+
+
+def build_evaluator_registry(
+    *, store: CollaborationStore, state: CollaborationState
+) -> ToolRegistry:
+    registry = ToolRegistry()
+    registry.register(FileReadTool())
+    registry.register(FileListTool())
+    registry.register(SubmitEvaluationTool(store, state))
+    return registry
+
+
+class ModeDecision(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    mode: CollaborationMode
+    reason: Literal["explicit", "programming", "default", "override_required"]
+    override_required: bool = False
+
+
+def resolve_collaboration_mode(
+    goal: str, requested_mode: CollaborationMode | None, *, allow_weaker_override: bool = False
+) -> ModeDecision:
+    normalized = unicodedata.normalize("NFKC", goal).lower()[:MAX_GOAL_CHARS]
+    programming = bool(_PROGRAM_FILES.search(normalized)) or (
+        any(token in normalized for token in _PROGRAM_ACTIONS)
+        and any(token in normalized for token in _PROGRAM_ARTIFACTS)
+    )
+    if requested_mode == "triad":
+        return ModeDecision(mode="triad", reason="explicit")
+    if programming and requested_mode in {"single", "duo"}:
+        if allow_weaker_override:
+            return ModeDecision(mode=requested_mode, reason="explicit")
+        return ModeDecision(mode="triad", reason="override_required", override_required=True)
+    if programming:
+        return ModeDecision(mode="triad", reason="programming")
+    if requested_mode is not None:
+        return ModeDecision(mode=requested_mode, reason="explicit")
+    return ModeDecision(mode="single", reason="default")
