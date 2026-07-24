@@ -1,0 +1,16 @@
+{
+  "change": "eval-evaluator",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "72e6f036f5e9a9161d786652cfd91cfe2a68fa449b7fe759efbbd31d4916a732",
+  "files": [
+    { "path": "openspec/changes/eval-evaluator/proposal.md", "sha256": "db2223922ce9518890c9fc6aa5d53495c44087a3adace10a3f49a03c945c8905" },
+    { "path": "openspec/changes/eval-evaluator/design.md", "sha256": "9e0b04475c14e46a573d55768966fb2171a1e91cd2e4371b06c85835719cee2d" },
+    { "path": "openspec/changes/eval-evaluator/tasks.md", "sha256": "4b7908dc41907788a34f9e40dc5ede7b93fc1ed449a9dc4c1a818cd5ca5172ca" },
+    { "path": "openspec/changes/eval-evaluator/specs/evaluation-metrics/spec.md", "sha256": "2534d8ea651d485fa577ac4e4cfa02c5a6acb911b8235866a10ecf7445ba86a8" },
+    { "path": "openspec/changes/eval-evaluator/specs/golden-validation-core/spec.md", "sha256": "8268966a71fdb06ff96fb2b29da388f00a935e42a75c4a7538b6bcbeeda90f92" },
+    { "path": "openspec/changes/eval-evaluator/specs/independent-evaluator/spec.md", "sha256": "a5e44a3afe6a9429cd8acf85227004cacca029d551458249fc3a40b93651ad9e" }
+  ]
+}

@@ -109,6 +109,26 @@ def test_pipe_quit_has_no_startup_bytes(isolated_cli_env: dict[str, str]):
     assert result.stderr == b""
 
 
+def test_importing_cli_does_not_load_evaluator_modules(isolated_cli_env: dict[str, str]):
+    result = _forgeagent_process(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import sys; import forgeagent.cli; "
+                "print('forgeagent.evaluator' in sys.modules, "
+                "'forgeagent.evaluation' in sys.modules)"
+            ),
+        ],
+        b"",
+        isolated_cli_env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == b"False False\n"
+    assert result.stderr == b""
+
+
 def test_pipe_optional_mcp_chatter_has_no_startup_bytes(isolated_cli_env: dict[str, str]):
     _write_mcp_config(isolated_cli_env, mode="startup_chatter")
 

@@ -80,9 +80,7 @@ def _fingerprint_rows(rows: Sequence[tuple[str, str, bool]]) -> str:
 
 def manifest_fingerprint(scenarios: Sequence[GoldenScenario] = GOLDEN_SCENARIOS) -> str:
     """Return the canonical digest of the approved manifest identity fields."""
-    rows = tuple(
-        (item.scenario_id, item.title, item.run_real is not None) for item in scenarios
-    )
+    rows = tuple((item.scenario_id, item.title, item.run_real is not None) for item in scenarios)
     return _fingerprint_rows(rows)
 
 
@@ -90,9 +88,7 @@ def load_manifest_baseline(path: Path | None = None) -> tuple[tuple[str, str, bo
     """Load and authenticate the checked-in canonical scenario identity list."""
     try:
         payload = json.loads(
-            (path or Path(__file__).with_name("manifest_baseline.json")).read_text(
-                encoding="utf-8"
-            )
+            (path or Path(__file__).with_name("manifest_baseline.json")).read_text(encoding="utf-8")
         )
         if type(payload) is not dict or set(payload) != {"schema", "scenarios", "fingerprint"}:
             raise ValueError

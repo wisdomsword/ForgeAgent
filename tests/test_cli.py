@@ -3069,12 +3069,20 @@ def test_evaluate_loads_optional_golden_and_audit_evidence(monkeypatch, tmp_path
     )
     audit_jsonl = tmp_path / "audit.jsonl"
     audit_jsonl.write_text(
-        json.dumps(
-            {
-                "event_type": "llm.outcome",
-                "result_status": "success",
-                "parameters": {"usage": {"cached_tokens": 5, "total_prompt_tokens": 20}},
-            }
+        "\n".join(
+            json.dumps(event)
+            for event in (
+                {
+                    "event_type": "llm.outcome",
+                    "result_status": "success",
+                    "parameters": {"usage": {"cached_tokens": 5, "total_prompt_tokens": 20}},
+                },
+                {
+                    "event_type": "task.outcome",
+                    "result_status": "completed",
+                    "parameters": {"completed": True, "round_count": 1},
+                },
+            )
         )
         + "\n",
         encoding="utf-8",
@@ -3099,6 +3107,8 @@ def test_evaluate_loads_optional_golden_and_audit_evidence(monkeypatch, tmp_path
     rendered = capsys.readouterr().out
     assert code == 0
     assert "golden_pass_rate: 75" in rendered
+    assert "first_pass_correctness: 100" in rendered
+    assert "correction_rounds: 0" in rendered
     assert "cache_hit_rate: 0.25" in rendered
 
 

@@ -138,6 +138,29 @@ without an asker is `NEEDS_INFO`. Other mechanical terminal states include
 `ANSWERED_IN_PROSE`, `EMPTY_RESPONSE`, `MAX_ROUNDS`, and `CLIENT_ERROR:<kind>`.
 These states classify execution; they do not judge whether the answer is correct.
 
+## Independent Evaluator result
+
+显式 `forgeagent evaluate` 使用独立的专用 YAML 合同，不复用 Generator 的前置 front
+matter：
+
+```yaml
+evaluator_result:
+  status: passed | failed
+  observed_evidence:
+    - bounded statement
+  unmet_expectations:
+    - bounded statement
+```
+
+该结果只由独立 Evaluator facade 解析，字段、条数和文本长度均受限；畸形或额外字段按
+固定失败处理。它不能设置或改变 `TaskStatus`，也不能绕过标准 Task 的两阶段完成语义。
+普通 Generator 仍必须先执行并反馈工具调用，再由后续无调用、无解析错误且声明完成的
+干净响应进入 `Termination.COMPLETED`。
+
+普通 Task 到达正常终态时会向已配置的 audit sink 写一条固定 `task.outcome` 事件，只含
+`completed` 和 `round_count`。M20 指标聚合可从该事件计算首轮正确率与修正轮数；缺失或
+畸形事件保持 `null`，不会从模型 prose 或 provider stop reason 猜测完成状态。
+
 ## Confirmation and REPL routing
 
 The protocol does not grant approval. Runtime policy applies confirmation to MCP,

@@ -59,7 +59,7 @@ base-ref: b114f0c21ca8c60e591a6105314aed14e6170da0
 - Consumes: `GOLDEN_SCENARIOS: tuple[GoldenScenario, ...]` and its existing ordered `scenario_id`, `title`, `run_real` fields.
 - Produces: `manifest_fingerprint(scenarios: Sequence[GoldenScenario] = GOLDEN_SCENARIOS) -> str`; `load_manifest_baseline(path: Path | None = None) -> tuple[tuple[str, str, bool], ...]`; `validate_manifest()` rejects any baseline mismatch before catalog or output-directory work.
 
-- [ ] **Step 1: Write the failing baseline contract tests**
+- [x] **Step 1: Write the failing baseline contract tests**
 
 ```python
 @pytest.mark.parametrize(
@@ -82,13 +82,13 @@ def test_manifest_fingerprint_matches_checked_in_baseline():
 
 Import `replace` from `dataclasses`. Add a success case proving the unmodified tuple still validates and a malformed/mismatched baseline fixture case that raises the same safe `GoldenPreflightError` without creating an output directory.
 
-- [ ] **Step 2: Run the focused tests to verify failure**
+- [x] **Step 2: Run the focused tests to verify failure**
 
 Run: `uv run pytest tests/test_golden_runner.py -k 'baseline or manifest_fingerprint' -v`
 
 Expected: FAIL because `manifest_fingerprint`/baseline validation do not yet exist, while unrelated current golden tests remain untouched.
 
-- [ ] **Step 3: Add the fixed baseline and minimal fingerprint implementation**
+- [x] **Step 3: Add the fixed baseline and minimal fingerprint implementation**
 
 Create `tests/golden/manifest_baseline.json` with this exact canonical payload shape and the actual digest calculated from the compact ASCII JSON encoding of `scenarios` in listed order:
 
@@ -116,19 +116,19 @@ def manifest_fingerprint(scenarios: Sequence[GoldenScenario] = GOLDEN_SCENARIOS)
 
 Load the baseline through a repository-relative `Path(__file__).with_name("manifest_baseline.json")`; require exactly schema string, a list of 20 scalar rows, and a 64-character lowercase hex fingerprint. Recompute the baseline payload fingerprint before comparing it with `manifest_fingerprint(scenarios)`. In `runner.validate_manifest()`, call this validation first and raise only `GoldenPreflightError("golden manifest canonical baseline mismatch")` for malformed baseline or any mismatch. Keep the existing ID/real-ID/catalog checks afterward as defense in depth.
 
-- [ ] **Step 4: Run focused manifest regression tests**
+- [x] **Step 4: Run focused manifest regression tests**
 
 Run: `uv run pytest tests/test_golden_runner.py -k 'baseline or manifest or preflight' -v`
 
 Expected: PASS; the approved tuple validates, each mutation fails preflight, and no case writes a successful report.
 
-- [ ] **Step 5: Run the offline trusted core**
+- [x] **Step 5: Run the offline trusted core**
 
 Run: `uv run python -m tests.golden.runner --output-dir /tmp/forgeagent-m20-manifest-golden`
 
 Expected: exit `0` and `20/20` in `report.md`; this proves baseline preflight preserved the current approved core.
 
-- [ ] **Step 6: Commit the coherent manifest guard**
+- [x] **Step 6: Commit the coherent manifest guard**
 
 ```bash
 git add tests/golden/manifest.py tests/golden/manifest_baseline.json tests/golden/runner.py tests/test_golden_runner.py
@@ -404,7 +404,7 @@ git commit -m "feat: add opt-in evaluation command"
 - Consumes: final CLI syntax, `forgeagent.evaluation.v1`, baseline fingerprint behavior, evaluator result contract, and real verification outputs.
 - Produces: user-facing Chinese usage/security documentation and, only after all gates pass, M20 milestone evidence linked by `milestones/latest`.
 
-- [ ] **Step 1: Write documentation assertions before prose changes**
+- [x] **Step 1: Write documentation assertions before prose changes**
 
 ```python
 def test_readme_documents_evaluate_as_explicit_opt_in():
@@ -416,13 +416,13 @@ def test_readme_documents_evaluate_as_explicit_opt_in():
 
 Add a text-protocol assertion that standard Task completion still names the existing two-stage semantics and evaluator uses a separate `evaluator_result` contract. Add a threat-model assertion that evaluator artifacts are untrusted and output excludes absolute paths/secrets.
 
-- [ ] **Step 2: Run documentation assertions to verify failure**
+- [x] **Step 2: Run documentation assertions to verify failure**
 
 Run: `uv run pytest tests/test_evaluator.py -k 'documentation' -v`
 
 Expected: FAIL until the explicit usage/boundary text exists.
 
-- [ ] **Step 3: Write minimal user/security documentation**
+- [x] **Step 3: Write minimal user/security documentation**
 
 In `README.md`, add one M20 section after golden validation showing an explicitly billed, credential-requiring command with a project-relative artifact and an optional absolute record directory:
 
@@ -436,13 +436,13 @@ State that it is not CI, not invoked by ordinary tasks or offline golden, passes
 
 Create `milestones/milestone_020.md` from the exact `MILESTONE_GUIDE.md` template only after all following verification is green; include design, implementation, three reviews, unmodified-core evidence, any real-model opt-in status, and remaining evaluator nondeterminism. Then update `milestones/latest` to exactly `milestone_020.md`. Do not claim an opt-in real model call was made if no credentialed run occurred.
 
-- [ ] **Step 4: Run documentation-focused tests**
+- [x] **Step 4: Run documentation-focused tests**
 
 Run: `uv run pytest tests/test_evaluator.py -k 'documentation' -v`
 
 Expected: PASS with direct, Chinese documentation of the opt-in and security boundaries.
 
-- [ ] **Step 5: Commit M20 documentation and milestone only after evidence exists**
+- [x] **Step 5: Commit M20 documentation and milestone only after evidence exists**
 
 ```bash
 git add README.md docs/threat-model.md docs/text-protocol-spec.md ACTION_PLAN.md milestones/milestone_020.md milestones/latest tests/test_evaluator.py
@@ -458,29 +458,29 @@ git commit -m "docs: record M20 evaluation capability"
 - Consumes: all M20 source, test, documentation, manifest baseline, and OpenSpec change artifacts.
 - Produces: command outputs for the M20 milestone verification section; no new behavior.
 
-- [ ] **Step 1: Run targeted M20 tests**
+- [x] **Step 1: Run targeted M20 tests**
 
 Run: `uv run pytest tests/test_evaluation.py tests/test_evaluator.py tests/test_golden_runner.py tests/test_cli.py -v`
 
 Expected: PASS; record all actual pass/skip counts for the milestone, without copying a predicted count.
 
-- [ ] **Step 2: Run the full offline suite and trusted core**
+- [x] **Step 2: Run the full offline suite and trusted core**
 
 Run: `uv run pytest -q && uv run python -m tests.golden.runner --output-dir /tmp/forgeagent-m20-final-golden`
 
 Expected: pytest exits `0`; golden exits `0` and its report says `20/20`. If either fails, preserve the exact output, apply `systematic-debugging`, and do not proceed to completion/milestone status.
 
-- [ ] **Step 3: Run formatting, lint, packaging, and OpenSpec validation**
+- [x] **Step 3: Run formatting, lint, packaging, and OpenSpec validation**
 
 Run: `uv run ruff format --check src tests && uv run ruff check src tests && uv build && npx openspec validate eval-evaluator --strict && git diff --check`
 
 Expected: every command exits `0`; `uv build` produces package artifacts but does not introduce a dependency/service. If `npx` cannot run due to unavailable local tooling/network, state that exact limitation and do not falsely mark the OpenSpec gate passed.
 
-- [ ] **Step 4: Perform M20 boundary review before declaring complete**
+- [x] **Step 4: Perform M20 boundary review before declaring complete**
 
 Verify all of the following by test and diff inspection: offline golden does not import/call evaluator; `run`/REPL/`serve` do not gain evaluator options; `GOLDEN_SCENARIOS` still has twenty original rows; baseline is never written by application code; evaluator receives only relative artifact entries; evaluator `Task` has no Generator context/Memory/Skills/MCP/audit sink and read-only registry; records reject non-finite/unsafe content; persistence failures exit nonzero and do not turn evaluator failure into success.
 
-- [ ] **Step 5: Commit only a scoped final fix when one was required**
+- [x] **Step 5: Commit only a scoped final fix when one was required**
 
 If Steps 1-4 required a final source/test correction, stage only the files changed for that correction and commit it using the affected scope, for example:
 

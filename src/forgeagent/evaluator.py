@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import tempfile
 import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -22,6 +23,7 @@ MAX_ARTIFACT_BYTES = 64 * 1024
 MAX_TOTAL_ARTIFACT_BYTES = 256 * 1024
 MAX_EVIDENCE_ITEMS = 8
 MAX_EVIDENCE_CHARS = 500
+MAX_ARTIFACT_PATH_CHARS = 500
 _MAX_REQUEST_TEXT_CHARS = 4000
 
 _CTRL_RE = re.compile(r"[\x00-\x1f\x7f]")
@@ -102,7 +104,12 @@ def _safe_text(value: str, *, limit: int) -> str:
 
 
 def _is_canonical_relative_posix_path(value: str) -> bool:
-    if not value or _CTRL_RE.search(value) or "\\" in value:
+    if (
+        not value
+        or _CTRL_RE.search(value)
+        or "\\" in value
+        or _safe_text(value, limit=MAX_ARTIFACT_PATH_CHARS) != value
+    ):
         return False
     path = PurePosixPath(value)
     return not path.is_absolute() and ".." not in path.parts and path.as_posix() == value
@@ -124,11 +131,15 @@ def validate_artifact_manifest(
         raise EvaluatorPreflightError("artifact count exceeds limit")
 
     items: list[ArtifactManifestItem] = []
+    seen_paths: set[str] = set()
     total_bytes = 0
 
     for artifact_path in paths_list:
         if not _is_canonical_relative_posix_path(artifact_path):
             raise EvaluatorPreflightError("artifact path must be canonical relative POSIX")
+        if artifact_path in seen_paths:
+            raise EvaluatorPreflightError("artifact path must be unique")
+        seen_paths.add(artifact_path)
 
         candidate = (resolved_root / artifact_path).resolve()
         if not candidate.is_relative_to(resolved_root):
@@ -187,12 +198,17 @@ def _parse_result(text: str) -> EvaluatorResult | None:
     unmet = tuple(
         _safe_text(item, limit=MAX_EVIDENCE_CHARS) for item in raw_unmet[:MAX_EVIDENCE_ITEMS]
     )
+    if any(not item.strip() for item in (*evidence, *unmet)):
+        return None
+    if status == "passed" and (not evidence or unmet):
+        return None
+    if status == "failed" and not unmet:
+        return None
     return EvaluatorResult(status=status, observed_evidence=evidence, unmet_expectations=unmet)
 
 
 def run_evaluator(client: ModelClient, request: EvaluationRequest) -> EvaluatorResult:
     """Run the evaluator in an isolated Task with FileRead+FileList tools only."""
-    task: Task | None = None
     try:
         validated_artifacts = validate_artifact_manifest(
             request.artifact_root, [item.path for item in request.artifacts]
@@ -200,32 +216,49 @@ def run_evaluator(client: ModelClient, request: EvaluationRequest) -> EvaluatorR
         if validated_artifacts != request.artifacts:
             return _FAILURE_RESULT
         root = request.artifact_root.resolve()
-        task = Task(
-            client,
-            tier="restricted",
-            allowed_root=str(root),
-            system_prompt=EVALUATOR_SYSTEM_PROMPT,
-            max_rounds=2,
-            memory_manager=None,
-            skills=None,
-            mcp=None,
-            audit_sink=None,
-            tool_registry=_build_restricted_registry(),
-        )
-        goal = _build_goal(request)
-        outcome = task.run(goal)
-        text = ""
-        for round_result in reversed(outcome.rounds):
-            if round_result.text:
-                text = round_result.text
-                break
-        result = _parse_result(text)
-        return result if result is not None else _FAILURE_RESULT
+        with tempfile.TemporaryDirectory(prefix="forgeagent-evaluator-") as temporary_root:
+            snapshot_root = Path(temporary_root)
+            total_bytes = 0
+            for item in validated_artifacts:
+                source = (root / item.path).resolve()
+                if not source.is_relative_to(root):
+                    return _FAILURE_RESULT
+                payload = source.read_bytes()
+                total_bytes += len(payload)
+                if len(payload) != item.size_bytes or total_bytes > MAX_TOTAL_ARTIFACT_BYTES:
+                    return _FAILURE_RESULT
+                destination = snapshot_root / item.path
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes(payload)
+
+            task: Task | None = None
+            try:
+                task = Task(
+                    client,
+                    tier="restricted",
+                    allowed_root=str(snapshot_root),
+                    system_prompt=EVALUATOR_SYSTEM_PROMPT,
+                    max_rounds=2,
+                    memory_manager=None,
+                    skills=None,
+                    mcp=None,
+                    audit_sink=None,
+                    tool_registry=_build_restricted_registry(),
+                )
+                goal = _build_goal(request)
+                outcome = task.run(goal)
+                text = ""
+                for round_result in reversed(outcome.rounds):
+                    if round_result.text:
+                        text = round_result.text
+                        break
+                result = _parse_result(text)
+                return result if result is not None else _FAILURE_RESULT
+            finally:
+                if task is not None:
+                    try:
+                        task.close()
+                    except Exception:
+                        pass
     except Exception:
         return _FAILURE_RESULT
-    finally:
-        if task is not None:
-            try:
-                task.close()
-            except Exception:
-                pass

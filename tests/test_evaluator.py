@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -22,10 +23,12 @@ from forgeagent.evaluator import (
     run_evaluator,
     validate_artifact_manifest,
 )
+from forgeagent.models import AssistantMessage, Message, NativeToolCall, TokenUsage
 from forgeagent.tools import ToolRegistry
 
 VALID_RESULT = (
-    "evaluator_result:\n  status: passed\n  observed_evidence: []\n  unmet_expectations: []\n"
+    "evaluator_result:\n  status: passed\n"
+    "  observed_evidence: [artifact matched]\n  unmet_expectations: []\n"
 )
 
 
@@ -149,6 +152,25 @@ def test_manifest_rejects_control_chars_in_path(tmp_path):
         validate_artifact_manifest(tmp_path, ["bad\x00name.txt"])
 
 
+@pytest.mark.parametrize("unsafe_character", ["\x85", "\u200b"])
+def test_manifest_rejects_nonprinting_unicode_in_path(tmp_path, unsafe_character):
+    name = f"bad{unsafe_character}name.txt"
+    (tmp_path / name).write_text("unsafe", encoding="utf-8")
+
+    with pytest.raises(EvaluatorPreflightError):
+        validate_artifact_manifest(tmp_path, [name])
+
+
+def test_manifest_rejects_known_secret_in_path(monkeypatch, tmp_path):
+    secret = "artifact-secret-value"
+    name = f"result-{secret}.txt"
+    (tmp_path / name).write_text("unsafe", encoding="utf-8")
+    monkeypatch.setenv("FORGEAGENT_TEST_SECRET", secret)
+
+    with pytest.raises(EvaluatorPreflightError):
+        validate_artifact_manifest(tmp_path, [name])
+
+
 def test_manifest_rejects_symlink_root(tmp_path):
     real_dir = tmp_path / "real"
     real_dir.mkdir()
@@ -194,7 +216,7 @@ def test_evaluator_task_has_no_generator_context(monkeypatch, tmp_path):
 
     # Isolation kwargs must be present and set to None
     assert captured.get("tier") == "restricted"
-    assert captured.get("allowed_root") == str(tmp_path.resolve())
+    assert captured.get("allowed_root") != str(tmp_path.resolve())
     assert captured.get("system_prompt") == EVALUATOR_SYSTEM_PROMPT
     assert captured.get("max_rounds") == 2
     assert captured.get("memory_manager") is None
@@ -223,6 +245,39 @@ def test_evaluator_registry_contains_only_file_tools(monkeypatch, tmp_path):
     assert registry is not None, "tool_registry must be passed to Task"
     tool_names = set(registry.arg_schemas().keys())
     assert tool_names == {"FileRead", "FileList"}
+
+
+def test_evaluator_snapshot_contains_only_declared_artifacts(monkeypatch, tmp_path):
+    declared = tmp_path / "nested" / "result.txt"
+    declared.parent.mkdir()
+    declared.write_text("declared", encoding="utf-8")
+    (tmp_path / "private.txt").write_text("must not be visible", encoding="utf-8")
+    artifacts = validate_artifact_manifest(tmp_path, ["nested/result.txt"])
+    visible_files: list[str] = []
+
+    class InspectingTask(FakeTask):
+        def __init__(self, allowed_root: str):
+            super().__init__(_outcome_text=VALID_RESULT)
+            self.allowed_root = Path(allowed_root)
+
+        def run(self, goal: str, **kwargs: Any) -> Any:
+            visible_files.extend(
+                path.relative_to(self.allowed_root).as_posix()
+                for path in self.allowed_root.rglob("*")
+                if path.is_file()
+            )
+            return super().run(goal, **kwargs)
+
+    monkeypatch.setattr(
+        evaluator_module,
+        "Task",
+        lambda client, **kwargs: InspectingTask(kwargs["allowed_root"]),
+    )
+
+    result = run_evaluator(MockClient(script=[]), make_request(tmp_path, artifacts=artifacts))
+
+    assert result.status == "passed"
+    assert visible_files == ["nested/result.txt"]
 
 
 # ---------------------------------------------------------------------------
@@ -352,6 +407,38 @@ def test_evaluator_rejects_non_exact_result_shape(monkeypatch, tmp_path, bad_tex
     assert result.unmet_expectations == ("evaluation unavailable",)
 
 
+@pytest.mark.parametrize(
+    "bad_text",
+    [
+        (
+            "evaluator_result:\n  status: passed\n"
+            "  observed_evidence: []\n  unmet_expectations: []\n"
+        ),
+        (
+            "evaluator_result:\n  status: passed\n"
+            "  observed_evidence: [matched]\n  unmet_expectations: [still wrong]\n"
+        ),
+        (
+            "evaluator_result:\n  status: failed\n"
+            "  observed_evidence: [wrong]\n  unmet_expectations: []\n"
+        ),
+        (
+            "evaluator_result:\n  status: passed\n"
+            "  observed_evidence: ['']\n  unmet_expectations: []\n"
+        ),
+    ],
+)
+def test_evaluator_rejects_results_that_violate_status_invariants(monkeypatch, tmp_path, bad_text):
+    fake_task = FakeTask(_outcome_text=bad_text)
+    monkeypatch.setattr(evaluator_module, "Task", lambda client, **kwargs: fake_task)
+
+    assert run_evaluator(MockClient(script=[]), make_request(tmp_path)) == EvaluatorResult(
+        status="failed",
+        observed_evidence=(),
+        unmet_expectations=("evaluation unavailable",),
+    )
+
+
 # ---------------------------------------------------------------------------
 # 6. run_evaluator — valid YAML result is parsed correctly
 # ---------------------------------------------------------------------------
@@ -479,20 +566,51 @@ def test_evaluator_sanitizes_prompt_and_result_text(monkeypatch, tmp_path):
 def test_known_bad_artifact_fixtures_report_failed(monkeypatch, tmp_path, artifact_text, unmet):
     (tmp_path / "result.txt").write_text(artifact_text, encoding="utf-8")
     artifacts = validate_artifact_manifest(tmp_path, ["result.txt"])
-    fake_task = FakeTask(
-        _outcome_text=(
-            "evaluator_result:\n"
-            "  status: failed\n"
-            "  observed_evidence: []\n"
-            f"  unmet_expectations: ['{unmet}']\n"
-        )
-    )
-    monkeypatch.setattr(evaluator_module, "Task", lambda c, **kw: fake_task)
+    script = [
+        AssistantMessage(
+            content="",
+            usage=TokenUsage(),
+            stop_reason="tool_calls",
+            tool_calls=[
+                NativeToolCall(
+                    id="read-result",
+                    name="FileRead",
+                    arguments=json.dumps({"path": "result.txt"}),
+                )
+            ],
+        ),
+        AssistantMessage(
+            content=(
+                "evaluator_result:\n"
+                "  status: failed\n"
+                "  observed_evidence: ['artifact was inspected']\n"
+                f"  unmet_expectations: ['{unmet}']\n"
+            ),
+            usage=TokenUsage(),
+            stop_reason="end_turn",
+        ),
+    ]
 
-    result = run_evaluator(MockClient(script=[]), make_request(tmp_path, artifacts=artifacts))
+    class RecordingMockClient(MockClient):
+        def __init__(self):
+            super().__init__(script=script)
+            self.requests: list[list[Message]] = []
+
+        def complete(self, messages, params=None):
+            self.requests.append(messages)
+            return super().complete(messages, params)
+
+    client = RecordingMockClient()
+
+    result = run_evaluator(client, make_request(tmp_path, artifacts=artifacts))
 
     assert result.status == "failed"
     assert result.unmet_expectations == (unmet,)
+    feedback = client.requests[1][-1].content
+    assert isinstance(feedback, str)
+    assert "[FileRead" in feedback
+    if artifact_text:
+        assert artifact_text in feedback
 
 
 # ---------------------------------------------------------------------------
@@ -504,3 +622,33 @@ def test_evaluator_result_is_frozen():
     r = EvaluatorResult(status="passed", observed_evidence=(), unmet_expectations=())
     with pytest.raises((AttributeError, TypeError)):
         r.status = "failed"  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------
+# 9. M20 documentation contracts
+# ---------------------------------------------------------------------------
+
+
+def test_documentation_readme_describes_evaluate_as_explicit_opt_in():
+    readme = Path("README.md").read_text(encoding="utf-8")
+
+    assert "forgeagent evaluate" in readme
+    assert "不属于基础 CI" in readme
+    assert "artifact" in readme
+
+
+def test_documentation_protocol_keeps_evaluator_result_separate_from_task_completion():
+    protocol = Path("docs/text-protocol-spec.md").read_text(encoding="utf-8")
+
+    assert "evaluator_result" in protocol
+    assert "两阶段" in protocol
+    assert "TaskStatus" in protocol
+
+
+def test_documentation_threat_model_describes_untrusted_evaluator_artifacts():
+    threat_model = Path("docs/threat-model.md").read_text(encoding="utf-8")
+
+    assert "Evaluator artifact" in threat_model
+    assert "absolute path" in threat_model
+    assert "Memory" in threat_model
+    assert "Skills" in threat_model

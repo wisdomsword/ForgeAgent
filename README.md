@@ -5,12 +5,13 @@
 设计文档见 [`docs/`](docs/)，行动计划见 [`ACTION_PLAN.md`](ACTION_PLAN.md)，最高宪法见 [`spec.md`](spec.md)。
 
 当前主线已完成 M17 Runtime Context Engineering、M18 Memory Runtime（含归档后两次
-人工复测 hotfix）与 M19 Skills Runtime：程序性知识从 Memory 分流到可验证、快照化、
-渐进加载的 Skill，REPL 同时支持斜杠动态补全和当前会话历史。收尾记录见
+人工复测 hotfix）与 M19 Skills Runtime，M20 Eval 已完成实现与验证：程序性知识从 Memory 分流
+到可验证、快照化、渐进加载的 Skill，并新增离线评估记录、趋势和显式 opt-in 的独立
+Evaluator。收尾记录见
 [`milestone_017.md`](milestones/milestone_017.md)、[`milestone_018.md`](milestones/milestone_018.md)
 和 [`milestone_019.md`](milestones/milestone_019.md)。M19 已通过无 API Key、无网络的本地
 人类验收；归档后补充的 Startup-Information 已完成真实 TTY 启动标识、能力摘要、MCP
-脱敏诊断和非 TTY 零启动噪声，并作为独立 OpenSpec change 归档。下一个计划里程碑为 M20 Eval。
+脱敏诊断和非 TTY 零启动噪声，并作为独立 OpenSpec change 归档。
 
 ## 安装
 
@@ -317,6 +318,29 @@ uv run python -m tests.golden.runner --real-model claude-sonnet-5 \
 ```
 
 离线 runner 当前验证结果为 **20/20（100%）**。真实模型入口不是 CI 门禁，且本文档不声明真实请求已经运行。成功退出 `0`，场景失败退出 `1`，配置、manifest 或报告预检失败退出 `2`。
+
+## 独立 Evaluator（显式 opt-in）
+
+`forgeagent evaluate` 使用单独的真实模型会话检查声明的外部产物，会产生模型调用费用，
+不属于基础 CI，也不会被普通 Task 或离线 golden 自动调用。命令只向 Evaluator 传入任务
+描述、期望行为和 `artifact-root` 下显式列出的相对 artifact；声明文件会先复制到一次性
+只读视图，未声明文件不可见。不传 Generator 对话、Memory、项目 Skills、MCP 或 audit sink。
+
+```bash
+uv run forgeagent evaluate --model claude-sonnet-5 \
+  --artifact-root ./evaluation-output \
+  --task-description "Export summary" \
+  --expected-behavior "summary.json contains the total" \
+  --artifact summary.json \
+  --record-dir /tmp/forgeagent-evaluation
+```
+
+每个 artifact 必须是受限根目录内的规范相对 POSIX 路径，并受单文件、总大小和数量上限
+约束。可选的 `--golden-report` 与 `--audit-jsonl` 生成
+`forgeagent.evaluation.v1` 指标；缺失证据显示 `n/a`，不会伪造 0 或 100。audit JSONL
+中由 Task 终态产生的 `task.outcome` 用于首轮正确率和修正轮数；没有该证据时两项保持
+`n/a`。只有显式传入绝对 `--record-dir` 时才原子保存本次 record 和有界趋势。Evaluator 通过退出 `0`，未通过
+退出 `1`，模型/产物/证据预检或持久化失败退出 `2`；真实模型评估不作为离线 CI 门禁。
 
 ## 开发
 

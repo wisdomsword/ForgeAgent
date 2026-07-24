@@ -84,6 +84,23 @@ def test_task_completes_normally():
     assert outcome.status.reason == "completed"
 
 
+def test_task_emits_bounded_terminal_outcome_for_evaluation():
+    sink = _RecordingAuditSink()
+
+    outcome = Task(
+        MockClient(script=[_reply(_done())]),
+        audit_sink=sink,
+        task_id="task-evaluation-evidence",
+    ).run("do a thing")
+
+    terminal = [event for event in sink.events if event.event_type == "task.outcome"]
+    assert outcome.status.completed is True
+    assert len(terminal) == 1
+    assert terminal[0].task_id == "task-evaluation-evidence"
+    assert terminal[0].result_status == "completed"
+    assert terminal[0].parameters == {"completed": True, "round_count": 1}
+
+
 def test_task_constructs_default_context_policy_once_and_forwards_it(monkeypatch):
     constructed = []
     policies = []

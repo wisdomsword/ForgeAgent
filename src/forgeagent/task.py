@@ -16,7 +16,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from .audit import AuditSink
+from .audit import AuditEvent, AuditSink, emit_audit
 from .client import ModelClient
 from .context import ContextConfig, ContextPolicy, SlidingWindowContextPolicy
 from .executor import ContainerBackend, ExecutorBackend, RestrictedBackend, TrustedBackend
@@ -235,7 +235,17 @@ class Task:
                     memory_results.append(
                         self._memory_manager.apply(candidate, task_id=self._task_id)
                     )
-        return TaskOutcome(status=status, rounds=rounds, memory_results=memory_results)
+        outcome = TaskOutcome(status=status, rounds=rounds, memory_results=memory_results)
+        emit_audit(
+            self._audit_sink,
+            AuditEvent(
+                event_type="task.outcome",
+                task_id=self._task_id,
+                parameters={"completed": status.completed, "round_count": len(rounds)},
+                result_status=status.reason,
+            ),
+        )
+        return outcome
 
     def _derive_status(self, rounds: list[RoundResult]) -> TaskStatus:
         if not rounds:

@@ -17,5 +17,5 @@
 
 ## 4. 文档与完成
 
-- [ ] 4.1 更新 README、威胁模型、文本协议或 CLI help、ACTION_PLAN 与 M20 里程碑证据。
-- [ ] 4.2 运行定向测试、完整离线回归、golden 20/20、lint/format/build/OpenSpec 校验，并完成验证报告。
+- [x] 4.1 更新 README、威胁模型、文本协议或 CLI help、ACTION_PLAN 与 M20 里程碑证据。
+- [x] 4.2 运行定向测试、完整离线回归、golden 20/20、lint/format/build/OpenSpec 校验，并完成验证报告。

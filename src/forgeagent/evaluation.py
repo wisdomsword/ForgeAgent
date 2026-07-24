@@ -7,6 +7,7 @@ import math
 import os
 import re
 import tempfile
+import warnings
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -19,6 +20,11 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from .audit import AuditEvent
 
 EVALUATION_SCHEMA = "forgeagent.evaluation.v1"
+_GOLDEN_SCHEMA = "forgeagent.golden.v1"
+_RUN_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+_DIAGNOSTIC_RE = re.compile(
+    r"^(?:invalid_golden_schema|invalid_golden_counts|ignored_non_success_attempts:[0-9]{1,8})$"
+)
 METRIC_NAMES = (
     "golden_pass_rate",
     "first_pass_correctness",
@@ -39,6 +45,10 @@ class TaskOutcomeProjection:
     round_count: int
 
     def __post_init__(self) -> None:
+        if type(self.completed) is not bool or type(self.round_count) is not int:
+            raise ValueError("task outcome fields must use strict bool and int values")
+        if self.round_count < 0:
+            raise ValueError(f"round_count must be >= 0, got {self.round_count}")
         if self.completed and self.round_count < 1:
             raise ValueError(
                 f"round_count must be >= 1 for completed outcomes, got {self.round_count}"
@@ -63,37 +73,96 @@ class EvaluationMetrics(BaseModel):
     correction_rounds: float | None = None
     cache_hit_rate: float | None = None
 
-    @field_validator(
-        "golden_pass_rate",
-        "first_pass_correctness",
-        "correction_rounds",
-        "cache_hit_rate",
-        mode="before",
-    )
+    @field_validator("golden_pass_rate", "first_pass_correctness", mode="before")
     @classmethod
-    def _validate_finite(cls, v: Any) -> Any:
-        if v is None:
-            return v
-        if isinstance(v, float) and not math.isfinite(v):
-            raise ValueError(f"metric value must be finite, got {v!r}")
-        return v
+    def _validate_percentage(cls, value: Any) -> float | None:
+        return _validate_metric(value, minimum=0.0, maximum=100.0)
+
+    @field_validator("correction_rounds", mode="before")
+    @classmethod
+    def _validate_correction_rounds(cls, value: Any) -> float | None:
+        return _validate_metric(value, minimum=0.0)
+
+    @field_validator("cache_hit_rate", mode="before")
+    @classmethod
+    def _validate_cache_hit_rate(cls, value: Any) -> float | None:
+        return _validate_metric(value, minimum=0.0, maximum=1.0)
 
 
-class EvaluationRecord(BaseModel):
-    """Top-level forgeagent.evaluation.v1 record."""
+def _validate_metric(value: Any, *, minimum: float, maximum: float | None = None) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError("metric value must be a JSON number")
+    result = float(value)
+    if not math.isfinite(result):
+        raise ValueError(f"metric value must be finite, got {value!r}")
+    if result < minimum or (maximum is not None and result > maximum):
+        raise ValueError(f"metric value is outside the supported range: {value!r}")
+    return result
 
-    model_config = ConfigDict(frozen=True, extra="forbid")
 
-    schema: str = EVALUATION_SCHEMA
-    run_id: str = Field(default_factory=lambda: uuid4().hex)
-    created_at: str = Field(
-        default_factory=lambda: (
-            datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
-        )
+with warnings.catch_warnings():
+    warnings.filterwarnings(
+        "ignore",
+        message=r'Field name "schema" in "EvaluationRecord" shadows an attribute',
+        category=UserWarning,
     )
-    source_schema: str | None = None
-    metrics: EvaluationMetrics
-    diagnostics: tuple[str, ...] = ()
+
+    class EvaluationRecord(BaseModel):
+        """Top-level forgeagent.evaluation.v1 record."""
+
+        model_config = ConfigDict(frozen=True, extra="forbid")
+
+        schema: str = EVALUATION_SCHEMA
+        run_id: str = Field(default_factory=lambda: uuid4().hex)
+        created_at: str = Field(
+            default_factory=lambda: (
+                datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+            )
+        )
+        source_schema: str | None = None
+        metrics: EvaluationMetrics
+        diagnostics: tuple[str, ...] = ()
+
+        @field_validator("schema")
+        @classmethod
+        def _validate_schema(cls, value: str) -> str:
+            if value != EVALUATION_SCHEMA:
+                raise ValueError("unsupported evaluation schema")
+            return value
+
+        @field_validator("run_id")
+        @classmethod
+        def _validate_run_id(cls, value: str) -> str:
+            if not _RUN_ID_RE.fullmatch(value):
+                raise ValueError("invalid evaluation run id")
+            return value
+
+        @field_validator("created_at")
+        @classmethod
+        def _validate_created_at(cls, value: str) -> str:
+            if not isinstance(value, str) or len(value) > 40 or not value.endswith("Z"):
+                raise ValueError("created_at must be a bounded UTC timestamp")
+            try:
+                datetime.fromisoformat(value.removesuffix("Z") + "+00:00")
+            except ValueError:
+                raise ValueError("created_at must be a bounded UTC timestamp") from None
+            return value
+
+        @field_validator("source_schema")
+        @classmethod
+        def _validate_source_schema(cls, value: str | None) -> str | None:
+            if value is not None and value != _GOLDEN_SCHEMA:
+                raise ValueError("unsupported source schema")
+            return value
+
+        @field_validator("diagnostics")
+        @classmethod
+        def _validate_diagnostics(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+            if len(value) > 16 or any(not _DIAGNOSTIC_RE.fullmatch(item) for item in value):
+                raise ValueError("invalid evaluation diagnostics")
+            return value
 
 
 # ---------------------------------------------------------------------------
@@ -148,15 +217,21 @@ def project_audit_event(
         out["duration_ms"] = duration_ms
 
     # Extract only the allowed sub-keys from parameters
-    if isinstance(parameters, dict):
+    if isinstance(parameters, Mapping):
         usage_raw = parameters.get("usage")
-        if isinstance(usage_raw, dict):
+        if isinstance(usage_raw, Mapping):
             usage_projected = {k: v for k, v in usage_raw.items() if k in _ALLOWED_USAGE_KEYS}
             if usage_projected:
                 out["usage"] = usage_projected
 
         if "cache_hit_rate" in parameters:
             out["cache_hit_rate"] = parameters["cache_hit_rate"]
+
+        if event_type == "task.outcome":
+            if "completed" in parameters:
+                out["completed"] = parameters["completed"]
+            if "round_count" in parameters:
+                out["round_count"] = parameters["round_count"]
 
     return out
 
@@ -169,24 +244,22 @@ def aggregate_metrics(
     """Build a forgeagent.evaluation.v1 record from evidence."""
     diagnostics: list[str] = []
     source_schema: str | None = None
+    projected_events = [
+        projected
+        for raw_event in audit_events
+        if (projected := project_audit_event(raw_event)) is not None
+    ]
 
     # ---- golden_pass_rate ----
     golden_pass_rate: float | None = None
     raw_schema = golden_report.get("schema")
-    if isinstance(raw_schema, str):
-        source_schema = raw_schema
-
-    if raw_schema != "forgeagent.golden.v1":
+    if raw_schema != _GOLDEN_SCHEMA:
         diagnostics.append("invalid_golden_schema")
     else:
+        source_schema = _GOLDEN_SCHEMA
         total = golden_report.get("total")
         passed = golden_report.get("passed")
-        if (
-            isinstance(total, int)
-            and isinstance(passed, int)
-            and total > 0
-            and 0 <= passed <= total
-        ):
+        if type(total) is int and type(passed) is int and total > 0 and 0 <= passed <= total:
             golden_pass_rate = passed * 100.0 / total
         else:
             diagnostics.append("invalid_golden_counts")
@@ -198,10 +271,7 @@ def aggregate_metrics(
     prompt_sum = 0
     n_non_success_skipped = 0
 
-    for raw_event in audit_events:
-        projected = project_audit_event(raw_event)
-        if projected is None:
-            continue
+    for projected in projected_events:
         if projected.get("event_type") != "llm.outcome":
             continue
         if projected.get("result_status") != "success":
@@ -217,8 +287,8 @@ def aggregate_metrics(
         total_prompt = usage.get("total_prompt_tokens")
 
         if (
-            not isinstance(cached, int)
-            or not isinstance(total_prompt, int)
+            type(cached) is not int
+            or type(total_prompt) is not int
             or cached < 0
             or total_prompt <= 0
             or cached > total_prompt
@@ -239,8 +309,27 @@ def aggregate_metrics(
     first_pass_correctness: float | None = None
     correction_rounds_value: float | None = None
 
+    outcomes_list: list[TaskOutcomeProjection] | None
     if task_outcomes is not None:
         outcomes_list = list(task_outcomes)
+    else:
+        outcome_events = [
+            event for event in projected_events if event.get("event_type") == "task.outcome"
+        ]
+        outcomes_list = [] if outcome_events else None
+        for event in outcome_events:
+            completed = event.get("completed")
+            round_count = event.get("round_count")
+            if type(completed) is not bool or type(round_count) is not int:
+                outcomes_list = None
+                break
+            try:
+                outcomes_list.append(TaskOutcomeProjection(completed, round_count))
+            except ValueError:
+                outcomes_list = None
+                break
+
+    if outcomes_list is not None:
         n_total = len(outcomes_list)
 
         if n_total > 0:
@@ -270,7 +359,7 @@ def aggregate_metrics(
 # ---------------------------------------------------------------------------
 
 _TREND_SCHEMA = "forgeagent.evaluation-trend.v1"
-_RUN_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+_MAX_TREND_INDEX_ITEMS = 1000
 
 
 @dataclass(frozen=True)
@@ -358,7 +447,21 @@ def _load_index(record_dir: Path) -> dict[str, Any]:
         return {"schema": _TREND_SCHEMA, "run_ids": []}
     try:
         data = json.loads(index_path.read_text(encoding="utf-8"))
-        if not isinstance(data, dict) or not isinstance(data.get("run_ids"), list):
+        if (
+            not isinstance(data, dict)
+            or set(data) != {"schema", "run_ids"}
+            or data.get("schema") != _TREND_SCHEMA
+            or not isinstance(data.get("run_ids"), list)
+        ):
+            return {"schema": _TREND_SCHEMA, "run_ids": []}
+        run_ids = data["run_ids"]
+        if (
+            len(run_ids) > _MAX_TREND_INDEX_ITEMS
+            or len(run_ids) != len(set(run_ids))
+            or any(
+                type(run_id) is not str or not _RUN_ID_RE.fullmatch(run_id) for run_id in run_ids
+            )
+        ):
             return {"schema": _TREND_SCHEMA, "run_ids": []}
         return data
     except Exception:
@@ -452,8 +555,8 @@ def append_trend(
     if not record_dir.is_absolute():
         raise ValueError(f"record_dir must be absolute, got {record_dir!r}")
 
-    if limit < 1:
-        raise ValueError(f"limit must be >= 1, got {limit!r}")
+    if not 1 <= limit <= _MAX_TREND_INDEX_ITEMS:
+        raise ValueError(f"limit must be between 1 and {_MAX_TREND_INDEX_ITEMS}, got {limit!r}")
 
     if not _RUN_ID_RE.match(record.run_id):
         raise ValueError(f"run_id {record.run_id!r} does not match required pattern")
@@ -486,20 +589,10 @@ def append_trend(
         except Exception:
             invalid_count += 1
 
-    # Also scan for files in the directory that are NOT listed in the index
-    # (e.g. a corrupt JSON the caller placed there) — count them towards invalid.
-    index_set = set(run_ids)
-    for f in record_dir.iterdir():
-        if f.suffix == ".json" and f.stem not in index_set and f.name != "index.json":
-            try:
-                candidate = read_record(f)
-                if candidate.schema != EVALUATION_SCHEMA:
-                    invalid_count += 1
-            except Exception:
-                invalid_count += 1
-
     # Write the new record file atomically.
     record_path = record_dir / f"{record.run_id}.json"
+    if record_path.exists():
+        raise ValueError(f"Duplicate run_id {record.run_id!r} already exists")
     write_record(record_path, record)
 
     # Build updated run_ids list, trim to limit (keep newest).
@@ -508,7 +601,14 @@ def append_trend(
     trimmed_ids = new_run_ids[-limit:]
 
     # Write new index atomically.
-    _write_index(record_dir, trimmed_ids)
+    try:
+        _write_index(record_dir, trimmed_ids)
+    except Exception:
+        try:
+            record_path.unlink()
+        except OSError:
+            pass
+        raise
 
     # Delete evicted record files ONLY after the new index exists.
     # Only delete files that were listed in the OLD index (evicted_ids is a subset).

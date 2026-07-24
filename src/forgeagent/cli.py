@@ -29,7 +29,7 @@ from collections.abc import Callable, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, fields
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
 from urllib.parse import parse_qsl, quote, unquote, urlencode, urlsplit, urlunsplit
 
 import yaml
@@ -46,21 +46,6 @@ from .anthropic_client import AnthropicClient
 from .audit import AuditSink, JsonlAuditSink
 from .client import ModelClient
 from .context import ContextConfig, SlidingWindowContextPolicy, load_context_config
-from .evaluation import (
-    METRIC_NAMES,
-    EvaluationMetrics,
-    EvaluationRecord,
-    TrendAppendResult,
-    aggregate_metrics,
-    append_trend,
-)
-from .evaluator import (
-    EvaluationRequest,
-    EvaluatorPreflightError,
-    EvaluatorResult,
-    run_evaluator,
-    validate_artifact_manifest,
-)
 from .executor import ContainerRuntimeError
 from .headless import HeadlessConfirmer
 from .http_config import HttpServiceConfig
@@ -95,6 +80,10 @@ from .step import RoundResult, Termination
 from .task import Task, TaskOutcome
 from .tools import Asker, Confirmer, Tier
 from .web_search import ERROR_BLOCKED, ERROR_UNAVAILABLE, search_with_status
+
+if TYPE_CHECKING:
+    from .evaluation import EvaluationRecord, TrendAppendResult
+    from .evaluator import EvaluationRequest, EvaluatorResult
 
 DEFAULT_MODEL = "claude-sonnet-5"
 
@@ -1804,9 +1793,23 @@ def _load_strict_json(path: Path) -> object:
     )
 
 
+def validate_artifact_manifest(root: Path, paths: list[str]):
+    from .evaluator import validate_artifact_manifest as validate
+
+    return validate(root, paths)
+
+
+def run_evaluator(client: ModelClient, request: EvaluationRequest) -> EvaluatorResult:
+    from .evaluator import run_evaluator as run
+
+    return run(client, request)
+
+
 def _evaluation_record(
     golden_report_path: str | None, audit_jsonl_path: str | None
 ) -> EvaluationRecord:
+    from .evaluation import EvaluationMetrics, EvaluationRecord, aggregate_metrics
+
     golden_report: Mapping[str, object] | None = None
     audit_events: list[Mapping[str, object]] = []
     if golden_report_path is not None:
@@ -1839,6 +1842,12 @@ def _metric_text(value: float | None) -> str:
     return "n/a" if value is None else f"{value:.4g}"
 
 
+def append_trend(record_dir: Path, record: EvaluationRecord) -> TrendAppendResult:
+    from .evaluation import append_trend as append
+
+    return append(record_dir, record)
+
+
 def _render_evaluation(
     console: Console,
     result: EvaluatorResult,
@@ -1846,6 +1855,8 @@ def _render_evaluation(
     trend: TrendAppendResult | None,
     artifacts: list[str],
 ) -> None:
+    from .evaluation import METRIC_NAMES
+
     console.print(f"evaluation status: {result.status}")
     console.print(f"artifacts: {', '.join(artifacts)}")
     for item in result.observed_evidence:
@@ -1871,6 +1882,8 @@ def _run_evaluate_command(
     except Exception:
         error_console.print("[red]evaluation preflight failed[/red]")
         return 2
+
+    from .evaluator import EvaluationRequest, EvaluatorPreflightError
 
     try:
         artifact_root = Path(args.artifact_root)

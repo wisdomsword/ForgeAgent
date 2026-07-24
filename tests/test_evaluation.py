@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
 from forgeagent.audit import AuditEvent
+from forgeagent.client import MockClient
 from forgeagent.evaluation import (
     EVALUATION_SCHEMA,
     EvaluationMetrics,
@@ -21,6 +24,21 @@ from forgeagent.evaluation import (
     read_record,
     write_record,
 )
+from forgeagent.models import AssistantMessage, TokenUsage
+from forgeagent.task import Task
+
+
+def test_evaluation_module_import_is_warning_free() -> None:
+    result = subprocess.run(
+        [sys.executable, "-W", "error", "-c", "import forgeagent.evaluation"],
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == ""
+
 
 # ---------------------------------------------------------------------------
 # Helper factories (plain functions, not pytest fixtures)
@@ -132,6 +150,7 @@ def test_invalid_golden_schema_yields_null_pass_rate() -> None:
     }
     record = aggregate_metrics(bad_report)
     assert record.metrics.golden_pass_rate is None
+    assert record.source_schema is None
     assert any("invalid_golden_schema" in d for d in record.diagnostics)
 
 
@@ -160,6 +179,32 @@ def test_golden_nan_infinity_rejected(bad_value: float) -> None:
             correction_rounds=None,
             cache_hit_rate=None,
         )
+
+
+@pytest.mark.parametrize(
+    ("field", "bad_value"),
+    [
+        ("golden_pass_rate", "NaN"),
+        ("golden_pass_rate", -0.1),
+        ("first_pass_correctness", 100.1),
+        ("correction_rounds", -1),
+        ("cache_hit_rate", 1.01),
+    ],
+)
+def test_metric_models_reject_coercion_and_out_of_range_values(field, bad_value) -> None:
+    with pytest.raises(ValidationError):
+        EvaluationMetrics.model_validate({field: bad_value})
+
+
+def test_evaluation_record_rejects_unsafe_contract_fields() -> None:
+    metrics = EvaluationMetrics()
+
+    with pytest.raises(ValidationError):
+        EvaluationRecord(schema="wrong", metrics=metrics)
+    with pytest.raises(ValidationError):
+        EvaluationRecord(source_schema="/private/secret", metrics=metrics)
+    with pytest.raises(ValidationError):
+        EvaluationRecord(diagnostics=("raw secret detail",), metrics=metrics)
 
 
 # ---------------------------------------------------------------------------
@@ -268,6 +313,49 @@ def test_null_task_outcomes_yields_both_null_not_zero() -> None:
     assert record.metrics.correction_rounds is None
 
 
+def test_task_outcome_audit_events_make_round_metrics_reachable() -> None:
+    audit_events = [
+        {
+            "event_type": "task.outcome",
+            "result_status": "completed",
+            "parameters": {"completed": True, "round_count": 1},
+        },
+        {
+            "event_type": "task.outcome",
+            "result_status": "failed",
+            "parameters": {"completed": False, "round_count": 2},
+        },
+    ]
+
+    record = aggregate_metrics(valid_golden_report(), audit_events=audit_events)
+
+    assert record.metrics.first_pass_correctness == 50.0
+    assert record.metrics.correction_rounds == 0.0
+
+
+def test_real_task_audit_sink_roundtrips_into_round_metrics() -> None:
+    class RecordingSink:
+        def __init__(self) -> None:
+            self.events: list[AuditEvent] = []
+
+        def emit(self, event: AuditEvent) -> bool:
+            self.events.append(event)
+            return True
+
+    sink = RecordingSink()
+    reply = AssistantMessage(
+        content="---\ntask_status:\n  completed: true\n---\n",
+        usage=TokenUsage(),
+        stop_reason="end_turn",
+    )
+
+    Task(MockClient(script=[reply]), audit_sink=sink, task_id="roundtrip").run("complete")
+    record = aggregate_metrics(valid_golden_report(), audit_events=sink.events)
+
+    assert record.metrics.first_pass_correctness == 100.0
+    assert record.metrics.correction_rounds == 0.0
+
+
 # ---------------------------------------------------------------------------
 # 14. Schema constant is correct
 # ---------------------------------------------------------------------------
@@ -341,8 +429,33 @@ def test_append_trend_compares_latest_compatible_record_and_bounds_index(tmp_pat
 
 def test_corrupt_or_incompatible_history_is_ignored_with_fixed_diagnostic(tmp_path):
     (tmp_path / "broken.json").write_text("{", encoding="utf-8")
+    (tmp_path / "index.json").write_text(
+        json.dumps({"schema": "forgeagent.evaluation-trend.v1", "run_ids": ["broken"]}),
+        encoding="utf-8",
+    )
     result = append_trend(tmp_path, make_record(run_id="current"))
     assert result.diagnostics == ("ignored_invalid_history:1",)
+
+
+def test_corrupt_index_cannot_delete_a_file_outside_record_directory(tmp_path):
+    record_dir = tmp_path / "records"
+    record_dir.mkdir()
+    victim = tmp_path / "victim.json"
+    victim.write_text('{"must": "survive"}', encoding="utf-8")
+    (record_dir / "index.json").write_text(
+        json.dumps(
+            {
+                "schema": "forgeagent.evaluation-trend.v1",
+                "run_ids": ["../victim"],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    append_trend(record_dir, make_record(run_id="current"), limit=1)
+
+    assert victim.read_text(encoding="utf-8") == '{"must": "survive"}'
+    assert read_index(record_dir)["run_ids"] == ["current"]
 
 
 # ---------------------------------------------------------------------------
@@ -436,6 +549,11 @@ def test_invalid_limit_rejected(tmp_path):
     rec = make_record()
     with pytest.raises(ValueError):
         append_trend(tmp_path, rec, limit=0)
+
+
+def test_limit_above_fixed_index_bound_is_rejected(tmp_path):
+    with pytest.raises(ValueError):
+        append_trend(tmp_path, make_record(), limit=1001)
 
 
 # ---------------------------------------------------------------------------
