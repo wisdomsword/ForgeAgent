@@ -33,11 +33,13 @@ from forgeagent.cli import (
     main,
     render_outcome,
     repl,
+    run_loop_once,
     run_once,
 )
 from forgeagent.client import MockClient
 from forgeagent.evaluator import EvaluationRequest, EvaluatorResult
 from forgeagent.executor import TrustedBackend
+from forgeagent.loop import LoopBudgets, LoopCheckpointStore
 from forgeagent.mcp_manager import MCPManager, MCPServerConfig, MCPServerDiagnostic
 from forgeagent.model_registry import RegistryError
 from forgeagent.models import (
@@ -1253,6 +1255,133 @@ def test_main_run_returns_one_when_not_completed():
         client_factory=_factory([_reply("cannot", stop_reason="refusal")]),
     )
     assert code == 1
+
+
+# --- durable loop command ----------------------------------------------------
+
+
+def test_loop_parser_accepts_new_goal_and_uses_budget_defaults():
+    args = build_parser().parse_args(["loop", "finish the work", "--token-budget", "25"])
+
+    assert args.command == "loop"
+    assert args.goal == "finish the work"
+    assert args.token_budget == 25
+    assert args.max_rounds is None
+    assert args.wall_clock_seconds is None
+    assert args.max_consecutive_failures is None
+    assert args.resume is None
+
+
+def test_loop_parser_accepts_resume_without_a_goal_or_budget():
+    args = build_parser().parse_args(["loop", "--resume", "a" * 32])
+
+    assert args.goal is None
+    assert args.resume == "a" * 32
+    assert args.token_budget is None
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["loop", "goal"],
+        ["loop", "goal", "--token-budget", "0"],
+        ["loop", "goal", "--token-budget", "-1"],
+        ["loop", "goal", "--token-budget", "true"],
+        ["loop", "goal", "--token-budget", "1", "--wall-clock-seconds", "nan"],
+        ["loop", "goal", "--token-budget", "1", "--wall-clock-seconds", "inf"],
+        ["loop", "goal", "--token-budget", "1", "--resume", "a" * 32],
+        ["loop", "--resume", "a" * 32, "--max-rounds", "5"],
+    ],
+)
+def test_main_loop_rejects_invalid_or_conflicting_inputs(argv):
+    assert main(argv, client_factory=_factory([])) == 2
+
+
+def test_main_loop_completes_with_mock_client_and_renders_safe_report(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    console = _console()
+    monkeypatch.setattr(cli_module, "Console", lambda **kwargs: console)
+    secret = "secret-loop-value"
+
+    assert (
+        main(
+            ["--tier", "trusted", "loop", f"finish {secret}", "--token-budget", "25"],
+            client_factory=_factory([_reply(_done(), usage=TokenUsage(input_tokens=3))]),
+        )
+        == 0
+    )
+
+    rendered = console.export_text()
+    assert "loop id:" in rendered
+    assert "status: completed" in rendered
+    assert "stop reason: completed" in rendered
+    assert "iterations=1" in rendered
+    assert secret not in rendered
+    assert str(tmp_path) not in rendered
+    assert ".forgeagent/loops" not in rendered
+
+
+def test_main_loop_resume_uses_checkpoint_goal_without_disclosing_it(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    store = LoopCheckpointStore(str(tmp_path))
+    checkpoint = store.create("private initial goal", LoopBudgets(token_budget=25))
+    resumed_id = checkpoint.loop_id
+    store.close()
+    resume_console = _console()
+    monkeypatch.setattr(cli_module, "Console", lambda **kwargs: resume_console)
+    assert (
+        main(
+            ["--tier", "trusted", "loop", "--resume", resumed_id],
+            client_factory=_factory([_reply(_done(), usage=TokenUsage(input_tokens=2))]),
+        )
+        == 0
+    )
+    assert "private initial goal" not in resume_console.export_text()
+
+
+def test_run_loop_once_closes_runner_and_reuses_cli_assembly(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    console = _console()
+    report = run_loop_once(
+        "finish the work",
+        tier="trusted",
+        model="mock",
+        client_factory=_factory([_reply(_done(), usage=TokenUsage(input_tokens=1))]),
+        console=console,
+        token_budget=5,
+    )
+
+    assert report.status == "completed"
+    assert report.tokens_used == 1
+
+
+def test_ordinary_run_and_repl_do_not_create_loop_checkpoints_or_import_evaluator(
+    monkeypatch, tmp_path
+):
+    monkeypatch.chdir(tmp_path)
+    imported = []
+    original_import = __import__
+
+    def record_import(name, *args, **kwargs):
+        if name == "forgeagent.evaluator":
+            imported.append(name)
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr("builtins.__import__", record_import)
+
+    assert (
+        main(["--tier", "trusted", "run", "goal"], client_factory=_factory([_reply(_done())])) == 0
+    )
+    responses = iter(["goal", ""])
+    repl(
+        tier="trusted",
+        model="mock",
+        client_factory=_factory([_reply(_done())]),
+        read_line=lambda _prompt: next(responses),
+    )
+
+    assert not (tmp_path / ".forgeagent" / "loops").exists()
+    assert imported == []
 
 
 class _RequiredStartupFailureManager:
