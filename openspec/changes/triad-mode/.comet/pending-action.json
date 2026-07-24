@@ -1,0 +1,6 @@
+{
+  "id": "classic-archive:triad-mode",
+  "stepId": "full.archive.confirm",
+  "type": "checkpoint",
+  "ref": "triad-mode"
+}
