@@ -138,6 +138,31 @@ without an asker is `NEEDS_INFO`. Other mechanical terminal states include
 `ANSWERED_IN_PROSE`, `EMPTY_RESPONSE`, `MAX_ROUNDS`, and `CLIENT_ERROR:<kind>`.
 These states classify execution; they do not judge whether the answer is correct.
 
+## Loop checkpoint contract
+
+M21 Loop uses the separate durable schema `forgeagent.loop.v1`; it is not a normal
+Task protocol marker and does not alter ordinary Task completion. A Loop 专用
+`Checkpoint` tool is available only inside a Loop Task. Its arguments are bounded
+`completed_items`, `open_questions`, and `handoff` data. A successful result means
+the complete checkpoint was atomically committed with a new revision before feedback
+returns to the model. The tool must not be treated as task completion: a later clean
+response still needs the normal two-stage Task completion contract.
+
+Checkpoint content is untrusted persisted data. On resume it is rendered with fixed
+bounds and framing, so it is usable as handoff/replay context but never grants
+permissions or overrides the current server/CLI sandbox, root, identity, confirmer,
+credentials, or MCP policy. A resume uses the checkpoint's frozen goal and budgets;
+callers cannot pass replacements. A crash can replay work since the last successful
+Checkpoint commit, so callers must not assume exactly-once external side effects.
+
+The public Loop report uses only the stable schema, id, status, counters and one of
+these stop reasons: `completed`, `cancelled`, `wall_clock`,
+`token_usage_unavailable`, `token_budget`, `max_rounds`, `consecutive_failures`,
+`unrecoverable_failure`, or `checkpoint_error`. `wall_clock` is cooperative: an
+in-flight model or tool call is not force-killed, and the stop is observed at the
+next safe boundary. M20 Evaluator is not part of the Loop protocol, and M22 Triad
+accept/reject semantics are intentionally excluded.
+
 ## Independent Evaluator result
 
 显式 `forgeagent evaluate` 使用独立的专用 YAML 合同，不复用 Generator 的前置 front

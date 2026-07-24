@@ -23,6 +23,17 @@ uv run python -m tests.golden.runner --real-model claude-sonnet-5 \
 
 runner 成功退出 `0`，任一已执行场景失败退出 `1`，manifest、凭证/模型配置或报告目录预检失败退出 `2`。离线和真实模式都生成机器可读 `results.json` 与人类可读 `report.md`；真实运行时报告只包含所选五项。
 
+## M21 Loop offline acceptance candidate
+
+M21 的 checkpoint 中断-恢复和每个稳定 stop condition 使用 `MockClient` 的离线回放
+验证，不进入上述 20 项 Golden 核心，也不要求网络或 API key。验收应覆盖：Checkpoint
+commit 后中断、从 `forgeagent.loop.v1` 恢复而不重做已提交项目、以及 `cancelled`、
+`wall_clock`、`token_usage_unavailable`、`token_budget`、`max_rounds`、
+`consecutive_failures`、`unrecoverable_failure` 与 `checkpoint_error` 的稳定报告。
+
+Loop 不会自动调用 M20 Evaluator；Evaluator 仍是独立、显式 opt-in 的真实模型路径。M22
+Triad 的 Generator/Evaluator 打回和验收语义不属于 M21 candidate，也不得从 Loop 测试推断。
+
 ## M19 Skill progressive-loading candidate
 
 This offline candidate is deliberately separate from the trusted 20-item core. Its fixture is
