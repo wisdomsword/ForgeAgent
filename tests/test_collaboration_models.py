@@ -159,14 +159,39 @@ def test_state_requires_status_and_phase_to_describe_the_same_lifecycle_point(
         _state(**overrides)
 
 
+@pytest.mark.parametrize("phase", ["planning", "needs_confirmation"])
+def test_duo_rejects_planner_phases(phase: str):
+    with pytest.raises(ValidationError, match="duo phase"):
+        _state(mode="duo", phase=phase)
+
+
+def test_duo_requires_the_system_acceptance_plan():
+    with pytest.raises(ValidationError, match="system acceptance plan"):
+        _state(mode="duo", phase="generator")
+
+
+@pytest.mark.parametrize("phase", ["generator", "evaluator"])
+def test_triad_execution_phases_require_a_frozen_plan(phase: str):
+    with pytest.raises(ValidationError, match="confirmed plan"):
+        _state(plan=(), plan_digest="", phase=phase)
+
+
+@pytest.mark.parametrize("phase", ["planning", "needs_confirmation"])
+def test_triad_planner_phases_allow_a_pre_plan_state(phase: str):
+    assert _state(plan=(), plan_digest="", phase=phase).phase == phase
+
+
+def test_empty_plan_requires_empty_digest():
+    with pytest.raises(ValidationError, match="empty plan"):
+        _state(plan=(), plan_digest="f" * 64, phase="planning")
+
+
 @pytest.mark.parametrize(
     "location", ["/tmp/result.txt", "C:/Users/admin/result.txt", r"C:\Users\admin\result.txt"]
 )
 def test_evaluation_rejects_absolute_location_forms(location: str):
     with pytest.raises(ValidationError):
-        EvaluationItem(
-            id="output", passed=True, observed="yes", expected="yes", location=location
-        )
+        EvaluationItem(id="output", passed=True, observed="yes", expected="yes", location=location)
 
 
 def test_public_models_reject_bool_and_integer_coercion():
@@ -187,13 +212,9 @@ def test_report_direct_validation_enforces_id_evidence_and_count_bounds(
     with pytest.raises(ValidationError, match="collaboration id"):
         CollaborationReport(**_report_values(collaboration_id="not-an-id"))
     with pytest.raises(ValidationError, match="evidence"):
-        CollaborationReport(
-            **_report_values(evidence=["item"] * (MAX_PUBLIC_EVIDENCE_ITEMS + 1))
-        )
+        CollaborationReport(**_report_values(evidence=["item"] * (MAX_PUBLIC_EVIDENCE_ITEMS + 1)))
     with pytest.raises(ValidationError, match="counts"):
-        CollaborationReport(
-            **_report_values(passed_item_count=1, failed_item_count=1)
-        )
+        CollaborationReport(**_report_values(passed_item_count=1, failed_item_count=1))
 
     report = CollaborationReport(
         **_report_values(
@@ -206,13 +227,23 @@ def test_report_direct_validation_enforces_id_evidence_and_count_bounds(
 
     assert len(report.evidence[0]) == MAX_EVIDENCE_CHARS
     safe = CollaborationReport(
-        **_report_values(
-            evidence=["/Users/admin/private/result.txt report-secret-for-test"]
-        )
+        **_report_values(evidence=["/Users/admin/private/result.txt report-secret-for-test"])
     )
     assert "/Users/admin" not in safe.evidence[0]
     assert "report-secret-for-test" not in safe.evidence[0]
     assert "<redacted-path>" in safe.evidence[0]
+
+
+@pytest.mark.parametrize(
+    "path", ["C:/Users/admin/private/result.txt", r"C:\Users\admin\private\result.txt"]
+)
+def test_report_direct_validation_redacts_windows_absolute_paths(path: str):
+    report = CollaborationReport(
+        **_report_values(evidence=[f"artifact at {path} before truncation"])
+    )
+
+    assert path not in report.evidence[0]
+    assert "<redacted-path>" in report.evidence[0]
 
 
 def test_submit_evaluation_schema_requires_nonempty_bounded_results():

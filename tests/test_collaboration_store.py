@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from typing import Literal
 
 import pytest
 
@@ -118,10 +119,14 @@ def test_store_refuses_replacing_a_frozen_plan(tmp_path: Path):
 def test_store_rejects_nonmonotonic_state_transitions(
     tmp_path: Path, updates: dict[str, object], label: str
 ):
-    plan = (AcceptanceItem(id="goal", behavior="goal", acceptance="goal"),)
-    evaluation = (
-        EvaluationItem(id="goal", passed=True, observed="yes", expected="yes"),
+    plan = (
+        AcceptanceItem(
+            id="goal",
+            behavior="Build an artifact",
+            acceptance="External artifacts satisfy the goal",
+        ),
     )
+    evaluation = (EvaluationItem(id="goal", passed=True, observed="yes", expected="yes"),)
     store = CollaborationStore(str(tmp_path))
     current = store.create(
         "Build an artifact",
@@ -141,15 +146,20 @@ def test_store_rejects_nonmonotonic_state_transitions(
         last_evaluation=evaluation,
     )
 
-    with pytest.raises(CollaborationError, match="transition"):
+    expected_error = "state|transition" if label == "goal" else "transition"
+    with pytest.raises(CollaborationError, match=expected_error):
         store.save(current.model_copy(update=updates), expected_revision=0)
 
 
 def test_store_rejects_completed_status_in_an_execution_phase(tmp_path: Path):
-    plan = (AcceptanceItem(id="goal", behavior="goal", acceptance="goal"),)
-    evaluation = (
-        EvaluationItem(id="goal", passed=True, observed="yes", expected="yes"),
+    plan = (
+        AcceptanceItem(
+            id="goal",
+            behavior="Build an artifact",
+            acceptance="External artifacts satisfy the goal",
+        ),
     )
+    evaluation = (EvaluationItem(id="goal", passed=True, observed="yes", expected="yes"),)
     store = CollaborationStore(str(tmp_path))
     current = store.create(
         "Build an artifact",
@@ -162,10 +172,52 @@ def test_store_rejects_completed_status_in_an_execution_phase(tmp_path: Path):
 
     with pytest.raises(CollaborationError):
         store.save(
-            current.model_copy(
-                update={"status": "completed", "stop_reason": "completed"}
-            ),
+            current.model_copy(update={"status": "completed", "stop_reason": "completed"}),
             expected_revision=0,
+        )
+
+
+@pytest.mark.parametrize(
+    ("mode", "phase", "plan", "plan_digest_value"),
+    [
+        ("duo", "planning", None, None),
+        ("duo", "needs_confirmation", None, None),
+        ("triad", "generator", (), ""),
+        ("triad", "evaluator", (), ""),
+        ("triad", "planning", (), "f" * 64),
+    ],
+)
+def test_store_rejects_states_outside_mode_specific_machines(
+    tmp_path: Path,
+    mode: Literal["duo", "triad"],
+    phase: str,
+    plan: tuple[AcceptanceItem, ...] | None,
+    plan_digest_value: str | None,
+):
+    values: dict[str, object] = {"phase": phase}
+    if plan is not None:
+        values["plan"] = plan
+    if plan_digest_value is not None:
+        values["plan_digest"] = plan_digest_value
+
+    store = CollaborationStore(str(tmp_path))
+    with pytest.raises(CollaborationError):
+        store.create(
+            "Build an artifact",
+            mode,
+            collaboration_id="8" * 32,
+            **values,
+        )
+
+
+def test_store_rejects_a_caller_supplied_duo_plan(tmp_path: Path):
+    store = CollaborationStore(str(tmp_path))
+    with pytest.raises(CollaborationError):
+        store.create(
+            "Build an artifact",
+            "duo",
+            collaboration_id="9" * 32,
+            plan=(AcceptanceItem(id="other", behavior="other", acceptance="other"),),
         )
 
 
@@ -188,7 +240,13 @@ def test_store_rejects_plan_fact_loss_before_plan_freezes(tmp_path: Path):
 
 
 def test_store_rejects_evaluation_fact_loss(tmp_path: Path):
-    plan = (AcceptanceItem(id="goal", behavior="goal", acceptance="goal"),)
+    plan = (
+        AcceptanceItem(
+            id="goal",
+            behavior="Build an artifact",
+            acceptance="External artifacts satisfy the goal",
+        ),
+    )
     store = CollaborationStore(str(tmp_path))
     current = store.create(
         "Build an artifact",

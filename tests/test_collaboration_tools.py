@@ -53,8 +53,9 @@ def test_submit_evaluation_requires_exact_frozen_ids_and_registry_is_read_only(t
     store = CollaborationStore(str(tmp_path))
     state = store.create(
         "Build an artifact",
-        "duo",
+        "triad",
         collaboration_id="b" * 32,
+        phase="generator",
         plan=(
             AcceptanceItem(id="first", behavior="first", acceptance="first"),
             AcceptanceItem(id="second", behavior="second", acceptance="second"),
@@ -111,3 +112,32 @@ def test_submit_evaluation_masks_evidence_before_persistence(
 
     assert outcome.success is True
     assert "persisted-secret-value" not in persisted.model_dump_json()
+
+
+@pytest.mark.parametrize(
+    "path", ["C:/Users/admin/private/result.txt", r"C:\Users\admin\private\result.txt"]
+)
+def test_submit_evaluation_redacts_windows_paths_before_persistence(tmp_path: Path, path: str):
+    store = CollaborationStore(str(tmp_path))
+    state = store.create("Build an artifact", "duo", collaboration_id="d" * 32)
+    tool = SubmitEvaluationTool(store, state)
+
+    outcome = tool.run(
+        SubmitEvaluationArgs(
+            results=[
+                {
+                    "id": "goal",
+                    "passed": False,
+                    "observed": f"artifact at {path}",
+                    "expected": f"no host path such as {path}",
+                    "location": "result.txt",
+                }
+            ]
+        ),
+        None,
+    )
+    persisted = store.load(state.collaboration_id).model_dump_json()
+
+    assert outcome.success is True
+    assert path not in persisted
+    assert "<redacted-path>" in persisted

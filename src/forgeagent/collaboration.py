@@ -18,7 +18,7 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from .audit import AuditEvent, AuditSink, emit_audit
-from .secret_policy import mask_audit_data, sensitive_env_values
+from .secret_policy import REDACTED_PATH, mask_audit_data, sensitive_env_values
 from .tools import FileListTool, FileReadTool, Tool, ToolContext, ToolOutcome, ToolRegistry
 
 COLLABORATION_SCHEMA = "forgeagent.collaboration.v1"
@@ -56,7 +56,7 @@ _PROGRAM_ACTION_PATTERNS = (
 )
 _PROGRAM_ACTION_PATTERNS = tuple(_PROGRAM_ACTION_PATTERNS) + tuple(
     re.compile(re.escape(term))
-    for term in ("写", "创建", "修改", "实现", "修复", "重构", "测试", "构建")
+    for term in ("写", "创建", "修改", "更新", "实现", "修复", "重构", "测试", "构建")
 )
 _PROGRAM_ARTIFACT_PATTERNS = tuple(
     re.compile(rf"\b{term}\b", re.IGNORECASE)
@@ -87,7 +87,20 @@ _NEGATED_PROGRAM_ACTION = re.compile(
     r"(?:写|创建|修改|实现|修复|重构|测试|构建)",
     re.IGNORECASE,
 )
-_CLAUSE_END = re.compile(r"[,，;；.!?。！？\n]")
+_CLAUSE_END = re.compile(
+    r"[,，;；!?。！？\n]|\.(?!\w)|\b(?:and\s+)?then\b|(?:然后|随后)", re.IGNORECASE
+)
+_NON_PROGRAMMING_FRAMING = (
+    re.compile(r"^\s*(?:please\s+)?(?:explain|review|read)\b", re.IGNORECASE),
+    re.compile(r"^\s*(?:please\s+)?tell\s+me\s+(?:why|how)\b", re.IGNORECASE),
+    re.compile(r"^\s*(?:how\s+to|why\b)", re.IGNORECASE),
+    re.compile(r"^\s*(?:请)?(?:解释|说明|审查|审阅|阅读|查看)"),
+    re.compile(r"^\s*(?:请)?告诉我(?:为什么|如何|怎么|怎样)"),
+    re.compile(r"^\s*(?:如何|怎么|怎样|为什么)"),
+)
+_WINDOWS_ABSOLUTE_PATH = re.compile(
+    r"(?i)(?<![a-z0-9])[a-z]:[\\/](?:[^\\/\s\x00-\x1f]+[\\/])*[^\\/\s\x00-\x1f]*"
+)
 
 CollaborationMode = Literal["single", "duo", "triad"]
 CollaborationRole = Literal["planner", "generator", "evaluator"]
@@ -139,7 +152,9 @@ def _nonnegative_number(value: Any, *, field: str) -> float:
 
 
 def _public_text(value: str, *, maximum: int = MAX_EVIDENCE_CHARS) -> str:
-    projected = mask_audit_data(value, sensitive_env_values())
+    projected = mask_audit_data(
+        _WINDOWS_ABSOLUTE_PATH.sub(REDACTED_PATH, value), sensitive_env_values()
+    )
     assert isinstance(projected, str)
     rendered: list[str] = []
     for character in projected:
@@ -167,6 +182,13 @@ def _routing_text(value: str) -> str:
     for match in _NEGATED_PROGRAM_ACTION.finditer(value):
         clause_end = _CLAUSE_END.search(value, match.end(), min(len(value), match.start() + 160))
         excluded.append((match.start(), clause_end.start() if clause_end else len(value)))
+    clause_start = 0
+    for clause_end in (*_CLAUSE_END.finditer(value), None):
+        clause_stop = len(value) if clause_end is None else clause_end.start()
+        clause = value[clause_start:clause_stop]
+        if any(pattern.match(clause) for pattern in _NON_PROGRAMMING_FRAMING):
+            excluded.append((clause_start, clause_stop))
+        clause_start = len(value) if clause_end is None else clause_end.end()
     for start, end in excluded:
         projected[start:end] = " " * (end - start)
     return "".join(projected)
@@ -307,6 +329,12 @@ def plan_digest(items: list[AcceptanceItem] | tuple[AcceptanceItem, ...]) -> str
     payload = [item.model_dump(mode="json") for item in items]
     encoded = json.dumps(payload, ensure_ascii=True, separators=(",", ":"), sort_keys=True).encode()
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _duo_plan(goal: str) -> tuple[AcceptanceItem, ...]:
+    return (
+        AcceptanceItem(id="goal", behavior=goal, acceptance="External artifacts satisfy the goal"),
+    )
 
 
 _STOP_REASONS: dict[str, frozenset[str | None]] = {
@@ -499,15 +527,27 @@ class CollaborationState(BaseModel):
             raise ValueError("state status and phase are inconsistent")
         if self.rejections > self.max_rejections:
             raise ValueError("rejections exceed max_rejections")
+        if not self.plan and self.plan_digest:
+            raise ValueError("empty plan requires an empty digest")
         if self.plan and self.plan_digest != plan_digest(self.plan):
             raise ValueError("plan digest does not match plan")
         if self.last_evaluation:
             ids = tuple(item.id for item in self.last_evaluation)
             if ids != tuple(item.id for item in self.plan):
                 raise ValueError("evaluation must cover plan ids in plan order")
-        if self.mode == "duo" and not self.plan:
-            raise ValueError("duo requires a frozen plan")
-        if self.mode == "triad" and self.phase == "generator" and not self.plan:
+        if (
+            self.mode == "duo"
+            and self.status == "active"
+            and self.phase
+            not in {
+                "generator",
+                "evaluator",
+            }
+        ):
+            raise ValueError("duo phase must be generator or evaluator while active")
+        if self.mode == "duo" and self.plan != _duo_plan(self.goal):
+            raise ValueError("duo requires the system acceptance plan")
+        if self.mode == "triad" and self.phase in {"generator", "evaluator"} and not self.plan:
             raise ValueError("triad requires a confirmed plan before generator")
         if self.status == "completed" and (
             not self.last_evaluation or not all(item.passed for item in self.last_evaluation)
@@ -699,11 +739,7 @@ class CollaborationStore:
         with self._lock:
             identifier = uuid4().hex if collaboration_id is None else collaboration_id
             if mode == "duo" and "plan" not in values:
-                values["plan"] = (
-                    AcceptanceItem(
-                        id="goal", behavior=goal, acceptance="External artifacts satisfy the goal"
-                    ),
-                )
+                values["plan"] = _duo_plan(goal)
             values.setdefault("phase", "generator" if mode == "duo" else "planning")
             values.setdefault(
                 "plan_digest", plan_digest(values["plan"]) if values.get("plan") else ""

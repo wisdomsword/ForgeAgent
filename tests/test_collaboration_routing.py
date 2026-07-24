@@ -84,3 +84,35 @@ def test_explicit_modes_and_weaker_override_conflict_are_deterministic():
 )
 def test_programming_routing_excludes_boundaries_negation_and_quotations(goal: str):
     assert resolve_collaboration_mode(goal, None).mode == "single"
+
+
+@pytest.mark.parametrize(
+    "goal",
+    [
+        "Explain how to create code",
+        "Review instructions to modify package.json",
+        "Tell me why we should refactor this class",
+        "Explain how to write tests",
+        "解释如何创建代码",
+        "审查修改 package.json 的说明",
+        "告诉我为什么应该重构这个类",
+        "说明如何编写测试",
+    ],
+)
+def test_explanation_read_and_review_framing_stays_single(goal: str):
+    assert resolve_collaboration_mode(goal, None).mode == "single"
+
+
+@pytest.mark.parametrize(
+    "goal",
+    [
+        "Explain how to create code; then create the script",
+        "Review instructions to modify package.json, then update package.json",
+        "Review how to modify this class then refactor this class",
+        "解释如何创建代码，然后创建代码",
+        "审查修改 package.json 的说明；然后更新 package.json",
+        "审查如何修改这个类然后重构这个类",
+    ],
+)
+def test_later_affirmative_programming_clause_still_routes_to_triad(goal: str):
+    assert resolve_collaboration_mode(goal, None).mode == "triad"
