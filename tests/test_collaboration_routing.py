@@ -233,3 +233,15 @@ def test_explanation_read_and_review_framing_stays_single(goal: str):
 )
 def test_later_affirmative_programming_clause_still_routes_to_triad(goal: str):
     assert resolve_collaboration_mode(goal, None).mode == "triad"
+
+
+@pytest.mark.parametrize(
+    "goal",
+    [
+        "编写可再现测试代码",
+        "解释现状，再修改 Main.java",
+        "请再修改 Main.java",
+    ],
+)
+def test_chinese_sequence_marker_does_not_split_ordinary_words(goal: str):
+    assert resolve_collaboration_mode(goal, None).mode == "triad"

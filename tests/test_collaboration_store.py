@@ -211,6 +211,88 @@ def test_store_rejects_completed_status_in_an_execution_phase(tmp_path: Path):
 
 
 @pytest.mark.parametrize(
+    ("status", "reason"),
+    [
+        ("completed", "completed"),
+        ("stopped", "needs_confirmation"),
+        ("cancelled", "cancelled"),
+        ("failed", "state_failure"),
+    ],
+)
+def test_store_freezes_terminal_snapshots(tmp_path: Path, status: str, reason: str):
+    store = CollaborationStore(str(tmp_path))
+    created = store.create("Build an artifact", "duo", collaboration_id="b" * 32)
+    if status == "completed":
+        evaluated = store.save(
+            created.model_copy(
+                update={
+                    "phase": "evaluator",
+                    "last_evaluation": (
+                        EvaluationItem(id="goal", passed=True, observed="yes", expected="yes"),
+                    ),
+                }
+            ),
+            expected_revision=0,
+        )
+        terminal = store.save(
+            evaluated.model_copy(update={"status": status, "phase": status, "stop_reason": reason}),
+            expected_revision=1,
+        )
+    else:
+        terminal = store.save(
+            created.model_copy(update={"status": status, "phase": status, "stop_reason": reason}),
+            expected_revision=0,
+        )
+
+    with pytest.raises(CollaborationError, match="transition"):
+        store.save(
+            terminal.model_copy(update={"rounds": terminal.rounds + 1}),
+            expected_revision=terminal.revision,
+        )
+
+
+@pytest.mark.parametrize(
+    "updates",
+    [
+        {
+            "last_evaluation": (
+                EvaluationItem(id="goal", passed=True, observed="different", expected="yes"),
+            )
+        },
+        {"generator_attempts": 1},
+        {"evaluator_attempts": 1},
+        {"rejections": 1},
+        {"rounds": 1},
+        {"usage": CollaborationUsage(input_tokens=1)},
+        {"usage_available": False},
+    ],
+)
+def test_store_rejects_every_terminal_business_mutation(tmp_path: Path, updates: dict[str, object]):
+    store = CollaborationStore(str(tmp_path))
+    created = store.create("Build an artifact", "duo", collaboration_id="c" * 32)
+    evaluated = store.save(
+        created.model_copy(
+            update={
+                "phase": "evaluator",
+                "last_evaluation": (
+                    EvaluationItem(id="goal", passed=True, observed="yes", expected="yes"),
+                ),
+            }
+        ),
+        expected_revision=0,
+    )
+    terminal = store.save(
+        evaluated.model_copy(
+            update={"status": "completed", "phase": "completed", "stop_reason": "completed"}
+        ),
+        expected_revision=1,
+    )
+
+    with pytest.raises(CollaborationError, match="transition"):
+        store.save(terminal.model_copy(update=updates), expected_revision=terminal.revision)
+
+
+@pytest.mark.parametrize(
     ("mode", "values"),
     [
         ("duo", {"phase": "planning"}),

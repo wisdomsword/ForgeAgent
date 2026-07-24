@@ -40,12 +40,12 @@ _HOW_ONLY_RE = re.compile(
     re.IGNORECASE,
 )
 _CLAUSE_SPLIT = re.compile(
-    r"[,，;；!?。！？\n]+|\.(?=\s|$)|\b(?:and\s+)?then\b|(?:然后|随后|再)",
+    r"[,，;；!?。！？\n]+|\.(?=\s|$)|\b(?:and\s+)?then\b|(?:然后|随后)",
     re.IGNORECASE,
 )
 _REQUEST_PREFIX = re.compile(
     r"^\s*(?:(?:please|kindly)\s+|(?:can|could|would|will)\s+you\s+|"
-    r"i\s+(?:need|want)\s+you\s+to\s+|(?:请帮我|请(?:你)?|帮我|麻烦你|劳烦你|先|只)\s*)*",
+    r"i\s+(?:need|want)\s+you\s+to\s+|(?:请帮我|请(?:你)?|帮我|麻烦你|劳烦你|先|再|只)\s*)*",
     re.IGNORECASE,
 )
 _NEGATED_REQUEST = re.compile(
@@ -394,7 +394,7 @@ def _status_phase_is_valid(status: object, phase: object) -> bool:
 def _validate_state_transition(current: CollaborationState, candidate: CollaborationState) -> None:
     if any(getattr(current, field) != getattr(candidate, field) for field in _FROZEN_STATE_FIELDS):
         raise CollaborationError("invalid collaboration state transition")
-    if current.status in _TERMINAL_STATUSES and candidate.status != current.status:
+    if current.status in _TERMINAL_STATUSES:
         raise CollaborationError("invalid collaboration state transition")
     if not _status_phase_is_valid(candidate.status, candidate.phase):
         raise CollaborationError("invalid collaboration state transition")
