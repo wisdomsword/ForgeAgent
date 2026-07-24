@@ -122,6 +122,10 @@ class CollaborationError(Exception):
     """The collaboration state cannot be safely used."""
 
 
+class CollaborationRoleConfigurationError(Exception):
+    """A role task cannot be constructed because its configured provider is unusable."""
+
+
 def _safe_text(value: Any, *, field: str, maximum: int, allow_empty: bool = False) -> str:
     if not isinstance(value, str):
         raise ValueError(f"{field} must be a string")
@@ -1204,6 +1208,8 @@ class CollaborationRunner:
                     _role_task_data(self._state, rejection),
                     cancel_event,
                 )
+            except CollaborationRoleConfigurationError:
+                return self._finish("failed", "unrecoverable_failure")
             except Exception:
                 return self._finish("failed", "role_failed")
             if not generator.status.completed:
@@ -1232,6 +1238,8 @@ class CollaborationRunner:
                     _role_task_data(self._state, ()),
                     cancel_event,
                 )
+            except CollaborationRoleConfigurationError:
+                return self._finish("failed", "unrecoverable_failure")
             except Exception:
                 return self._finish("failed", "role_failed")
             try:

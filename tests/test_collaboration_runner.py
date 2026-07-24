@@ -10,7 +10,11 @@ import pytest
 
 from forgeagent.audit import AuditEvent
 from forgeagent.client import MockClient
-from forgeagent.collaboration import CollaborationError, CollaborationRunner
+from forgeagent.collaboration import (
+    CollaborationError,
+    CollaborationRoleConfigurationError,
+    CollaborationRunner,
+)
 from forgeagent.models import AssistantMessage, ClientError, TokenUsage
 from forgeagent.task import Task
 
@@ -270,6 +274,19 @@ def test_duo_role_exception_becomes_stable_failure(tmp_path: Path):
     assert report.status == "failed"
     assert report.stop_reason == "role_failed"
     assert "private role construction failure" not in repr(report)
+
+
+def test_duo_role_configuration_exception_is_unrecoverable_without_leaking_details(tmp_path: Path):
+    class _BrokenConfigurationBuilder:
+        def __call__(self, role, attempt, registry, system_prompt):
+            raise CollaborationRoleConfigurationError("PRIVATE_PROVIDER_TOKEN")
+
+    report = _runner(tmp_path, _BrokenConfigurationBuilder()).run("write PRIVATE_GOAL artifact")
+
+    assert report.status == "failed"
+    assert report.stop_reason == "unrecoverable_failure"
+    assert "PRIVATE_PROVIDER_TOKEN" not in repr(report)
+    assert "PRIVATE_GOAL" not in repr(report)
 
 
 def test_duo_usage_unavailable_is_sticky(tmp_path: Path):
