@@ -9,6 +9,7 @@ import re
 import stat
 import tempfile
 import threading
+import unicodedata
 import warnings
 from pathlib import Path
 from typing import Any, Literal
@@ -32,7 +33,35 @@ MAX_FAILURE_CHARS = 2000
 MAX_GOAL_CHARS = 4000
 
 _LOOP_ID_RE = re.compile(r"^[0-9a-f]{32}$")
-_MAX_STOP_REASON_CHARS = 100
+
+LoopStatus = Literal["active", "completed", "stopped", "cancelled", "failed"]
+LoopStopReason = Literal[
+    "completed",
+    "cancelled",
+    "wall_clock",
+    "token_usage_unavailable",
+    "token_budget",
+    "max_rounds",
+    "consecutive_failures",
+    "unrecoverable_failure",
+    "checkpoint_error",
+]
+
+_STOP_REASONS_BY_STATUS: dict[str, frozenset[str | None]] = {
+    "active": frozenset({None}),
+    "completed": frozenset({"completed"}),
+    "stopped": frozenset(
+        {
+            "wall_clock",
+            "token_usage_unavailable",
+            "token_budget",
+            "max_rounds",
+            "consecutive_failures",
+        }
+    ),
+    "cancelled": frozenset({"cancelled"}),
+    "failed": frozenset({"unrecoverable_failure", "checkpoint_error"}),
+}
 
 
 class LoopCheckpointError(Exception):
@@ -44,8 +73,9 @@ def _safe_text(value: Any, *, field: str, maximum: int, allow_empty: bool) -> st
         raise ValueError(f"{field} must be a string")
     if len(value) > maximum:
         raise ValueError(f"{field} is too long")
-    if any(ord(character) < 32 or ord(character) == 127 for character in value):
-        raise ValueError(f"{field} contains control characters")
+    unsafe_categories = {"Cc", "Cf", "Cs", "Zl", "Zp"}
+    if any(unicodedata.category(character) in unsafe_categories for character in value):
+        raise ValueError(f"{field} contains unsafe characters")
     if not allow_empty and not value.strip():
         raise ValueError(f"{field} must not be blank")
     return value.strip() if not allow_empty else value
@@ -133,8 +163,8 @@ with warnings.catch_warnings():
         loop_id: str
         goal: str
         budgets: LoopBudgets
-        status: Literal["active", "completed", "stopped", "cancelled", "failed"] = "active"
-        stop_reason: str | None = None
+        status: LoopStatus = "active"
+        stop_reason: LoopStopReason | None = None
         revision: int = 0
         iterations: int = 0
         rounds_used: int = 0
@@ -158,15 +188,6 @@ with warnings.catch_warnings():
         @classmethod
         def _validate_goal(cls, value: Any) -> str:
             return _safe_text(value, field="goal", maximum=MAX_GOAL_CHARS, allow_empty=False)
-
-        @field_validator("stop_reason")
-        @classmethod
-        def _validate_stop_reason(cls, value: Any) -> str | None:
-            if value is None:
-                return None
-            return _safe_text(
-                value, field="stop_reason", maximum=_MAX_STOP_REASON_CHARS, allow_empty=False
-            )
 
         @field_validator(
             "revision",
@@ -211,86 +232,93 @@ with warnings.catch_warnings():
 
         @model_validator(mode="after")
         def _validate_invariants(self) -> LoopCheckpoint:
-            if self.status == "active":
-                if self.stop_reason is not None:
-                    raise ValueError("active checkpoints cannot have a stop reason")
-            elif self.stop_reason is None:
-                raise ValueError("terminal checkpoints require a stop reason")
-            elif self.status == "completed" and self.stop_reason != "completed":
-                raise ValueError("completed checkpoints require the completed stop reason")
+            if self.stop_reason not in _STOP_REASONS_BY_STATUS[self.status]:
+                raise ValueError("checkpoint status and stop reason are inconsistent")
             if self.rounds_used > self.budgets.max_rounds:
                 raise ValueError("rounds_used exceeds max_rounds")
-            if self.tokens_used > self.budgets.token_budget:
-                raise ValueError("tokens_used exceeds token_budget")
             if self.consecutive_failures > self.budgets.max_consecutive_failures:
                 raise ValueError("consecutive_failures exceeds its budget")
             return self
 
 
-class LoopReport(BaseModel):
-    """A deliberately safe public projection of a Loop checkpoint."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    loop_id: str
-    status: Literal["active", "completed", "stopped", "cancelled", "failed"]
-    stop_reason: str | None
-    iterations: int
-    rounds_used: int
-    tokens_used: int
-    elapsed_seconds: float
-    consecutive_failures: int
-    completed_item_count: int
-    open_question_count: int
-    usage_available: bool
-
-    @field_validator("loop_id")
-    @classmethod
-    def _validate_loop_id(cls, value: Any) -> str:
-        if not isinstance(value, str) or _LOOP_ID_RE.fullmatch(value) is None:
-            raise ValueError("invalid loop id")
-        return value
-
-    @field_validator(
-        "iterations",
-        "rounds_used",
-        "tokens_used",
-        "consecutive_failures",
-        "completed_item_count",
-        "open_question_count",
-        mode="before",
+with warnings.catch_warnings():
+    warnings.filterwarnings(
+        "ignore",
+        message=r'Field name "schema" in "LoopReport" shadows an attribute',
+        category=UserWarning,
     )
-    @classmethod
-    def _validate_counter(cls, value: Any, info: Any) -> int:
-        return _nonnegative_int(value, field=info.field_name)
 
-    @field_validator("elapsed_seconds", mode="before")
-    @classmethod
-    def _validate_elapsed_seconds(cls, value: Any) -> float:
-        return _nonnegative_number(value, field="elapsed_seconds")
+    class LoopReport(BaseModel):
+        """A deliberately safe public projection of a Loop checkpoint."""
 
-    @field_validator("usage_available", mode="before")
-    @classmethod
-    def _validate_usage_available(cls, value: Any) -> bool:
-        if type(value) is not bool:
-            raise ValueError("usage_available must be a bool")
-        return value
+        model_config = ConfigDict(frozen=True, extra="forbid")
 
-    @classmethod
-    def from_checkpoint(cls, checkpoint: LoopCheckpoint) -> LoopReport:
-        return cls(
-            loop_id=checkpoint.loop_id,
-            status=checkpoint.status,
-            stop_reason=checkpoint.stop_reason,
-            iterations=checkpoint.iterations,
-            rounds_used=checkpoint.rounds_used,
-            tokens_used=checkpoint.tokens_used,
-            elapsed_seconds=checkpoint.elapsed_seconds,
-            consecutive_failures=checkpoint.consecutive_failures,
-            completed_item_count=len(checkpoint.completed_items),
-            open_question_count=len(checkpoint.open_questions),
-            usage_available=checkpoint.usage_available,
+        schema: Literal[LOOP_SCHEMA] = LOOP_SCHEMA
+        loop_id: str
+        status: LoopStatus
+        stop_reason: LoopStopReason | None
+        iterations: int
+        rounds_used: int
+        tokens_used: int
+        elapsed_seconds: float
+        consecutive_failures: int
+        completed_item_count: int
+        open_question_count: int
+        usage_available: bool
+
+        @field_validator("loop_id")
+        @classmethod
+        def _validate_loop_id(cls, value: Any) -> str:
+            if not isinstance(value, str) or _LOOP_ID_RE.fullmatch(value) is None:
+                raise ValueError("invalid loop id")
+            return value
+
+        @field_validator(
+            "iterations",
+            "rounds_used",
+            "tokens_used",
+            "consecutive_failures",
+            "completed_item_count",
+            "open_question_count",
+            mode="before",
         )
+        @classmethod
+        def _validate_counter(cls, value: Any, info: Any) -> int:
+            return _nonnegative_int(value, field=info.field_name)
+
+        @field_validator("elapsed_seconds", mode="before")
+        @classmethod
+        def _validate_elapsed_seconds(cls, value: Any) -> float:
+            return _nonnegative_number(value, field="elapsed_seconds")
+
+        @field_validator("usage_available", mode="before")
+        @classmethod
+        def _validate_usage_available(cls, value: Any) -> bool:
+            if type(value) is not bool:
+                raise ValueError("usage_available must be a bool")
+            return value
+
+        @model_validator(mode="after")
+        def _validate_invariants(self) -> LoopReport:
+            if self.stop_reason not in _STOP_REASONS_BY_STATUS[self.status]:
+                raise ValueError("report status and stop reason are inconsistent")
+            return self
+
+        @classmethod
+        def from_checkpoint(cls, checkpoint: LoopCheckpoint) -> LoopReport:
+            return cls(
+                loop_id=checkpoint.loop_id,
+                status=checkpoint.status,
+                stop_reason=checkpoint.stop_reason,
+                iterations=checkpoint.iterations,
+                rounds_used=checkpoint.rounds_used,
+                tokens_used=checkpoint.tokens_used,
+                elapsed_seconds=checkpoint.elapsed_seconds,
+                consecutive_failures=checkpoint.consecutive_failures,
+                completed_item_count=len(checkpoint.completed_items),
+                open_question_count=len(checkpoint.open_questions),
+                usage_available=checkpoint.usage_available,
+            )
 
 
 class CheckpointArgs(BaseModel):
@@ -402,12 +430,16 @@ class LoopCheckpointStore:
         with self._lock:
             path = self._path_for(loop_id)
             try:
-                details = os.lstat(path)
-                if stat.S_ISLNK(details.st_mode) or not stat.S_ISREG(details.st_mode):
-                    raise LoopCheckpointError("checkpoint file is unsafe")
-                if details.st_size > MAX_CHECKPOINT_BYTES:
-                    raise LoopCheckpointError("checkpoint file is too large")
-                with path.open("r", encoding="utf-8") as handle:
+                no_follow = getattr(os, "O_NOFOLLOW", None)
+                if no_follow is None:
+                    raise LoopCheckpointError("checkpoint file cannot be opened safely")
+                descriptor = os.open(path, os.O_RDONLY | no_follow)
+                with os.fdopen(descriptor, "r", encoding="utf-8") as handle:
+                    details = os.fstat(handle.fileno())
+                    if not stat.S_ISREG(details.st_mode):
+                        raise LoopCheckpointError("checkpoint file is unsafe")
+                    if details.st_size > MAX_CHECKPOINT_BYTES:
+                        raise LoopCheckpointError("checkpoint file is too large")
                     raw = handle.read(MAX_CHECKPOINT_BYTES + 1)
                 if len(raw.encode("utf-8")) > MAX_CHECKPOINT_BYTES:
                     raise LoopCheckpointError("checkpoint file is too large")

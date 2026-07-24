@@ -14,6 +14,7 @@ from forgeagent.loop import (
     DEFAULT_MAX_CONSECUTIVE_FAILURES,
     DEFAULT_MAX_ROUNDS,
     DEFAULT_WALL_CLOCK_SECONDS,
+    LOOP_SCHEMA,
     MAX_CHECKPOINT_BYTES,
     MAX_HANDOFF_CHARS,
     MAX_ITEMS,
@@ -110,6 +111,30 @@ def test_model_enforces_active_and_terminal_status_invariants(overrides: dict[st
         _checkpoint(**overrides)
 
 
+def test_model_allows_token_usage_to_overshoot_budget_at_a_safe_boundary():
+    checkpoint = _checkpoint(tokens_used=101)
+
+    assert checkpoint.tokens_used == 101
+
+
+@pytest.mark.parametrize("character", ["\u0085", "\u202e", "\ud800", "\u2028", "\u2029"])
+@pytest.mark.parametrize(
+    ("field", "value_factory"),
+    [
+        ("goal", lambda character: f"unsafe{character}goal"),
+        ("completed_items", lambda character: (f"unsafe{character}item",)),
+        ("open_questions", lambda character: (f"unsafe{character}question",)),
+        ("handoff", lambda character: f"unsafe{character}handoff"),
+        ("last_failure", lambda character: f"unsafe{character}failure"),
+    ],
+)
+def test_model_rejects_dangerous_unicode_in_persisted_prompt_text(
+    character: str, field: str, value_factory
+):
+    with pytest.raises(ValidationError):
+        _checkpoint(**{field: value_factory(character)})
+
+
 def test_report_is_safe_projection_model():
     report = LoopReport.from_checkpoint(
         _checkpoint(
@@ -121,6 +146,7 @@ def test_report_is_safe_projection_model():
     )
 
     assert report.model_dump() == {
+        "schema": LOOP_SCHEMA,
         "loop_id": "a" * 32,
         "status": "active",
         "stop_reason": None,
@@ -133,6 +159,34 @@ def test_report_is_safe_projection_model():
         "open_question_count": 1,
         "usage_available": True,
     }
+
+
+@pytest.mark.parametrize(
+    ("status", "stop_reason"),
+    [
+        ("active", "completed"),
+        ("completed", "max_rounds"),
+        ("stopped", "completed"),
+        ("cancelled", "token_budget"),
+        ("failed", "cancelled"),
+        ("failed", "unexpected_reason"),
+    ],
+)
+def test_report_rejects_unknown_or_status_inconsistent_stop_reasons(status: str, stop_reason: str):
+    with pytest.raises(ValidationError):
+        LoopReport(
+            loop_id="a" * 32,
+            status=status,
+            stop_reason=stop_reason,
+            iterations=0,
+            rounds_used=0,
+            tokens_used=0,
+            elapsed_seconds=0.0,
+            consecutive_failures=0,
+            completed_item_count=0,
+            open_question_count=0,
+            usage_available=True,
+        )
 
 
 def test_report_model_rejects_coerced_counters_and_nonfinite_elapsed_time():
@@ -227,6 +281,36 @@ def test_store_rejects_symlink_root_and_file(tmp_path: Path):
     path.symlink_to(tmp_path / "outside.json")
     with pytest.raises(LoopCheckpointError):
         store.load(created.loop_id)
+
+
+def test_store_load_never_follows_a_file_swapped_after_lstat(tmp_path: Path, monkeypatch):
+    store = LoopCheckpointStore(str(tmp_path))
+    created = store.create("Build it", _budgets(), loop_id="4" * 32)
+    path = tmp_path / ".forgeagent" / "loops" / (created.loop_id + ".json")
+    outside = tmp_path / "outside.json"
+    outside.write_text(
+        json.dumps(created.model_copy(update={"goal": "Outside"}).model_dump(mode="json")),
+        encoding="utf-8",
+    )
+    original_lstat = os.lstat
+    swapped = False
+
+    def swap_after_lstat(candidate):
+        nonlocal swapped
+        details = original_lstat(candidate)
+        if Path(candidate) == path and not swapped:
+            swapped = True
+            path.unlink()
+            path.symlink_to(outside)
+        return details
+
+    monkeypatch.setattr(os, "lstat", swap_after_lstat)
+
+    try:
+        loaded = store.load(created.loop_id)
+    except LoopCheckpointError:
+        return
+    assert loaded.goal == "Build it"
 
 
 def test_atomic_save_replaces_snapshot_and_stale_revision_preserves_old_bytes(tmp_path: Path):
