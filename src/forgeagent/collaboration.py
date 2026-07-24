@@ -1108,6 +1108,14 @@ def _task_usage(outcome: TaskOutcome) -> tuple[CollaborationUsage, bool]:
     return usage, available
 
 
+def _failed_submission(outcome: TaskOutcome, tool_name: str) -> bool:
+    return any(
+        item.tool == tool_name and not item.success
+        for round_result in outcome.rounds
+        for item in round_result.outcomes
+    )
+
+
 def _role_task_data(
     state: CollaborationState,
     rejection: tuple[EvaluationItem, ...],
@@ -1166,9 +1174,12 @@ class CollaborationRunner:
         plan_confirmer: PlanConfirmer | None = None,
         generator_registry: ToolRegistry | None = None,
         task_data_suffix: str = "",
+        recover_role_failures: bool = False,
         audit_sink: AuditSink | None = None,
         task_id: str | None = None,
     ) -> None:
+        if type(recover_role_failures) is not bool:
+            raise ValueError("recover_role_failures must be a bool")
         self._store = store
         self._state = state
         self._frozen_plan = state.plan
@@ -1177,6 +1188,7 @@ class CollaborationRunner:
         self._plan_confirmer = plan_confirmer
         self._generator_registry = generator_registry
         self._task_data_suffix = task_data_suffix
+        self._recover_role_failures = recover_role_failures
         self._audit_sink = audit_sink
         self._task_id = task_id
         self._run_lock = threading.Lock()
@@ -1193,6 +1205,7 @@ class CollaborationRunner:
         plan_confirmer: PlanConfirmer | None = None,
         generator_registry: ToolRegistry | None = None,
         task_data_suffix: str = "",
+        recover_role_failures: bool = False,
         collaboration_id: str | None = None,
         planner_model: str = "",
         generator_model: str = "",
@@ -1224,6 +1237,7 @@ class CollaborationRunner:
             plan_confirmer=plan_confirmer,
             generator_registry=generator_registry,
             task_data_suffix=task_data_suffix,
+            recover_role_failures=recover_role_failures,
             audit_sink=audit_sink,
             task_id=task_id,
         )
@@ -1280,7 +1294,7 @@ class CollaborationRunner:
         except Exception:
             if self._cancelled(cancel_event):
                 return self._finish("cancelled", "cancelled")
-            return self._finish("failed", "role_failed")
+            return self._role_failure()
         try:
             committed = self._store.load(self._state.collaboration_id)
             submitted = (
@@ -1297,6 +1311,10 @@ class CollaborationRunner:
             return self._finish("cancelled", "cancelled")
         if planner.status.reason in _UNRECOVERABLE_TASK_REASONS:
             return self._task_failure(planner)
+        if not planner.status.completed and not submitted and self._recover_role_failures:
+            if _failed_submission(planner, "SubmitPlan"):
+                return self._finish("failed", "invalid_role_submission")
+            return self._finish_without_save("failed", "role_failed")
         if not submitted:
             return self._finish("failed", "invalid_role_submission")
         self._emit_plan("submitted")
@@ -1384,7 +1402,7 @@ class CollaborationRunner:
                 except Exception:
                     if self._cancelled(cancel_event):
                         return self._finish("cancelled", "cancelled")
-                    return self._finish("failed", "role_failed")
+                    return self._role_failure()
                 if not generator.status.completed:
                     try:
                         self._persist_role_boundary("generator", generator, phase="generator")
@@ -1418,7 +1436,7 @@ class CollaborationRunner:
             except Exception:
                 if self._cancelled(cancel_event):
                     return self._finish("cancelled", "cancelled")
-                return self._finish("failed", "role_failed")
+                return self._role_failure()
             try:
                 committed = self._store.load(self._state.collaboration_id)
                 self._assert_frozen_plan(committed)
@@ -1428,6 +1446,10 @@ class CollaborationRunner:
                 if self._cancelled(cancel_event) or evaluator.status.reason == "cancelled":
                     return self._finish("cancelled", "cancelled")
                 if not evaluator.status.completed:
+                    if not submitted_evaluation and _failed_submission(
+                        evaluator, "SubmitEvaluation"
+                    ):
+                        return self._finish("failed", "invalid_role_submission")
                     return self._task_failure(evaluator)
                 if not submitted_evaluation or not committed.last_evaluation:
                     return self._finish("failed", "invalid_role_submission")
@@ -1513,12 +1535,14 @@ class CollaborationRunner:
             raise CollaborationError("collaboration plan changed")
 
     def _task_failure(self, outcome: TaskOutcome) -> CollaborationReport:
-        reason = (
-            "unrecoverable_failure"
-            if outcome.status.reason in _UNRECOVERABLE_TASK_REASONS
-            else "role_failed"
-        )
-        return self._finish("failed", reason)
+        if outcome.status.reason in _UNRECOVERABLE_TASK_REASONS:
+            return self._finish("failed", "unrecoverable_failure")
+        return self._role_failure()
+
+    def _role_failure(self) -> CollaborationReport:
+        if self._recover_role_failures:
+            return self._finish_without_save("failed", "role_failed")
+        return self._finish("failed", "role_failed")
 
     def _finish(
         self,

@@ -130,13 +130,23 @@ def test_duo_rejects_then_uses_fresh_generator_and_passes(tmp_path: Path):
 
 def test_duo_requires_generator_strict_completion(tmp_path: Path):
     builder = _RoleBuilder({("generator", 1): [_reply("plain answer"), _reply("still plain")]})
+    runner = _runner(tmp_path, builder)
 
-    report = _runner(tmp_path, builder).run("write PRIVATE_GOAL artifact")
+    report = runner.run("write PRIVATE_GOAL artifact")
+    persisted = runner._store.load(report.collaboration_id)
 
     assert report.status == "failed"
     assert report.stop_reason == "role_failed"
+    assert persisted.status == "failed"
     assert report.generator_attempts == 1
     assert report.evaluator_attempts == 0
+
+
+def test_recover_role_failures_requires_strict_bool(tmp_path: Path):
+    builder = _RoleBuilder({("generator", 1): [_reply(_done())]})
+
+    with pytest.raises(ValueError, match="recover_role_failures must be a bool"):
+        _runner(tmp_path, builder, recover_role_failures=1)
 
 
 @pytest.mark.parametrize(

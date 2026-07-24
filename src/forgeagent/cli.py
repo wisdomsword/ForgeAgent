@@ -1080,6 +1080,7 @@ def run_loop_once(
                 plan_confirmer=plan_confirmer,
                 generator_registry=registry,
                 task_data_suffix=suffix,
+                recover_role_failures=True,
             )
         else:
             collaboration = CollaborationRunner.create(
@@ -1095,6 +1096,7 @@ def run_loop_once(
                 max_rejections=resolved_max_rejections,
                 generator_registry=registry,
                 task_data_suffix=suffix,
+                recover_role_failures=True,
             )
 
         class OwnedCollaboration:
@@ -2383,6 +2385,7 @@ def serve_http(
                             ),
                             generator_registry=registry,
                             task_data_suffix=suffix,
+                            recover_role_failures=True,
                             audit_sink=audit_sink,
                             task_id=record.task_id,
                         )
@@ -2403,6 +2406,7 @@ def serve_http(
                             max_rejections=settings.service.max_rejections,
                             generator_registry=registry,
                             task_data_suffix=suffix,
+                            recover_role_failures=True,
                             audit_sink=audit_sink,
                             task_id=record.task_id,
                         )

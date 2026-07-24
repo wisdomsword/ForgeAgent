@@ -438,6 +438,25 @@ def test_planner_tool_commit_still_requires_standalone_completion(tmp_path: Path
     assert [call[0] for call in builder.calls] == ["planner"]
 
 
+def test_loop_policy_keeps_recoverable_planner_failure_active(tmp_path: Path):
+    builder = _RoleBuilder({("planner", 1): [_reply("plain"), _reply("still plain")]})
+    runner = _runner(
+        tmp_path,
+        builder,
+        plan_confirmer=headless_plan_confirmer("preauthorize"),
+        recover_role_failures=True,
+    )
+
+    report = runner.run("create PRIVATE_GOAL artifact")
+    persisted = runner._store.load(report.collaboration_id)
+
+    assert report.status == "failed"
+    assert report.stop_reason == "role_failed"
+    assert persisted.status == "active"
+    assert persisted.phase == "planning"
+    assert persisted.rounds == 2
+
+
 @pytest.mark.parametrize(
     ("script", "reason"),
     [

@@ -915,13 +915,17 @@ class LoopRunner:
         tokens = 0
         provider_reply_seen = False
         if not isinstance(outcome, TaskOutcome):
-            provider_reply_seen = outcome.rounds > 0
-            tokens = (
+            # Collaboration reports are cumulative across durable role resumes; Loop
+            # budgets account only the work performed in this iteration.
+            rounds = max(0, outcome.rounds - self._checkpoint.rounds_used)
+            provider_reply_seen = rounds > 0
+            cumulative_tokens = (
                 outcome.usage.input_tokens
                 + outcome.usage.output_tokens
                 + outcome.usage.cached_tokens
                 + outcome.usage.reasoning_tokens
             )
+            tokens = max(0, cumulative_tokens - self._checkpoint.tokens_used)
             usage_available = usage_available and outcome.usage_available
         else:
             for round_result in outcome.rounds:

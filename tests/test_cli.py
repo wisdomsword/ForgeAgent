@@ -1471,6 +1471,84 @@ def test_collaborative_loop_shares_remaining_rounds_and_forwards_loop_context(
     assert task_round_limits == [3, 1]
     assert "UNTRUSTED LOOP STATE" in forwarded["task_data_suffix"]
     assert "Checkpoint" in forwarded["generator_registry"].arg_schemas()
+    assert forwarded["recover_role_failures"] is True
+
+
+def test_collaborative_loop_retries_recoverable_generator_failure(monkeypatch, tmp_path):
+    evaluation = {
+        "name": "SubmitEvaluation",
+        "arguments": {
+            "results": [
+                {
+                    "id": "goal",
+                    "passed": True,
+                    "observed": "artifact is present",
+                    "expected": "artifact is present",
+                    "location": "artifact.txt",
+                }
+            ]
+        },
+    }
+    scripts = iter(
+        [
+            [
+                _reply(
+                    "not complete",
+                    usage=TokenUsage(input_tokens=1, total_prompt_tokens=1),
+                ),
+                _reply(
+                    "still not complete",
+                    usage=TokenUsage(input_tokens=1, total_prompt_tokens=1),
+                ),
+            ],
+            [_reply(_done(), usage=TokenUsage(input_tokens=1, total_prompt_tokens=1))],
+            [
+                _reply(
+                    f"<!-- ToolCall: {json.dumps(evaluation)} -->",
+                    usage=TokenUsage(input_tokens=1, total_prompt_tokens=1),
+                ),
+                _reply(_done(), usage=TokenUsage(input_tokens=1, total_prompt_tokens=1)),
+            ],
+        ]
+    )
+    clients = []
+
+    class RecordingClient(MockClient):
+        def __init__(self, script):
+            super().__init__(script)
+            self.first_user_message = ""
+
+        def complete(self, messages, params=None):
+            if not self.first_user_message:
+                self.first_user_message = str(messages[-1].content)
+            return super().complete(messages, params)
+
+    def client_factory(_model):
+        client = RecordingClient(next(scripts))
+        clients.append(client)
+        return client
+
+    report = run_loop_once(
+        "finish",
+        tier="trusted",
+        model="mock",
+        client_factory=client_factory,
+        allowed_root=str(tmp_path),
+        console=_console(),
+        token_budget=10,
+        max_rounds=6,
+        max_consecutive_failures=2,
+        collaboration_mode="duo",
+    )
+
+    assert report.status == "completed"
+    assert report.iterations == 2
+    assert report.rounds_used == 5
+    assert report.consecutive_failures == 0
+    assert len(clients) == 3
+    retried_generator_data = json.loads(clients[1].first_user_message)
+    assert "role_failed" in retried_generator_data["loop_context"]
+    assert "UNTRUSTED LOOP STATE" in retried_generator_data["loop_context"]
 
 
 def test_run_loop_once_closes_each_fresh_iteration_client_once(monkeypatch, tmp_path):
