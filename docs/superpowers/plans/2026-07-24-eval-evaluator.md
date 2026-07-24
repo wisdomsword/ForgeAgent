@@ -2,6 +2,7 @@
 change: eval-evaluator
 design-doc: docs/superpowers/specs/2026-07-24-eval-evaluator-design.md
 base-ref: b114f0c21ca8c60e591a6105314aed14e6170da0
+archived-with: 2026-07-24-eval-evaluator
 ---
 
 # M20 Eval-Evaluator Implementation Plan
@@ -26,6 +27,7 @@ base-ref: b114f0c21ca8c60e591a6105314aed14e6170da0
 - 不新增第三方依赖、常驻服务、scheduler、数据库、HTTP endpoint、Planner 角色或 manifest baseline 自动更新机制。
 - 每个任务先写失败测试，再实现最小代码；完成前运行本任务测试和对应 ruff 检查。
 
+archived-with: 2026-07-24-eval-evaluator
 ---
 
 ## File Structure

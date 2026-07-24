@@ -1,8 +1,8 @@
-## 为什么
+## Why
 
 ForgeAgent 已有确定性的 20 项 golden core 与审计记录，但还没有稳定方式比较不同运行的结果，或发现 Harness 变更让“模型 + Harness”组合变好还是退化。M20 增加离线优先的评估记录与显式 opt-in 的独立 Evaluator，同时不削弱可信核心。
 
-## 变更内容
+## What Changes
 
 - 增加版本化机器可读的评估记录契约，从 golden suite 结果和兼容的审计事件聚合 `first_pass_correctness`、`correction_rounds`、`cache_hit_rate` 与 golden 通过率。
 - 增加本地趋势记录与比较命令；不需要服务、网络或凭证。

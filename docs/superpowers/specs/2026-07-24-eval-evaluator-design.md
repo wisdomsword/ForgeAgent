@@ -2,6 +2,8 @@
 comet_change: eval-evaluator
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-07-24-eval-evaluator
+status: final
 ---
 
 # M20 Eval-Evaluator 技术设计

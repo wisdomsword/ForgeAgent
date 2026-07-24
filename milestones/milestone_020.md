@@ -1,12 +1,12 @@
 # 里程碑 M20: Eval 体系与独立 Evaluator
 
-- 状态: 已完成（待 Comet 归档确认）
+- 状态: 已完成并归档
 - 起止: 2026-07-24 ~ 2026-07-24
 - 对应 ACTION_PLAN 行: M20（见该文件 §四 里程碑表）
 - 前置里程碑: [milestone_019](milestone_019.md)
 - 技术设计: [2026-07-24-eval-evaluator-design](../docs/superpowers/specs/2026-07-24-eval-evaluator-design.md)
 - 验证报告: [2026-07-24-eval-evaluator-verify](../docs/superpowers/reports/2026-07-24-eval-evaluator-verify.md)
-- OpenSpec change: [`eval-evaluator`](../openspec/changes/eval-evaluator/)
+- OpenSpec change: [`2026-07-24-eval-evaluator`](../openspec/changes/archive/2026-07-24-eval-evaluator/)
 
 ## 目标与范围
 
@@ -73,11 +73,11 @@ Task、REPL、serve 和 offline golden 不调用 Evaluator；缺失指标保持 
   显式 opt-in，由有凭证的用户按需运行，不作为离线完成门禁。
 - [ ] Evaluator 判断非确定且 snapshot 前存在同机修改窗口 — 影响：意见可能波动，复制时内容
   可能变化；计划：保留现有大小复核、只读 snapshot 和非 CI 定位，若出现实证问题另立 change。
-- [ ] Comet change 尚未归档 — 原因：最终归档属于用户确认门；计划：用户选择分支收尾后归档。
 
 ## 续接指引
 
-M20 实现与验证已完成，`eval-evaluator` change 等待用户确认分支收尾和最终归档。下一计划
+M20 实现、验证与 `eval-evaluator` change 归档均已完成，当前保留在
+`codex/eval-evaluator` 分支。下一计划
 里程碑为 M21 Loop Engineering：在不把 M20 Evaluator 自动接入普通 Task 的前提下，设计
 trigger、checkpoint/resume、stop conditions 和收敛反馈环；M22 才讨论 Generator/Evaluator
 打回与 Planner 清单语义。继续保持 offline CI、20 项 trusted core 和显式真实模型成本边界。

@@ -5,11 +5,11 @@
 设计文档见 [`docs/`](docs/)，行动计划见 [`ACTION_PLAN.md`](ACTION_PLAN.md)，最高宪法见 [`spec.md`](spec.md)。
 
 当前主线已完成 M17 Runtime Context Engineering、M18 Memory Runtime（含归档后两次
-人工复测 hotfix）与 M19 Skills Runtime，M20 Eval 已完成实现与验证：程序性知识从 Memory 分流
+人工复测 hotfix）与 M19 Skills Runtime，M20 Eval 已完成实现、验证与归档：程序性知识从 Memory 分流
 到可验证、快照化、渐进加载的 Skill，并新增离线评估记录、趋势和显式 opt-in 的独立
 Evaluator。收尾记录见
-[`milestone_017.md`](milestones/milestone_017.md)、[`milestone_018.md`](milestones/milestone_018.md)
-和 [`milestone_019.md`](milestones/milestone_019.md)。M19 已通过无 API Key、无网络的本地
+[`milestone_017.md`](milestones/milestone_017.md)、[`milestone_018.md`](milestones/milestone_018.md)、
+[`milestone_019.md`](milestones/milestone_019.md) 和 [`milestone_020.md`](milestones/milestone_020.md)。M19 已通过无 API Key、无网络的本地
 人类验收；归档后补充的 Startup-Information 已完成真实 TTY 启动标识、能力摘要、MCP
 脱敏诊断和非 TTY 零启动噪声，并作为独立 OpenSpec change 归档。
 

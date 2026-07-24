@@ -9,8 +9,8 @@ status: passed
 
 M20 的 10/10 项 OpenSpec 任务、7/7 项需求和 13/13 个规格场景均有实现与测试证据。
 独立代码评审最初拒绝实现并提出 7 项问题，复审追加 2 项；全部按 TDD 修复后，最终
-复审结论为 no findings、批准。change 已满足 build 与验证门禁，尚未执行真实模型
-Evaluator，也尚未归档。
+复审结论为 no findings、批准。change 已满足 build 与验证门禁并完成归档；未执行真实模型
+Evaluator，该入口按设计保持显式 opt-in。
 
 ## 完整性
 
@@ -42,7 +42,9 @@ Evaluator，也尚未归档。
 - `uv run ruff format --check src tests`：`86 files already formatted`；
   `uv run ruff check src tests`：`All checks passed!`。
 - `uv build --out-dir /tmp/forgeagent-m20-build-final`：sdist 与 wheel 均成功生成。
-- `npx openspec validate eval-evaluator --strict`：`Change 'eval-evaluator' is valid`。
+- 归档前 `npx openspec validate eval-evaluator --strict`：`Change 'eval-evaluator' is valid`；
+  归档后 `npx openspec validate --all --strict`：15 项 spec 全部通过。
+- Comet archive：7/7 步骤成功，主 spec 已按 delta 语义合并，归档状态为 `archived: true`。
 - `git diff --check`：通过。
 
 ## 三次评审
