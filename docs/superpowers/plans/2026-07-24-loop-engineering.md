@@ -39,39 +39,39 @@ base-ref: d24abc04fa5f92c64621b2dd5d22ee598031a860
 - `LoopCheckpointStore(allowed_root: str, *, audit_sink: AuditSink | None = None, task_id: str | None = None)` exposes `create(goal, budgets, *, loop_id=None)`, `load(loop_id)`, and revision-checked `save(checkpoint, *, expected_revision)`.
 - `build_loop_registry(*, store, checkpoint, with_mcp, skills)` returns current default tools plus one `Checkpoint` tool; it must not mutate global/default registries.
 
-- [ ] **Step 1: Write model and validation RED tests**
+- [x] **Step 1: Write model and validation RED tests**
 
 Add table-driven tests for defaults, explicit token budget, bool-as-int, zero/negative/nonfinite values, invalid loop IDs, extra fields, control characters, item limits, active/terminal status invariants, and safe `LoopReport` projection.
 
-- [ ] **Step 2: Run model tests and verify RED**
+- [x] **Step 2: Run model tests and verify RED**
 
 Run: `UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run pytest -q tests/test_loop_checkpoint.py -k 'model or budget or report'`
 
 Expected: collection/import failure because `forgeagent.loop` does not exist.
 
-- [ ] **Step 3: Implement minimal strict models and constants**
+- [x] **Step 3: Implement minimal strict models and constants**
 
 Use frozen/forbid models where mutation is not required. Normalize item tuples with ordered deduplication and fixed limits. Keep validation local to `loop.py`; do not add generic validation helpers elsewhere.
 
-- [ ] **Step 4: Run model tests and verify GREEN**
+- [x] **Step 4: Run model tests and verify GREEN**
 
 Run the Step 2 command. Expected: all selected tests pass with pristine output.
 
-- [ ] **Step 5: Write store/tool RED tests**
+- [x] **Step 5: Write store/tool RED tests**
 
 Cover create/load, stable JSON, unknown schema, malformed/nonfinite/oversize input, root/file symlink rejection, path escape prevention, atomic replacement, failed replacement preserving old bytes, temp cleanup, stale revision, completed-item deletion refusal, successful tool commit before return, bounded detail, and registry isolation from ordinary `default_registry()`.
 
-- [ ] **Step 6: Run store/tool tests and verify RED**
+- [x] **Step 6: Run store/tool tests and verify RED**
 
 Run: `UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run pytest -q tests/test_loop_checkpoint.py -k 'store or atomic or symlink or checkpoint_tool or registry'`
 
 Expected: failures for missing store/tool behavior, not fixture errors.
 
-- [ ] **Step 7: Implement the atomic store and Checkpoint tool**
+- [x] **Step 7: Implement the atomic store and Checkpoint tool**
 
 Reuse existing project patterns from `evaluation.py`/`identity.py` for `NamedTemporaryFile` + replace and from `tools.py` for `ToolOutcome`. Audit only schema/revision/counters; never goal/path/item/handoff text. Use one store lock and expected revision to prevent lost updates.
 
-- [ ] **Step 8: Run Task 1 tests and related regressions**
+- [x] **Step 8: Run Task 1 tests and related regressions**
 
 Run:
 
@@ -82,7 +82,7 @@ UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run pytest -q \
 
 Expected: all pass.
 
-- [ ] **Step 9: Mark OpenSpec tasks 1.1-1.3 complete and commit**
+- [x] **Step 9: Mark OpenSpec tasks 1.1-1.3 complete and commit**
 
 Commit only Task 1 files with message `feat: add durable loop checkpoints`.
 

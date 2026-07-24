@@ -1,8 +1,8 @@
 ## 1. Loop 状态与持久化
 
-- [ ] 1.1 以严格 Pydantic 模型实现版本化 Loop budgets、checkpoint、终态报告和不变量校验
-- [ ] 1.2 实现 allowed-root/symlink/大小守卫与 sibling temp + fsync + replace 原子 checkpoint store
-- [ ] 1.3 实现 Loop 专用 Checkpoint 工具、边界限制和最小 system prompt 增量
+- [x] 1.1 以严格 Pydantic 模型实现版本化 Loop budgets、checkpoint、终态报告和不变量校验
+- [x] 1.2 实现 allowed-root/symlink/大小守卫与 sibling temp + fsync + replace 原子 checkpoint store
+- [x] 1.3 实现 Loop 专用 Checkpoint 工具、边界限制和最小 system prompt 增量
 
 ## 2. Loop 执行与停止条件
 
