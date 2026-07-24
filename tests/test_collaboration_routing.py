@@ -35,3 +35,20 @@ def test_explicit_modes_and_weaker_override_conflict_are_deterministic():
     assert (
         resolve_collaboration_mode("Create code", "duo", allow_weaker_override=True).mode == "duo"
     )
+
+
+@pytest.mark.parametrize(
+    "goal",
+    [
+        "Explain test strategy",
+        "Review the code policy",
+        "contest rules",
+        "Do not create code; explain the policy",
+        'Explain the phrase "create code"',
+        "不要创建代码，只解释策略",
+        "无需修复测试，请说明原因",
+        "解释“创建代码”这句话",
+    ],
+)
+def test_programming_routing_excludes_boundaries_negation_and_quotations(goal: str):
+    assert resolve_collaboration_mode(goal, None).mode == "single"

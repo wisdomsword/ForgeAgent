@@ -10,11 +10,14 @@ from pydantic import ValidationError
 from forgeagent.collaboration import (
     COLLABORATION_SCHEMA,
     MAX_ITEM_TEXT_CHARS,
+    MAX_PLAN_ITEMS,
     AcceptanceItem,
     CollaborationReport,
     CollaborationState,
     CollaborationUsage,
     EvaluationItem,
+    ModeDecision,
+    SubmitEvaluationArgs,
     plan_digest,
 )
 
@@ -103,3 +106,46 @@ def test_completed_state_requires_all_passing_evaluation_and_public_report_masks
     assert report.passed_item_count == 1
     assert "secret-value-for-test" not in report.evidence[0]
     assert "Create an artifact" not in report.model_dump_json()
+
+
+@pytest.mark.parametrize(
+    "location", ["/tmp/result.txt", "C:/Users/admin/result.txt", r"C:\Users\admin\result.txt"]
+)
+def test_evaluation_rejects_absolute_location_forms(location: str):
+    with pytest.raises(ValidationError):
+        EvaluationItem(
+            id="output", passed=True, observed="yes", expected="yes", location=location
+        )
+
+
+def test_public_models_reject_bool_and_integer_coercion():
+    report_values = {
+        "collaboration_id": "a" * 32,
+        "mode": "duo",
+        "status": "active",
+        "stop_reason": None,
+        "phase": "generator",
+        "plan_item_count": 1,
+        "passed_item_count": 0,
+        "failed_item_count": 0,
+        "generator_attempts": 0,
+        "evaluator_attempts": 0,
+        "rejections": 0,
+        "rounds": 0,
+        "usage": CollaborationUsage(),
+        "usage_available": True,
+    }
+    with pytest.raises(ValidationError):
+        CollaborationReport(**(report_values | {"plan_item_count": True}))
+    with pytest.raises(ValidationError):
+        CollaborationReport(**(report_values | {"usage_available": 1}))
+    with pytest.raises(ValidationError):
+        ModeDecision(mode="single", reason="default", override_required=1)
+
+
+def test_submit_evaluation_schema_requires_nonempty_bounded_results():
+    item = {"id": "output", "passed": True, "observed": "yes", "expected": "yes"}
+    with pytest.raises(ValidationError):
+        SubmitEvaluationArgs(results=[])
+    with pytest.raises(ValidationError):
+        SubmitEvaluationArgs(results=[item] * (MAX_PLAN_ITEMS + 1))

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from forgeagent.collaboration import (
     AcceptanceItem,
     CollaborationStore,
@@ -80,3 +82,32 @@ def test_submit_evaluation_requires_exact_frozen_ids_and_registry_is_read_only(t
     )
     assert set(planner.arg_schemas()) == {"SubmitPlan"}
     assert set(evaluator.arg_schemas()) == {"FileRead", "FileList", "SubmitEvaluation"}
+
+
+def test_submit_evaluation_masks_evidence_before_persistence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setenv("COLLABORATION_SECRET", "persisted-secret-value")
+    store = CollaborationStore(str(tmp_path))
+    state = store.create("Build an artifact", "duo", collaboration_id="c" * 32)
+    tool = SubmitEvaluationTool(store, state)
+
+    outcome = tool.run(
+        SubmitEvaluationArgs(
+            results=[
+                {
+                    "id": "goal",
+                    "passed": False,
+                    "observed": "found persisted-secret-value",
+                    "expected": "not persisted-secret-value",
+                    "location": "result.txt",
+                }
+            ]
+        ),
+        None,
+    )
+    monkeypatch.delenv("COLLABORATION_SECRET")
+    persisted = store.load(state.collaboration_id)
+
+    assert outcome.success is True
+    assert "persisted-secret-value" not in persisted.model_dump_json()

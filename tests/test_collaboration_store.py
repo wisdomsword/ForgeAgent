@@ -13,6 +13,8 @@ from forgeagent.collaboration import (
     AcceptanceItem,
     CollaborationError,
     CollaborationStore,
+    CollaborationUsage,
+    EvaluationItem,
     plan_digest,
 )
 
@@ -96,3 +98,107 @@ def test_store_refuses_replacing_a_frozen_plan(tmp_path: Path):
             ),
             expected_revision=0,
         )
+
+
+@pytest.mark.parametrize(
+    ("updates", "label"),
+    [
+        ({"phase": "generator"}, "phase"),
+        ({"status": "active", "phase": "generator", "stop_reason": None}, "terminal status"),
+        ({"generator_attempts": 1}, "generator attempts"),
+        ({"evaluator_attempts": 1}, "evaluator attempts"),
+        ({"rejections": 0}, "rejections"),
+        ({"rounds": 4}, "rounds"),
+        ({"usage": CollaborationUsage(input_tokens=4)}, "usage"),
+        ({"goal": "Changed goal"}, "goal"),
+        ({"mode": "triad"}, "mode"),
+        ({"generator_model": "changed"}, "role config"),
+    ],
+)
+def test_store_rejects_nonmonotonic_state_transitions(
+    tmp_path: Path, updates: dict[str, object], label: str
+):
+    plan = (AcceptanceItem(id="goal", behavior="goal", acceptance="goal"),)
+    evaluation = (
+        EvaluationItem(id="goal", passed=True, observed="yes", expected="yes"),
+    )
+    store = CollaborationStore(str(tmp_path))
+    current = store.create(
+        "Build an artifact",
+        "duo",
+        collaboration_id="3" * 32,
+        phase="completed",
+        status="completed",
+        stop_reason="completed",
+        plan=plan,
+        generator_model="generator",
+        evaluator_model="evaluator",
+        generator_attempts=2,
+        evaluator_attempts=2,
+        rejections=1,
+        rounds=5,
+        usage=CollaborationUsage(input_tokens=5, output_tokens=3, cost=1.0),
+        last_evaluation=evaluation,
+    )
+
+    with pytest.raises(CollaborationError, match="transition"):
+        store.save(current.model_copy(update=updates), expected_revision=0)
+
+
+def test_store_rejects_plan_fact_loss_before_plan_freezes(tmp_path: Path):
+    store = CollaborationStore(str(tmp_path))
+    current = store.create("Build an artifact", "triad", collaboration_id="4" * 32)
+    plan = (AcceptanceItem(id="output", behavior="output", acceptance="exists"),)
+    saved = store.save(
+        current.model_copy(
+            update={"plan": plan, "plan_digest": plan_digest(plan), "phase": "needs_confirmation"}
+        ),
+        expected_revision=0,
+    )
+
+    with pytest.raises(CollaborationError, match="transition"):
+        store.save(
+            saved.model_copy(update={"plan": (), "plan_digest": "", "phase": "planning"}),
+            expected_revision=1,
+        )
+
+
+def test_store_rejects_evaluation_fact_loss(tmp_path: Path):
+    plan = (AcceptanceItem(id="goal", behavior="goal", acceptance="goal"),)
+    store = CollaborationStore(str(tmp_path))
+    current = store.create(
+        "Build an artifact",
+        "duo",
+        collaboration_id="5" * 32,
+        phase="evaluator",
+        plan=plan,
+        last_evaluation=(
+            EvaluationItem(id="goal", passed=False, observed="missing", expected="present"),
+        ),
+    )
+
+    with pytest.raises(CollaborationError, match="transition"):
+        store.save(current.model_copy(update={"last_evaluation": ()}), expected_revision=0)
+
+
+def test_store_rejects_restoring_unavailable_usage(tmp_path: Path):
+    store = CollaborationStore(str(tmp_path))
+    current = store.create(
+        "Build an artifact",
+        "duo",
+        collaboration_id="6" * 32,
+        usage_available=False,
+    )
+
+    with pytest.raises(CollaborationError, match="transition"):
+        store.save(current.model_copy(update={"usage_available": True}), expected_revision=0)
+
+
+@pytest.mark.parametrize("flag", ["O_NOFOLLOW", "O_DIRECTORY"])
+def test_store_fails_closed_without_safe_open_flags(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, flag: str
+):
+    monkeypatch.delattr(os, flag, raising=False)
+
+    with pytest.raises(CollaborationError, match="safe file access is unavailable"):
+        CollaborationStore(str(tmp_path))

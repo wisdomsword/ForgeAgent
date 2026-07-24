@@ -39,46 +39,42 @@ _HOW_ONLY_RE = re.compile(
     r"使用\s*(?:某库|.*库)|调用\s*(?:某\s*)?api|按.*算法实现)",
     re.IGNORECASE,
 )
-_PROGRAM_ACTIONS = (
-    "write",
-    "create",
-    "implement",
-    "fix",
-    "refactor",
-    "test",
-    "build",
-    "写",
-    "创建",
-    "实现",
-    "修复",
-    "重构",
-    "测试",
-    "构建",
+_PROGRAM_ACTION_PATTERNS = (
+    re.compile(rf"\b{term}\b", re.IGNORECASE)
+    for term in ("write", "create", "implement", "fix", "refactor", "tests?", "build")
 )
-_PROGRAM_ARTIFACTS = (
-    "code",
-    "program",
-    "script",
-    "api",
-    "class",
-    "function",
-    "test",
-    "package",
-    "project",
-    "代码",
-    "程序",
-    "脚本",
-    "接口",
-    "类",
-    "函数",
-    "测试",
-    "包",
-    "项目",
+_PROGRAM_ACTION_PATTERNS = tuple(_PROGRAM_ACTION_PATTERNS) + tuple(
+    re.compile(re.escape(term)) for term in ("写", "创建", "实现", "修复", "重构", "测试", "构建")
+)
+_PROGRAM_ARTIFACT_PATTERNS = tuple(
+    re.compile(rf"\b{term}\b", re.IGNORECASE)
+    for term in (
+        "code",
+        "programs?",
+        "scripts?",
+        "api",
+        "classes?",
+        "functions?",
+        "tests?",
+        "packages?",
+        "projects?",
+    )
+) + tuple(
+    re.compile(re.escape(term))
+    for term in ("代码", "程序", "脚本", "接口", "类", "函数", "测试", "包", "项目")
 )
 _PROGRAM_FILES = re.compile(
     r"(?:^|[\s`'\"/])(?:[\w.-]+\.(?:py|ts|js|rs|go)|pyproject\.toml|package\.json)(?:$|[\s`'\",.:])",
     re.IGNORECASE,
 )
+_QUOTED_TEXT = re.compile(r'"[^"\n]*"|\'[^\'\n]*\'|“[^”\n]*”|‘[^’\n]*’')
+_NEGATED_PROGRAM_ACTION = re.compile(
+    r"\b(?:do\s+not|don't|dont|never|without)\s+(?:(?:\w+)[\s-]+){0,3}"
+    r"(?:write|create|implement|fix|refactor|test|tests|build)\b|"
+    r"(?:不要|无需|不需要|别|禁止|不应|不用).{0,8}(?:写|创建|实现|修复|重构|测试|构建)",
+    re.IGNORECASE,
+)
+_CLAUSE_END = re.compile(r"[,，;；.!?。！？\n]")
 
 CollaborationMode = Literal["single", "duo", "triad"]
 CollaborationRole = Literal["planner", "generator", "evaluator"]
@@ -142,6 +138,45 @@ def _public_text(value: str, *, maximum: int = MAX_EVIDENCE_CHARS) -> str:
     return "".join(rendered)[:maximum]
 
 
+def _safe_evaluation_item(item: EvaluationItem) -> EvaluationItem:
+    return EvaluationItem(
+        id=item.id,
+        passed=item.passed,
+        observed=_public_text(item.observed),
+        expected=_public_text(item.expected),
+        location=_public_text(item.location, maximum=MAX_ITEM_TEXT_CHARS),
+    )
+
+
+def _routing_text(value: str) -> str:
+    projected = list(value)
+    excluded: list[tuple[int, int]] = []
+    excluded.extend(match.span() for match in _QUOTED_TEXT.finditer(value))
+    for match in _NEGATED_PROGRAM_ACTION.finditer(value):
+        clause_end = _CLAUSE_END.search(value, match.end(), min(len(value), match.start() + 160))
+        excluded.append((match.start(), clause_end.start() if clause_end else len(value)))
+    for start, end in excluded:
+        projected[start:end] = " " * (end - start)
+    return "".join(projected)
+
+
+def _programming_signal(value: str) -> bool:
+    routable = _routing_text(value)
+    if _PROGRAM_FILES.search(routable):
+        return True
+    actions = [
+        match.span()
+        for pattern in _PROGRAM_ACTION_PATTERNS
+        for match in pattern.finditer(routable)
+    ]
+    artifacts = [
+        match.span()
+        for pattern in _PROGRAM_ARTIFACT_PATTERNS
+        for match in pattern.finditer(routable)
+    ]
+    return any(action != artifact for action in actions for artifact in artifacts)
+
+
 class AcceptanceItem(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -203,7 +238,13 @@ class EvaluationItem(BaseModel):
         if not value:
             return value
         path = PurePosixPath(value)
-        if "\\" in value or path.is_absolute() or ".." in path.parts or path.as_posix() != value:
+        if (
+            "\\" in value
+            or path.is_absolute()
+            or re.match(r"^[A-Za-z]:[/\\]", value)
+            or ".." in path.parts
+            or path.as_posix() != value
+        ):
             raise ValueError("location must be a canonical relative path")
         return value
 
@@ -264,12 +305,71 @@ _STOP_REASONS: dict[str, frozenset[str | None]] = {
         {"state_failure", "unrecoverable_failure", "invalid_role_submission", "role_failed"}
     ),
 }
+_ALLOWED_PHASE_TRANSITIONS = {
+    "planning": frozenset({"planning", "needs_confirmation", "stopped", "cancelled", "failed"}),
+    "needs_confirmation": frozenset(
+        {"needs_confirmation", "generator", "stopped", "cancelled", "failed"}
+    ),
+    "generator": frozenset({"generator", "evaluator", "stopped", "cancelled", "failed"}),
+    "evaluator": frozenset(
+        {"evaluator", "generator", "completed", "stopped", "cancelled", "failed"}
+    ),
+    "completed": frozenset({"completed"}),
+    "stopped": frozenset({"stopped"}),
+    "cancelled": frozenset({"cancelled"}),
+    "failed": frozenset({"failed"}),
+}
+_TERMINAL_STATUSES = frozenset({"completed", "stopped", "cancelled", "failed"})
+_FROZEN_STATE_FIELDS = (
+    "collaboration_id",
+    "mode",
+    "goal",
+    "planner_model",
+    "generator_model",
+    "evaluator_model",
+    "evaluator_tier",
+    "max_rejections",
+)
+_MONOTONIC_COUNTER_FIELDS = (
+    "generator_attempts",
+    "evaluator_attempts",
+    "rejections",
+    "rounds",
+)
+
+
+def _validate_state_transition(current: CollaborationState, candidate: CollaborationState) -> None:
+    if any(getattr(current, field) != getattr(candidate, field) for field in _FROZEN_STATE_FIELDS):
+        raise CollaborationError("invalid collaboration state transition")
+    if current.status in _TERMINAL_STATUSES and candidate.status != current.status:
+        raise CollaborationError("invalid collaboration state transition")
+    if candidate.phase not in _ALLOWED_PHASE_TRANSITIONS[current.phase]:
+        raise CollaborationError("invalid collaboration state transition")
+    if any(
+        getattr(candidate, field) < getattr(current, field) for field in _MONOTONIC_COUNTER_FIELDS
+    ):
+        raise CollaborationError("invalid collaboration state transition")
+    if any(
+        getattr(candidate.usage, field) < getattr(current.usage, field)
+        for field in CollaborationUsage.model_fields
+    ):
+        raise CollaborationError("invalid collaboration state transition")
+    if not current.usage_available and candidate.usage_available:
+        raise CollaborationError("invalid collaboration state transition")
+    if current.plan and candidate.plan != current.plan:
+        raise CollaborationError("invalid collaboration state transition")
+    if current.plan_digest and candidate.plan_digest != current.plan_digest:
+        raise CollaborationError("invalid collaboration state transition")
+    if current.last_evaluation and not candidate.last_evaluation:
+        raise CollaborationError("invalid collaboration state transition")
 
 
 class CollaborationState(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
+    model_config = ConfigDict(
+        frozen=True, extra="forbid", populate_by_name=True, serialize_by_alias=True
+    )
 
-    schema: Literal[COLLABORATION_SCHEMA] = COLLABORATION_SCHEMA
+    schema_: Literal[COLLABORATION_SCHEMA] = Field(COLLABORATION_SCHEMA, alias="schema")
     collaboration_id: str
     mode: Literal["duo", "triad"]
     status: CollaborationStatus = "active"
@@ -291,6 +391,10 @@ class CollaborationState(BaseModel):
     usage: CollaborationUsage = Field(default_factory=CollaborationUsage)
     usage_available: bool = True
     last_evaluation: tuple[EvaluationItem, ...] = ()
+
+    @property
+    def schema(self) -> str:
+        return self.schema_
 
     @field_validator("collaboration_id")
     @classmethod
@@ -385,9 +489,11 @@ class CollaborationState(BaseModel):
 
 
 class CollaborationReport(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
+    model_config = ConfigDict(
+        frozen=True, extra="forbid", populate_by_name=True, serialize_by_alias=True
+    )
 
-    schema: Literal[COLLABORATION_SCHEMA] = COLLABORATION_SCHEMA
+    schema_: Literal[COLLABORATION_SCHEMA] = Field(COLLABORATION_SCHEMA, alias="schema")
     collaboration_id: str
     mode: Literal["duo", "triad"]
     status: CollaborationStatus
@@ -403,6 +509,31 @@ class CollaborationReport(BaseModel):
     usage: CollaborationUsage
     usage_available: bool
     evidence: tuple[str, ...] = ()
+
+    @property
+    def schema(self) -> str:
+        return self.schema_
+
+    @field_validator(
+        "plan_item_count",
+        "passed_item_count",
+        "failed_item_count",
+        "generator_attempts",
+        "evaluator_attempts",
+        "rejections",
+        "rounds",
+        mode="before",
+    )
+    @classmethod
+    def _validate_count(cls, value: Any, info: Any) -> int:
+        return _nonnegative_int(value, field=info.field_name)
+
+    @field_validator("usage_available", mode="before")
+    @classmethod
+    def _validate_usage_available(cls, value: Any) -> bool:
+        if type(value) is not bool:
+            raise ValueError("usage_available must be a bool")
+        return value
 
     @classmethod
     def from_state(cls, state: CollaborationState) -> CollaborationReport:
@@ -435,6 +566,11 @@ class CollaborationStore:
     def __init__(
         self, allowed_root: str, *, audit_sink: AuditSink | None = None, task_id: str | None = None
     ) -> None:
+        try:
+            self._no_follow = os.O_NOFOLLOW
+            self._directory_flag = os.O_DIRECTORY
+        except AttributeError:
+            raise CollaborationError("safe file access is unavailable") from None
         self._lock = threading.RLock()
         self._audit_sink, self._task_id = audit_sink, task_id
         self._root = self._directory(Path(allowed_root), required=True, root=None)
@@ -444,7 +580,7 @@ class CollaborationStore:
         self._directory_path = directory
         try:
             self._directory_fd = os.open(
-                directory, os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0)
+                directory, os.O_RDONLY | self._directory_flag | self._no_follow
             )
         except OSError as error:
             raise CollaborationError("collaboration directory is unavailable") from error
@@ -547,7 +683,7 @@ class CollaborationStore:
             try:
                 descriptor = os.open(
                     name,
-                    os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+                    os.O_RDONLY | self._no_follow,
                     dir_fd=self._directory_fd,
                 )
                 with os.fdopen(descriptor, "r", encoding="utf-8") as handle:
@@ -581,14 +717,13 @@ class CollaborationStore:
             current = self.load(state.collaboration_id)
             if current.revision != expected_revision:
                 raise CollaborationError("collaboration revision is stale")
-            if current.plan and state.plan != current.plan:
-                raise CollaborationError("frozen collaboration plan cannot change")
             try:
                 updated = CollaborationState.model_validate(
                     state.model_dump(mode="python") | {"revision": expected_revision + 1}
                 )
             except ValidationError as error:
                 raise CollaborationError("invalid collaboration state") from error
+            _validate_state_transition(current, updated)
             self._write(self._name(updated.collaboration_id), updated)
             self._audit(updated, "saved")
             return updated
@@ -610,7 +745,7 @@ class CollaborationStore:
             self._ensure_binding()
             descriptor = os.open(
                 temporary_name,
-                os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | self._no_follow,
                 0o600,
                 dir_fd=self._directory_fd,
             )
@@ -672,6 +807,13 @@ class SubmitEvaluationArgs(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
     results: tuple[EvaluationItem, ...]
 
+    @field_validator("results", mode="before")
+    @classmethod
+    def _validate_results(cls, value: Any) -> tuple[EvaluationItem, ...]:
+        if not isinstance(value, (list, tuple)) or not value or len(value) > MAX_PLAN_ITEMS:
+            raise ValueError("results must be a non-empty bounded list")
+        return tuple(EvaluationItem.model_validate(item) for item in value)
+
 
 class SubmitPlanTool(Tool):
     name, args_model, risk_level = "SubmitPlan", SubmitPlanArgs, "low"
@@ -727,7 +869,7 @@ class SubmitEvaluationTool(Tool):
     def run(self, args: BaseModel, ctx: ToolContext | None) -> ToolOutcome:
         try:
             validated = SubmitEvaluationArgs.model_validate(args.model_dump(mode="python"))
-            results = tuple(EvaluationItem.model_validate(item) for item in validated.results)
+            results = tuple(_safe_evaluation_item(item) for item in validated.results)
             results_by_id = {item.id: item for item in results}
             if len(results_by_id) != len(results) or set(results_by_id) != {
                 item.id for item in self._state.plan
@@ -780,15 +922,19 @@ class ModeDecision(BaseModel):
     reason: Literal["explicit", "programming", "default", "override_required"]
     override_required: bool = False
 
+    @field_validator("override_required", mode="before")
+    @classmethod
+    def _validate_override_required(cls, value: Any) -> bool:
+        if type(value) is not bool:
+            raise ValueError("override_required must be a bool")
+        return value
+
 
 def resolve_collaboration_mode(
     goal: str, requested_mode: CollaborationMode | None, *, allow_weaker_override: bool = False
 ) -> ModeDecision:
     normalized = unicodedata.normalize("NFKC", goal).lower()[:MAX_GOAL_CHARS]
-    programming = bool(_PROGRAM_FILES.search(normalized)) or (
-        any(token in normalized for token in _PROGRAM_ACTIONS)
-        and any(token in normalized for token in _PROGRAM_ARTIFACTS)
-    )
+    programming = _programming_signal(normalized)
     if requested_mode == "triad":
         return ModeDecision(mode="triad", reason="explicit")
     if programming and requested_mode in {"single", "duo"}:
