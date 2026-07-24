@@ -1,0 +1,19 @@
+{
+  "change": "triad-mode",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "a3771257646c128b83aeb3dfcfe11b11a26c675c9c8c58cf2d7f2b45cabecfb3",
+  "files": [
+    { "path": "openspec/changes/triad-mode/proposal.md", "sha256": "6b0104e8a518fedc4826bce51973a8c844588483203e8d339beb5a7c642a77bf" },
+    { "path": "openspec/changes/triad-mode/design.md", "sha256": "9932213c95801871e05bd30d7490272d44b295bd0c38e372fde969c7850ffa79" },
+    { "path": "openspec/changes/triad-mode/tasks.md", "sha256": "a7c1582f40f5aaccbf14cd410289015c3bffd95c5897dac4fa9a77227e463f30" },
+    { "path": "openspec/changes/triad-mode/specs/audit-logging/spec.md", "sha256": "076dadcb04bf9898040e501bf76a0aeb6345a2d90faf96488ae89c999b4e39c0" },
+    { "path": "openspec/changes/triad-mode/specs/completion-integrity/spec.md", "sha256": "b40b222cd884545cb19818f99a20dae68bef28930abc370143edbc76a03a7a37" },
+    { "path": "openspec/changes/triad-mode/specs/http-task-service/spec.md", "sha256": "6fd56d7205aae730a7a2ea2265fe1cfbe692e54ed4c63c4c35af796adf8d0fa5" },
+    { "path": "openspec/changes/triad-mode/specs/loop-execution/spec.md", "sha256": "5899939a9d71156b2d637e5fadeb35fae4aa49baab2014ec6724fc3ae3cf9465" },
+    { "path": "openspec/changes/triad-mode/specs/repl-interactive-input/spec.md", "sha256": "8d919bb861df7ac4c876c2ce31df8168edf0cc9ba44481e9ca78ec046269c7f3" },
+    { "path": "openspec/changes/triad-mode/specs/runtime-collaboration/spec.md", "sha256": "b71f3682bfe11700be6d66eceb225e15ecbea9bd1a8c2831cd92348c49ffefe8" }
+  ]
+}

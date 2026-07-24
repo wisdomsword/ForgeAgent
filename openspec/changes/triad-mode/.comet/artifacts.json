@@ -1,0 +1,8 @@
+{
+  "openspec_proposal": "openspec/changes/triad-mode/proposal.md",
+  "openspec_design": "openspec/changes/triad-mode/design.md",
+  "openspec_tasks": "openspec/changes/triad-mode/tasks.md",
+  "openspec_delta_spec": "openspec/changes/triad-mode/specs/audit-logging/spec.md",
+  "handoff_context": "openspec/changes/triad-mode/.comet/handoff/design-context.json",
+  "handoff_markdown": "openspec/changes/triad-mode/.comet/handoff/design-context.md"
+}
