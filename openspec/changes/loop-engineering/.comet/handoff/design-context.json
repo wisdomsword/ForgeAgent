@@ -1,0 +1,16 @@
+{
+  "change": "loop-engineering",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "3c040f78e3e2372ae1e15528f886931aef2ebce23ba69bf33a37d52946ec6cdb",
+  "files": [
+    { "path": "openspec/changes/loop-engineering/proposal.md", "sha256": "0869a81cb053a3914c4b7a215a6623ede23f92c037803a36b3d20fdabcd076dd" },
+    { "path": "openspec/changes/loop-engineering/design.md", "sha256": "18559a456c4580669664c36a1ed71855b6eb2375b9223aed11db699ddc09f1d2" },
+    { "path": "openspec/changes/loop-engineering/tasks.md", "sha256": "cd4ed031cc319879f12e3dde1be74128b962df995e31dfbf3af64b80c2d83f81" },
+    { "path": "openspec/changes/loop-engineering/specs/audit-logging/spec.md", "sha256": "3ac2abcce286d54179cb159c68a46b9d5e1a4e4f0542832b5c2011d08056ea8e" },
+    { "path": "openspec/changes/loop-engineering/specs/http-task-service/spec.md", "sha256": "32000be64b8de75ccdef8bba72061db104d4a2cdbe4f2af2ee937ef216b87c44" },
+    { "path": "openspec/changes/loop-engineering/specs/loop-execution/spec.md", "sha256": "156a63c00f8a477e955cbbfbacb3d8718d7e921b0f8327c3d9195b4bc4bca19f" }
+  ]
+}
