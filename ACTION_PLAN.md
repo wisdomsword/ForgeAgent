@@ -7,6 +7,7 @@
 > **M21 完成并归档（2026-07-24）**：Loop Engineering 已完成；最终回归 `1758 passed, 11 skipped`，专项 `462 passed`，golden `20/20`，OpenSpec strict `16/16`；OpenSpec change 已归档。
 > **M22 已完成并归档（2026-07-25）**：Duo/Triad core、Planner 确认、独立 Evaluator、编程任务路由和 CLI/REPL/HTTP/Loop 接入已完成；最终全量 `2069 passed, 11 skipped`、golden 20/20、Ruff、build、OpenSpec strict 与全 diff review 均通过。
 > **M22 归档后复核（2026-07-25）**：代码、主规格、归档状态与公开文档重新交叉检查；修正 README 的过期状态、M22 里程碑失效链接、Planner `behavior` 的 WHAT-only 绕过和协作 route/role lifecycle 审计缺口；修复后全量 `2073 passed, 11 skipped`、golden `20/20`、归档前 OpenSpec strict `18/18`（含 active change）、归档后主规格 `17/17`。
+> **P0/P1 收尾（2026-07-25）**：修复晚到取消覆盖终态 Collaboration report 的竞态，并完成 FileWrite 路径绑定、项目 Memory 跨进程更新和 Loop checkpoint revision CAS 加固；两个 change 均已归档。最终整合回归 `2093 passed, 11 skipped`、golden `20/20`、Ruff、build、OpenSpec strict `17/17`。
 > 调研基础：已通读 agent 核心执行链路（taskmgr → task/step → response 解析 → toolcalls → executor → runtime）、LLM 客户端层、提示词模板、配置与测试。
 
 ## 一、结论

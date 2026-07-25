@@ -629,16 +629,31 @@ def test_cancel_during_loop_close_preserves_completed_report():
         service.shutdown(1.0)
 
 
-def test_cancel_during_collaboration_close_preserves_completed_report():
+@pytest.mark.parametrize(
+    ("report_status", "report_reason"),
+    [
+        ("completed", "completed"),
+        ("stopped", "needs_confirmation"),
+        ("failed", "role_failed"),
+    ],
+)
+def test_cancel_during_collaboration_close_preserves_terminal_report(
+    report_status: str, report_reason: str
+):
     close_started = threading.Event()
     release_close = threading.Event()
+    report = _collaboration_report(
+        status=report_status,
+        stop_reason=report_reason,
+        phase=report_status,
+    )
 
     class ClosingCollaborationRunner:
         def run(
             self, goal: str, *, cancel_event: threading.Event | None = None
         ) -> CollaborationReport:
             assert cancel_event is not None
-            return _collaboration_report()
+            return report
 
         def close(self) -> None:
             close_started.set()
@@ -656,9 +671,45 @@ def test_cancel_during_collaboration_close_preserves_completed_report():
         release_close.set()
 
         view = service.wait(record.task_id, timeout=1.0)
-        assert view["status"] == "completed"
-        assert view["reason"] == "completed"
+        assert view["status"] == report_status
+        assert view["reason"] == report_reason
         assert view["plan_item_count"] == 2
+        assert service.cancel(record.task_id) == view
+    finally:
+        release_close.set()
+        service.shutdown(1.0)
+
+
+def test_cancel_during_collaboration_close_cancels_active_report():
+    close_started = threading.Event()
+    release_close = threading.Event()
+    report = _collaboration_report(status="active", stop_reason=None, phase="evaluator")
+
+    class ClosingCollaborationRunner:
+        def run(
+            self, goal: str, *, cancel_event: threading.Event | None = None
+        ) -> CollaborationReport:
+            assert cancel_event is not None
+            return report
+
+        def close(self) -> None:
+            close_started.set()
+            assert release_close.wait(1.0)
+
+    service = TaskService(
+        factory=lambda _record: ClosingCollaborationRunner(),
+        config=CONFIG,
+    )
+    try:
+        record = service.submit("goal", {"mode": "triad"})
+        assert close_started.wait(1.0)
+
+        assert service.cancel(record.task_id)["status"] == "running"
+        release_close.set()
+
+        view = service.wait(record.task_id, timeout=1.0)
+        assert view["status"] == "cancelled"
+        assert view["reason"] == "cancelled"
         assert service.cancel(record.task_id) == view
     finally:
         release_close.set()

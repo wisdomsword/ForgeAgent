@@ -27,3 +27,9 @@
 ## 结论
 
 6 项检查通过（第 6 项按 review_mode: off 记录跳过原因），无 CRITICAL / IMPORTANT 失败项。
+
+## 归档后复审
+
+最终整合前的独立只读审查未发现 Critical/High 行为缺陷，并确认实现与 Loop 的终态发布语义
+对齐。复审补齐 `stopped`、`failed` 终态和 `active + cancel` 三个回归场景；HTTP task service
+专项测试为 `33 passed`，最终全量为 `2093 passed, 11 skipped`。

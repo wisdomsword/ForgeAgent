@@ -9,8 +9,8 @@
 加载的 Skill）、M20 Eval（离线评估记录、趋势与显式 opt-in 独立 Evaluator）与 M21 Loop
 Engineering（有界的耐久多 Task 迭代、版本化 checkpoint/resume、stop conditions、
 HTTP/CLI/cron 调度示例）。M22 Duo/Triad 协作运行时已完成并归档，归档前全量验证为
-`2069 passed, 11 skipped`，OpenSpec strict 为 `17/17`；含归档后复核 hotfix 的最终全量
-验证为 `2073 passed, 11 skipped`（见下文 2026-07-25 复核段）。
+`2069 passed, 11 skipped`，OpenSpec strict 为 `17/17`；含后续复核 hotfix 与 P1 持久化加固的
+最终全量验证为 `2093 passed, 11 skipped`（见下文 2026-07-25 复核段）。
 收尾记录见
 [`milestone_017.md`](milestones/milestone_017.md)、[`milestone_018.md`](milestones/milestone_018.md)、
 [`milestone_019.md`](milestones/milestone_019.md)、[`milestone_020.md`](milestones/milestone_020.md)
@@ -22,8 +22,9 @@ HTTP/CLI/cron 调度示例）。M22 Duo/Triad 协作运行时已完成并归档�
 2026-07-25 归档后复核补齐了 Planner `behavior`/`acceptance` 双字段 WHAT-only 校验，以及
 `collaboration.route`、角色 start/outcome（含稳定 model/tier/status、耗时与归一化 usage）
 审计；异常路径同样产生不含原文的 outcome 事件。复核修复后的全量验证为
-`2073 passed, 11 skipped`；归档前 OpenSpec strict 为 `18/18`（含 active change），归档后
-主规格为 `17/17`。
+`2073 passed, 11 skipped`。随后修复晚到取消覆盖终态 Collaboration report 的竞态，并加固
+FileWrite 路径绑定、项目 Memory 跨进程更新和 Loop checkpoint revision CAS；两个 change 均已
+归档。最终整合验证为 `2093 passed, 11 skipped`、golden `20/20`，OpenSpec 主规格为 `17/17`。
 
 ## M22 Duo / Triad（独立验收）
 

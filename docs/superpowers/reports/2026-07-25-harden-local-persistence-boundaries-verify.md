@@ -49,9 +49,9 @@ spec 实现，未新增依赖、公共 API、配置项或文件 schema。
 `flock`/不可靠网络文件系统、绕过协议的外部写者，以及 checkpoint 不提供外部副作用
 exactly-once。
 
-## 分支与隔离
+## 归档与整合
 
-最终分支为 `codex/harden-local-persistence-boundaries`，从
-`eb2dc8dfa053988ae9e71283fb79b02f8d176fc1` 建立，只包含本 P1 change 的提交。共享工作区中另一
-任务的归档提交被完整保留在 `codex/harden-local-persistence-boundaries-shared-state`，没有进入
-本 P1 分支，也没有被删除或改写。分支选择为保留不合并、不推送；change 验证通过后暂不归档。
+本 change 已通过 Comet 归档，delta specs 已同步到 `loop-execution`、`runtime-memory` 和
+`tool-approval` 主规格。另一任务的 collaboration cancel hotfix 归档提交随后单独整合，没有
+改写任一 change 的历史内容。补齐 hotfix 边界测试后的最终整合回归为
+`2093 passed, 11 skipped`，golden `20/20`，OpenSpec strict `17/17`。
