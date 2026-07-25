@@ -1211,6 +1211,8 @@ _GENERATOR_PROMPT = (
     'Python block followed by <!-- ToolCall: {"name":"Exec","arguments":{"name":"block_name"}} '
     "-->. Use only registered tools. When every artifact is ready, call the zero-argument "
     'completion tool exactly as <!-- ToolCall: {"name":"SubmitCandidate","arguments":{}} -->. '
+    "SubmitCandidate does not create or validate artifacts. For file tasks, use FileWrite "
+    "before SubmitCandidate and submit only after every required write reports success. "
     "Do not substitute prose or task_status. A successful SubmitCandidate ends this role "
     "immediately. Under restricted execution, do not repeatedly retry merely because Exec "
     "cannot observe a file written by FileWrite."
@@ -1222,7 +1224,9 @@ _EVALUATOR_PROMPT = (
     '<!-- ToolCall: {"name":"SubmitEvaluation","arguments":{"results":[{"id":"stable_id",'
     '"passed":true,"observed":"observed result","expected":"acceptance criterion",'
     '"location":"relative/path"}]}} -->. Failed items require non-empty observed and expected '
-    "evidence. SubmitEvaluation is the only valid completion signal; do not substitute prose "
+    "evidence. Never infer that an artifact exists from the goal, plan, or Generator claim; "
+    "use FileList/FileRead or an available RunCheck and fail any item without direct evidence. "
+    "SubmitEvaluation is the only valid completion signal; do not substitute prose "
     "or task_status. A successful SubmitEvaluation ends this role immediately."
 )
 _UNRECOVERABLE_TASK_REASONS = frozenset({"client_error:auth", "client_error:invalid_request"})
