@@ -126,6 +126,8 @@ class ToolOutcome(BaseModel):
     # and, if set, ends the loop with `Termination.NEEDS_INFO` using `detail` as the
     # user-facing question. See docs/m7-tools-mcp-survey.md §3.5.
     needs_info: bool = False
+    # True only when a successful tool call is itself the task's completion boundary.
+    completes_task: bool = False
     continuation: str | None = None
     truncation_mode: Literal["head", "tail"] = "tail"
 
@@ -798,6 +800,7 @@ class ToolRegistry:
 
     def __init__(self) -> None:
         self._tools: dict[str, Tool] = {}
+        self._required_completion_tool: str | None = None
 
     def register(self, tool: Tool) -> None:
         """Register a tool by its declared name (later registration overrides)."""
@@ -805,6 +808,18 @@ class ToolRegistry:
 
     def get(self, name: str) -> Tool | None:
         return self._tools.get(name)
+
+    @property
+    def required_completion_tool(self) -> str | None:
+        return self._required_completion_tool
+
+    def require_completion(self, tool_name: str) -> None:
+        if tool_name not in self._tools:
+            raise ValueError("required completion tool must be registered")
+        current = self._required_completion_tool
+        if current is not None and current != tool_name:
+            raise ValueError(f"completion tool {current!r} is already required")
+        self._required_completion_tool = tool_name
 
     def arg_schemas(self) -> dict[str, type[BaseModel]]:
         """name -> argument schema, for the protocol parser to validate against."""

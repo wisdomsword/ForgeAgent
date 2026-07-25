@@ -79,6 +79,28 @@ def test_registry_get_unknown_returns_none():
     assert ToolRegistry().get("Nope") is None
 
 
+def test_tool_outcome_completion_defaults_off():
+    assert ToolOutcome(tool="Dummy", success=True).completes_task is False
+
+
+def test_registry_requires_one_registered_completion_tool():
+    registry = ToolRegistry()
+    registry.register(_DummyTool())
+
+    registry.require_completion("Dummy")
+
+    assert registry.required_completion_tool == "Dummy"
+    with pytest.raises(ValueError, match="registered"):
+        ToolRegistry().require_completion("Missing")
+
+    class _OtherTool(_DummyTool):
+        name = "Other"
+
+    registry.register(_OtherTool())
+    with pytest.raises(ValueError, match="already required"):
+        registry.require_completion("Other")
+
+
 def test_default_registry_carries_exec_edit_survey():
     schemas = default_registry().arg_schemas()
     assert schemas == {

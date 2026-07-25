@@ -165,8 +165,8 @@ class RoundResult(BaseModel):
     parse_errors: list[str] = Field(default_factory=list)
     memory_candidates: list[MemoryCandidate] = Field(default_factory=list)
     outcomes: list[ToolOutcome] = Field(default_factory=list)
-    # True only for a model-declared completion (Termination.COMPLETED). A prose answer
-    # is a soft success (Termination.ANSWERED_IN_PROSE) — solved, but not `completed`.
+    # True for a model-declared completion or a successful completion tool. A prose
+    # answer is a soft success (Termination.ANSWERED_IN_PROSE), not `completed`.
     completed: bool = False
     stopped_reason: str | None = None
     # When a tool signals a terminal state (e.g. Survey w/o asker → NEEDS_INFO), the
@@ -235,6 +235,8 @@ class Step:
         # Tool set drives both parsing (which names are recognised) and dispatch. Default
         # is the built-in Exec/Edit/Survey registry; with an MCPManager, MCP is added too.
         self._registry = registry or default_registry(with_mcp=mcp is not None, skills=skills)
+        self._successful_tools: set[str] = set()
+        self._submission_recovery_sent: set[str] = set()
         # One context shared across the task's tool dispatches (blocks/state persist).
         self._ctx = ToolContext(
             blocks=self.blocks,
@@ -453,7 +455,22 @@ class Step:
             # unverified soft completion if the model answers in prose again.
             if not prose_nudged:
                 prose_nudged = True
-                convo.append(Message(role=Role.USER, content=_PROSE_NUDGE))
+                tool_names = tuple(self._registry.arg_schemas())
+                nudge = _PROSE_NUDGE
+                if "---\ntask_status:" in rr.body:
+                    nudge = (
+                        "The task_status front matter was not leading, so it was not accepted. "
+                        "Send it again as a standalone response with --- as the first character, "
+                        "with no prose before it and no tool calls in the same response."
+                    )
+                elif "Exec" not in tool_names:
+                    nudge = (
+                        "You answered in prose without using the required protocol. Use one of "
+                        f"the registered tools ({', '.join(tool_names) or 'none'}) with the exact "
+                        "ToolCall format described in the system prompt. After successful tool "
+                        "feedback, declare completion in a later standalone task_status response."
+                    )
+                convo.append(Message(role=Role.USER, content=nudge))
                 continue
             rr.stopped_reason = Termination.ANSWERED_IN_PROSE
             break
@@ -487,14 +504,21 @@ class Step:
         for block in parsed.code_blocks:
             self.blocks.put(block.name, block.code, block.language)
         for call in parsed.tool_calls:
-            rr.outcomes.append(self._dispatch(call))
+            outcome = self._dispatch(call)
+            rr.outcomes.append(outcome)
+            if outcome.success and outcome.completes_task:
+                rr.completed = True
+                rr.stopped_reason = Termination.COMPLETED
+                break
             if self._cancelled():
                 break
-        self._apply_declared_status(
-            rr,
-            parsed.task_status,
-            allow_completed=not parsed.tool_calls and not parsed.errors,
-        )
+        self._successful_tools.update(outcome.tool for outcome in rr.outcomes if outcome.success)
+        if rr.stopped_reason is None:
+            self._apply_declared_status(
+                rr,
+                parsed.task_status,
+                allow_completed=not parsed.tool_calls and not parsed.errors,
+            )
         # A tool may signal terminal NEEDS_INFO (Survey without an asker). A declared
         # non-completed status wins if the model also declared one — the model's own
         # signal is more reliable than a tool-side default.
@@ -519,6 +543,16 @@ class Step:
         if status is None:
             return
         if status.completed:
+            required_submission = self._registry.required_completion_tool
+            if required_submission and required_submission not in self._successful_tools:
+                rr.parse_errors.append(
+                    f"{required_submission} must be called successfully before completion"
+                )
+                if required_submission in self._submission_recovery_sent:
+                    rr.stopped_reason = Termination.FAILED
+                else:
+                    self._submission_recovery_sent.add(required_submission)
+                return
             if allow_completed:
                 rr.completed = True
                 rr.stopped_reason = Termination.COMPLETED

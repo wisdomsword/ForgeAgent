@@ -1,0 +1,14 @@
+{
+  "change": "fix-collaboration-role-protocol",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "7b59bf8b0f57fc9c32177af3f69dbe233d4682f942147a6ee03880f3fdcdebf0",
+  "files": [
+    { "path": "openspec/changes/fix-collaboration-role-protocol/proposal.md", "sha256": "27a58f336d9698a7261f1b9af3202d7c4bc7fa3d9ab5eea2b20696822c0e7bc9" },
+    { "path": "openspec/changes/fix-collaboration-role-protocol/design.md", "sha256": "a2f201bbe21e2b6a66c9e765dbd5db4c21b61d8e97fd3cdb42b46ec32453b444" },
+    { "path": "openspec/changes/fix-collaboration-role-protocol/tasks.md", "sha256": "1d04bcf5e58519e89079ad77e9059175565c0cd6d769cbb4be89e96ebe9d8f96" },
+    { "path": "openspec/changes/fix-collaboration-role-protocol/specs/runtime-collaboration/spec.md", "sha256": "81fba9b5b631b196b7e98300817ceb8d6b8be02b18bdd926d0f562682b2436f1" }
+  ]
+}

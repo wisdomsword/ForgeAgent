@@ -8,6 +8,7 @@ import json
 import threading
 
 import pytest
+from pydantic import BaseModel, ConfigDict
 
 from forgeagent.audit import AuditEvent
 from forgeagent.client import MockClient, ProviderAttempt
@@ -27,7 +28,28 @@ from forgeagent.protocol import EditArgs, FileReadArgs, MCPArgs, ToolCall
 from forgeagent.runtime import Runtime
 from forgeagent.skills import SkillDefinition, SkillRegistry
 from forgeagent.step import RoundResult, Step, Termination, _apply_edit
-from forgeagent.tools import ToolOutcome
+from forgeagent.tools import Tool, ToolContext, ToolOutcome, ToolRegistry
+
+
+class _NoArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class _CompletionTool(Tool):
+    name = "Finish"
+    args_model = _NoArgs
+    risk_level = "low"
+
+    def run(self, args: BaseModel, ctx: ToolContext) -> ToolOutcome:
+        assert isinstance(args, _NoArgs)
+        return ToolOutcome(tool=self.name, success=True, completes_task=True)
+
+
+def _completion_registry() -> ToolRegistry:
+    registry = ToolRegistry()
+    registry.register(_CompletionTool())
+    registry.require_completion("Finish")
+    return registry
 
 
 class _RecordingAuditSink:
@@ -622,6 +644,25 @@ def test_prose_nudge_lets_model_recover_via_protocol():
     assert rounds[-1].stopped_reason == "completed"
 
 
+def test_misplaced_completed_front_matter_gets_position_recovery():
+    client = _RecordingClient(
+        script=[
+            _reply("Artifacts are ready.\n" + _done()),
+            _reply(_done()),
+        ]
+    )
+    step = Step(client, TrustedBackend(), Runtime(), max_rounds=5)
+
+    rounds = step.run(_user())
+
+    recovery = str(client.seen_messages[1][-1].content)
+    assert len(rounds) == 2
+    assert rounds[-1].stopped_reason == "completed"
+    assert "first character" in recovery
+    assert "standalone" in recovery
+    assert "Exec" not in recovery
+
+
 def test_empty_response_ends_without_nudge():
     step = _step([_reply("")])
     rounds = step.run(_user())
@@ -730,6 +771,66 @@ def test_completed_status_waits_for_parse_error_feedback():
     assert rounds[0].completed is False
     assert rounds[0].parse_errors
     assert rounds[1].stopped_reason == "completed"
+
+
+def test_completion_tool_finishes_without_standalone_status():
+    client = MockClient(script=[_reply(_tool_call("Finish")), _reply(_done())])
+    step = Step(
+        client,
+        TrustedBackend(),
+        Runtime(),
+        max_rounds=5,
+        registry=_completion_registry(),
+    )
+
+    rounds = step.run(_user())
+
+    assert client.calls_made == 1
+    assert rounds[-1].completed is True
+    assert rounds[-1].stopped_reason == Termination.COMPLETED
+    assert rounds[-1].outcomes[0].completes_task is True
+
+
+def test_completion_tool_skips_later_native_tool_call_and_audit():
+    sink = _RecordingAuditSink()
+    client = MockClient(
+        script=[
+            _reply(
+                _tool_call("Finish"),
+                tool_calls=[_native_call("after", "Finish")],
+            )
+        ]
+    )
+    step = Step(
+        client,
+        TrustedBackend(),
+        Runtime(),
+        registry=_completion_registry(),
+        audit_sink=sink,
+    )
+
+    rounds = step.run(_user())
+
+    assert len(rounds[-1].outcomes) == 1
+    tool_events = [event for event in sink.events if event.event_type == "tool.operation"]
+    assert len(tool_events) == 1
+
+
+def test_required_completion_gets_one_recovery_then_fails():
+    client = MockClient(script=[_reply(_done()), _reply(_done())])
+    step = Step(
+        client,
+        TrustedBackend(),
+        Runtime(),
+        max_rounds=5,
+        registry=_completion_registry(),
+    )
+
+    rounds = step.run(_user())
+
+    assert len(rounds) == 2
+    assert "Finish must be called successfully" in rounds[0].parse_errors[0]
+    assert rounds[-1].stopped_reason == Termination.FAILED
 
 
 def test_refused_status_stops_after_recording_successful_tool_outcome():
