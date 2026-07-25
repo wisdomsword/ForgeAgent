@@ -1217,6 +1217,7 @@ _GENERATOR_PROMPT = (
     "use the tool feedback to correct the work in the next round. When verification needs Exec, "
     "prefer its inline code argument instead of an unmarked fenced block. Match literal output "
     "requirements, including formatting. "
+    "Keep implementations and tests concise enough for independent FileRead inspection. "
     "Do not substitute prose or task_status. A successful SubmitCandidate ends this role "
     "immediately. Under restricted execution, do not repeatedly retry merely because Exec "
     "cannot observe a file written by FileWrite."
@@ -1233,6 +1234,8 @@ _EVALUATOR_PROMPT = (
     "FileRead of implementation code and pytest assertions is direct evidence: reason about "
     "their observable behavior when RunCheck is unavailable. Do not reject solely because Exec "
     "is unavailable, and never claim a command actually ran unless RunCheck reports it. "
+    "Inspect one file per response and wait for its feedback before reading another file. If "
+    "combined feedback is truncated, re-read only that file in a new response before judging. "
     "SubmitEvaluation is the only valid completion signal; do not substitute prose "
     "or task_status. A successful SubmitEvaluation ends this role immediately."
 )
