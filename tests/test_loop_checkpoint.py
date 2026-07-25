@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import fcntl
 import json
 import math
 import os
@@ -12,6 +11,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+import forgeagent.loop as loop_module
 from forgeagent.loop import (
     DEFAULT_MAX_CONSECUTIVE_FAILURES,
     DEFAULT_MAX_ROUNDS,
@@ -508,6 +508,7 @@ def test_store_rejects_symlink_checkpoint_lock(tmp_path: Path):
     assert store.load(checkpoint.loop_id).revision == 0
 
 
+@pytest.mark.skipif(loop_module.fcntl is None, reason="flock is POSIX-only")
 def test_checkpoint_lock_failure_preserves_revision(tmp_path: Path, monkeypatch):
     store = LoopCheckpointStore(str(tmp_path))
     checkpoint = store.create("Build it", _budgets(), loop_id="e" * 32)
@@ -516,7 +517,7 @@ def test_checkpoint_lock_failure_preserves_revision(tmp_path: Path, monkeypatch)
     def fail_lock(*args, **kwargs):
         raise OSError("lock unavailable")
 
-    monkeypatch.setattr(fcntl, "flock", fail_lock)
+    monkeypatch.setattr(loop_module.fcntl, "flock", fail_lock)
 
     with pytest.raises(LoopCheckpointError):
         store.save(checkpoint.model_copy(update={"handoff": "next"}), expected_revision=0)

@@ -1,5 +1,6 @@
-import fcntl
+import pytest
 
+import forgeagent.memory as memory_module
 from forgeagent.memory import MemoryManager
 from forgeagent.protocol import MemoryCandidate
 
@@ -90,6 +91,7 @@ def test_project_memory_rejects_symlink_lock_file(tmp_path):
     assert not (directory / "MEMORY.md").exists()
 
 
+@pytest.mark.skipif(memory_module.fcntl is None, reason="flock is POSIX-only")
 def test_project_memory_lock_failure_preserves_memory_and_disk(tmp_path, monkeypatch):
     manager = MemoryManager(str(tmp_path))
     assert (
@@ -105,7 +107,7 @@ def test_project_memory_lock_failure_preserves_memory_and_disk(tmp_path, monkeyp
     def fail_lock(*args, **kwargs):
         raise OSError("lock unavailable")
 
-    monkeypatch.setattr(fcntl, "flock", fail_lock)
+    monkeypatch.setattr(memory_module.fcntl, "flock", fail_lock)
     result = manager.apply(
         MemoryCandidate(scope="project", kind="fact", key="language", content="python")
     )
