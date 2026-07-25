@@ -77,8 +77,8 @@ Evaluator 组成，只有 Evaluator 的逐项全通过 verdict 能决定完成�
 
 ## 遗留问题
 
-- [ ] 真实模型 single/Triad 质量对比未运行 — 影响：不能据 mock replay 声称真实判别质量提升 — 计划：保持 opt-in，具备 provider key 且接受费用时单独执行。
-- [ ] v1 Evaluator 没有 Exec — 影响：不能自行执行测试命令，只能读取外部产物或预生成报告 — 计划：如需只读 executor，另立安全设计 change。
+- [ ] 真实模型 single/Triad 质量对比未运行 — 影响：不能据 mock replay 声称真实判别质量提升 — 计划：凭证已检测到，但 P2/P3 收尾的外发命令未获具体 payload/destination 授权；保持 opt-in，获授权后单独执行。
+- [x] 默认 Evaluator 无 Exec 的缺口已部分收口 — P2/P3 change 增加可信宿主冻结的 `RunCheck` ID、当前 Python 固定入口、临时副本与 restricted audit hook（禁止副本外文件内容访问、目录枚举、路径变更，以及网络、spawn/fork/exec 和进程信号控制）、timeout/cancel 和有界脱敏输出；标准 CLI/HTTP 仍不接受检查定义，默认工具集不变。
 - [ ] Duo/Triad 严格串行且多次 rejection 增加模型成本 — 影响：延迟和费用高于 single — 计划：保持显式 mode、角色模型选择与有界 rejection，不在 M22 引入并行。
 - [ ] 协作取消仍是 cooperative — 影响：不能强杀在途 provider/tool 调用 — 计划：沿用安全边界停止，不伪造硬截止。
 

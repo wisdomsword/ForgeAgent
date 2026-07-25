@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+from pydantic import ValidationError
 
+from forgeagent.check_runner import CheckDefinition, CheckResult
 from forgeagent.collaboration import (
     AcceptanceItem,
     CollaborationStore,
+    RunCheckArgs,
+    RunCheckTool,
     SubmitEvaluationArgs,
     SubmitEvaluationTool,
     SubmitPlanArgs,
@@ -99,6 +105,74 @@ def test_submit_evaluation_requires_exact_frozen_ids_and_registry_is_read_only(t
     )
     assert set(planner.arg_schemas()) == {"SubmitPlan"}
     assert set(evaluator.arg_schemas()) == {"FileRead", "FileList", "SubmitEvaluation"}
+
+
+def test_evaluator_registry_adds_only_host_defined_checks(tmp_path: Path):
+    store = CollaborationStore(str(tmp_path))
+    state = store.create("Build an artifact", "duo", collaboration_id="e" * 32)
+    checks = {"unit": CheckDefinition(id="unit", argv=(sys.executable, "-m", "pytest", "-q"))}
+
+    evaluator = build_evaluator_registry(store=store, state=state, checks=checks)
+
+    assert set(evaluator.arg_schemas()) == {
+        "FileRead",
+        "FileList",
+        "RunCheck",
+        "SubmitEvaluation",
+    }
+    with pytest.raises(ValidationError):
+        RunCheckArgs.model_validate({"check_id": "unit", "argv": ["sh", "-c", "id"]})
+
+
+def test_run_check_rejects_unknown_id_without_starting_process(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    def unexpected_runner(*args, **kwargs):  # noqa: ANN002, ANN003
+        pytest.fail("unknown check id must not start a process")
+
+    monkeypatch.setattr("forgeagent.collaboration.run_check", unexpected_runner)
+    tool = RunCheckTool(
+        {"unit": CheckDefinition(id="unit", argv=(sys.executable, "-m", "pytest", "-q"))}
+    )
+
+    outcome = tool.run(
+        RunCheckArgs(check_id="missing"),
+        SimpleNamespace(allowed_root=str(tmp_path), cancel_event=None),
+    )
+
+    assert outcome.success is False
+    assert outcome.detail == "RunCheck rejected: unknown check_id 'missing'"
+
+
+def test_run_check_reports_structured_host_check_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    expected = CheckResult(status="failed", exit_code=3, duration_ms=12, stdout="out", stderr="err")
+    monkeypatch.setattr("forgeagent.collaboration.run_check", lambda *args, **kwargs: expected)
+    tool = RunCheckTool({"unit": CheckDefinition(id="unit", argv=(sys.executable, "-c", "pass"))})
+
+    outcome = tool.run(
+        RunCheckArgs(check_id="unit"),
+        SimpleNamespace(allowed_root=str(tmp_path), cancel_event=None),
+    )
+
+    assert outcome.success is False
+    assert "check=unit status=failed exit_code=3 duration_ms=12" in outcome.detail
+    assert "stdout:\nout" in outcome.detail
+    assert "stderr:\nerr" in outcome.detail
+
+
+def test_run_check_rejects_invalid_direct_arguments_without_raising(tmp_path: Path):
+    tool = RunCheckTool({"unit": CheckDefinition(id="unit", argv=(sys.executable, "-c", "pass"))})
+    invalid = RunCheckArgs.model_construct(check_id="not valid")
+
+    outcome = tool.run(
+        invalid,
+        SimpleNamespace(allowed_root=str(tmp_path), cancel_event=None),
+    )
+
+    assert outcome.success is False
+    assert outcome.detail == "RunCheck rejected: invalid arguments"
 
 
 def test_submit_evaluation_masks_evidence_before_persistence(

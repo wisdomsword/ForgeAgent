@@ -11,6 +11,8 @@ The guard itself already has full coverage in test_ssrf_guard.py.
 import http.client
 import urllib.parse
 
+import pytest
+
 from forgeagent.ssrf_guard import SSRFGuardError
 from forgeagent.web_search import (
     DEFAULT_ENGINE,
@@ -147,7 +149,83 @@ def test_search_with_status_encodes_query_and_uses_default_engine(monkeypatch):
     results, error_kind = search_with_status("a b&c", engine=DEFAULT_ENGINE)
     assert error_kind is None
     assert results == []
-    assert captured_urls == [f"https://www.bing.com/search?q={urllib.parse.quote('a b&c')}"]
+    encoded = urllib.parse.quote("a b&c")
+    assert captured_urls == [
+        f"https://www.bing.com/search?q={encoded}",
+        f"https://html.duckduckgo.com/html/?q={encoded}",
+    ]
+
+
+@pytest.mark.parametrize("first_failure", ["network", "status", "zero"])
+def test_search_falls_back_once_when_preferred_engine_has_no_results(monkeypatch, first_failure):
+    captured_urls: list[str] = []
+
+    def fake_urlopen(url, *, timeout=10.0):
+        captured_urls.append(url)
+        if "bing.com" in url:
+            if first_failure == "network":
+                raise OSError("offline")
+            if first_failure == "status":
+                return _FakeResponse(b"", status=503)
+            return _FakeResponse(b"<html>no results</html>")
+        return _FakeResponse(DUCKDUCKGO_HTML.encode())
+
+    monkeypatch.setattr("forgeagent.web_search.guarded_urlopen", fake_urlopen)
+
+    results, error_kind = search_with_status("python", engine="bing")
+
+    assert error_kind is None
+    assert results[0].title == "DDG Title 1"
+    assert len(captured_urls) == 2
+
+
+def test_search_fallback_preserves_blocked_over_unavailable(monkeypatch):
+    def fake_urlopen(url, *, timeout=10.0):
+        if "bing.com" in url:
+            raise SSRFGuardError("blocked")
+        raise OSError("offline")
+
+    monkeypatch.setattr("forgeagent.web_search.guarded_urlopen", fake_urlopen)
+
+    assert search_with_status("python", engine="bing") == ([], ERROR_BLOCKED)
+
+
+def test_search_fallback_reports_unavailable_when_both_engines_fail(monkeypatch):
+    monkeypatch.setattr(
+        "forgeagent.web_search.guarded_urlopen",
+        lambda url, *, timeout=10.0: (_ for _ in ()).throw(OSError("offline")),
+    )
+
+    assert search_with_status("python", engine="bing") == ([], ERROR_UNAVAILABLE)
+
+
+def test_search_fallback_returns_zero_without_error_after_both_engines(monkeypatch):
+    captured_urls: list[str] = []
+
+    def fake_urlopen(url, *, timeout=10.0):
+        captured_urls.append(url)
+        return _FakeResponse(b"<html>no results</html>")
+
+    monkeypatch.setattr("forgeagent.web_search.guarded_urlopen", fake_urlopen)
+
+    assert search_with_status("python", engine="bing") == ([], None)
+    assert len(captured_urls) == 2
+
+
+def test_search_does_not_request_fallback_after_preferred_success(monkeypatch):
+    captured_urls: list[str] = []
+
+    def fake_urlopen(url, *, timeout=10.0):
+        captured_urls.append(url)
+        return _FakeResponse(BING_HTML.encode())
+
+    monkeypatch.setattr("forgeagent.web_search.guarded_urlopen", fake_urlopen)
+
+    results, error_kind = search_with_status("python", engine="bing")
+
+    assert error_kind is None
+    assert results
+    assert len(captured_urls) == 1
 
 
 def test_search_with_status_unpaired_surrogate_returns_unavailable_without_request(

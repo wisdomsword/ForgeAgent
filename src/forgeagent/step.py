@@ -249,6 +249,7 @@ class Step:
             allowed_root=allowed_root,
             audit_sink=audit_sink,
             task_id=task_id,
+            cancel_event=cancel_event,
         )
         self.rounds: list[RoundResult] = []
 

@@ -8,6 +8,7 @@ Behaviour is selected by env vars so one script can play the servers the tests n
   FORGE_TEST_MCP_NAME   the server's identity, echoed into tool output (default "fixture")
   FORGE_TEST_MCP_MODE   normal        -> working echo + add tools
                         crash_on_call -> the tool hard-exits mid-call (isolation test)
+                        hang_on_call  -> the echo call never returns (timeout test)
                         startup_chatter -> writes synthetic stderr, then starts normally
                         docker_failure  -> writes synthetic Docker stderr, then exits
 """
@@ -51,6 +52,9 @@ def echo(text: str) -> str:
     """Echo the given text, prefixed with this server's name."""
     if MODE == "crash_on_call":
         os._exit(9)
+    if MODE == "hang_on_call":
+        while True:
+            time.sleep(1)
     return f"{NAME}: {text}"
 
 

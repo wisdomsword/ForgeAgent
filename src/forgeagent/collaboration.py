@@ -12,7 +12,7 @@ import threading
 import time
 import unicodedata
 import weakref
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal, Protocol
 from uuid import uuid4
@@ -20,6 +20,7 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from .audit import AuditEvent, AuditSink, emit_audit
+from .check_runner import CheckDefinition, run_check
 from .secret_policy import REDACTED_PATH, mask_audit_data, sensitive_env_values
 from .task import TaskOutcome
 from .tools import (
@@ -957,6 +958,11 @@ class SubmitEvaluationArgs(BaseModel):
         return tuple(EvaluationItem.model_validate(item) for item in value)
 
 
+class RunCheckArgs(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    check_id: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9_-]{0,63}$")
+
+
 class SubmitPlanTool(Tool):
     name, args_model, risk_level = "SubmitPlan", SubmitPlanArgs, "low"
 
@@ -1046,6 +1052,44 @@ class SubmitEvaluationTool(Tool):
             )
 
 
+class RunCheckTool(Tool):
+    name, args_model, risk_level = "RunCheck", RunCheckArgs, "low"
+
+    def __init__(self, checks: Mapping[str, CheckDefinition]) -> None:
+        self._checks = dict(checks)
+
+    def run(self, args: BaseModel, ctx: ToolContext | None) -> ToolOutcome:
+        try:
+            validated = RunCheckArgs.model_validate(args.model_dump(mode="python"))
+        except (AttributeError, ValidationError):
+            return ToolOutcome(
+                tool=self.name,
+                success=False,
+                detail="RunCheck rejected: invalid arguments",
+            )
+        definition = self._checks.get(validated.check_id)
+        if definition is None:
+            return ToolOutcome(
+                tool=self.name,
+                success=False,
+                detail=f"RunCheck rejected: unknown check_id {validated.check_id!r}",
+            )
+        if ctx is None:
+            return ToolOutcome(tool=self.name, success=False, detail="RunCheck unavailable")
+        result = run_check(
+            definition,
+            allowed_root=ctx.allowed_root,
+            cancel_event=ctx.cancel_event,
+        )
+        detail = (
+            f"check={validated.check_id} status={result.status} "
+            f"exit_code={result.exit_code} duration_ms={result.duration_ms}\n"
+            f"stdout:\n{result.stdout}\n"
+            f"stderr:\n{result.stderr}"
+        )
+        return ToolOutcome(tool=self.name, success=result.status == "passed", detail=detail)
+
+
 def build_planner_registry(*, store: CollaborationStore, state: CollaborationState) -> ToolRegistry:
     registry = ToolRegistry()
     registry.register(SubmitPlanTool(store, state))
@@ -1053,11 +1097,16 @@ def build_planner_registry(*, store: CollaborationStore, state: CollaborationSta
 
 
 def build_evaluator_registry(
-    *, store: CollaborationStore, state: CollaborationState
+    *,
+    store: CollaborationStore,
+    state: CollaborationState,
+    checks: Mapping[str, CheckDefinition] | None = None,
 ) -> ToolRegistry:
     registry = ToolRegistry()
     registry.register(FileReadTool())
     registry.register(FileListTool())
+    if checks:
+        registry.register(RunCheckTool(checks))
     registry.register(SubmitEvaluationTool(store, state))
     return registry
 
@@ -1189,6 +1238,7 @@ class CollaborationRunner:
         role_task_builder: RoleTaskBuilder,
         plan_confirmer: PlanConfirmer | None = None,
         generator_registry: ToolRegistry | None = None,
+        evaluator_checks: Mapping[str, CheckDefinition] | None = None,
         task_data_suffix: str = "",
         recover_role_failures: bool = False,
         execution_tier: Literal["trusted", "restricted", "container"] = "restricted",
@@ -1209,6 +1259,7 @@ class CollaborationRunner:
         self._role_task_builder = role_task_builder
         self._plan_confirmer = plan_confirmer
         self._generator_registry = generator_registry
+        self._evaluator_checks = dict(evaluator_checks or {})
         self._task_data_suffix = task_data_suffix
         self._recover_role_failures = recover_role_failures
         self._execution_tier = execution_tier
@@ -1228,6 +1279,7 @@ class CollaborationRunner:
         role_task_builder: RoleTaskBuilder,
         plan_confirmer: PlanConfirmer | None = None,
         generator_registry: ToolRegistry | None = None,
+        evaluator_checks: Mapping[str, CheckDefinition] | None = None,
         task_data_suffix: str = "",
         recover_role_failures: bool = False,
         execution_tier: Literal["trusted", "restricted", "container"] = "restricted",
@@ -1273,6 +1325,7 @@ class CollaborationRunner:
             role_task_builder=role_task_builder,
             plan_confirmer=plan_confirmer,
             generator_registry=generator_registry,
+            evaluator_checks=evaluator_checks,
             task_data_suffix=task_data_suffix,
             recover_role_failures=recover_role_failures,
             execution_tier=execution_tier,
@@ -1458,7 +1511,13 @@ class CollaborationRunner:
                     return self._finish("cancelled", "cancelled")
 
             evaluator_state = self._store.load(self._state.collaboration_id)
-            registry = build_evaluator_registry(store=self._store, state=evaluator_state)
+            registry = build_evaluator_registry(
+                store=self._store,
+                state=evaluator_state,
+                checks=self._evaluator_checks,
+            )
+            if self._cancelled(cancel_event):
+                return self._finish("cancelled", "cancelled")
             try:
                 evaluator = self._run_role(
                     "evaluator",
@@ -1530,6 +1589,8 @@ class CollaborationRunner:
         data: str,
         cancel_event: threading.Event | None,
     ) -> TaskOutcome:
+        if self._cancelled(cancel_event):
+            raise CollaborationError("collaboration cancelled before role start")
         started = time.monotonic()
         model = getattr(self._state, f"{role}_model")
         tier = self._state.evaluator_tier if role == "evaluator" else self._execution_tier

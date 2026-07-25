@@ -1153,6 +1153,12 @@ class MCPManager:
                 if holder_slot is not None:
                     holder_slot[2].set()
             return {"ok": False, "text": "MCP call failed"}
+        if (
+            state.generation != generation
+            or not self._holder_slot_matches(server, generation)
+            or not self._session_slot_matches(server, generation, session)
+        ):
+            return {"ok": False, "text": "MCP call failed"}
         ok = not getattr(result, "isError", False)
         return {"ok": ok, "text": mask_secrets(_render_content(result), self._secret_values)}
 

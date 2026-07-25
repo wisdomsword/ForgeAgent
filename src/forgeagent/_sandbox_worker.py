@@ -29,18 +29,39 @@ import sys
 import traceback
 from contextlib import redirect_stderr, redirect_stdout
 
-_BLOCKED_SOCKET_EVENTS = frozenset(
-    {"socket.connect", "socket.getaddrinfo", "socket.bind", "socket.sendto"}
-)
-
 # Spawning a child process would escape the audit hook (the child does not inherit it),
 # so a child could read/exfiltrate freely. Deny process spawn/exec entirely in restricted.
 _BLOCKED_SPAWN_EVENTS = frozenset(
-    {"subprocess.Popen", "os.system", "os.exec", "os.spawn", "os.posix_spawn"}
+    {
+        "subprocess.Popen",
+        "os.system",
+        "os.exec",
+        "os.spawn",
+        "os.posix_spawn",
+        "os.fork",
+        "os.forkpty",
+    }
 )
+_BLOCKED_PROCESS_CONTROL_EVENTS = frozenset({"os.kill", "os.killpg"})
+_PATH_READ_EVENTS = frozenset({"os.chdir", "os.listdir", "os.scandir"})
+_PATH_MUTATION_EVENTS: dict[str, tuple[tuple[int, int | None], ...]] = {
+    "os.chflags": ((0, None),),
+    "os.chmod": ((0, 2),),
+    "os.chown": ((0, 3),),
+    "os.link": ((0, 2), (1, 3)),
+    "os.mkdir": ((0, 2),),
+    "os.remove": ((0, 1),),
+    "os.removexattr": ((0, None),),
+    "os.rename": ((0, 2), (1, 3)),
+    "os.rmdir": ((0, 1),),
+    "os.setxattr": ((0, None),),
+    "os.symlink": ((1, 2),),
+    "os.truncate": ((0, None),),
+    "os.utime": ((0, 3),),
+}
 
 
-def _install_audit_hook(allowed_root: str) -> None:
+def _install_audit_hook(allowed_root: str, *, writes_only_in_root: bool = False) -> None:
     """Install a PEP 578 hook: file opens limited to allowed roots; network denied."""
     real_root = os.path.realpath(allowed_root)
     allowed = [
@@ -61,7 +82,9 @@ def _install_audit_hook(allowed_root: str) -> None:
                 raise PermissionError(
                     "restricted: file access outside allowed root denied"
                 ) from None
-            for base in allowed:
+            write_access = _open_requests_write(args)
+            permitted = [real_root] if writes_only_in_root and write_access else allowed
+            for base in permitted:
                 try:
                     common = os.path.commonpath((base, rp))
                 except ValueError:
@@ -69,12 +92,53 @@ def _install_audit_hook(allowed_root: str) -> None:
                 if os.path.normcase(common) == os.path.normcase(base):
                     return
             raise PermissionError("restricted: file access outside allowed root denied")
-        elif event in _BLOCKED_SOCKET_EVENTS:
+        elif event.startswith("socket."):
             raise PermissionError(f"restricted: network access denied ({event})")
         elif event in _BLOCKED_SPAWN_EVENTS:
             raise PermissionError(f"restricted: process spawn denied ({event})")
+        elif event in _BLOCKED_PROCESS_CONTROL_EVENTS:
+            raise PermissionError(f"restricted: process control denied ({event})")
+        elif event in _PATH_READ_EVENTS:
+            path = args[0]
+            if not isinstance(path, int) and not _audit_path_within_root(path, -1, real_root):
+                raise PermissionError("restricted: file access outside allowed root denied")
+        elif path_specs := _PATH_MUTATION_EVENTS.get(event):
+            for path_index, dir_fd_index in path_specs:
+                path = args[path_index]
+                if isinstance(path, int):
+                    continue
+                dir_fd = args[dir_fd_index] if dir_fd_index is not None else -1
+                if not _audit_path_within_root(path, dir_fd, real_root):
+                    raise PermissionError("restricted: file mutation outside allowed root denied")
 
     sys.addaudithook(hook)
+
+
+def _open_requests_write(args: tuple) -> bool:
+    mode = args[1] if len(args) > 1 else None
+    if isinstance(mode, str) and any(character in mode for character in "wax+"):
+        return True
+    flags = args[2] if len(args) > 2 else 0
+    write_flags = os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND
+    return isinstance(flags, int) and bool(flags & write_flags)
+
+
+def _audit_path_within_root(path: str | bytes | None, dir_fd: int, real_root: str) -> bool:
+    decoded = os.curdir if path is None else os.fsdecode(path) if isinstance(path, bytes) else path
+    if not os.path.isabs(decoded):
+        if dir_fd in {-1, None}:
+            base = os.getcwd()
+        else:
+            base = os.path.realpath(f"/dev/fd/{dir_fd}")
+            if not os.path.isabs(base):
+                return False
+        decoded = os.path.join(base, decoded)
+    try:
+        resolved = os.path.realpath(decoded)
+        common = os.path.commonpath((real_root, resolved))
+    except (OSError, ValueError):
+        return False
+    return os.path.normcase(common) == os.path.normcase(real_root)
 
 
 def _apply_rlimits(cpu_seconds: int, memory_mb: int) -> None:

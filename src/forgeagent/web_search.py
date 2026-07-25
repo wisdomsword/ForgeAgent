@@ -205,16 +205,36 @@ def _parse_results(html: str, engine: str) -> list[SearchResult]:
 def search_with_status(
     query: str, *, max_results: int = 5, engine: str | None = None
 ) -> tuple[list[SearchResult], str | None]:
-    """Run a search; return (results, error_kind). error_kind is None on success
-    (even with zero hits), ERROR_BLOCKED on SSRF rejection, ERROR_UNAVAILABLE on
-    network failure or a non-200 response. Never raises.
+    """Try the preferred engine and then the other built-in engine at most once.
+
+    Returns ``(results, error_kind)``. Any result is success; otherwise blocked takes
+    precedence over unavailable, and two successful zero-hit responses return no error.
 
     Public (unlike `search`) because the REPL `/search` command needs the error_kind
     to print a friendly one-liner (blocked vs. unavailable vs. zero hits) instead of
     collapsing every failure into an empty list."""
-    engine = engine or load_search_engine()
-    if engine not in SEARCH_ENGINES:
-        engine = DEFAULT_ENGINE
+    preferred = engine or load_search_engine()
+    if preferred not in SEARCH_ENGINES:
+        preferred = DEFAULT_ENGINE
+    engines = [preferred, *(name for name in SEARCH_ENGINES if name != preferred)]
+    attempts: list[tuple[list[SearchResult], str | None]] = []
+    for name in engines:
+        results, error_kind = _search_engine(query, max_results=max_results, engine=name)
+        attempts.append((results, error_kind))
+        if results:
+            return results, None
+    errors = {error_kind for _results, error_kind in attempts}
+    if ERROR_BLOCKED in errors:
+        return [], ERROR_BLOCKED
+    if ERROR_UNAVAILABLE in errors:
+        return [], ERROR_UNAVAILABLE
+    return [], None
+
+
+def _search_engine(
+    query: str, *, max_results: int, engine: str
+) -> tuple[list[SearchResult], str | None]:
+    """Run one guarded request against one fixed built-in engine."""
     try:
         url = SEARCH_ENGINES[engine].format(query=urllib.parse.quote(query))
     except (UnicodeError, ValueError):
