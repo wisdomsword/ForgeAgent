@@ -296,6 +296,10 @@ def test_collaboration_role_prompts_explain_their_text_protocol(tmp_path: Path):
     assert "SubmitCandidate does not create or validate artifacts" in prompts["generator"]
     assert "use FileWrite before SubmitCandidate" in prompts["generator"]
     assert "do not call SubmitCandidate in that response" in prompts["generator"]
+    assert (
+        "Optional verification failure does not invalidate successful writes"
+        in prompts["generator"]
+    )
     assert '"name":"SubmitEvaluation"' in prompts["evaluator"]
     assert '"results"' in prompts["evaluator"]
     assert '"name":"FileRead"' in prompts["evaluator"]
