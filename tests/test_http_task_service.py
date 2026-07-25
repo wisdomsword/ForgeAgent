@@ -629,6 +629,71 @@ def test_cancel_during_loop_close_preserves_completed_report():
         service.shutdown(1.0)
 
 
+def test_cancel_during_collaboration_close_preserves_completed_report():
+    close_started = threading.Event()
+    release_close = threading.Event()
+
+    class ClosingCollaborationRunner:
+        def run(
+            self, goal: str, *, cancel_event: threading.Event | None = None
+        ) -> CollaborationReport:
+            assert cancel_event is not None
+            return _collaboration_report()
+
+        def close(self) -> None:
+            close_started.set()
+            assert release_close.wait(1.0)
+
+    service = TaskService(
+        factory=lambda _record: ClosingCollaborationRunner(),
+        config=CONFIG,
+    )
+    try:
+        record = service.submit("goal", {"mode": "triad"})
+        assert close_started.wait(1.0)
+
+        assert service.cancel(record.task_id)["status"] == "running"
+        release_close.set()
+
+        view = service.wait(record.task_id, timeout=1.0)
+        assert view["status"] == "completed"
+        assert view["reason"] == "completed"
+        assert view["plan_item_count"] == 2
+        assert service.cancel(record.task_id) == view
+    finally:
+        release_close.set()
+        service.shutdown(1.0)
+
+
+def test_cancelled_collaboration_report_remains_cancelled():
+    report = _collaboration_report(status="cancelled", stop_reason="cancelled", phase="cancelled")
+
+    class CancelledCollaborationRunner:
+        def run(
+            self, goal: str, *, cancel_event: threading.Event | None = None
+        ) -> CollaborationReport:
+            assert cancel_event is not None
+            cancel_event.set()
+            return report
+
+        def close(self) -> None:
+            pass
+
+    service = TaskService(
+        factory=lambda _record: CancelledCollaborationRunner(),
+        config=CONFIG,
+    )
+    try:
+        record = service.submit("goal", {"mode": "triad"})
+        view = service.wait(record.task_id, timeout=1.0)
+
+        assert view["status"] == "cancelled"
+        assert view["reason"] == "cancelled"
+        assert service.cancel(record.task_id) == view
+    finally:
+        service.shutdown(1.0)
+
+
 def test_cancelled_loop_report_remains_cancelled():
     report = _loop_report(status="cancelled", stop_reason="cancelled")
     service = TaskService(
