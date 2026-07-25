@@ -10,7 +10,9 @@
 Engineering（有界的耐久多 Task 迭代、版本化 checkpoint/resume、stop conditions、
 HTTP/CLI/cron 调度示例）。M22 Duo/Triad 协作运行时已完成并归档，归档前全量验证为
 `2069 passed, 11 skipped`，OpenSpec strict 为 `17/17`；含后续复核 hotfix 与 P1 持久化加固的
-最终全量验证为 `2093 passed, 11 skipped`（见下文 2026-07-25 复核段）。
+阶段整合验证为 `2093 passed, 11 skipped`。结构化角色提交门收尾后的当前最终基线为
+`2155 passed, 10 skipped`、OpenSpec 主规格 `17/17`，并完成两次真实模型 Triad 验收
+（见下文 2026-07-25 复核段）。
 收尾记录见
 [`milestone_017.md`](milestones/milestone_017.md)、[`milestone_018.md`](milestones/milestone_018.md)、
 [`milestone_019.md`](milestones/milestone_019.md)、[`milestone_020.md`](milestones/milestone_020.md)
@@ -26,6 +28,14 @@ HTTP/CLI/cron 调度示例）。M22 Duo/Triad 协作运行时已完成并归档�
 FileWrite 路径绑定、项目 Memory 跨进程更新和 Loop checkpoint revision CAS；两个 change 均已
 归档。最终整合验证为 `2093 passed, 11 skipped`、golden `20/20`，OpenSpec 主规格为 `17/17`。
 
+随后完成 M22 结构化提交门收尾：Planner、Generator、Evaluator 只有成功调用各自唯一的
+Submit 工具才能完成角色；Generator 使用零载荷 `SubmitCandidate` 提交当前 attempt，普通 prose
+或 `task_status.completed` 不会启动 Evaluator。成功 Submit 会立即终止当前角色并截断同一响应
+中的后续工具。Candidate phase、attempt 与 verdict 在 revision-checked 保存中原子更新，且每个
+collaboration ID 使用私有 `flock` 串行化跨 Store/进程提交。最终全量验证为
+`2155 passed, 10 skipped`，OpenSpec 主规格为 `17/17`；两次真实模型 Triad 均 completed，其中
+第二次覆盖了一次 reject → 修正 → pass 的完整反馈环。
+
 2026-07-25 P2/P3 收尾新增了可信宿主可选注入的 Evaluator `RunCheck`、可执行 MCP hung-call
 回归和 `/search` 固定双引擎 fallback。`RunCheck` 只接受宿主冻结的检查 ID，在一次性项目
 副本中通过 restricted Python worker 执行，禁止副本外文件内容访问、目录枚举、路径变更、
@@ -35,7 +45,8 @@ CLI/HTTP 请求不能定义或启用检查，默认 Evaluator 工具集保持不
 
 ## M22 Duo / Triad（独立验收）
 
-协作模式位于普通 `Task` 上层，不改变 single 模式的 `TaskOutcome` 或两阶段完成语义：
+协作模式位于普通 `Task` 上层，不改变 single 模式的 `TaskOutcome` 或既有完成语义。Step 新增
+默认关闭的通用 completion signal；只有协作角色 registry 显式登记 required Submit 时启用：
 
 - Duo 串行运行 Generator → Evaluator。Generator 必须调用零载荷 `SubmitCandidate` 提交当前
   attempt；独立 Evaluator 对冻结验收项全部判定通过后，协作结果才是 `completed`。三个角色的

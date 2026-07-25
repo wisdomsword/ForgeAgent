@@ -133,6 +133,39 @@ def test_overlapping_saves_from_distinct_stores_commit_once(
     assert first.load(created.collaboration_id).revision == 1
 
 
+def test_overlapping_store_initialization_reuses_safe_directories(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    barrier = threading.Barrier(2)
+    target = tmp_path / ".forgeagent"
+    original_mkdir = Path.mkdir
+
+    def overlapping_mkdir(path: Path, *args, **kwargs):
+        if path == target:
+            barrier.wait(timeout=2)
+        return original_mkdir(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "mkdir", overlapping_mkdir)
+    results: list[object] = []
+
+    def initialize() -> None:
+        try:
+            results.append(CollaborationStore(str(tmp_path)))
+        except Exception as error:
+            results.append(error)
+
+    threads = [threading.Thread(target=initialize) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=3)
+
+    assert not any(thread.is_alive() for thread in threads)
+    assert all(isinstance(result, CollaborationStore) for result in results)
+    for result in results:
+        result.close()
+
+
 def test_overlapping_creates_from_distinct_stores_commit_once(tmp_path: Path):
     both_writing = threading.Event()
     write_count = 0

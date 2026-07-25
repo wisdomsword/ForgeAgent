@@ -111,6 +111,42 @@ class _RoleBuilder:
         return task
 
 
+class _ConcurrentPlannerBuilder(_RoleBuilder):
+    def __init__(
+        self,
+        scripts,
+        *,
+        winner: bool,
+        ready: threading.Barrier,
+        winner_committed: threading.Event,
+        loser_finished: threading.Event,
+    ):
+        super().__init__(scripts)
+        self.winner = winner
+        self.ready = ready
+        self.winner_committed = winner_committed
+        self.loser_finished = loser_finished
+
+    def __call__(self, role, attempt, registry, system_prompt):
+        task = super().__call__(role, attempt, registry, system_prompt)
+        if role != "planner" or attempt != 1:
+            return task
+        original = task.run
+
+        def run(goal, *, cancel_event=None):
+            self.ready.wait(timeout=2)
+            if self.winner:
+                outcome = original(goal, cancel_event=cancel_event)
+                self.winner_committed.set()
+                assert self.loser_finished.wait(timeout=3)
+                return outcome
+            assert self.winner_committed.wait(timeout=2)
+            return original(goal, cancel_event=cancel_event)
+
+        task.run = run
+        return task
+
+
 class _AuditSink:
     def __init__(self):
         self.events: list[AuditEvent] = []
@@ -361,6 +397,65 @@ def test_evaluator_completion_waits_for_required_submission(tmp_path: Path):
     assert report.status == "completed"
     assert "SubmitEvaluation" in recovery
     assert "successfully" in recovery
+
+
+def test_triad_submit_plan_loser_does_not_claim_or_poison_winner_state(tmp_path: Path):
+    collaboration_id = "9" * 32
+    ready = threading.Barrier(2)
+    winner_committed = threading.Event()
+    loser_finished = threading.Event()
+    winner_builder = _ConcurrentPlannerBuilder(
+        {
+            ("planner", 1): [_plan(_items())],
+            ("generator", 1): [_candidate()],
+            ("evaluator", 1): [_evaluation(_results(passed=True))],
+        },
+        winner=True,
+        ready=ready,
+        winner_committed=winner_committed,
+        loser_finished=loser_finished,
+    )
+    loser_builder = _ConcurrentPlannerBuilder(
+        {("planner", 1): [_plan(_items()), _reply(_done()), _reply(_done())]},
+        winner=False,
+        ready=ready,
+        winner_committed=winner_committed,
+        loser_finished=loser_finished,
+    )
+    winner = _runner(
+        tmp_path,
+        winner_builder,
+        collaboration_id=collaboration_id,
+        plan_confirmer=headless_plan_confirmer("preauthorize"),
+    )
+    loser = _reopened_runner(
+        tmp_path,
+        loser_builder,
+        collaboration_id=collaboration_id,
+        plan_confirmer=headless_plan_confirmer("preauthorize"),
+    )
+    reports = {}
+
+    def run_loser() -> None:
+        reports["loser"] = loser.run("create PRIVATE_GOAL artifact")
+        loser_finished.set()
+
+    winner_thread = threading.Thread(
+        target=lambda: reports.setdefault("winner", winner.run("create PRIVATE_GOAL artifact"))
+    )
+    loser_thread = threading.Thread(target=run_loser)
+    winner_thread.start()
+    loser_thread.start()
+    winner_thread.join(timeout=5)
+    loser_thread.join(timeout=5)
+
+    assert not winner_thread.is_alive()
+    assert not loser_thread.is_alive()
+    assert reports["loser"].stop_reason == "state_failure"
+    assert reports["winner"].status == "completed"
+    persisted = winner._store.load(collaboration_id)
+    assert persisted.status == "completed"
+    assert (persisted.generator_attempts, persisted.evaluator_attempts) == (1, 1)
 
 
 def test_reopened_triad_waiting_for_confirmation_does_not_rerun_planner(tmp_path: Path):

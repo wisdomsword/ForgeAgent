@@ -16,6 +16,7 @@ from forgeagent.collaboration import (
     CollaborationError,
     CollaborationRoleConfigurationError,
     CollaborationRunner,
+    CollaborationStore,
     EvaluationItem,
 )
 from forgeagent.models import AssistantMessage, ClientError, TokenUsage
@@ -90,6 +91,44 @@ class _RoleBuilder:
         return task
 
 
+class _ConcurrentSubmitBuilder(_RoleBuilder):
+    def __init__(
+        self,
+        scripts,
+        *,
+        target_role: str,
+        winner: bool,
+        ready: threading.Barrier,
+        winner_committed: threading.Event,
+        loser_finished: threading.Event,
+    ):
+        super().__init__(scripts)
+        self.target_role = target_role
+        self.winner = winner
+        self.ready = ready
+        self.winner_committed = winner_committed
+        self.loser_finished = loser_finished
+
+    def __call__(self, role, attempt, registry, system_prompt):
+        task = super().__call__(role, attempt, registry, system_prompt)
+        if role != self.target_role or attempt != 1:
+            return task
+        original = task.run
+
+        def run(goal, *, cancel_event=None):
+            self.ready.wait(timeout=2)
+            if self.winner:
+                outcome = original(goal, cancel_event=cancel_event)
+                self.winner_committed.set()
+                assert self.loser_finished.wait(timeout=3)
+                return outcome
+            assert self.winner_committed.wait(timeout=2)
+            return original(goal, cancel_event=cancel_event)
+
+        task.run = run
+        return task
+
+
 class _AuditSink:
     def __init__(self):
         self.events: list[AuditEvent] = []
@@ -102,13 +141,24 @@ class _AuditSink:
 def _runner(tmp_path: Path, builder: _RoleBuilder, **kwargs) -> CollaborationRunner:
     kwargs.setdefault("generator_model", "generator-model")
     kwargs.setdefault("evaluator_model", "evaluator-model")
+    kwargs.setdefault("collaboration_id", "a" * 32)
     return CollaborationRunner.create(
         mode="duo",
         goal="write PRIVATE_GOAL artifact",
         allowed_root=str(tmp_path),
         role_task_builder=builder,
-        collaboration_id="a" * 32,
         **kwargs,
+    )
+
+
+def _reopened_duo_runner(
+    tmp_path: Path, builder: _RoleBuilder, collaboration_id: str
+) -> CollaborationRunner:
+    store = CollaborationStore(str(tmp_path))
+    return CollaborationRunner(
+        store=store,
+        state=store.load(collaboration_id),
+        role_task_builder=builder,
     )
 
 
@@ -138,6 +188,67 @@ def test_duo_rejects_then_uses_fresh_generator_and_passes(tmp_path: Path):
     assert retry_data["goal"] == "write PRIVATE_GOAL artifact"
     assert retry_data["rejection"][0]["observed"] == "observed"
     assert retry_data["plan_digest"]
+
+
+@pytest.mark.parametrize("target_role", ["generator", "evaluator"])
+def test_duo_submit_loser_does_not_claim_or_poison_winner_state(tmp_path: Path, target_role: str):
+    collaboration_id = "7" * 32
+    ready = threading.Barrier(2)
+    winner_committed = threading.Event()
+    loser_finished = threading.Event()
+    winner_builder = _ConcurrentSubmitBuilder(
+        {
+            ("generator", 1): [_candidate()],
+            ("evaluator", 1): [_evaluation(passed=True)],
+        },
+        target_role=target_role,
+        winner=True,
+        ready=ready,
+        winner_committed=winner_committed,
+        loser_finished=loser_finished,
+    )
+    loser_script = _candidate() if target_role == "generator" else _evaluation(passed=True)
+    loser_builder = _ConcurrentSubmitBuilder(
+        {(target_role, 1): [loser_script, _reply(_done()), _reply(_done())]},
+        target_role=target_role,
+        winner=False,
+        ready=ready,
+        winner_committed=winner_committed,
+        loser_finished=loser_finished,
+    )
+    initial = _runner(
+        tmp_path,
+        winner_builder,
+        collaboration_id=collaboration_id,
+    )
+    if target_role == "evaluator":
+        initial._state = initial._store.save(
+            initial._state.model_copy(update={"phase": "evaluator", "generator_attempts": 1}),
+            expected_revision=initial._state.revision,
+        )
+    loser = _reopened_duo_runner(tmp_path, loser_builder, collaboration_id)
+    reports = {}
+
+    def run_loser() -> None:
+        reports["loser"] = loser.run("write PRIVATE_GOAL artifact")
+        loser_finished.set()
+
+    winner_thread = threading.Thread(
+        target=lambda: reports.setdefault("winner", initial.run("write PRIVATE_GOAL artifact"))
+    )
+    loser_thread = threading.Thread(target=run_loser)
+    winner_thread.start()
+    loser_thread.start()
+    winner_thread.join(timeout=5)
+    loser_thread.join(timeout=5)
+
+    assert not winner_thread.is_alive()
+    assert not loser_thread.is_alive()
+    assert reports["loser"].stop_reason == "state_failure"
+    assert reports["winner"].status == "completed"
+    persisted = initial._store.load(collaboration_id)
+    assert persisted.status == "completed"
+    assert (persisted.generator_attempts, persisted.evaluator_attempts) == (1, 1)
 
 
 def test_duo_injects_host_checks_only_into_evaluator_registry(tmp_path: Path):

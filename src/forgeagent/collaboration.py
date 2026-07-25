@@ -737,8 +737,16 @@ class CollaborationStore:
         except FileNotFoundError:
             if required:
                 raise CollaborationError("collaboration root is unavailable") from None
-            path.mkdir()
-            details = os.lstat(path)
+            try:
+                path.mkdir()
+            except FileExistsError:
+                pass
+            except OSError:
+                raise CollaborationError("collaboration root is unavailable") from None
+            try:
+                details = os.lstat(path)
+            except OSError:
+                raise CollaborationError("collaboration root is unavailable") from None
         except OSError:
             raise CollaborationError("collaboration root is unavailable") from None
         resolved = Path(os.path.realpath(path))
@@ -1331,6 +1339,14 @@ def _failed_submission(outcome: TaskOutcome, tool_name: str) -> bool:
     )
 
 
+def _successful_submission(outcome: TaskOutcome, tool_name: str) -> bool:
+    return any(
+        item.tool == tool_name and item.success and item.completes_task
+        for round_result in outcome.rounds
+        for item in round_result.outcomes
+    )
+
+
 def _missing_required_submission(outcome: TaskOutcome, tool_name: str) -> bool:
     marker = f"{tool_name} must be called successfully before completion"
     return any(
@@ -1546,13 +1562,17 @@ class CollaborationRunner:
             return self._role_failure()
         try:
             committed = self._store.load(self._state.collaboration_id)
+            owns_submission = _successful_submission(planner, "SubmitPlan")
             submitted = (
-                committed.revision > planner_state.revision
+                owns_submission
+                and committed.revision > planner_state.revision
                 and committed.phase == "needs_confirmation"
                 and bool(committed.plan)
                 and committed.plan_digest == plan_digest(committed.plan)
             )
             self._state = committed
+            if not submitted and (owns_submission or committed.revision > planner_state.revision):
+                return self._finish_without_save("failed", "state_failure")
             self._persist_planner_boundary(planner)
         except CollaborationError:
             return self._finish("failed", "state_failure")
@@ -1661,8 +1681,10 @@ class CollaborationRunner:
                 try:
                     committed = self._store.load(self._state.collaboration_id)
                     self._assert_frozen_plan(committed)
+                    owns_submission = _successful_submission(generator, "SubmitCandidate")
                     submitted_candidate = (
-                        committed.revision > generator_state.revision
+                        owns_submission
+                        and committed.revision > generator_state.revision
                         and committed.phase == "evaluator"
                         and committed.generator_attempts == generator_state.generator_attempts + 1
                         and committed.evaluator_attempts == generator_state.evaluator_attempts
@@ -1671,6 +1693,8 @@ class CollaborationRunner:
                     self._state = committed
                     if submitted_candidate:
                         self._persist_role_statistics(generator)
+                    elif owns_submission or committed.revision > generator_state.revision:
+                        return self._finish_without_save("failed", "state_failure")
                     else:
                         self._persist_failed_role_boundary("generator", generator)
                 except CollaborationError:
@@ -1717,8 +1741,10 @@ class CollaborationRunner:
                 try:
                     committed = self._store.load(self._state.collaboration_id)
                     self._assert_frozen_plan(committed)
+                    owns_submission = _successful_submission(evaluator, "SubmitEvaluation")
                     submitted_evaluation = (
-                        committed.revision > evaluator_state.revision
+                        owns_submission
+                        and committed.revision > evaluator_state.revision
                         and committed.phase == "evaluator"
                         and committed.generator_attempts == evaluator_state.generator_attempts
                         and committed.evaluator_attempts == evaluator_state.evaluator_attempts + 1
@@ -1727,6 +1753,8 @@ class CollaborationRunner:
                     self._state = committed
                     if submitted_evaluation:
                         self._persist_role_statistics(evaluator)
+                    elif owns_submission or committed.revision > evaluator_state.revision:
+                        return self._finish_without_save("failed", "state_failure")
                     else:
                         self._persist_failed_role_boundary("evaluator", evaluator)
                 except CollaborationError:

@@ -107,12 +107,16 @@ def test_m22_closeout_artifacts_record_final_gates() -> None:
     assert "最终全量验证与归档仍在进行" not in readme
     assert "milestone_022.md" in readme
     assert "主规格为 `17/17`" in readme
+    assert "2155 passed, 10 skipped" in readme
+    assert "两次真实模型 Triad" in readme
 
     action_plan = _text("ACTION_PLAN.md")
     m22_row = next(line for line in action_plan.splitlines() if line.startswith("| **M22**"))
     assert "已完成并归档" in m22_row
-    assert "2069 passed" in m22_row
+    assert "2155 passed / 10 skipped" in m22_row
+    assert "结构化 Submit" in m22_row
     assert "归档后复核" in action_plan
+    assert "M22 结构化提交门收尾" in action_plan
     assert "M22 待启动" not in action_plan
 
     report = _text("docs/superpowers/reports/2026-07-24-triad-mode-verify.md")
@@ -125,8 +129,14 @@ def test_m22_closeout_artifacts_record_final_gates() -> None:
     assert "# 里程碑 M22: Triad Mode" in milestone
     assert "- 状态: 已完成" in milestone
     assert "2069 passed, 11 skipped" in milestone
+    assert "2155 passed, 10 skipped" in milestone
+    assert "SubmitCandidate" in milestone
+    assert "通用 completion signal" in milestone
+    assert "本里程碑不修改普通 `Step`" not in milestone
+    assert "Generator clean completed" not in milestone
     assert "../openspec/changes/archive/2026-07-24-triad-mode/" in milestone
     assert "../openspec/changes/archive/2026-07-24-collaboration-contract-hotfix/" in milestone
+    assert "../openspec/changes/archive/2026-07-25-fix-collaboration-role-protocol/" in milestone
     assert "../openspec/changes/triad-mode/" not in milestone
     assert "M23" in milestone
     assert _text("milestones/latest").strip() == "milestone_022.md"
@@ -144,9 +154,18 @@ def test_m22_closeout_artifacts_record_final_gates() -> None:
     assert "验证实现提交: `111d60a`" in report
     assert "当前实现提交" not in report
 
+    submission_plan = _text("docs/superpowers/plans/2026-07-25-collaboration-role-submission.md")
+    assert submission_plan.count("archived-with: 2026-07-25-fix-collaboration-role-protocol") == 1
+
     main_spec = _text("openspec/specs/runtime-collaboration/spec.md")
     assert "TBD - created by archiving change triad-mode" not in main_spec
-    assert "Duo/Triad" in main_spec.split("## Requirements", 1)[0]
+    if "## Requirements" in main_spec:
+        assert "Duo/Triad" in main_spec.split("## Requirements", 1)[0]
+    evaluator_requirement = main_spec.split("### Requirement: Evaluator 独立验收并决定协作完成", 1)[
+        1
+    ].split("### Requirement:", 1)[0]
+    assert "Generator MUST 成功调用零载荷 `SubmitCandidate`" in evaluator_requirement
+    assert "Generator 的严格 `completed` SHALL 仅表示提交验收" not in evaluator_requirement
 
     audit_spec = _text("openspec/specs/audit-logging/spec.md")
     assert "TBD - created by archiving change http-task-service" not in audit_spec
