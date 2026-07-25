@@ -142,6 +142,19 @@ def test_check_rejects_copy_escape_before_process_start(tmp_path: Path):
     assert "must not run" not in result.stdout
 
 
+def test_check_rejects_absolute_symlink_even_when_target_is_inside_project(tmp_path: Path):
+    target = tmp_path / "target.txt"
+    target.write_text("real project", encoding="utf-8")
+    (tmp_path / "absolute-link").symlink_to(target)
+
+    result = run_check(
+        _python_check("absolute-link", "print('must not run')"), allowed_root=tmp_path
+    )
+
+    assert result.status == "copy_error"
+    assert "must not run" not in result.stdout
+
+
 @pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFO is unavailable")
 def test_check_rejects_special_file_before_process_start(tmp_path: Path):
     os.mkfifo(tmp_path / "pipe")

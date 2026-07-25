@@ -85,8 +85,8 @@ def run_check(
     secrets = sensitive_env_values()
     if cancel_event is not None and cancel_event.is_set():
         return _result("cancelled", started, secrets=secrets)
-    source_root = Path(allowed_root).resolve()
     try:
+        source_root = Path(allowed_root).resolve()
         _validate_source_tree(source_root)
     except (OSError, ValueError) as exc:
         return _result("copy_error", started, stderr=str(exc), secrets=secrets)
@@ -167,7 +167,9 @@ def _validate_source_tree(source_root: Path) -> None:
                 mode = entry.stat(follow_symlinks=False).st_mode
                 path = Path(entry.path)
                 if stat.S_ISLNK(mode):
-                    if not path.resolve(strict=False).is_relative_to(source_root):
+                    if Path(os.readlink(path)).is_absolute() or not path.resolve(
+                        strict=False
+                    ).is_relative_to(source_root):
                         raise ValueError("project contains a symlink that escapes allowed_root")
                 elif stat.S_ISDIR(mode):
                     pending.append(path)

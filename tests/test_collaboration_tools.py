@@ -165,6 +165,19 @@ def test_run_check_reports_structured_host_check_result(
     assert "stderr:\nerr" in outcome.detail
 
 
+def test_run_check_rejects_invalid_direct_arguments_without_raising(tmp_path: Path):
+    tool = RunCheckTool({"unit": CheckDefinition(id="unit", argv=("python", "-V"))})
+    invalid = RunCheckArgs.model_construct(check_id="not valid")
+
+    outcome = tool.run(
+        invalid,
+        SimpleNamespace(allowed_root=str(tmp_path), cancel_event=None),
+    )
+
+    assert outcome.success is False
+    assert outcome.detail == "RunCheck rejected: invalid arguments"
+
+
 def test_submit_evaluation_masks_evidence_before_persistence(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):

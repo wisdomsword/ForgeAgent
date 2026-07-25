@@ -1059,7 +1059,14 @@ class RunCheckTool(Tool):
         self._checks = dict(checks)
 
     def run(self, args: BaseModel, ctx: ToolContext | None) -> ToolOutcome:
-        validated = RunCheckArgs.model_validate(args.model_dump(mode="python"))
+        try:
+            validated = RunCheckArgs.model_validate(args.model_dump(mode="python"))
+        except (AttributeError, ValidationError):
+            return ToolOutcome(
+                tool=self.name,
+                success=False,
+                detail="RunCheck rejected: invalid arguments",
+            )
         definition = self._checks.get(validated.check_id)
         if definition is None:
             return ToolOutcome(
