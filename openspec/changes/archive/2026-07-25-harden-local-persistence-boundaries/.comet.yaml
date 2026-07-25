@@ -18,7 +18,7 @@ verification_report: docs/superpowers/reports/2026-07-25-harden-local-persistenc
 branch_status: handled
 created_at: 2026-07-25
 verified_at: 2026-07-25
-archived: false
+archived: true
 direct_override: null
 handoff_context: openspec/changes/harden-local-persistence-boundaries/.comet/handoff/design-context.json
 handoff_hash: 61f2972623be6c8c69280a3a08682cdc1ce2cddf0a481ed3f803dfc764819ee7

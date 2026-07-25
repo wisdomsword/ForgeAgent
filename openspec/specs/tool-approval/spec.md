@@ -152,9 +152,7 @@ ForgeAgent MUST prevent WebFetch failure outcomes and FileWrite success or failu
 - **THEN** the tool returns the fixed detail `FileWrite failed` without the absolute path, content or exception text
 
 ### Requirement: File tool path boundaries are root-safe and minimally disclosing
-ForgeAgent MUST evaluate canonical WebFetch artifact and file-tool targets with a containment predicate that accepts the root itself and all real descendants, including when `allowed_root` is the filesystem root, and MUST NOT disclose model or host absolute paths in failure outcomes.
-
-This requirement prevents static symlink escape by returning and using the canonical target. It does not claim resistance to a hostile host process that replaces the canonical target itself or one of its ancestor path components between validation and pathname open.
+ForgeAgent MUST evaluate canonical WebFetch artifact and file-tool targets with a containment predicate that accepts the root itself and all real descendants, including when `allowed_root` is the filesystem root, and MUST NOT disclose model or host absolute paths in failure outcomes. FileWrite MUST perform its final parent traversal and target open relative to a bound project-root directory descriptor, MUST NOT follow symlinks in any traversed component or the final target, and MUST fail closed if the bound root or traversed directory is replaced before the write completes.
 
 #### Scenario: Filesystem root is the allowed root
 - **WHEN** a file tool or restricted audit hook evaluates a target below `allowed_root="/"`
@@ -176,9 +174,18 @@ This requirement prevents static symlink escape by returning and using the canon
 - **WHEN** non-trusted FileRead receives a syntactically invalid or out-of-root path
 - **THEN** it returns the fixed `FileRead failed` result and emits no path-bearing audit record, so the raw input, canonical root and known secret are not logged
 
+#### Scenario: FileWrite target becomes a symlink after validation
+- **WHEN** a FileWrite target or one of its parent components is replaced with a symlink after canonical validation but before the final descriptor-relative open
+- **THEN** ForgeAgent returns the fixed `FileWrite failed` result and leaves every outside target unchanged
+
+#### Scenario: FileWrite project-root binding changes during the write
+- **WHEN** the pathname of the canonical project root is replaced after ForgeAgent opens its root directory descriptor
+- **THEN** ForgeAgent fails the operation instead of reporting a successful write through a stale or attacker-controlled pathname
+
 ### Requirement: Survey interaction remains separately controlled
 ForgeAgent MUST keep `--interactive` scoped to Survey behavior and SHALL NOT require that flag for automatic TTY confirmation of WebFetch, FileWrite or MCP.
 
 #### Scenario: TTY run without interactive flag
 - **WHEN** a terminal user runs a task without `--interactive` and the task requests a restricted non-Survey tool
 - **THEN** ForgeAgent still asks for tool confirmation while Survey remains disabled
+

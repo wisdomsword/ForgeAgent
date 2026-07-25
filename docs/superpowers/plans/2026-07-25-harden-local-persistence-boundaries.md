@@ -2,6 +2,7 @@
 change: harden-local-persistence-boundaries
 design-doc: docs/superpowers/specs/2026-07-25-harden-local-persistence-boundaries-design.md
 base-ref: eb2dc8dfa053988ae9e71283fb79b02f8d176fc1
+archived-with: 2026-07-25-harden-local-persistence-boundaries
 ---
 
 # 本地持久化边界加固实施计划
@@ -22,6 +23,7 @@ base-ref: eb2dc8dfa053988ae9e71283fb79b02f8d176fc1
 - 所有失败继续使用既有固定、脱敏的公开结果，不披露异常、绝对路径或 lock path。
 - 保留用户已有未跟踪文件，不纳入提交或格式化。
 
+archived-with: 2026-07-25-harden-local-persistence-boundaries
 ---
 
 ### Task 1: FileWrite descriptor-relative final open
@@ -209,3 +211,4 @@ Expected: 全部退出 0；pytest 只保留已记录环境 skip；golden 20/20�
 git add docs/threat-model.md docs/superpowers/reports/2026-07-25-harden-local-persistence-boundaries-verify.md openspec/changes/harden-local-persistence-boundaries/tasks.md
 git commit -m "docs: verify local persistence hardening"
 ```
+

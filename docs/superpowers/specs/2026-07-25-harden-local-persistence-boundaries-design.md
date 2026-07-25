@@ -2,6 +2,8 @@
 comet_change: harden-local-persistence-boundaries
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-07-25-harden-local-persistence-boundaries
+status: final
 ---
 
 # 本地持久化边界加固设计
@@ -87,3 +89,4 @@ lock 名称为 `.<loop_id>.lock`，位于已绑定的 loops directory fd 下。�
 第一轮检查安全闭环，确认没有用重复 `realpath/lstat` 代替 descriptor final open，也没有把
 `threading.RLock` 误当跨进程锁。第二轮检查范围与兼容性，删除了通用 lock/store abstraction、
 锁超时、分布式/Windows 扩展和 CollaborationStore 顺带修改；三项均保持现有公开错误与 schema。
+
