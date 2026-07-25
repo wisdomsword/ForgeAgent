@@ -11,8 +11,9 @@ P2/P3 已合并在同一个 Comet change 中处理。实现新增宿主冻结的
 - `RunCheck` 只接受已注册检查 ID。argv、环境和超时由可信宿主拥有；标准 CLI/HTTP
   schema 不暴露该权限。
 - 检查拒绝全部 symlink 和特殊文件，把项目复制到临时树，只允许当前 Python 入口通过
-  restricted audit-hook worker 执行。读写限制在副本内，禁止网络、spawn、fork、exec 和
-  进程信号控制。输出用固定 head/tail 内存上限持续 drain；超时或取消终止 POSIX 进程组。
+  restricted audit-hook worker 执行。禁止副本外文件内容访问、目录枚举和路径变更，并拒绝
+  全部 `socket.*`、spawn、fork、exec 和进程信号控制事件。输出用固定 head/tail 内存上限
+  持续 drain；超时或取消终止 POSIX 进程组。
 - Planner/Generator/Evaluator 边界取消后不再构造下一角色或 rejection attempt。provider
   调用仍只承诺 cooperative cancel。
 - 原永久 skip 的 MCP hung-call 测试现启动真实本地 stdio server，其工具永不返回；测试
@@ -57,7 +58,7 @@ P2/P3 已合并在同一个 Comet change 中处理。实现新增宿主冻结的
 ## 残留风险
 
 - `RunCheck` 使用 Python audit-hook 隔离，不是 OS/container 密封 sandbox。native/kernel
-  bypass 与恶意同宿主 copy/check race 仍是残留风险。
+  bypass、Python 未发出审计事件的 metadata syscall 与恶意同宿主 copy/check race 仍是残留风险。
 - 取消不能异步杀死在途 provider 调用；MCP 依赖 SDK deadline 与 session generation 失效。
 - 搜索 HTML 仍依赖 provider 页面布局，即使已有 fallback。
 - 在具备授权和环境后，必须重跑 Docker 与真实 provider 证据，才能声明对应矩阵通过。
@@ -70,4 +71,6 @@ Python worker、流式有界 capture、grace 后无条件尝试 POSIX group SIGK
 generation/session 复检和角色启动守卫。
 
 两轮自审进一步加入进程信号控制拒绝，并清除 design/spec/plan 中残留的 fake-session 旧方案。
-最终专项为 `329/329`，完整 pytest 为 `2125/2125`，保留 10 个 Docker 环境 skip。
+最终独立复审另发现副本外路径变更与 `socket.sendmsg`/DNS 绕过；实现改为校验目录枚举和全部
+已知路径变更事件，并拒绝全部 `socket.*` 事件。修复后相邻安全专项为 `60/60`；最终完整
+pytest、golden 与构建结果在最终门禁后更新。

@@ -28,8 +28,8 @@ FileWrite 路径绑定、项目 Memory 跨进程更新和 Loop checkpoint revisi
 
 2026-07-25 P2/P3 收尾新增了可信宿主可选注入的 Evaluator `RunCheck`、可执行 MCP hung-call
 回归和 `/search` 固定双引擎 fallback。`RunCheck` 只接受宿主冻结的检查 ID，在一次性项目
-副本中通过 restricted Python worker 执行，禁止副本外读写、网络、派生进程和进程信号控制，并使用最小
-环境、超时/取消进程组终止和有界脱敏输出；标准
+副本中通过 restricted Python worker 执行，禁止副本外文件内容访问、目录枚举、路径变更、
+网络、派生进程和进程信号控制，并使用最小环境、超时/取消进程组终止和有界脱敏输出；标准
 CLI/HTTP 请求不能定义或启用检查，默认 Evaluator 工具集保持不变。真实模型与跨平台证据
 仍按下文的 opt-in/环境边界单独记录，不从离线测试外推。
 

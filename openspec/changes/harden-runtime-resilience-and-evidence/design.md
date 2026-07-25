@@ -22,7 +22,7 @@
 ## Decisions
 
 1. `RunCheck` 由宿主注入 `CheckDefinition(id, argv, timeout_seconds, env)`；工具参数只有 `check_id`。argv 只允许当前 Python 的 `-m`、`-c` 或项目相对 `.py` 入口，env 均由可信宿主冻结，默认空映射时不注册工具，保持兼容。
-2. 检查前把允许根目录复制到私有临时目录，排除 `.git`、`.forgeagent`、缓存和构建产物，并拒绝全部 symlink 与 socket/设备等特殊文件。专用 worker 复用 restricted audit hook，读写仅限副本、禁止网络、派生进程和进程信号控制；父进程使用无 shell、新 session、最小环境、固定 cwd，并在超时或取消时终止进程组。
+2. 检查前把允许根目录复制到私有临时目录，排除 `.git`、`.forgeagent`、缓存和构建产物，并拒绝全部 symlink 与 socket/设备等特殊文件。专用 worker 复用 restricted audit hook，禁止副本外文件内容访问、目录枚举和路径变更，并拒绝全部 `socket.*`、派生进程和进程信号控制事件；父进程使用无 shell、新 session、最小环境、固定 cwd，并在超时或取消时终止进程组。
 3. stdout/stderr 由持续 drain 的有界 head/tail capture 读取，超额字节立即丢弃而非落入无界临时文件；返回稳定 status/exit code/duration，输出经现有 secret/path masking。
 4. CLI/HTTP 不接受客户端定义检查。检查只能引用当前 Python 解释器，cwd 始终为临时副本，且不得下载依赖或派生进程。ForgeAgent 自身的证据运行可在测试/装配层显式注入检查定义；若以后需要非 Python 检查或用户配置，另立 change 设计信任边界。
 5. 取消只承诺安全边界停止。`RunCheck` 有真实子进程句柄，因此支持取消即终止；provider/MCP 继续依靠自身 timeout，返回后不得启动下一角色/round。
@@ -54,3 +54,5 @@
   `CREATE_NEW_PROCESS_GROUP` 或完整子进程树保证。跨平台强化需在 Windows 环境另立验证。
 - 真实模型凭证已检测并发起限定命令，但安全审查因仓库派生 payload/destination 外发未获
   具体授权而拒绝。该项按 proposal 的环境/授权缺口规则记录为未验证，不以凭证存在代替通过。
+- restricted worker 的 PEP 578 边界补齐目录枚举、路径变更、全部 socket 事件和进程信号
+  控制；仍不把 Python 未发出审计事件的 metadata syscall 或 native/kernel bypass 表述为密封隔离。

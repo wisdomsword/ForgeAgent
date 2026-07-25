@@ -58,9 +58,9 @@ class RunCheckArgs(BaseModel):
 - `shell=False`，父进程启动专用 `_check_worker`，只转发已验证的 Python invocation；
 - `cwd` 为临时副本；
 - 环境从固定 allowlist（`PATH`、locale、必要的临时目录）加 definition.env 组成，不继承 credential；
-- worker 复用 restricted audit hook：读写仅限副本，禁止 network、spawn、fork/exec；
+- worker 复用 restricted audit hook：禁止副本外文件内容访问、目录枚举和路径变更；
 - POSIX 使用 `start_new_session=True`；Windows 当前仅用 terminate/kill 兼容分支；
-- worker 的 audit hook 禁止副本外读写、网络、spawn/fork/exec 和进程信号控制；
+- worker 的 audit hook 拒绝全部 `socket.*`、spawn/fork/exec 和进程信号控制事件；
 - stdout/stderr 走 pipe，由后台 drain 线程只保留有界 head/tail，超额数据立即丢弃；主循环同时检查 timeout 与 `cancel_event`。
 
 timeout 或 cancel 时终止整个进程组，短 grace 后无条件尝试 group SIGKILL，避免 leader 先退出而顽固 descendant 存活。返回结果包含 `status`（passed/failed/timeout/cancelled）、`exit_code`、`duration_ms` 和有界 stdout/stderr。每个流最多 16 KiB，输出经过 secret/path masking。
@@ -120,3 +120,5 @@ timeout 或 cancel 时终止整个进程组，短 grace 后无条件尝试 group
   终止，不把设计中的 `CREATE_NEW_PROCESS_GROUP` 写成已交付保证。
 - 真实模型外发命令因缺少对仓库派生 payload/destination 的具体授权被安全审查拒绝；验证报告
   将其记为未验证，而不是把凭证存在或命令尝试记作模型通过。
+- PEP 578 只覆盖运行时发出的审计事件；未发出事件的 metadata syscall 与 native/kernel
+  bypass 保持为明确残留风险，不宣称 sealed sandbox。

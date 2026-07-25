@@ -95,12 +95,62 @@ def test_check_blocks_project_code_from_host_files(tmp_path: Path):
     assert "restricted: file access outside allowed root denied" in result.stderr
 
 
+@pytest.mark.parametrize("operation", ["listdir", "scandir"])
+def test_check_blocks_project_code_from_listing_host_directories(tmp_path: Path, operation: str):
+    outside = tmp_path.parent / f"outside-{operation}"
+    outside.mkdir()
+    (outside / "host-secret-name").write_text("secret", encoding="utf-8")
+    code = f"import os; print(list(os.{operation}({str(outside)!r})))"
+
+    result = run_check(_python_check(operation, code), allowed_root=tmp_path)
+
+    assert result.status == "failed"
+    assert "host-secret-name" not in result.stdout
+    assert "restricted: file access outside allowed root denied" in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("check_id", "code"),
+    [
+        ("remove", "import os; os.remove({outside!r})"),
+        ("rename", "import os; os.rename({outside!r}, {renamed!r})"),
+    ],
+)
+def test_check_blocks_project_code_from_mutating_host_files(
+    tmp_path: Path, check_id: str, code: str
+):
+    outside = tmp_path.parent / f"outside-{check_id}.txt"
+    renamed = tmp_path.parent / f"renamed-{check_id}.txt"
+    outside.write_text("host data", encoding="utf-8")
+
+    result = run_check(
+        _python_check(check_id, code.format(outside=str(outside), renamed=str(renamed))),
+        allowed_root=tmp_path,
+    )
+
+    assert result.status == "failed"
+    assert "restricted: file mutation outside allowed root denied" in result.stderr
+    assert outside.read_text(encoding="utf-8") == "host data"
+    assert not renamed.exists()
+
+
 @pytest.mark.parametrize(
     ("check_id", "code", "denial"),
     [
         (
             "network",
             "import socket; socket.create_connection(('127.0.0.1', 9))",
+            "restricted: network access denied",
+        ),
+        (
+            "sendmsg",
+            "import socket; s=socket.socket(socket.AF_INET, socket.SOCK_DGRAM); "
+            "s.sendmsg([b'x'], [], 0, ('127.0.0.1', 9))",
+            "restricted: network access denied",
+        ),
+        (
+            "dns",
+            "import socket; socket.gethostbyname('localhost')",
             "restricted: network access denied",
         ),
         (
