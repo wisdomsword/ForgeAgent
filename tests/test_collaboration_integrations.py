@@ -352,12 +352,9 @@ def test_loop_context_is_untrusted_role_data_and_checkpoint_only_extends_generat
         },
     }
     scripts = {
-        "planner": [_reply(f"<!-- ToolCall: {json.dumps(plan)} -->"), _reply(_done())],
-        "generator": [_reply(_done())],
-        "evaluator": [
-            _reply(f"<!-- ToolCall: {json.dumps(evaluation)} -->"),
-            _reply(_done()),
-        ],
+        "planner": [_reply(f"<!-- ToolCall: {json.dumps(plan)} -->")],
+        "generator": [_reply('<!-- ToolCall: {"name":"SubmitCandidate","arguments":{}} -->')],
+        "evaluator": [_reply(f"<!-- ToolCall: {json.dumps(evaluation)} -->")],
     }
     role_data: dict[str, dict[str, object]] = {}
     role_tools: dict[str, set[str]] = {}

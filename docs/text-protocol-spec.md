@@ -178,17 +178,20 @@ bounded, unique `{id, behavior, acceptance}` items. The plan is normalized and h
 an interactive confirmer or server-owned headless policy must approve it before the
 Generator starts. Confirmation freezes the items, their order and `plan_digest`.
 
-Generator 的 `completed: true` 在 Duo/Triad 中只表示提交验收，不拥有协作完成权。The
-Evaluator receives the original goal as framed task data, the frozen acceptance items,
-and access to observable artifacts. It must call `SubmitEvaluation` with exactly one
-bounded result for every frozen ID, then finish with a standalone clean completion.
-Only a complete all-pass verdict makes the collaboration `completed`. A rejection
-starts a fresh Generator with bounded evidence until `max_rejections` is exhausted.
+Generator must call the zero-argument `SubmitCandidate` tool to submit the current
+attempt; ordinary prose or `task_status.completed` does not advance the collaboration.
+The Evaluator receives the original goal as framed task data, the frozen acceptance
+items, and access to observable artifacts. It must call `SubmitEvaluation` with exactly
+one bounded result for every frozen ID. Successful `SubmitPlan`, `SubmitCandidate`, and
+`SubmitEvaluation` calls immediately complete their role without a later standalone
+completion response. Only a complete all-pass verdict makes the collaboration
+`completed`. A rejection starts a fresh Generator with bounded evidence until
+`max_rejections` is exhausted.
 
 Role tool registries are deliberately asymmetric:
 
 - Planner: `SubmitPlan` only.
-- Generator: the caller-owned ordinary task registry.
+- Generator: the caller-owned ordinary task registry plus `SubmitCandidate`.
 - Evaluator: `FileRead`, `FileList`, and `SubmitEvaluation` only; no Exec, FileWrite,
   Edit, WebFetch, MCP, Skill, Survey, or Memory state. A caller-approved immutable
   identity prompt may still be composed for the fresh Task; role conversation and

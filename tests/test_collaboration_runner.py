@@ -16,6 +16,7 @@ from forgeagent.collaboration import (
     CollaborationError,
     CollaborationRoleConfigurationError,
     CollaborationRunner,
+    EvaluationItem,
 )
 from forgeagent.models import AssistantMessage, ClientError, TokenUsage
 from forgeagent.task import Task
@@ -31,6 +32,11 @@ def _reply(text: str, *, usage: TokenUsage | None = None) -> AssistantMessage:
 
 def _done() -> str:
     return "---\ntask_status:\n  completed: true\n  confidence: 0.9\n---\ndone"
+
+
+def _candidate() -> AssistantMessage:
+    marker = {"name": "SubmitCandidate", "arguments": {}}
+    return _reply(f"<!-- ToolCall: {json.dumps(marker)} -->")
 
 
 def _evaluation(*, passed: bool, observed: str = "observed", expected: str = "expected"):
@@ -107,10 +113,10 @@ def _runner(tmp_path: Path, builder: _RoleBuilder, **kwargs) -> CollaborationRun
 def test_duo_rejects_then_uses_fresh_generator_and_passes(tmp_path: Path):
     builder = _RoleBuilder(
         {
-            ("generator", 1): [_reply(_done())],
-            ("evaluator", 1): [_evaluation(passed=False), _reply(_done())],
-            ("generator", 2): [_reply(_done())],
-            ("evaluator", 2): [_evaluation(passed=True), _reply(_done())],
+            ("generator", 1): [_candidate()],
+            ("evaluator", 1): [_evaluation(passed=False)],
+            ("generator", 2): [_candidate()],
+            ("evaluator", 2): [_evaluation(passed=True)],
         }
     )
     runner = _runner(tmp_path, builder)
@@ -120,10 +126,10 @@ def test_duo_rejects_then_uses_fresh_generator_and_passes(tmp_path: Path):
     assert report.status == "completed"
     assert report.stop_reason == "completed"
     assert (report.generator_attempts, report.evaluator_attempts, report.rejections) == (2, 2, 1)
-    assert report.rounds == 6
-    assert report.usage.input_tokens == 6
-    assert report.usage.output_tokens == 12
-    assert report.usage.total_prompt_tokens == 6
+    assert report.rounds == 4
+    assert report.usage.input_tokens == 4
+    assert report.usage.output_tokens == 8
+    assert report.usage.total_prompt_tokens == 4
     assert len({id(registry) for registry in builder.registries}) == 4
     assert all(client.closed for client in builder.clients)
     retry_data = json.loads(builder.clients[2].first_user_message)
@@ -135,8 +141,8 @@ def test_duo_rejects_then_uses_fresh_generator_and_passes(tmp_path: Path):
 def test_duo_injects_host_checks_only_into_evaluator_registry(tmp_path: Path):
     builder = _RoleBuilder(
         {
-            ("generator", 1): [_reply(_done())],
-            ("evaluator", 1): [_evaluation(passed=True), _reply(_done())],
+            ("generator", 1): [_candidate()],
+            ("evaluator", 1): [_evaluation(passed=True)],
         }
     )
 
@@ -184,14 +190,13 @@ def test_execution_tier_and_loop_id_are_validated(tmp_path: Path):
 @pytest.mark.parametrize(
     ("script", "reason"),
     [
-        ([_reply(_done())], "invalid_role_submission"),
-        ([_evaluation(passed=True), _reply("plain"), _reply("still plain")], "role_failed"),
+        ([_reply(_done()), _reply(_done())], "invalid_role_submission"),
         ([ClientError(message="bad key", kind="auth", attempts=1)], "unrecoverable_failure"),
         ([_reply("cannot"), _reply("still cannot")], "role_failed"),
     ],
 )
 def test_duo_evaluator_failures_have_stable_reasons(tmp_path: Path, script, reason):
-    builder = _RoleBuilder({("generator", 1): [_reply(_done())], ("evaluator", 1): script})
+    builder = _RoleBuilder({("generator", 1): [_candidate()], ("evaluator", 1): script})
 
     report = _runner(tmp_path, builder).run("write PRIVATE_GOAL artifact")
 
@@ -204,8 +209,8 @@ def test_duo_evaluator_failures_have_stable_reasons(tmp_path: Path, script, reas
 def test_duo_rejection_limit_allows_initial_plus_two_retries(tmp_path: Path):
     scripts = {}
     for attempt in (1, 2, 3):
-        scripts[("generator", attempt)] = [_reply(_done())]
-        scripts[("evaluator", attempt)] = [_evaluation(passed=False), _reply(_done())]
+        scripts[("generator", attempt)] = [_candidate()]
+        scripts[("evaluator", attempt)] = [_evaluation(passed=False)]
     builder = _RoleBuilder(scripts)
 
     report = _runner(tmp_path, builder, max_rejections=2).run("write PRIVATE_GOAL artifact")
@@ -231,7 +236,7 @@ def test_duo_cancel_wins_after_role_boundary_and_closes_resources(tmp_path: Path
             task.run = run
             return task
 
-    builder = _CancellingBuilder({("generator", 1): [_reply(_done())]})
+    builder = _CancellingBuilder({("generator", 1): [_candidate()]})
 
     report = _runner(tmp_path, builder).run("write PRIVATE_GOAL artifact", cancel_event=cancel)
 
@@ -261,8 +266,8 @@ def test_duo_cancel_after_rejection_does_not_start_next_generator(tmp_path: Path
 
     builder = _CancellingEvaluatorBuilder(
         {
-            ("generator", 1): [_reply(_done())],
-            ("evaluator", 1): [_evaluation(passed=False), _reply(_done())],
+            ("generator", 1): [_candidate()],
+            ("evaluator", 1): [_evaluation(passed=False)],
         }
     )
 
@@ -280,7 +285,7 @@ def test_duo_cancel_during_evaluator_registry_build_does_not_construct_role(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     cancel = threading.Event()
-    builder = _RoleBuilder({("generator", 1): [_reply(_done())]})
+    builder = _RoleBuilder({("generator", 1): [_candidate()]})
     original = __import__(
         "forgeagent.collaboration", fromlist=["build_evaluator_registry"]
     ).build_evaluator_registry
@@ -313,10 +318,9 @@ def test_duo_audit_projection_uses_only_safe_counters(tmp_path: Path):
     sink = _AuditSink()
     builder = _RoleBuilder(
         {
-            ("generator", 1): [_reply(_done())],
+            ("generator", 1): [_candidate()],
             ("evaluator", 1): [
                 _evaluation(passed=False, observed="PRIVATE_EVIDENCE", expected="PRIVATE_PATH"),
-                _reply(_done()),
             ],
         }
     )
@@ -439,11 +443,11 @@ def test_duo_usage_unavailable_is_sticky(tmp_path: Path):
         {
             ("generator", 1): [
                 _reply(
-                    _done(),
+                    _candidate().content,
                     usage=TokenUsage(input_tokens=2, output_tokens=3),
                 )
             ],
-            ("evaluator", 1): [_evaluation(passed=True), _reply(_done())],
+            ("evaluator", 1): [_evaluation(passed=True)],
         }
     )
 
@@ -451,17 +455,17 @@ def test_duo_usage_unavailable_is_sticky(tmp_path: Path):
 
     assert report.status == "completed"
     assert report.usage_available is False
-    assert report.usage.input_tokens == 4
-    assert report.usage.output_tokens == 7
+    assert report.usage.input_tokens == 3
+    assert report.usage.output_tokens == 5
 
 
 def test_duo_revalidates_all_plan_items_after_rejection(tmp_path: Path):
     builder = _RoleBuilder(
         {
-            ("generator", 1): [_reply(_done())],
-            ("evaluator", 1): [_evaluation(passed=False), _reply(_done())],
-            ("generator", 2): [_reply(_done())],
-            ("evaluator", 2): [_evaluation(passed=True), _reply(_done())],
+            ("generator", 1): [_candidate()],
+            ("evaluator", 1): [_evaluation(passed=False)],
+            ("generator", 2): [_candidate()],
+            ("evaluator", 2): [_evaluation(passed=True)],
         }
     )
 
@@ -477,10 +481,10 @@ def test_duo_revalidates_all_plan_items_after_rejection(tmp_path: Path):
 def test_duo_does_not_reuse_previous_evaluation_submission(tmp_path: Path):
     builder = _RoleBuilder(
         {
-            ("generator", 1): [_reply(_done())],
-            ("evaluator", 1): [_evaluation(passed=False), _reply(_done())],
-            ("generator", 2): [_reply(_done())],
-            ("evaluator", 2): [_reply(_done())],
+            ("generator", 1): [_candidate()],
+            ("evaluator", 1): [_evaluation(passed=False)],
+            ("generator", 2): [_candidate()],
+            ("evaluator", 2): [_reply(_done()), _reply(_done())],
         }
     )
 
@@ -507,9 +511,10 @@ def test_duo_invalid_evaluation_tool_call_is_invalid_submission(tmp_path: Path):
     }
     builder = _RoleBuilder(
         {
-            ("generator", 1): [_reply(_done())],
+            ("generator", 1): [_candidate()],
             ("evaluator", 1): [
                 _reply(f"<!-- ToolCall: {json.dumps(marker)} -->"),
+                _reply(_done()),
                 _reply(_done()),
             ],
         }
@@ -521,20 +526,48 @@ def test_duo_invalid_evaluation_tool_call_is_invalid_submission(tmp_path: Path):
     assert report.stop_reason == "invalid_role_submission"
 
 
-def test_duo_pass_verdict_without_standalone_completion_is_role_failed(tmp_path: Path):
+def test_duo_pass_verdict_completes_without_standalone_status(tmp_path: Path):
     builder = _RoleBuilder(
         {
-            ("generator", 1): [_reply(_done())],
-            ("evaluator", 1): [
-                _evaluation(passed=True),
-                _reply("plain"),
-                _reply("still plain"),
-            ],
+            ("generator", 1): [_candidate()],
+            ("evaluator", 1): [_evaluation(passed=True)],
         }
     )
 
     report = _runner(tmp_path, builder).run("write PRIVATE_GOAL artifact")
 
-    assert report.status == "failed"
-    assert report.stop_reason == "role_failed"
+    assert report.status == "completed"
+    assert report.stop_reason == "completed"
     assert report.passed_item_count == 1
+
+
+def test_duo_resume_with_persisted_verdict_skips_evaluator(tmp_path: Path):
+    builder = _RoleBuilder({})
+    runner = _runner(tmp_path, builder)
+    submitted = runner._store.save(
+        runner._state.model_copy(update={"phase": "evaluator", "generator_attempts": 1}),
+        expected_revision=runner._state.revision,
+    )
+    runner._state = runner._store.save(
+        submitted.model_copy(
+            update={
+                "evaluator_attempts": 1,
+                "last_evaluation": (
+                    EvaluationItem(
+                        id="goal",
+                        passed=True,
+                        observed="artifact exists",
+                        expected="artifact exists",
+                    ),
+                ),
+            }
+        ),
+        expected_revision=submitted.revision,
+    )
+
+    report = runner.run("write PRIVATE_GOAL artifact")
+
+    assert report.status == "completed"
+    assert report.stop_reason == "completed"
+    assert builder.calls == []
+    assert (report.generator_attempts, report.evaluator_attempts) == (1, 1)

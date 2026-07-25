@@ -37,8 +37,9 @@ CLI/HTTP 请求不能定义或启用检查，默认 Evaluator 工具集保持不
 
 协作模式位于普通 `Task` 上层，不改变 single 模式的 `TaskOutcome` 或两阶段完成语义：
 
-- Duo 串行运行 Generator → Evaluator。Generator 的 `completed: true` 只表示“提交验收”；
-  独立 Evaluator 对冻结验收项全部判定通过后，协作结果才是 `completed`。
+- Duo 串行运行 Generator → Evaluator。Generator 必须调用零载荷 `SubmitCandidate` 提交当前
+  attempt；独立 Evaluator 对冻结验收项全部判定通过后，协作结果才是 `completed`。三个角色的
+  Submit 工具成功后都会立即完成该角色，不需要额外 standalone `task_status`。
 - Triad 在 Duo 前增加 Planner。Planner 只定义 WHAT（可观察行为与验收标准），计划必须由
   交互用户确认后冻结；条目、顺序和 `plan_digest` 在 Generator/Evaluator 与 Loop resume 中
   均不能删除、重排、替换或降标。

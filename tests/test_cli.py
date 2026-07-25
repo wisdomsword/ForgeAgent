@@ -1501,13 +1501,17 @@ def test_collaborative_loop_retries_recoverable_generator_failure(monkeypatch, t
                     usage=TokenUsage(input_tokens=1, total_prompt_tokens=1),
                 ),
             ],
-            [_reply(_done(), usage=TokenUsage(input_tokens=1, total_prompt_tokens=1))],
+            [
+                _reply(
+                    '<!-- ToolCall: {"name":"SubmitCandidate","arguments":{}} -->',
+                    usage=TokenUsage(input_tokens=1, total_prompt_tokens=1),
+                )
+            ],
             [
                 _reply(
                     f"<!-- ToolCall: {json.dumps(evaluation)} -->",
                     usage=TokenUsage(input_tokens=1, total_prompt_tokens=1),
                 ),
-                _reply(_done(), usage=TokenUsage(input_tokens=1, total_prompt_tokens=1)),
             ],
         ]
     )
@@ -1543,7 +1547,7 @@ def test_collaborative_loop_retries_recoverable_generator_failure(monkeypatch, t
 
     assert report.status == "completed"
     assert report.iterations == 2
-    assert report.rounds_used == 5
+    assert report.rounds_used == 4
     assert report.consecutive_failures == 0
     assert len(clients) == 3
     retried_generator_data = json.loads(clients[1].first_user_message)

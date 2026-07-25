@@ -40,6 +40,11 @@ def _plan(items: list[dict[str, str]], *, completed: bool = False) -> AssistantM
     return _reply(f"<!-- ToolCall: {json.dumps(marker)} -->{suffix}")
 
 
+def _candidate() -> AssistantMessage:
+    marker = {"name": "SubmitCandidate", "arguments": {}}
+    return _reply(f"<!-- ToolCall: {json.dumps(marker)} -->")
+
+
 def _evaluation(results: list[dict[str, object]]) -> AssistantMessage:
     marker = {"name": "SubmitEvaluation", "arguments": {"results": results}}
     return _reply(f"<!-- ToolCall: {json.dumps(marker)} -->")
@@ -77,9 +82,11 @@ class _RecordingClient(MockClient):
     def __init__(self, script):
         super().__init__(script)
         self.first_user_message = ""
+        self.requests = []
         self.closed = False
 
     def complete(self, messages, params=None):
+        self.requests.append(list(messages))
         if not self.first_user_message:
             self.first_user_message = str(messages[-1].content)
         return super().complete(messages, params)
@@ -191,11 +198,11 @@ def test_triad_approved_plan_rejects_then_uses_fresh_generator_and_passes(tmp_pa
     summaries: list[str] = []
     builder = _RoleBuilder(
         {
-            ("planner", 1): [_plan(_items()), _reply(_done())],
-            ("generator", 1): [_reply(_done())],
-            ("evaluator", 1): [_evaluation(_results(passed=False)), _reply(_done())],
-            ("generator", 2): [_reply(_done())],
-            ("evaluator", 2): [_evaluation(_results(passed=True)), _reply(_done())],
+            ("planner", 1): [_plan(_items())],
+            ("generator", 1): [_candidate()],
+            ("evaluator", 1): [_evaluation(_results(passed=False))],
+            ("generator", 2): [_candidate()],
+            ("evaluator", 2): [_evaluation(_results(passed=True))],
         }
     )
 
@@ -209,7 +216,7 @@ def test_triad_approved_plan_rejects_then_uses_fresh_generator_and_passes(tmp_pa
     assert report.stop_reason == "completed"
     assert report.plan_item_count == 2
     assert (report.generator_attempts, report.evaluator_attempts, report.rejections) == (2, 2, 1)
-    assert report.rounds == 8
+    assert report.rounds == 5
     assert [call[0] for call in builder.calls] == [
         "planner",
         "generator",
@@ -234,7 +241,7 @@ def test_triad_approved_plan_rejects_then_uses_fresh_generator_and_passes(tmp_pa
 
 @pytest.mark.parametrize("confirmer", [None, headless_plan_confirmer("deny")])
 def test_triad_without_approval_stops_at_confirmation(tmp_path: Path, confirmer):
-    builder = _RoleBuilder({("planner", 1): [_plan(_items()), _reply(_done())]})
+    builder = _RoleBuilder({("planner", 1): [_plan(_items())]})
 
     report = _runner(tmp_path, builder, plan_confirmer=confirmer).run(
         "create PRIVATE_GOAL artifact"
@@ -249,9 +256,9 @@ def test_triad_without_approval_stops_at_confirmation(tmp_path: Path, confirmer)
 def test_triad_headless_preauthorize_runs_generator(tmp_path: Path):
     builder = _RoleBuilder(
         {
-            ("planner", 1): [_plan(_items()), _reply(_done())],
-            ("generator", 1): [_reply(_done())],
-            ("evaluator", 1): [_evaluation(_results(passed=True)), _reply(_done())],
+            ("planner", 1): [_plan(_items())],
+            ("generator", 1): [_candidate()],
+            ("evaluator", 1): [_evaluation(_results(passed=True))],
         }
     )
 
@@ -265,13 +272,84 @@ def test_triad_headless_preauthorize_runs_generator(tmp_path: Path):
     assert [call[0] for call in builder.calls] == ["planner", "generator", "evaluator"]
 
 
+def test_collaboration_role_prompts_explain_their_text_protocol(tmp_path: Path):
+    builder = _RoleBuilder(
+        {
+            ("planner", 1): [_plan(_items())],
+            ("generator", 1): [_candidate()],
+            ("evaluator", 1): [_evaluation(_results(passed=True))],
+        }
+    )
+
+    report = _runner(
+        tmp_path,
+        builder,
+        plan_confirmer=headless_plan_confirmer("preauthorize"),
+    ).run("create PRIVATE_GOAL artifact")
+
+    prompts = {role: prompt for role, _attempt, prompt in builder.calls}
+    assert report.status == "completed"
+    assert '"name":"SubmitPlan"' in prompts["planner"]
+    assert '"items"' in prompts["planner"]
+    assert '"name":"SubmitCandidate"' in prompts["generator"]
+    assert "Do not substitute prose or task_status" in prompts["generator"]
+    assert '"name":"SubmitEvaluation"' in prompts["evaluator"]
+    assert '"results"' in prompts["evaluator"]
+    assert '"name":"FileRead"' in prompts["evaluator"]
+
+
+def test_planner_prose_recovery_names_only_its_registered_tool(tmp_path: Path):
+    builder = _RoleBuilder(
+        {
+            ("planner", 1): [_reply("I will describe the plan."), _plan(_items())],
+            ("generator", 1): [_candidate()],
+            ("evaluator", 1): [_evaluation(_results(passed=True))],
+        }
+    )
+
+    report = _runner(
+        tmp_path,
+        builder,
+        plan_confirmer=headless_plan_confirmer("preauthorize"),
+    ).run("create PRIVATE_GOAL artifact")
+
+    recovery = str(builder.clients[0].requests[1][-1].content)
+    assert report.status == "completed"
+    assert "SubmitPlan" in recovery
+    assert "Exec" not in recovery
+
+
+def test_evaluator_completion_waits_for_required_submission(tmp_path: Path):
+    builder = _RoleBuilder(
+        {
+            ("planner", 1): [_plan(_items())],
+            ("generator", 1): [_candidate()],
+            ("evaluator", 1): [
+                _reply(_done()),
+                _evaluation(_results(passed=True)),
+            ],
+        }
+    )
+
+    report = _runner(
+        tmp_path,
+        builder,
+        plan_confirmer=headless_plan_confirmer("preauthorize"),
+    ).run("create PRIVATE_GOAL artifact")
+
+    recovery = str(builder.clients[2].requests[1][-1].content)
+    assert report.status == "completed"
+    assert "SubmitEvaluation" in recovery
+    assert "successfully" in recovery
+
+
 def test_reopened_triad_waiting_for_confirmation_does_not_rerun_planner(tmp_path: Path):
     collaboration_id = "1" * 32
     _persisted_triad_state(tmp_path, phase="needs_confirmation", collaboration_id=collaboration_id)
     builder = _RoleBuilder(
         {
-            ("generator", 1): [_reply(_done())],
-            ("evaluator", 1): [_evaluation(_results(passed=True)), _reply(_done())],
+            ("generator", 1): [_candidate()],
+            ("evaluator", 1): [_evaluation(_results(passed=True))],
         }
     )
     runner = _reopened_runner(
@@ -292,8 +370,8 @@ def test_reopened_confirmed_triad_starts_at_generator(tmp_path: Path):
     _persisted_triad_state(tmp_path, phase="generator", collaboration_id=collaboration_id)
     builder = _RoleBuilder(
         {
-            ("generator", 1): [_reply(_done())],
-            ("evaluator", 1): [_evaluation(_results(passed=True)), _reply(_done())],
+            ("generator", 1): [_candidate()],
+            ("evaluator", 1): [_evaluation(_results(passed=True))],
         }
     )
     runner = _reopened_runner(tmp_path, builder, collaboration_id=collaboration_id)
@@ -313,9 +391,7 @@ def test_reopened_triad_at_evaluator_does_not_repeat_generator(tmp_path: Path):
         collaboration_id=collaboration_id,
         generator_attempts=1,
     )
-    builder = _RoleBuilder(
-        {("evaluator", 1): [_evaluation(_results(passed=True)), _reply(_done())]}
-    )
+    builder = _RoleBuilder({("evaluator", 1): [_evaluation(_results(passed=True))]})
     runner = _reopened_runner(tmp_path, builder, collaboration_id=collaboration_id)
 
     report = runner.run("create PRIVATE_GOAL artifact")
@@ -329,9 +405,9 @@ def test_reopened_terminal_triad_returns_stable_report_without_roles(tmp_path: P
     collaboration_id = "4" * 32
     builder = _RoleBuilder(
         {
-            ("planner", 1): [_plan(_items()), _reply(_done())],
-            ("generator", 1): [_reply(_done())],
-            ("evaluator", 1): [_evaluation(_results(passed=True)), _reply(_done())],
+            ("planner", 1): [_plan(_items())],
+            ("generator", 1): [_candidate()],
+            ("evaluator", 1): [_evaluation(_results(passed=True))],
         }
     )
     original = _runner(
@@ -379,7 +455,7 @@ def test_reopened_triad_keeps_persisted_plan_frozen(tmp_path: Path, tamper: str)
             task.run = run
             return task
 
-    builder = _TamperingBuilder({("generator", 1): [_reply(_done())]})
+    builder = _TamperingBuilder({("generator", 1): [_candidate()]})
     runner = _reopened_runner(tmp_path, builder, collaboration_id=collaboration_id)
 
     report = runner.run("create PRIVATE_GOAL artifact")
@@ -406,8 +482,8 @@ def test_planner_corrects_duplicate_and_how_only_submissions(tmp_path: Path):
                 _plan(_items()),
                 _reply(_done()),
             ],
-            ("generator", 1): [_reply(_done())],
-            ("evaluator", 1): [_evaluation(_results(passed=True)), _reply(_done())],
+            ("generator", 1): [_candidate()],
+            ("evaluator", 1): [_evaluation(_results(passed=True))],
         }
     )
 
@@ -418,10 +494,10 @@ def test_planner_corrects_duplicate_and_how_only_submissions(tmp_path: Path):
     ).run("create PRIVATE_GOAL artifact")
 
     assert report.status == "completed"
-    assert report.rounds == 7
+    assert report.rounds == 5
 
 
-def test_planner_tool_commit_still_requires_standalone_completion(tmp_path: Path):
+def test_planner_tool_commit_completes_without_standalone_status(tmp_path: Path):
     builder = _RoleBuilder(
         {("planner", 1): [_plan(_items(), completed=True), _reply("plain"), _reply("still plain")]}
     )
@@ -429,11 +505,11 @@ def test_planner_tool_commit_still_requires_standalone_completion(tmp_path: Path
     report = _runner(
         tmp_path,
         builder,
-        plan_confirmer=headless_plan_confirmer("preauthorize"),
+        plan_confirmer=headless_plan_confirmer("deny"),
     ).run("create PRIVATE_GOAL artifact")
 
-    assert report.status == "failed"
-    assert report.stop_reason == "role_failed"
+    assert report.status == "stopped"
+    assert report.stop_reason == "needs_confirmation"
     assert report.plan_item_count == 2
     assert [call[0] for call in builder.calls] == ["planner"]
 
@@ -460,7 +536,7 @@ def test_loop_policy_keeps_recoverable_planner_failure_active(tmp_path: Path):
 @pytest.mark.parametrize(
     ("script", "reason"),
     [
-        ([_reply(_done())], "invalid_role_submission"),
+        ([_reply(_done()), _reply(_done())], "invalid_role_submission"),
         ([ClientError(message="bad key", kind="auth", attempts=1)], "unrecoverable_failure"),
         ([_reply("cannot"), _reply("still cannot")], "invalid_role_submission"),
     ],
@@ -517,7 +593,7 @@ def test_triad_cancel_after_planner_wins_before_confirmation(tmp_path: Path):
             return task
 
     confirmer_calls: list[str] = []
-    builder = _CancellingBuilder({("planner", 1): [_plan(_items()), _reply(_done())]})
+    builder = _CancellingBuilder({("planner", 1): [_plan(_items())]})
 
     report = _runner(
         tmp_path,
@@ -532,7 +608,7 @@ def test_triad_cancel_after_planner_wins_before_confirmation(tmp_path: Path):
 
 def test_triad_confirmation_exception_is_role_failure_not_denial(tmp_path: Path):
     sink = _AuditSink()
-    builder = _RoleBuilder({("planner", 1): [_plan(_items()), _reply(_done())]})
+    builder = _RoleBuilder({("planner", 1): [_plan(_items())]})
 
     def broken_confirmer(summary: str) -> bool:
         raise RuntimeError(f"PRIVATE_CONFIRMATION_FAILURE:{summary}")
@@ -559,7 +635,7 @@ def test_triad_cancel_during_confirmation_wins_without_decision_audit(
 ):
     cancel = threading.Event()
     sink = _AuditSink()
-    builder = _RoleBuilder({("planner", 1): [_plan(_items()), _reply(_done())]})
+    builder = _RoleBuilder({("planner", 1): [_plan(_items())]})
 
     def cancelling_confirmer(summary: str) -> bool:
         assert "PRIVATE_GOAL" not in summary
@@ -606,8 +682,8 @@ def test_triad_cancel_wins_over_later_role_construction_failure(
 ):
     cancel = threading.Event()
     scripts = {
-        ("planner", 1): [_plan(_items()), _reply(_done())],
-        ("generator", 1): [_reply(_done())],
+        ("planner", 1): [_plan(_items())],
+        ("generator", 1): [_candidate()],
     }
 
     class _CancellingBuilder(_RoleBuilder):
@@ -662,8 +738,8 @@ def test_triad_plan_change_after_confirmation_fails_closed(tmp_path: Path, tampe
 
     builder = _TamperingBuilder(
         {
-            ("planner", 1): [_plan(_items()), _reply(_done())],
-            ("generator", 1): [_reply(_done())],
+            ("planner", 1): [_plan(_items())],
+            ("generator", 1): [_candidate()],
         }
     )
 
@@ -688,7 +764,7 @@ def test_triad_plan_audit_never_contains_goal_or_plan_text(tmp_path: Path):
             "acceptance": "PRIVATE_PLAN_ACCEPTANCE",
         }
     ]
-    builder = _RoleBuilder({("planner", 1): [_plan(private_items), _reply(_done())]})
+    builder = _RoleBuilder({("planner", 1): [_plan(private_items)]})
 
     report = _runner(
         tmp_path,

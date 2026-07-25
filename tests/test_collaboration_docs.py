@@ -32,7 +32,8 @@ def test_readme_documents_collaboration_entry_points_routing_and_cost() -> None:
     ):
         assert fragment in text
     assert "显式 triad > 编程任务强制 triad" in text
-    assert "Generator 的 `completed: true`" in text
+    assert "`SubmitCandidate`" in text
+    assert "不需要额外 standalone `task_status`" in text
 
 
 def test_protocol_documents_collaboration_schema_authority_and_safe_report() -> None:
@@ -42,7 +43,8 @@ def test_protocol_documents_collaboration_schema_authority_and_safe_report() -> 
     assert "SubmitPlan" in text
     assert "SubmitEvaluation" in text
     assert "FileRead" in text and "FileList" in text
-    assert "Generator 的 `completed: true`" in text
+    assert "zero-argument `SubmitCandidate`" in text
+    assert "without a later standalone" in text
     assert "plan_digest" in text
     for field in (
         "plan_item_count",

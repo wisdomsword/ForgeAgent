@@ -13,16 +13,21 @@ from forgeagent.check_runner import CheckDefinition, CheckResult
 from forgeagent.collaboration import (
     AcceptanceItem,
     CollaborationStore,
+    EvaluationItem,
     RunCheckArgs,
     RunCheckTool,
+    SubmitCandidateArgs,
+    SubmitCandidateTool,
     SubmitEvaluationArgs,
     SubmitEvaluationTool,
     SubmitPlanArgs,
     SubmitPlanTool,
     build_evaluator_registry,
+    build_generator_registry,
     build_planner_registry,
     plan_digest,
 )
+from forgeagent.tools import default_registry
 
 
 def test_submit_plan_commits_before_success_and_rejects_duplicate_and_how_only(tmp_path: Path):
@@ -36,6 +41,7 @@ def test_submit_plan_commits_before_success_and_rejects_duplicate_and_how_only(t
     outcome = tool.run(valid, None)
 
     assert outcome.success is True
+    assert outcome.completes_task is True
     assert store.load(state.collaboration_id).plan[0].id == "artifact"
     duplicate = tool.run(
         SubmitPlanArgs.model_construct(
@@ -69,6 +75,40 @@ def test_submit_plan_commits_before_success_and_rejects_duplicate_and_how_only(t
     assert behavior_how.success is False
 
 
+def test_submit_candidate_atomically_advances_attempt_and_clears_old_verdict(tmp_path: Path):
+    store = CollaborationStore(str(tmp_path))
+    initial = store.create("Build an artifact", "duo", collaboration_id="f" * 32)
+    rejected = store.save(
+        initial.model_copy(
+            update={
+                "last_evaluation": (
+                    EvaluationItem(
+                        id="goal",
+                        passed=False,
+                        observed="old",
+                        expected="fixed",
+                    ),
+                )
+            }
+        ),
+        expected_revision=0,
+    )
+    tool = SubmitCandidateTool(store, rejected)
+
+    outcome = tool.run(SubmitCandidateArgs(), None)
+    persisted = store.load(initial.collaboration_id)
+
+    assert outcome.success is True
+    assert outcome.completes_task is True
+    assert persisted.phase == "evaluator"
+    assert persisted.generator_attempts == 1
+    assert persisted.last_evaluation == ()
+
+    duplicate = tool.run(SubmitCandidateArgs(), None)
+    assert duplicate.success is False
+    assert store.load(initial.collaboration_id) == persisted
+
+
 def test_submit_evaluation_requires_exact_frozen_ids_and_registry_is_read_only(tmp_path: Path):
     store = CollaborationStore(str(tmp_path))
     initial = store.create("Build an artifact", "triad", collaboration_id="b" * 32)
@@ -82,7 +122,10 @@ def test_submit_evaluation_requires_exact_frozen_ids_and_registry_is_read_only(t
         ),
         expected_revision=0,
     )
-    state = store.save(submitted.model_copy(update={"phase": "generator"}), expected_revision=1)
+    generator = store.save(submitted.model_copy(update={"phase": "generator"}), expected_revision=1)
+    candidate = SubmitCandidateTool(store, generator).run(SubmitCandidateArgs(), None)
+    assert candidate.success is True
+    state = store.load(initial.collaboration_id)
     tool = SubmitEvaluationTool(store, state)
     missing = tool.run(SubmitEvaluationArgs.model_construct(results=()), None)
     correct = tool.run(
@@ -99,12 +142,31 @@ def test_submit_evaluation_requires_exact_frozen_ids_and_registry_is_read_only(t
 
     assert missing.success is False
     assert correct.success is True
-    assert tuple(item.id for item in store.load(state.collaboration_id).last_evaluation) == (
+    assert correct.completes_task is True
+    persisted = store.load(state.collaboration_id)
+    assert persisted.evaluator_attempts == 1
+    assert persisted.phase == "evaluator"
+    assert tuple(item.id for item in persisted.last_evaluation) == (
         "first",
         "second",
     )
     assert set(planner.arg_schemas()) == {"SubmitPlan"}
     assert set(evaluator.arg_schemas()) == {"FileRead", "FileList", "SubmitEvaluation"}
+    assert planner.required_completion_tool == "SubmitPlan"
+    assert evaluator.required_completion_tool == "SubmitEvaluation"
+
+
+def test_generator_registry_preserves_existing_tools_and_requires_candidate(tmp_path: Path):
+    store = CollaborationStore(str(tmp_path))
+    state = store.create("Build an artifact", "duo", collaboration_id="9" * 32)
+    registry = default_registry()
+
+    result = build_generator_registry(registry=registry, store=store, state=state)
+
+    assert result is registry
+    assert "FileWrite" in result.arg_schemas()
+    assert "SubmitCandidate" in result.arg_schemas()
+    assert result.required_completion_tool == "SubmitCandidate"
 
 
 def test_evaluator_registry_adds_only_host_defined_checks(tmp_path: Path):
@@ -180,7 +242,9 @@ def test_submit_evaluation_masks_evidence_before_persistence(
 ):
     monkeypatch.setenv("COLLABORATION_SECRET", "persisted-secret-value")
     store = CollaborationStore(str(tmp_path))
-    state = store.create("Build an artifact", "duo", collaboration_id="c" * 32)
+    generator = store.create("Build an artifact", "duo", collaboration_id="c" * 32)
+    assert SubmitCandidateTool(store, generator).run(SubmitCandidateArgs(), None).success is True
+    state = store.load(generator.collaboration_id)
     tool = SubmitEvaluationTool(store, state)
 
     outcome = tool.run(
@@ -209,7 +273,9 @@ def test_submit_evaluation_masks_evidence_before_persistence(
 )
 def test_submit_evaluation_redacts_windows_paths_before_persistence(tmp_path: Path, path: str):
     store = CollaborationStore(str(tmp_path))
-    state = store.create("Build an artifact", "duo", collaboration_id="d" * 32)
+    generator = store.create("Build an artifact", "duo", collaboration_id="d" * 32)
+    assert SubmitCandidateTool(store, generator).run(SubmitCandidateArgs(), None).success is True
+    state = store.load(generator.collaboration_id)
     tool = SubmitEvaluationTool(store, state)
 
     outcome = tool.run(
