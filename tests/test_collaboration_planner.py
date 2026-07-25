@@ -293,6 +293,7 @@ def test_collaboration_role_prompts_explain_their_text_protocol(tmp_path: Path):
     assert '"items"' in prompts["planner"]
     assert "verifiable with FileList and FileRead" in prompts["planner"]
     assert "Do not require proof that pytest or another command actually ran" in prompts["planner"]
+    assert "Never use XML/function_calls syntax" in prompts["planner"]
     assert '"name":"SubmitCandidate"' in prompts["generator"]
     assert "Do not substitute prose or task_status" in prompts["generator"]
     assert "SubmitCandidate does not create or validate artifacts" in prompts["generator"]
@@ -302,6 +303,7 @@ def test_collaboration_role_prompts_explain_their_text_protocol(tmp_path: Path):
         "Optional verification failure does not invalidate successful writes"
         in prompts["generator"]
     )
+    assert "Never use XML/function_calls syntax" in prompts["generator"]
     assert '"name":"SubmitEvaluation"' in prompts["evaluator"]
     assert '"results"' in prompts["evaluator"]
     assert '"name":"FileRead"' in prompts["evaluator"]
@@ -313,6 +315,7 @@ def test_collaboration_role_prompts_explain_their_text_protocol(tmp_path: Path):
         "Never claim FileRead was truncated unless its feedback explicitly says truncated"
         in prompts["evaluator"]
     )
+    assert "Never use XML/function_calls syntax" in prompts["evaluator"]
 
 
 def test_planner_prose_recovery_names_only_its_registered_tool(tmp_path: Path):

@@ -1204,7 +1204,8 @@ _PLANNER_PROMPT = (
     "inspectable implementation and test assertions that imply the requested behavior. Do not "
     "require proof that pytest or another command actually ran, a zero exit code, or runtime "
     "output unless the task data explicitly provides a host RunCheck capability. Do not "
-    "substitute prose or task_status. A successful "
+    "substitute prose or task_status. Never use XML/function_calls syntax; ForgeAgent recognizes "
+    "only the exact HTML comment ToolCall marker shown above. A successful "
     "SubmitPlan ends this role immediately."
 )
 
@@ -1225,6 +1226,8 @@ _GENERATOR_PROMPT = (
     "successful writes: on the next round, submit the written candidate unless a required "
     "artifact operation failed. FileWrite is preferred over Exec for creating requested files. "
     "Keep implementations and tests concise enough for independent FileRead inspection. "
+    "Never use XML/function_calls syntax; every tool call must use the exact HTML comment "
+    "ToolCall marker. "
     "Do not substitute prose or task_status. A successful SubmitCandidate ends this role "
     "immediately. Under restricted execution, do not repeatedly retry merely because Exec "
     "cannot observe a file written by FileWrite."
@@ -1245,6 +1248,8 @@ _EVALUATOR_PROMPT = (
     "combined feedback is truncated, re-read only that file in a new response before judging. "
     "Never claim FileRead was truncated unless its feedback explicitly says truncated; otherwise "
     "treat the returned file content as complete. "
+    "Never use XML/function_calls syntax; every tool call must use the exact HTML comment "
+    "ToolCall marker. "
     "SubmitEvaluation is the only valid completion signal; do not substitute prose "
     "or task_status. A successful SubmitEvaluation ends this role immediately."
 )
