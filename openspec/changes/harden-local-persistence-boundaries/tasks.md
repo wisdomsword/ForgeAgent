@@ -12,8 +12,8 @@
 
 ## 3. Loop checkpoint 跨进程 CAS
 
-- [ ] 3.1 新增失败测试，覆盖同 revision 重叠保存、重叠创建、不安全 lock file 和不同 Loop ID 并行。
-- [ ] 3.2 实现每个 Loop 独立的稳定私有 lock file，以及锁内 create/save 校验和原子替换。
+- [x] 3.1 新增失败测试，覆盖同 revision 重叠保存、重叠创建、不安全 lock file 和不同 Loop ID 并行。
+- [x] 3.2 实现每个 Loop 独立的稳定私有 lock file，以及锁内 create/save 校验和原子替换。
 - [ ] 3.3 运行 Loop store、runner、HTTP 和 collaboration resume 专项回归。
 
 ## 4. 契约与完成门禁

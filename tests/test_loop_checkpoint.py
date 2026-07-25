@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import fcntl
 import json
 import math
 import os
+import threading
 from pathlib import Path
 
 import pytest
@@ -409,6 +411,154 @@ def test_atomic_save_replaces_snapshot_and_stale_revision_preserves_old_bytes(tm
     with pytest.raises(LoopCheckpointError):
         store.save(created, expected_revision=0)
     assert path.read_bytes() == before_stale
+
+
+def test_overlapping_saves_from_distinct_stores_commit_once(tmp_path: Path, monkeypatch):
+    first = LoopCheckpointStore(str(tmp_path))
+    checkpoint = first.create("Build it", _budgets(), loop_id="9" * 32)
+    second = LoopCheckpointStore(str(tmp_path))
+    barrier = threading.Barrier(2)
+    first_load = first.load
+    second_load = second.load
+
+    def stale_read(load, loop_id):
+        current = load(loop_id)
+        barrier.wait(timeout=2)
+        return current
+
+    monkeypatch.setattr(first, "load", lambda loop_id: stale_read(first_load, loop_id))
+    monkeypatch.setattr(second, "load", lambda loop_id: stale_read(second_load, loop_id))
+    results = []
+
+    def save(store, handoff):
+        try:
+            results.append(
+                store.save(checkpoint.model_copy(update={"handoff": handoff}), expected_revision=0)
+            )
+        except LoopCheckpointError as error:
+            results.append(error)
+
+    threads = [
+        threading.Thread(target=save, args=(first, "first")),
+        threading.Thread(target=save, args=(second, "second")),
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=3)
+
+    assert not any(thread.is_alive() for thread in threads)
+    assert sum(isinstance(result, LoopCheckpoint) for result in results) == 1
+    assert sum(isinstance(result, LoopCheckpointError) for result in results) == 1
+    assert first_load(checkpoint.loop_id).revision == 1
+
+
+def test_overlapping_creates_from_distinct_stores_commit_once(tmp_path: Path):
+    both_writing = threading.Event()
+    write_count = 0
+    count_lock = threading.Lock()
+
+    class CoordinatedStore(LoopCheckpointStore):
+        def _write(self, name, checkpoint):
+            nonlocal write_count
+            with count_lock:
+                write_count += 1
+                if write_count == 2:
+                    both_writing.set()
+            both_writing.wait(timeout=0.5)
+            super()._write(name, checkpoint)
+
+    first = CoordinatedStore(str(tmp_path))
+    second = CoordinatedStore(str(tmp_path))
+    start = threading.Barrier(2)
+    results = []
+
+    def create(store):
+        start.wait(timeout=2)
+        try:
+            results.append(store.create("Build it", _budgets(), loop_id="a" * 32))
+        except LoopCheckpointError as error:
+            results.append(error)
+
+    threads = [threading.Thread(target=create, args=(store,)) for store in (first, second)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=3)
+
+    assert not any(thread.is_alive() for thread in threads)
+    assert sum(isinstance(result, LoopCheckpoint) for result in results) == 1
+    assert sum(isinstance(result, LoopCheckpointError) for result in results) == 1
+
+
+def test_store_rejects_symlink_checkpoint_lock(tmp_path: Path):
+    store = LoopCheckpointStore(str(tmp_path))
+    checkpoint = store.create("Build it", _budgets(), loop_id="b" * 32)
+    lock_path = tmp_path / ".forgeagent" / "loops" / f".{checkpoint.loop_id}.lock"
+    outside = tmp_path / "outside-lock"
+    outside.write_text("unchanged")
+    if lock_path.exists():
+        lock_path.unlink()
+    lock_path.symlink_to(outside)
+
+    with pytest.raises(LoopCheckpointError):
+        store.save(checkpoint.model_copy(update={"handoff": "next"}), expected_revision=0)
+
+    assert outside.read_text() == "unchanged"
+    assert store.load(checkpoint.loop_id).revision == 0
+
+
+def test_checkpoint_lock_failure_preserves_revision(tmp_path: Path, monkeypatch):
+    store = LoopCheckpointStore(str(tmp_path))
+    checkpoint = store.create("Build it", _budgets(), loop_id="e" * 32)
+    before = (tmp_path / ".forgeagent" / "loops" / f"{checkpoint.loop_id}.json").read_bytes()
+
+    def fail_lock(*args, **kwargs):
+        raise OSError("lock unavailable")
+
+    monkeypatch.setattr(fcntl, "flock", fail_lock)
+
+    with pytest.raises(LoopCheckpointError):
+        store.save(checkpoint.model_copy(update={"handoff": "next"}), expected_revision=0)
+
+    path = tmp_path / ".forgeagent" / "loops" / f"{checkpoint.loop_id}.json"
+    assert path.read_bytes() == before
+
+
+def test_distinct_checkpoint_ids_do_not_share_one_process_lock(tmp_path: Path):
+    both_writing = threading.Event()
+    write_count = 0
+    count_lock = threading.Lock()
+
+    class CoordinatedStore(LoopCheckpointStore):
+        def _write(self, name, checkpoint):
+            nonlocal write_count
+            with count_lock:
+                write_count += 1
+                if write_count == 2:
+                    both_writing.set()
+            both_writing.wait(timeout=1)
+            super()._write(name, checkpoint)
+
+    first = CoordinatedStore(str(tmp_path))
+    second = CoordinatedStore(str(tmp_path))
+    start = threading.Barrier(2)
+
+    def create(store, loop_id):
+        start.wait(timeout=2)
+        store.create("Build it", _budgets(), loop_id=loop_id)
+
+    threads = [
+        threading.Thread(target=create, args=(first, "c" * 32)),
+        threading.Thread(target=create, args=(second, "d" * 32)),
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=3)
+
+    assert both_writing.is_set()
+    assert not any(thread.is_alive() for thread in threads)
 
 
 def test_atomic_save_failure_preserves_old_bytes_and_cleans_temp(tmp_path: Path, monkeypatch):

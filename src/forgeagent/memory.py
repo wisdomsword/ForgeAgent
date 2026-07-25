@@ -255,7 +255,10 @@ class MemoryManager:
             yield
         finally:
             if locked:
-                fcntl.flock(descriptor, fcntl.LOCK_UN)
+                try:
+                    fcntl.flock(descriptor, fcntl.LOCK_UN)
+                except OSError:
+                    pass
             os.close(descriptor)
 
     def _admission_reason(self, candidate: MemoryCandidate) -> str | None:

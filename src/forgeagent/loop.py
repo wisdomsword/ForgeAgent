@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fcntl
 import json
 import math
 import os
@@ -12,7 +13,8 @@ import time
 import unicodedata
 import warnings
 import weakref
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Literal, Protocol
 from uuid import uuid4
@@ -449,6 +451,42 @@ class LoopCheckpointStore:
             raise LoopCheckpointError("invalid checkpoint id")
         return f"{loop_id}.json"
 
+    @contextmanager
+    def _checkpoint_lock(self, loop_id: str) -> Iterator[None]:
+        name = f".{self._checkpoint_name(loop_id)[:-5]}.lock"
+        descriptor = -1
+        locked = False
+        try:
+            self._ensure_directory_binding()
+            no_follow = getattr(os, "O_NOFOLLOW", None)
+            if no_follow is None:
+                raise LoopCheckpointError("checkpoint lock cannot be opened safely")
+            descriptor = os.open(
+                name,
+                os.O_RDWR | os.O_CREAT | no_follow | getattr(os, "O_CLOEXEC", 0),
+                0o600,
+                dir_fd=self._loop_directory_descriptor,
+            )
+            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                raise LoopCheckpointError("checkpoint lock is unsafe")
+            os.fchmod(descriptor, 0o600)
+            fcntl.flock(descriptor, fcntl.LOCK_EX)
+            locked = True
+            self._ensure_directory_binding()
+            yield
+        except LoopCheckpointError:
+            raise
+        except (OSError, TypeError) as error:
+            raise LoopCheckpointError("checkpoint lock failed") from error
+        finally:
+            if descriptor >= 0:
+                if locked:
+                    try:
+                        fcntl.flock(descriptor, fcntl.LOCK_UN)
+                    except OSError:
+                        pass
+                os.close(descriptor)
+
     def _ensure_directory_binding(self) -> None:
         if self._closed:
             raise LoopCheckpointError("checkpoint store is closed")
@@ -517,71 +555,75 @@ class LoopCheckpointStore:
             except ValidationError as error:
                 raise LoopCheckpointError("invalid checkpoint") from error
             name = self._checkpoint_name(checkpoint.loop_id)
-            self._ensure_directory_binding()
-            try:
-                os.stat(name, dir_fd=self._loop_directory_descriptor, follow_symlinks=False)
-            except FileNotFoundError:
-                pass
-            except (OSError, TypeError) as error:
-                raise LoopCheckpointError("checkpoint file is invalid") from error
-            else:
-                raise LoopCheckpointError("checkpoint already exists")
-            self._write(name, checkpoint)
+            with self._checkpoint_lock(checkpoint.loop_id):
+                try:
+                    os.stat(name, dir_fd=self._loop_directory_descriptor, follow_symlinks=False)
+                except FileNotFoundError:
+                    pass
+                except (OSError, TypeError) as error:
+                    raise LoopCheckpointError("checkpoint file is invalid") from error
+                else:
+                    raise LoopCheckpointError("checkpoint already exists")
+                self._write(name, checkpoint)
             self._audit(checkpoint, "created")
             return checkpoint
 
     def load(self, loop_id: str) -> LoopCheckpoint:
         with self._lock:
-            name = self._checkpoint_name(loop_id)
-            try:
-                self._ensure_directory_binding()
-                no_follow = getattr(os, "O_NOFOLLOW", None)
-                if no_follow is None:
-                    raise LoopCheckpointError("checkpoint file cannot be opened safely")
-                descriptor = os.open(
-                    name,
-                    os.O_RDONLY | no_follow,
-                    dir_fd=self._loop_directory_descriptor,
-                )
-                with os.fdopen(descriptor, "r", encoding="utf-8") as handle:
-                    details = os.fstat(handle.fileno())
-                    if not stat.S_ISREG(details.st_mode):
-                        raise LoopCheckpointError("checkpoint file is unsafe")
-                    if details.st_size > MAX_CHECKPOINT_BYTES:
-                        raise LoopCheckpointError("checkpoint file is too large")
-                    raw = handle.read(MAX_CHECKPOINT_BYTES + 1)
-                if len(raw.encode("utf-8")) > MAX_CHECKPOINT_BYTES:
+            return self._load_unlocked(loop_id)
+
+    def _load_unlocked(self, loop_id: str) -> LoopCheckpoint:
+        name = self._checkpoint_name(loop_id)
+        try:
+            self._ensure_directory_binding()
+            no_follow = getattr(os, "O_NOFOLLOW", None)
+            if no_follow is None:
+                raise LoopCheckpointError("checkpoint file cannot be opened safely")
+            descriptor = os.open(
+                name,
+                os.O_RDONLY | no_follow,
+                dir_fd=self._loop_directory_descriptor,
+            )
+            with os.fdopen(descriptor, "r", encoding="utf-8") as handle:
+                details = os.fstat(handle.fileno())
+                if not stat.S_ISREG(details.st_mode):
+                    raise LoopCheckpointError("checkpoint file is unsafe")
+                if details.st_size > MAX_CHECKPOINT_BYTES:
                     raise LoopCheckpointError("checkpoint file is too large")
-                parsed = json.loads(raw, parse_constant=_reject_json_constant)
-                checkpoint = LoopCheckpoint.model_validate(parsed)
-            except LoopCheckpointError:
-                raise
-            except (
-                OSError,
-                UnicodeError,
-                json.JSONDecodeError,
-                ValidationError,
-                ValueError,
-            ) as error:
-                raise LoopCheckpointError("checkpoint file is invalid") from error
-            if checkpoint.loop_id != loop_id:
-                raise LoopCheckpointError("checkpoint file is invalid")
-            return checkpoint
+                raw = handle.read(MAX_CHECKPOINT_BYTES + 1)
+            if len(raw.encode("utf-8")) > MAX_CHECKPOINT_BYTES:
+                raise LoopCheckpointError("checkpoint file is too large")
+            parsed = json.loads(raw, parse_constant=_reject_json_constant)
+            checkpoint = LoopCheckpoint.model_validate(parsed)
+        except LoopCheckpointError:
+            raise
+        except (
+            OSError,
+            UnicodeError,
+            json.JSONDecodeError,
+            ValidationError,
+            ValueError,
+        ) as error:
+            raise LoopCheckpointError("checkpoint file is invalid") from error
+        if checkpoint.loop_id != loop_id:
+            raise LoopCheckpointError("checkpoint file is invalid")
+        return checkpoint
 
     def save(self, checkpoint: LoopCheckpoint, *, expected_revision: int) -> LoopCheckpoint:
         if type(expected_revision) is not int or expected_revision < 0:
             raise LoopCheckpointError("invalid checkpoint revision")
         with self._lock:
-            current = self.load(checkpoint.loop_id)
-            if current.revision != expected_revision:
-                raise LoopCheckpointError("checkpoint revision is stale")
-            try:
-                updated = LoopCheckpoint.model_validate(
-                    checkpoint.model_dump(mode="python") | {"revision": expected_revision + 1}
-                )
-            except ValidationError as error:
-                raise LoopCheckpointError("invalid checkpoint") from error
-            self._write(self._checkpoint_name(updated.loop_id), updated)
+            with self._checkpoint_lock(checkpoint.loop_id):
+                current = self._load_unlocked(checkpoint.loop_id)
+                if current.revision != expected_revision:
+                    raise LoopCheckpointError("checkpoint revision is stale")
+                try:
+                    updated = LoopCheckpoint.model_validate(
+                        checkpoint.model_dump(mode="python") | {"revision": expected_revision + 1}
+                    )
+                except ValidationError as error:
+                    raise LoopCheckpointError("invalid checkpoint") from error
+                self._write(self._checkpoint_name(updated.loop_id), updated)
             self._audit(updated, "saved")
             return updated
 
