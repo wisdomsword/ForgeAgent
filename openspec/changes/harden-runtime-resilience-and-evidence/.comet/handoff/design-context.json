@@ -1,0 +1,16 @@
+{
+  "change": "harden-runtime-resilience-and-evidence",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "364374393c77703d015175039f6c5d37285c1be023fb2d997d824083cd3fc4f0",
+  "files": [
+    { "path": "openspec/changes/harden-runtime-resilience-and-evidence/proposal.md", "sha256": "a6f744a98940c62ae09b0df6f18509e7c33e3f205b8a41b26708d94a4b8ca024" },
+    { "path": "openspec/changes/harden-runtime-resilience-and-evidence/design.md", "sha256": "b9c9f3c15c29472c03564446cd1a1a23dea6e868ed5a71bf1f3f1e30d173bd44" },
+    { "path": "openspec/changes/harden-runtime-resilience-and-evidence/tasks.md", "sha256": "d03344f9c651fe4a70d3726ab68b7e43d0617b6f0b67f3dfeab77d997a945349" },
+    { "path": "openspec/changes/harden-runtime-resilience-and-evidence/specs/mcp-resilience/spec.md", "sha256": "ff50bbd7f9401bb6b5d147e71430570a296105a624589bbbf6c182b43e8e43a9" },
+    { "path": "openspec/changes/harden-runtime-resilience-and-evidence/specs/network-boundary-safety/spec.md", "sha256": "1ce61eb5b6da77de58aaf3974515f0720ca394a34f84f86e05b2a5d4b0c9afdf" },
+    { "path": "openspec/changes/harden-runtime-resilience-and-evidence/specs/runtime-collaboration/spec.md", "sha256": "d27e2f38b4a9dc7c40f1c24f59364b4f0956cb216e14c7d0fc88e6db10a129fe" }
+  ]
+}
