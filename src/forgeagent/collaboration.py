@@ -1213,6 +1213,10 @@ _GENERATOR_PROMPT = (
     'completion tool exactly as <!-- ToolCall: {"name":"SubmitCandidate","arguments":{}} -->. '
     "SubmitCandidate does not create or validate artifacts. For file tasks, use FileWrite "
     "before SubmitCandidate and submit only after every required write reports success. "
+    "If any required FileWrite or Exec call fails, do not call SubmitCandidate in that response; "
+    "use the tool feedback to correct the work in the next round. When verification needs Exec, "
+    "prefer its inline code argument instead of an unmarked fenced block. Match literal output "
+    "requirements, including formatting. "
     "Do not substitute prose or task_status. A successful SubmitCandidate ends this role "
     "immediately. Under restricted execution, do not repeatedly retry merely because Exec "
     "cannot observe a file written by FileWrite."
@@ -1226,6 +1230,9 @@ _EVALUATOR_PROMPT = (
     '"location":"relative/path"}]}} -->. Failed items require non-empty observed and expected '
     "evidence. Never infer that an artifact exists from the goal, plan, or Generator claim; "
     "use FileList/FileRead or an available RunCheck and fail any item without direct evidence. "
+    "FileRead of implementation code and pytest assertions is direct evidence: reason about "
+    "their observable behavior when RunCheck is unavailable. Do not reject solely because Exec "
+    "is unavailable, and never claim a command actually ran unless RunCheck reports it. "
     "SubmitEvaluation is the only valid completion signal; do not substitute prose "
     "or task_status. A successful SubmitEvaluation ends this role immediately."
 )

@@ -295,10 +295,12 @@ def test_collaboration_role_prompts_explain_their_text_protocol(tmp_path: Path):
     assert "Do not substitute prose or task_status" in prompts["generator"]
     assert "SubmitCandidate does not create or validate artifacts" in prompts["generator"]
     assert "use FileWrite before SubmitCandidate" in prompts["generator"]
+    assert "do not call SubmitCandidate in that response" in prompts["generator"]
     assert '"name":"SubmitEvaluation"' in prompts["evaluator"]
     assert '"results"' in prompts["evaluator"]
     assert '"name":"FileRead"' in prompts["evaluator"]
     assert "Never infer that an artifact exists" in prompts["evaluator"]
+    assert "Do not reject solely because Exec is unavailable" in prompts["evaluator"]
 
 
 def test_planner_prose_recovery_names_only_its_registered_tool(tmp_path: Path):
