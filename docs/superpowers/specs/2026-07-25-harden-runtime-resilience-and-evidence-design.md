@@ -2,6 +2,8 @@
 comet_change: harden-runtime-resilience-and-evidence
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-07-25-harden-runtime-resilience-and-evidence
+status: final
 ---
 
 # 运行时韧性与证据收尾技术设计

@@ -2,6 +2,7 @@
 change: harden-runtime-resilience-and-evidence
 design-doc: docs/superpowers/specs/2026-07-25-harden-runtime-resilience-and-evidence-design.md
 base-ref: d61ccb875463c380b2501bc7f4a5ab078dec0963
+archived-with: 2026-07-25-harden-runtime-resilience-and-evidence
 ---
 
 # 运行时韧性与证据收尾实施计划
@@ -22,6 +23,7 @@ base-ref: d61ccb875463c380b2501bc7f4a5ab078dec0963
 - 默认无 checks 时不得广告 `RunCheck`，普通 Evaluator 权限不变。
 - 不承诺异步强杀 Python 线程；provider/MCP 继续依赖自身 timeout。
 
+archived-with: 2026-07-25-harden-runtime-resilience-and-evidence
 ---
 
 ### Task 1: Evaluator 隔离检查模型、执行器与 registry

@@ -4,5 +4,6 @@
   "openspec_tasks": "openspec/changes/harden-runtime-resilience-and-evidence/tasks.md",
   "openspec_delta_spec": "openspec/changes/harden-runtime-resilience-and-evidence/specs/mcp-resilience/spec.md",
   "handoff_context": "openspec/changes/harden-runtime-resilience-and-evidence/.comet/handoff/design-context.json",
-  "handoff_markdown": "openspec/changes/harden-runtime-resilience-and-evidence/.comet/handoff/design-context.md"
+  "handoff_markdown": "openspec/changes/harden-runtime-resilience-and-evidence/.comet/handoff/design-context.md",
+  "archive_directory": "openspec/changes/archive/2026-07-25-harden-runtime-resilience-and-evidence"
 }
