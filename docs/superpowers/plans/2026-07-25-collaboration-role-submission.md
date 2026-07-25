@@ -38,7 +38,7 @@ base-ref: 1ba638b7fce626908e3dfe79cc9baf4f15a705c4
 - Produces: `ToolRegistry.require_completion(tool_name: str) -> None`
 - Consumes: 现有 `Tool.run() -> ToolOutcome`、`Termination.COMPLETED`
 
-- [ ] **Step 1: 写 ToolOutcome 与 ToolRegistry 的失败测试**
+- [x] **Step 1: 写 ToolOutcome 与 ToolRegistry 的失败测试**
 
 ```python
 def test_tool_outcome_completion_defaults_off():
@@ -53,31 +53,31 @@ def test_registry_allows_one_registered_required_completion_tool():
         registry.require_completion("Missing")
 ```
 
-- [ ] **Step 2: 运行测试并确认 RED**
+- [x] **Step 2: 运行测试并确认 RED**
 
 Run: `rtk uv run pytest -q tests/test_tools.py -k 'completion or required'`
 
 Expected: FAIL，原因是字段或 registry API 尚不存在。
 
-- [ ] **Step 3: 最小实现 ToolOutcome 与 ToolRegistry 契约**
+- [x] **Step 3: 最小实现 ToolOutcome 与 ToolRegistry 契约**
 
 在 `ToolOutcome` 增加默认 false 字段；registry 保存可选 required name，要求 name 已注册，并拒绝与已有不同的第二个 required name。
 
-- [ ] **Step 4: 写 Step 顺序截断与双通道失败测试**
+- [x] **Step 4: 写 Step 顺序截断与双通道失败测试**
 
 覆盖：成功 completion tool 立即 `COMPLETED`；提交前工具执行；提交后文本/原生调用均不执行；被截断调用无审计；成功提交不受同响应非致命 parse error 影响。
 
-- [ ] **Step 5: 运行 Step 测试并确认 RED**
+- [x] **Step 5: 运行 Step 测试并确认 RED**
 
 Run: `rtk uv run pytest -q tests/test_step.py -k 'completion_tool or required_submission or dual_channel'`
 
 Expected: FAIL，原因是 Step 仍会分派 Submit 后调用或等待 standalone status。
 
-- [ ] **Step 6: 最小实现 Step 终止与一次恢复**
+- [x] **Step 6: 最小实现 Step 终止与一次恢复**
 
 按 parser 输出顺序分派；首个 `success and completes_task` outcome 设置 `COMPLETED` 并 break。`task_status.completed` 缺 required tool 时首次反馈、第二次 FAILED；从 registry 元数据取名称，删除硬编码 Submit 名称。
 
-- [ ] **Step 7: 验证 Task 1 GREEN**
+- [x] **Step 7: 验证 Task 1 GREEN**
 
 Run: `rtk uv run pytest -q tests/test_tools.py tests/test_step.py`
 
@@ -95,21 +95,21 @@ Expected: PASS。
 - Produces: `build_generator_registry(registry, store, state) -> ToolRegistry`
 - Consumes: Task 1 的 `completes_task` 与 `require_completion`
 
-- [ ] **Step 1: 写 Submit 工具原子状态失败测试**
+- [x] **Step 1: 写 Submit 工具原子状态失败测试**
 
 覆盖：SubmitPlan 成功即 completes；SubmitCandidate 执行 `phase=evaluator`、Generator attempt +1、清空旧 verdict；SubmitEvaluation 保存排序后的完整 verdict、Evaluator attempt +1 并保持 evaluator phase；错误 phase、stale revision、重复提交失败且状态不变。
 
-- [ ] **Step 2: 运行工具测试并确认 RED**
+- [x] **Step 2: 运行工具测试并确认 RED**
 
 Run: `rtk uv run pytest -q tests/test_collaboration_tools.py`
 
 Expected: FAIL，原因是 Candidate 工具不存在且现有 Submit 未终止/计数。
 
-- [ ] **Step 3: 最小实现 Args、工具和 registry 组合**
+- [x] **Step 3: 最小实现 Args、工具和 registry 组合**
 
 三个 registry 各登记唯一 required Submit。Generator registry 在调用方提供的现有 registry 上注册本 attempt 的 Candidate 工具，不移除 Checkpoint、FileWrite、MCP 或 Skill。
 
-- [ ] **Step 4: 验证 Task 2 GREEN**
+- [x] **Step 4: 验证 Task 2 GREEN**
 
 Run: `rtk uv run pytest -q tests/test_collaboration_tools.py tests/test_tools.py tests/test_step.py`
 
@@ -126,25 +126,25 @@ Expected: PASS。
 - Consumes: Task 2 的三个 Submit 原子状态
 - Produces: 成功提交不双计 attempt；失败角色仍计数；evaluator+verdict 恢复直接判定
 
-- [ ] **Step 1: 将 Runner replay 测试改为 Submit 即完成并观察 RED**
+- [x] **Step 1: 将 Runner replay 测试改为 Submit 即完成并观察 RED**
 
 Generator script 使用 `SubmitCandidate`，Evaluator script 只需 `SubmitEvaluation`。断言 rounds 减少、attempt 精确、拒绝反馈保留、下一 Candidate 清空旧 verdict。
 
-- [ ] **Step 2: 增加三条恢复路径失败测试**
+- [x] **Step 2: 增加三条恢复路径失败测试**
 
 覆盖 `generator + old verdict`、`evaluator + empty verdict`、`evaluator + non-empty verdict`；最后一种不得创建 Evaluator Task 或增加 attempt。
 
-- [ ] **Step 3: 运行 Runner/Planner 测试并确认 RED**
+- [x] **Step 3: 运行 Runner/Planner 测试并确认 RED**
 
 Run: `rtk uv run pytest -q tests/test_collaboration_runner.py tests/test_collaboration_planner.py`
 
 Expected: FAIL，原因是 Runner 仍以普通 Task completion 推进、重复计数或重复运行 Evaluator。
 
-- [ ] **Step 4: 最小重构 Runner 边界**
+- [x] **Step 4: 最小重构 Runner 边界**
 
 角色开始前保存 state。成功 Submit 后加载并验证 phase/attempt/verdict invariant，只补 rounds/usage；无成功 Submit 的失败角色补 attempt。把 verdict 判定抽成 Runner 内部路径，恢复时先消费已持久 verdict。
 
-- [ ] **Step 5: 验证 Task 3 GREEN**
+- [x] **Step 5: 验证 Task 3 GREEN**
 
 Run: `rtk uv run pytest -q tests/test_collaboration_runner.py tests/test_collaboration_planner.py tests/test_collaboration_tools.py`
 
@@ -162,21 +162,21 @@ Expected: PASS。
 - Consumes: `SubmitCandidate` 的零载荷 ToolCall schema
 - Produces: 三角色准确 prompt；Loop collaboration 保留 loop registry 并增加 Candidate 门
 
-- [ ] **Step 1: 写提示与模式失败测试**
+- [x] **Step 1: 写提示与模式失败测试**
 
 断言三个 prompt 说明 Submit 成功即完成且不要求 standalone status；Generator 展示 `{}` schema 和 Evaluator 独占验收。Loop duo/triad 的 Generator registry 同时包含 Checkpoint 与 SubmitCandidate；single/Loop single 无 required completion tool。
 
-- [ ] **Step 2: 运行模式测试并确认 RED**
+- [x] **Step 2: 运行模式测试并确认 RED**
 
 Run: `rtk uv run pytest -q tests/test_collaboration_integrations.py tests/test_loop_runner.py tests/test_collaboration_planner.py`
 
 Expected: FAIL，原因是 prompt/registry 仍是旧协议。
 
-- [ ] **Step 3: 最小更新提示与组合逻辑**
+- [x] **Step 3: 最小更新提示与组合逻辑**
 
 删除“等待反馈后 standalone completed”文案；Generator 明确 restricted Exec/FileWrite 视图边界。不得修改权限、默认工具或 Loop budget/checkpoint 语义。
 
-- [ ] **Step 4: 验证 Task 4 GREEN**
+- [x] **Step 4: 验证 Task 4 GREEN**
 
 Run: `rtk uv run pytest -q tests/test_collaboration_integrations.py tests/test_loop_runner.py tests/test_collaboration_planner.py tests/test_collaboration_runner.py`
 
@@ -192,7 +192,7 @@ Expected: PASS。
 - Consumes: Tasks 1-4 完整实现
 - Produces: 自动测试、代码审查与两次真实 Triad 的可审计证据
 
-- [ ] **Step 1: 运行静态与完整自动验证**
+- [x] **Step 1: 运行静态与完整自动验证**
 
 Run: `rtk uv run ruff check src tests`
 
@@ -202,15 +202,15 @@ Run: `rtk uv run pytest -q`
 
 Expected: 全部 PASS；记录精确计数。
 
-- [ ] **Step 2: 请求标准代码审查并修复 Critical/Important 发现**
+- [x] **Step 2: 请求标准代码审查并修复 Critical/Important 发现**
 
 以 base-ref `1ba638b7fce626908e3dfe79cc9baf4f15a705c4` 到当前 diff 为范围，重点审查 Step 通用性、CAS invariant、attempt 双计、恢复和 single/Loop 兼容。
 
-- [ ] **Step 3: 在两个新临时目录连续运行真实模型 Triad**
+- [x] **Step 3: 在两个新临时目录连续运行真实模型 Triad**
 
 每次运行用户原始 calc.py/test_calc.py 任务，要求最终 `completed`，且无 `invalid_role_submission`。
 
-- [ ] **Step 4: 独立验证每个真实产物目录**
+- [x] **Step 4: 独立验证每个真实产物目录**
 
 Run: `/Users/admin/Code/llm-agent/ForgeAgent/.venv/bin/python -m pytest -q`
 
@@ -218,11 +218,11 @@ Run: `/Users/admin/Code/llm-agent/ForgeAgent/.venv/bin/python calc.py '[1,2,3,4]
 
 Expected: pytest PASS；CLI 精确输出 `[1.5,2.5,3.5]`。
 
-- [ ] **Step 5: 写验证报告并勾选 OpenSpec tasks**
+- [x] **Step 5: 写验证报告并勾选 OpenSpec tasks**
 
 报告记录命令、结果、真实 collaboration id、计数和任何限制，不保存模型原始回复或 secret。
 
-- [ ] **Step 6: 运行 Comet build guard**
+- [x] **Step 6: 运行 Comet build guard**
 
 Run: `rtk node .agents/skills/comet/scripts/comet-guard.mjs fix-collaboration-role-protocol build --apply`
 
