@@ -307,6 +307,10 @@ def test_collaboration_role_prompts_explain_their_text_protocol(tmp_path: Path):
     assert "Do not reject solely because Exec is unavailable" in prompts["evaluator"]
     assert "Inspect one file per response" in prompts["evaluator"]
     assert "re-read only that file" in prompts["evaluator"]
+    assert (
+        "Never claim FileRead was truncated unless its feedback explicitly says truncated"
+        in prompts["evaluator"]
+    )
 
 
 def test_planner_prose_recovery_names_only_its_registered_tool(tmp_path: Path):

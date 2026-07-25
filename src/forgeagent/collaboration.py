@@ -1238,6 +1238,8 @@ _EVALUATOR_PROMPT = (
     "is unavailable, and never claim a command actually ran unless RunCheck reports it. "
     "Inspect one file per response and wait for its feedback before reading another file. If "
     "combined feedback is truncated, re-read only that file in a new response before judging. "
+    "Never claim FileRead was truncated unless its feedback explicitly says truncated; otherwise "
+    "treat the returned file content as complete. "
     "SubmitEvaluation is the only valid completion signal; do not substitute prose "
     "or task_status. A successful SubmitEvaluation ends this role immediately."
 )
