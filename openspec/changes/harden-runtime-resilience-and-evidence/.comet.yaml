@@ -1,6 +1,6 @@
 workflow: full
 language: zh-CN
-phase: build
+phase: verify
 context_compression: off
 build_mode: executing-plans
 build_pause: null
@@ -13,8 +13,8 @@ auto_transition: true
 base_ref: d61ccb875463c380b2501bc7f4a5ab078dec0963
 design_doc: docs/superpowers/specs/2026-07-25-harden-runtime-resilience-and-evidence-design.md
 plan: docs/superpowers/plans/2026-07-25-harden-runtime-resilience-and-evidence.md
-verify_result: fail
-verification_report: null
+verify_result: pending
+verification_report: docs/superpowers/reports/2026-07-25-runtime-resilience-and-evidence-verify.md
 branch_status: pending
 created_at: 2026-07-25
 verified_at: null
