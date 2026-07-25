@@ -61,9 +61,11 @@ class _RecordingClient(MockClient):
     def __init__(self, script):
         super().__init__(script)
         self.first_user_message = ""
+        self.requests = []
         self.closed = False
 
     def complete(self, messages, params=None):
+        self.requests.append(list(messages))
         if not self.first_user_message:
             self.first_user_message = str(messages[-1].content)
         return super().complete(messages, params)
@@ -165,7 +167,7 @@ def test_duo_requires_generator_strict_completion(tmp_path: Path):
     persisted = runner._store.load(report.collaboration_id)
 
     assert report.status == "failed"
-    assert report.stop_reason == "role_failed"
+    assert report.stop_reason == "invalid_role_submission"
     assert persisted.status == "failed"
     assert report.generator_attempts == 1
     assert report.evaluator_attempts == 0
@@ -192,7 +194,7 @@ def test_execution_tier_and_loop_id_are_validated(tmp_path: Path):
     [
         ([_reply(_done()), _reply(_done())], "invalid_role_submission"),
         ([ClientError(message="bad key", kind="auth", attempts=1)], "unrecoverable_failure"),
-        ([_reply("cannot"), _reply("still cannot")], "role_failed"),
+        ([_reply("cannot"), _reply("still cannot")], "invalid_role_submission"),
     ],
 )
 def test_duo_evaluator_failures_have_stable_reasons(tmp_path: Path, script, reason):
@@ -539,6 +541,23 @@ def test_duo_pass_verdict_completes_without_standalone_status(tmp_path: Path):
     assert report.status == "completed"
     assert report.stop_reason == "completed"
     assert report.passed_item_count == 1
+
+
+def test_duo_evaluator_prose_recovers_to_structured_submission(tmp_path: Path):
+    builder = _RoleBuilder(
+        {
+            ("generator", 1): [_candidate()],
+            ("evaluator", 1): [_reply("Everything passes."), _evaluation(passed=True)],
+        }
+    )
+
+    report = _runner(tmp_path, builder).run("write PRIVATE_GOAL artifact")
+
+    assert report.status == "completed"
+    assert report.stop_reason == "completed"
+    assert len(builder.clients[1].requests) == 2
+    recovery = str(builder.clients[1].requests[1][-1].content)
+    assert "SubmitEvaluation must be called successfully" in recovery
 
 
 def test_duo_resume_with_persisted_verdict_skips_evaluator(tmp_path: Path):

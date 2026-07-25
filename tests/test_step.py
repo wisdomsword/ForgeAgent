@@ -833,6 +833,25 @@ def test_required_completion_gets_one_recovery_then_fails():
     assert rounds[-1].stopped_reason == Termination.FAILED
 
 
+def test_required_completion_prose_gets_same_one_recovery_then_fails():
+    client = _RecordingClient(script=[_reply("done"), _reply("still done")])
+    step = Step(
+        client,
+        TrustedBackend(),
+        Runtime(),
+        max_rounds=5,
+        registry=_completion_registry(),
+    )
+
+    rounds = step.run(_user())
+
+    recovery = str(client.seen_messages[1][-1].content)
+    assert len(rounds) == 2
+    assert "Finish must be called successfully before completion" in recovery
+    assert rounds[-1].parse_errors == ["Finish must be called successfully before completion"]
+    assert rounds[-1].stopped_reason == Termination.FAILED
+
+
 def test_refused_status_stops_after_recording_successful_tool_outcome():
     client = MockClient(
         script=[

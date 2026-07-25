@@ -451,6 +451,18 @@ class Step:
             if not rr.body:
                 rr.stopped_reason = Termination.EMPTY_RESPONSE
                 break
+            required_submission = self._registry.required_completion_tool
+            if required_submission:
+                missing_submission = (
+                    f"{required_submission} must be called successfully before completion"
+                )
+                rr.parse_errors.append(missing_submission)
+                if required_submission in self._submission_recovery_sent:
+                    rr.stopped_reason = Termination.FAILED
+                    break
+                self._submission_recovery_sent.add(required_submission)
+                convo.append(Message(role=Role.USER, content=missing_submission))
+                continue
             # Prose with content: nudge toward the protocol once, then accept it as an
             # unverified soft completion if the model answers in prose again.
             if not prose_nudged:
