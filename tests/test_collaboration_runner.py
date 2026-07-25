@@ -143,9 +143,7 @@ def test_duo_injects_host_checks_only_into_evaluator_registry(tmp_path: Path):
     report = _runner(
         tmp_path,
         builder,
-        evaluator_checks={
-            "unit": CheckDefinition(id="unit", argv=(sys.executable, "-V"))
-        },
+        evaluator_checks={"unit": CheckDefinition(id="unit", argv=(sys.executable, "-c", "pass"))},
     ).run("write PRIVATE_GOAL artifact")
 
     assert report.status == "completed"
@@ -268,9 +266,7 @@ def test_duo_cancel_after_rejection_does_not_start_next_generator(tmp_path: Path
         }
     )
 
-    report = _runner(tmp_path, builder).run(
-        "write PRIVATE_GOAL artifact", cancel_event=cancel
-    )
+    report = _runner(tmp_path, builder).run("write PRIVATE_GOAL artifact", cancel_event=cancel)
 
     assert report.status == "cancelled"
     assert report.stop_reason == "cancelled"
@@ -278,6 +274,28 @@ def test_duo_cancel_after_rejection_does_not_start_next_generator(tmp_path: Path
         ("generator", 1),
         ("evaluator", 1),
     ]
+
+
+def test_duo_cancel_during_evaluator_registry_build_does_not_construct_role(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    cancel = threading.Event()
+    builder = _RoleBuilder({("generator", 1): [_reply(_done())]})
+    original = __import__(
+        "forgeagent.collaboration", fromlist=["build_evaluator_registry"]
+    ).build_evaluator_registry
+
+    def cancelling_registry(**kwargs):
+        registry = original(**kwargs)
+        cancel.set()
+        return registry
+
+    monkeypatch.setattr("forgeagent.collaboration.build_evaluator_registry", cancelling_registry)
+
+    report = _runner(tmp_path, builder).run("write PRIVATE_GOAL artifact", cancel_event=cancel)
+
+    assert report.status == "cancelled"
+    assert [role for role, _attempt, _prompt in builder.calls] == ["generator"]
 
 
 def test_duo_rejects_concurrent_run_without_blocking(tmp_path: Path):

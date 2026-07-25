@@ -21,12 +21,12 @@
 
 ## Decisions
 
-1. `RunCheck` 由宿主注入 `CheckDefinition(id, argv, timeout_seconds, env)`；工具参数只有 `check_id`。argv 和 env 均由可信宿主冻结，默认空映射时不注册工具，保持兼容。
-2. 检查前把允许根目录复制到私有临时目录，排除 `.git`、`.forgeagent`、缓存、构建产物和 socket/设备等特殊文件；子进程 `shell=False`、新 session、最小环境、固定 cwd，并在超时或取消时终止进程组。临时副本允许测试写缓存但不修改真实项目。
-3. stdout/stderr 分别有字节上限，返回稳定 status/exit code/duration；输出经现有 secret masking 并把临时绝对路径替换为相对占位。
-4. CLI/HTTP 不接受客户端定义检查。检查可引用宿主已有解释器或可执行文件，cwd 始终为临时副本，且不得在副本内创建环境或下载依赖。ForgeAgent 自身的证据运行可在测试/装配层显式注入检查定义；若以后需要用户配置，另立 change 设计信任边界。
+1. `RunCheck` 由宿主注入 `CheckDefinition(id, argv, timeout_seconds, env)`；工具参数只有 `check_id`。argv 只允许当前 Python 的 `-m`、`-c` 或项目相对 `.py` 入口，env 均由可信宿主冻结，默认空映射时不注册工具，保持兼容。
+2. 检查前把允许根目录复制到私有临时目录，排除 `.git`、`.forgeagent`、缓存和构建产物，并拒绝全部 symlink 与 socket/设备等特殊文件。专用 worker 复用 restricted audit hook，读写仅限副本、禁止网络、派生进程和进程信号控制；父进程使用无 shell、新 session、最小环境、固定 cwd，并在超时或取消时终止进程组。
+3. stdout/stderr 由持续 drain 的有界 head/tail capture 读取，超额字节立即丢弃而非落入无界临时文件；返回稳定 status/exit code/duration，输出经现有 secret/path masking。
+4. CLI/HTTP 不接受客户端定义检查。检查只能引用当前 Python 解释器，cwd 始终为临时副本，且不得下载依赖或派生进程。ForgeAgent 自身的证据运行可在测试/装配层显式注入检查定义；若以后需要非 Python 检查或用户配置，另立 change 设计信任边界。
 5. 取消只承诺安全边界停止。`RunCheck` 有真实子进程句柄，因此支持取消即终止；provider/MCP 继续依靠自身 timeout，返回后不得启动下一角色/round。
-6. MCP hung-call 测试复用本地 async session test double，在 manager 的 loop 上制造永不完成调用，并使用短 `call_timeout` 证明固定 timeout 和 close deadline，不启动真实 server。
+6. MCP hung-call 测试启动真实本地 stdio fixture，由测试 server 提供永不返回的工具，并使用短 `call_timeout` 证明固定 timeout、迟到结果隔离和 close deadline。
 7. 搜索按 `[preferred, other_builtin]` 固定顺序最多两次。首选失败或零结果均 fallback；最终有结果即成功，否则错误优先级为 blocked 高于 unavailable，高于零结果。
 8. 真实模型和 Docker 是验证步骤：读取现有配置但不输出 credential；产生费用的调用限制为既有 20 项中声明的 5 项 real-model golden 和一个小型 single/Triad/Evaluator 对比数据集。
 9. P3 裁决写入状态文档：native tool-call 流式聚合已有回归，标记完成；其余增强仅在出现明确用户场景、可衡量失败或 provider 合同后重开 change。
@@ -45,3 +45,12 @@
 ## Open Questions
 
 无阻塞项。Podman/Linux 原生容器矩阵若当前主机不具备环境，只记录为外部环境缺口，不在本 change 添加未验证 backend。
+
+## Implementation Divergence
+
+- MCP hung-call 回归使用真实本地 stdio fixture 的 `hang_on_call` 模式，而不是 loop 内 fake
+  session。该路径仍无公网依赖、deadline 很短，并额外覆盖 SDK/stdio 生命周期，因此保留。
+- 进程组强终止在 POSIX 上实现并验证；Windows 当前仅走 `terminate/kill` 兼容分支，未声称
+  `CREATE_NEW_PROCESS_GROUP` 或完整子进程树保证。跨平台强化需在 Windows 环境另立验证。
+- 真实模型凭证已检测并发起限定命令，但安全审查因仓库派生 payload/destination 外发未获
+  具体授权而拒绝。该项按 proposal 的环境/授权缺口规则记录为未验证，不以凭证存在代替通过。

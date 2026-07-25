@@ -6334,3 +6334,39 @@ def test_hung_call_times_out():
         close_elapsed = time.monotonic() - started
 
     assert close_elapsed < 2
+
+
+def test_late_success_from_replaced_generation_is_discarded():
+    manager = MCPManager({"late": MCPServerConfig(command="unused")})
+
+    async def scenario():
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        class Session:
+            async def call_tool(self, tool, arguments, read_timeout_seconds=None):
+                started.set()
+                await release.wait()
+                return _CallResult("stale success")
+
+        holder = asyncio.create_task(asyncio.sleep(3600))
+        stop = asyncio.Event()
+        state = manager._states["late"]
+        state.status = "available"
+        state.generation = 1
+        session = Session()
+        manager._sessions["late"] = (1, session)
+        manager._holders["late"] = (1, holder, stop)
+        call = asyncio.create_task(manager._call_tool_on_loop("late", "echo", {}))
+        await started.wait()
+        state.generation = 2
+        manager._sessions["late"] = (2, object())
+        manager._holders["late"] = (2, asyncio.create_task(asyncio.sleep(3600)), asyncio.Event())
+        release.set()
+        result = await call
+        for _generation, task, _stop in manager._holders.values():
+            task.cancel()
+        holder.cancel()
+        return result
+
+    assert asyncio.run(scenario()) == {"ok": False, "text": "MCP call failed"}

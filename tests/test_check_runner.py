@@ -83,17 +83,54 @@ def test_check_receives_only_minimal_environment_and_definition_values(
         CheckDefinition(id="bad-env", argv=(sys.executable, "-V"), env={"API_KEY": "secret"})
 
 
+def test_check_blocks_project_code_from_host_files(tmp_path: Path):
+    outside = tmp_path.parent / "outside-secret.txt"
+    outside.write_text("host secret", encoding="utf-8")
+    code = f"from pathlib import Path; print(Path({str(outside)!r}).read_text())"
+
+    result = run_check(_python_check("restricted", code), allowed_root=tmp_path)
+
+    assert result.status == "failed"
+    assert "host secret" not in result.stdout
+    assert "restricted: file access outside allowed root denied" in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("check_id", "code", "denial"),
+    [
+        (
+            "network",
+            "import socket; socket.create_connection(('127.0.0.1', 9))",
+            "restricted: network access denied",
+        ),
+        (
+            "process",
+            "import subprocess, sys; subprocess.run([sys.executable, '-V'])",
+            "restricted: process spawn denied",
+        ),
+        (
+            "signal",
+            "import os; os.kill(os.getpid(), 0)",
+            "restricted: process control denied",
+        ),
+    ],
+)
+def test_check_blocks_project_code_network_and_processes(
+    tmp_path: Path, check_id: str, code: str, denial: str
+):
+    result = run_check(_python_check(check_id, code), allowed_root=tmp_path)
+
+    assert result.status == "failed"
+    assert denial in result.stderr
+
+
 @pytest.mark.parametrize("mode", ["timeout", "cancel"])
-def test_check_terminates_process_group_on_timeout_or_cancel(tmp_path: Path, mode: str):
-    code = (
-        "import subprocess, sys, time; "
-        "child=subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)']); "
-        "print(child.pid, flush=True); time.sleep(30)"
-    )
+def test_check_terminates_on_timeout_or_cancel(tmp_path: Path, mode: str):
+    code = "import time; print('started', flush=True); time.sleep(30)"
     cancel_event = threading.Event()
-    timeout = 0.08 if mode == "timeout" else 5.0
+    timeout = 0.2 if mode == "timeout" else 5.0
     if mode == "cancel":
-        threading.Timer(0.08, cancel_event.set).start()
+        threading.Timer(0.2, cancel_event.set).start()
 
     started = time.monotonic()
     result = run_check(
@@ -104,15 +141,7 @@ def test_check_terminates_process_group_on_timeout_or_cancel(tmp_path: Path, mod
 
     assert result.status == mode + ("led" if mode == "cancel" else "")
     assert time.monotonic() - started < 2
-    child_pid = int(result.stdout.strip())
-    for _ in range(40):
-        try:
-            os.kill(child_pid, 0)
-        except ProcessLookupError:
-            break
-        time.sleep(0.025)
-    else:
-        pytest.fail("child process survived process-group termination")
+    assert result.stdout.strip() == "started"
 
 
 def test_check_bounds_and_masks_output(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -128,6 +157,27 @@ def test_check_bounds_and_masks_output(tmp_path: Path, monkeypatch: pytest.Monke
     assert REDACTED in result.stdout
     assert "output truncated" in result.stdout
     assert len(result.stdout.encode()) <= 17 * 1024
+
+
+def test_check_discards_unbounded_output_while_process_is_running(tmp_path: Path):
+    code = "import os; chunk=b'x'*65536; [os.write(1, chunk) for _ in range(256)]"
+
+    result = run_check(_python_check("large-output", code), allowed_root=tmp_path)
+
+    assert result.status == "passed"
+    assert "output truncated" in result.stdout
+    assert len(result.stdout.encode()) <= 17 * 1024
+
+
+def test_check_preserves_output_below_limit(tmp_path: Path):
+    expected = "a" * (12 * 1024)
+
+    result = run_check(
+        _python_check("below-limit", f"print({expected!r}, end='')"), allowed_root=tmp_path
+    )
+
+    assert result.status == "passed"
+    assert result.stdout == expected
 
 
 def test_check_rejects_copy_escape_before_process_start(tmp_path: Path):
@@ -153,6 +203,17 @@ def test_check_rejects_absolute_symlink_even_when_target_is_inside_project(tmp_p
 
     assert result.status == "copy_error"
     assert "must not run" not in result.stdout
+
+
+def test_check_rejects_symlink_loop_as_copy_error(tmp_path: Path):
+    (tmp_path / "a").symlink_to("b")
+    (tmp_path / "b").symlink_to("a")
+
+    result = run_check(
+        _python_check("symlink-loop", "print('must not run')"), allowed_root=tmp_path
+    )
+
+    assert result.status == "copy_error"
 
 
 @pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFO is unavailable")

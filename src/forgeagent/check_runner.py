@@ -1,4 +1,4 @@
-"""Run host-defined evaluator checks against a disposable project copy."""
+"""Run host-defined Python evaluator checks against a disposable project copy."""
 
 from __future__ import annotations
 
@@ -7,17 +7,19 @@ import shutil
 import signal
 import stat
 import subprocess
+import sys
 import tempfile
 import threading
 import time
 from pathlib import Path
-from typing import Literal
+from typing import BinaryIO, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .secret_policy import is_secret_name, mask_audit_data, sensitive_env_values
 
 _OUTPUT_LIMIT = 16 * 1024
+_TRUNCATION_MARKER = b"\n... output truncated ...\n"
 _POLL_SECONDS = 0.01
 _IGNORED_NAMES = {
     ".git",
@@ -32,16 +34,16 @@ _IGNORED_NAMES = {
     "node_modules",
     "venv",
 }
-_ENV_ALLOWLIST = {"LANG", "LC_ALL", "PATH", "SYSTEMROOT", "TEMP", "TMP", "TMPDIR"}
+_ENV_ALLOWLIST = {"LANG", "LC_ALL", "PATH", "SYSTEMROOT"}
 CheckStatus = Literal["passed", "failed", "timeout", "cancelled", "copy_error", "start_error"]
 
 
 class CheckDefinition(BaseModel):
-    """A trusted, server-owned command exposed to the evaluator by identifier."""
+    """A trusted, server-owned Python invocation exposed by identifier."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
     id: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9_-]{0,63}$")
-    argv: tuple[str, ...] = Field(min_length=1)
+    argv: tuple[str, ...] = Field(min_length=2)
     timeout_seconds: float = Field(default=60.0, ge=0.01, le=3600.0)
     env: dict[str, str] = Field(default_factory=dict)
 
@@ -50,6 +52,18 @@ class CheckDefinition(BaseModel):
     def _validate_argv(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         if any(not item or "\x00" in item for item in value):
             raise ValueError("argv entries must be non-empty and contain no NUL bytes")
+        if Path(value[0]).resolve() != Path(sys.executable).resolve():
+            raise ValueError("check command must use the current Python interpreter")
+        invocation = value[1:]
+        if invocation[0] in {"-c", "-m"}:
+            if len(invocation) < 2:
+                raise ValueError("Python check invocation is incomplete")
+        elif not invocation[0].startswith("-"):
+            script = Path(invocation[0])
+            if script.is_absolute() or ".." in script.parts or script.suffix != ".py":
+                raise ValueError("check script must be a relative Python file")
+        else:
+            raise ValueError("unsupported Python check invocation")
         return value
 
     @field_validator("env")
@@ -88,70 +102,74 @@ def run_check(
     try:
         source_root = Path(allowed_root).resolve()
         _validate_source_tree(source_root)
-    except (OSError, ValueError) as exc:
+    except (OSError, RuntimeError, ValueError) as exc:
         return _result("copy_error", started, stderr=str(exc), secrets=secrets)
 
     with tempfile.TemporaryDirectory(prefix="forgeagent-check-") as temporary_root:
         working_root = Path(temporary_root) / "project"
         try:
-            shutil.copytree(
-                source_root,
-                working_root,
-                symlinks=True,
-                ignore=_ignore_entries,
-            )
+            shutil.copytree(source_root, working_root, ignore=_ignore_entries)
         except (OSError, shutil.Error) as exc:
             return _result("copy_error", started, stderr=str(exc), secrets=secrets)
 
-        environment = {
-            name: value for name, value in os.environ.items() if name in _ENV_ALLOWLIST
-        }
+        check_tmp = working_root / ".check-tmp"
+        check_tmp.mkdir()
+        environment = {name: value for name, value in os.environ.items() if name in _ENV_ALLOWLIST}
         environment.update(definition.env)
-        environment["TMPDIR"] = temporary_root
-
-        with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
-            if cancel_event is not None and cancel_event.is_set():
-                return _result("cancelled", started, secrets=secrets)
-            try:
-                process = subprocess.Popen(
-                    definition.argv,
-                    cwd=working_root,
-                    env=environment,
-                    stdout=stdout_file,
-                    stderr=stderr_file,
-                    start_new_session=os.name == "posix",
-                )
-            except OSError as exc:
-                return _result("start_error", started, stderr=str(exc), secrets=secrets)
-
-            status: Literal["passed", "failed", "timeout", "cancelled"]
-            process_started = time.monotonic()
-            while process.poll() is None:
-                if cancel_event is not None and cancel_event.is_set():
-                    status = "cancelled"
-                    _terminate_process_group(process)
-                    break
-                if time.monotonic() - process_started >= definition.timeout_seconds:
-                    status = "timeout"
-                    _terminate_process_group(process)
-                    break
-                time.sleep(_POLL_SECONDS)
-            else:
-                status = "passed" if process.returncode == 0 else "failed"
-
-            process.wait()
-            stdout_file.seek(0)
-            stderr_file.seek(0)
-            stdout = _bounded_decode(stdout_file.read())
-            stderr = _bounded_decode(stderr_file.read())
-            return _result(
-                status,
-                started,
-                exit_code=process.returncode,
-                stdout=stdout,
-                stderr=stderr,
-                secrets=secrets,
+        environment.update(
+            {
+                "FORGEAGENT_CHECK_ROOT": str(working_root),
+                "TMPDIR": str(check_tmp),
+                "TEMP": str(check_tmp),
+                "TMP": str(check_tmp),
+            }
+        )
+        if cancel_event is not None and cancel_event.is_set():
+            return _result("cancelled", started, secrets=secrets)
+        try:
+            process = subprocess.Popen(
+                [sys.executable, "-I", "-m", "forgeagent._check_worker", *definition.argv[1:]],
+                cwd=working_root,
+                env=environment,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                start_new_session=os.name == "posix",
             )
+        except OSError as exc:
+            return _result("start_error", started, stderr=str(exc), secrets=secrets)
+
+        assert process.stdout is not None and process.stderr is not None
+        stdout_capture = _BoundedCapture(process.stdout)
+        stderr_capture = _BoundedCapture(process.stderr)
+        stdout_capture.start()
+        stderr_capture.start()
+        process_started = time.monotonic()
+        status: Literal["passed", "failed", "timeout", "cancelled"]
+        while process.poll() is None:
+            if cancel_event is not None and cancel_event.is_set():
+                status = "cancelled"
+                _terminate_process_group(process)
+                break
+            if time.monotonic() - process_started >= definition.timeout_seconds:
+                status = "timeout"
+                _terminate_process_group(process)
+                break
+            time.sleep(_POLL_SECONDS)
+        else:
+            status = "passed" if process.returncode == 0 else "failed"
+
+        process.wait()
+        stdout_capture.join()
+        stderr_capture.join()
+        return _result(
+            status,
+            started,
+            exit_code=process.returncode,
+            stdout=stdout_capture.text(),
+            stderr=stderr_capture.text(),
+            secrets=secrets,
+        )
 
 
 def _validate_source_tree(source_root: Path) -> None:
@@ -165,14 +183,10 @@ def _validate_source_tree(source_root: Path) -> None:
                 if _ignored(entry.name):
                     continue
                 mode = entry.stat(follow_symlinks=False).st_mode
-                path = Path(entry.path)
                 if stat.S_ISLNK(mode):
-                    if Path(os.readlink(path)).is_absolute() or not path.resolve(
-                        strict=False
-                    ).is_relative_to(source_root):
-                        raise ValueError("project contains a symlink that escapes allowed_root")
-                elif stat.S_ISDIR(mode):
-                    pending.append(path)
+                    raise ValueError("project contains an unsupported symlink")
+                if stat.S_ISDIR(mode):
+                    pending.append(Path(entry.path))
                 elif not stat.S_ISREG(mode):
                     raise ValueError("project contains an unsupported special file")
 
@@ -186,29 +200,72 @@ def _ignored(name: str) -> bool:
 
 
 def _terminate_process_group(process: subprocess.Popen[bytes]) -> None:
-    if process.poll() is not None:
-        return
-    try:
-        if os.name == "posix":
+    if os.name == "posix":
+        try:
             os.killpg(process.pid, signal.SIGTERM)
-        else:
-            process.terminate()
-        process.wait(timeout=0.2)
-    except subprocess.TimeoutExpired:
-        if os.name == "posix":
+        except ProcessLookupError:
+            return
+        try:
+            process.wait(timeout=0.2)
+        except subprocess.TimeoutExpired:
+            pass
+        try:
             os.killpg(process.pid, signal.SIGKILL)
-        else:
+        except ProcessLookupError:
+            pass
+    elif process.poll() is None:
+        process.terminate()
+        try:
+            process.wait(timeout=0.2)
+        except subprocess.TimeoutExpired:
             process.kill()
-        process.wait()
-    except ProcessLookupError:
-        pass
+    process.wait()
+
+
+class _BoundedCapture:
+    def __init__(self, stream: BinaryIO) -> None:
+        self._stream = stream
+        self._data = bytearray()
+        self._head = bytearray()
+        self._tail = bytearray()
+        self._truncated = False
+        self._thread = threading.Thread(target=self._read, daemon=True)
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def join(self) -> None:
+        self._thread.join()
+
+    def text(self) -> str:
+        if not self._truncated:
+            return bytes(self._data).decode("utf-8", errors="replace")
+        return (bytes(self._head) + _TRUNCATION_MARKER + bytes(self._tail)).decode(
+            "utf-8", errors="replace"
+        )
+
+    def _read(self) -> None:
+        half = (_OUTPUT_LIMIT - len(_TRUNCATION_MARKER)) // 2
+        while chunk := self._stream.read(8192):
+            if not self._truncated and len(self._data) + len(chunk) <= _OUTPUT_LIMIT:
+                self._data.extend(chunk)
+                continue
+            if not self._truncated:
+                combined = self._data + chunk
+                self._head.extend(combined[:half])
+                self._tail.extend(combined[-half:])
+                self._data.clear()
+                self._truncated = True
+                continue
+            self._tail.extend(chunk)
+            if len(self._tail) > half:
+                del self._tail[:-half]
 
 
 def _bounded_decode(value: bytes) -> str:
-    marker = b"\n... output truncated ...\n"
     if len(value) > _OUTPUT_LIMIT:
-        room = _OUTPUT_LIMIT - len(marker)
-        value = value[: room // 2] + marker + value[-(room - room // 2) :]
+        room = _OUTPUT_LIMIT - len(_TRUNCATION_MARKER)
+        value = value[: room // 2] + _TRUNCATION_MARKER + value[-(room - room // 2) :]
     return value.decode("utf-8", errors="replace")
 
 

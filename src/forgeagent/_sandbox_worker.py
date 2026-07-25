@@ -36,11 +36,20 @@ _BLOCKED_SOCKET_EVENTS = frozenset(
 # Spawning a child process would escape the audit hook (the child does not inherit it),
 # so a child could read/exfiltrate freely. Deny process spawn/exec entirely in restricted.
 _BLOCKED_SPAWN_EVENTS = frozenset(
-    {"subprocess.Popen", "os.system", "os.exec", "os.spawn", "os.posix_spawn"}
+    {
+        "subprocess.Popen",
+        "os.system",
+        "os.exec",
+        "os.spawn",
+        "os.posix_spawn",
+        "os.fork",
+        "os.forkpty",
+    }
 )
+_BLOCKED_PROCESS_CONTROL_EVENTS = frozenset({"os.kill", "os.killpg"})
 
 
-def _install_audit_hook(allowed_root: str) -> None:
+def _install_audit_hook(allowed_root: str, *, writes_only_in_root: bool = False) -> None:
     """Install a PEP 578 hook: file opens limited to allowed roots; network denied."""
     real_root = os.path.realpath(allowed_root)
     allowed = [
@@ -61,7 +70,9 @@ def _install_audit_hook(allowed_root: str) -> None:
                 raise PermissionError(
                     "restricted: file access outside allowed root denied"
                 ) from None
-            for base in allowed:
+            write_access = _open_requests_write(args)
+            permitted = [real_root] if writes_only_in_root and write_access else allowed
+            for base in permitted:
                 try:
                     common = os.path.commonpath((base, rp))
                 except ValueError:
@@ -73,8 +84,19 @@ def _install_audit_hook(allowed_root: str) -> None:
             raise PermissionError(f"restricted: network access denied ({event})")
         elif event in _BLOCKED_SPAWN_EVENTS:
             raise PermissionError(f"restricted: process spawn denied ({event})")
+        elif event in _BLOCKED_PROCESS_CONTROL_EVENTS:
+            raise PermissionError(f"restricted: process control denied ({event})")
 
     sys.addaudithook(hook)
+
+
+def _open_requests_write(args: tuple) -> bool:
+    mode = args[1] if len(args) > 1 else None
+    if isinstance(mode, str) and any(character in mode for character in "wax+"):
+        return True
+    flags = args[2] if len(args) > 2 else 0
+    write_flags = os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND
+    return isinstance(flags, int) and bool(flags & write_flags)
 
 
 def _apply_rlimits(cpu_seconds: int, memory_mb: int) -> None:

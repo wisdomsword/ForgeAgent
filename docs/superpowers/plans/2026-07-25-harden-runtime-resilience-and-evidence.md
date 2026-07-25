@@ -115,7 +115,7 @@ Expected: 至少一个测试 FAIL，显示当前 runner 在取消后仍构造下
 
 - [ ] **Step 4: 把 MCP 占位改为真实短超时测试并先运行**
 
-用 manager loop 上的 fake session：`call_tool` await 未设置 event，`call_timeout=0.05`。手工填充 available state、matching generation/session/holder，调用 facade 后断言 `ok=False`、固定失败文本、状态失效且 `close()` 墙钟有界。先运行现有实现，若 PASS 仅视为测试债务修复；若 FAIL 再进入 Step 5。
+用真实本地 stdio fixture 的 `hang_on_call` 模式：server 接受调用后永不返回，manager 使用短 `call_timeout`。调用 facade 后断言 `ok=False`、固定失败文本、状态失效且 `close()` 墙钟有界；另用受控 session 回归证明替换 generation 后的迟到成功被丢弃。先运行现有实现，若 PASS 仅视为测试债务修复；若 FAIL 再进入 Step 5。
 
 Run: `rtk uv run pytest -q tests/test_mcp_manager.py::test_hung_call_times_out`
 

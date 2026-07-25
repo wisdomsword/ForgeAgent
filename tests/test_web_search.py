@@ -157,9 +157,7 @@ def test_search_with_status_encodes_query_and_uses_default_engine(monkeypatch):
 
 
 @pytest.mark.parametrize("first_failure", ["network", "status", "zero"])
-def test_search_falls_back_once_when_preferred_engine_has_no_results(
-    monkeypatch, first_failure
-):
+def test_search_falls_back_once_when_preferred_engine_has_no_results(monkeypatch, first_failure):
     captured_urls: list[str] = []
 
     def fake_urlopen(url, *, timeout=10.0):

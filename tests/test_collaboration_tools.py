@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -109,9 +110,7 @@ def test_submit_evaluation_requires_exact_frozen_ids_and_registry_is_read_only(t
 def test_evaluator_registry_adds_only_host_defined_checks(tmp_path: Path):
     store = CollaborationStore(str(tmp_path))
     state = store.create("Build an artifact", "duo", collaboration_id="e" * 32)
-    checks = {
-        "unit": CheckDefinition(id="unit", argv=("python", "-m", "pytest", "-q"))
-    }
+    checks = {"unit": CheckDefinition(id="unit", argv=(sys.executable, "-m", "pytest", "-q"))}
 
     evaluator = build_evaluator_registry(store=store, state=state, checks=checks)
 
@@ -133,7 +132,7 @@ def test_run_check_rejects_unknown_id_without_starting_process(
 
     monkeypatch.setattr("forgeagent.collaboration.run_check", unexpected_runner)
     tool = RunCheckTool(
-        {"unit": CheckDefinition(id="unit", argv=("python", "-m", "pytest", "-q"))}
+        {"unit": CheckDefinition(id="unit", argv=(sys.executable, "-m", "pytest", "-q"))}
     )
 
     outcome = tool.run(
@@ -148,11 +147,9 @@ def test_run_check_rejects_unknown_id_without_starting_process(
 def test_run_check_reports_structured_host_check_result(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    expected = CheckResult(
-        status="failed", exit_code=3, duration_ms=12, stdout="out", stderr="err"
-    )
+    expected = CheckResult(status="failed", exit_code=3, duration_ms=12, stdout="out", stderr="err")
     monkeypatch.setattr("forgeagent.collaboration.run_check", lambda *args, **kwargs: expected)
-    tool = RunCheckTool({"unit": CheckDefinition(id="unit", argv=("python", "-V"))})
+    tool = RunCheckTool({"unit": CheckDefinition(id="unit", argv=(sys.executable, "-c", "pass"))})
 
     outcome = tool.run(
         RunCheckArgs(check_id="unit"),
@@ -166,7 +163,7 @@ def test_run_check_reports_structured_host_check_result(
 
 
 def test_run_check_rejects_invalid_direct_arguments_without_raising(tmp_path: Path):
-    tool = RunCheckTool({"unit": CheckDefinition(id="unit", argv=("python", "-V"))})
+    tool = RunCheckTool({"unit": CheckDefinition(id="unit", argv=(sys.executable, "-c", "pass"))})
     invalid = RunCheckArgs.model_construct(check_id="not valid")
 
     outcome = tool.run(

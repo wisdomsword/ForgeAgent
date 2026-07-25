@@ -134,10 +134,13 @@ add plan/pass/fail counts, Generator/Evaluator attempts, rejections,
 the goal, plan/verdict body, prompt, role conversation, raw tool outcome, credential,
 artifact content or absolute path.
 
-The Evaluator is read-only at the product tool boundary: its registry contains only
-`FileRead`, `FileList`, and `SubmitEvaluation`, and its tier is constrained by the
-server. Planner confirmation is separate from the HTTP FileWrite/WebFetch/MCP
-allowlist; `triad_plan_policy` cannot be supplied in a request.
+The standard HTTP Evaluator is read-only at the product tool boundary: its registry
+contains only `FileRead`, `FileList`, and `SubmitEvaluation`, and its tier is
+constrained by the server. The internal collaboration runner has a trusted-host-only
+seam for frozen `RunCheck` definitions, but the HTTP request/config schemas do not
+expose it; clients cannot submit a check ID, argv, environment, cwd, or timeout.
+Planner confirmation is separate from the HTTP FileWrite/WebFetch/MCP allowlist;
+`triad_plan_policy` cannot be supplied in a request.
 
 Cancellation is cooperative. Queued work is cancelled before constructing a Task;
 running work observes the event at the next model-round or tool boundary. It does

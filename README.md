@@ -26,6 +26,13 @@ HTTP/CLI/cron 调度示例）。M22 Duo/Triad 协作运行时已完成并归档�
 FileWrite 路径绑定、项目 Memory 跨进程更新和 Loop checkpoint revision CAS；两个 change 均已
 归档。最终整合验证为 `2093 passed, 11 skipped`、golden `20/20`，OpenSpec 主规格为 `17/17`。
 
+2026-07-25 P2/P3 收尾新增了可信宿主可选注入的 Evaluator `RunCheck`、可执行 MCP hung-call
+回归和 `/search` 固定双引擎 fallback。`RunCheck` 只接受宿主冻结的检查 ID，在一次性项目
+副本中通过 restricted Python worker 执行，禁止副本外读写、网络、派生进程和进程信号控制，并使用最小
+环境、超时/取消进程组终止和有界脱敏输出；标准
+CLI/HTTP 请求不能定义或启用检查，默认 Evaluator 工具集保持不变。真实模型与跨平台证据
+仍按下文的 opt-in/环境边界单独记录，不从离线测试外推。
+
 ## M22 Duo / Triad（独立验收）
 
 协作模式位于普通 `Task` 上层，不改变 single 模式的 `TaskOutcome` 或两阶段完成语义：
@@ -37,6 +44,9 @@ FileWrite 路径绑定、项目 Memory 跨进程更新和 Loop checkpoint revisi
   均不能删除、重排、替换或降标。
 - Evaluator 使用独立 Task/client/runtime/registry，默认 restricted，只注册 `FileRead`、
   `FileList` 和 `SubmitEvaluation`，没有 Exec、写、编辑、Web、MCP、Skill 或 Survey 工具。
+  可信宿主程序可额外注入固定 `RunCheck` ID；模型不能提供 argv/env/cwd/timeout，CLI/HTTP
+  客户端也不能定义检查。检查只允许当前 Python 的固定入口并限制在一次性副本；它仍是
+  Python application-layer isolation，不承诺密封 OS sandbox。
 - 每次拒绝都会用有界、脱敏证据启动 fresh Generator。`--max-rejections` 默认 2、最大 10；
   达到上限以 `rejection_limit` 停止，不会无限重试。
 
@@ -74,9 +84,9 @@ goal、计划/verdict 正文、prompt、模型回复、工具参数、文件内�
 表示某次 provider 未提供可靠用量，不能把缺失 usage 当作零。真实模型的 single/Triad
 质量对比属于 opt-in，不是离线 CI 门禁。
 
-已知限制：v1 严格串行，不并行角色；Evaluator 没有 Exec，只能读取 Generator 已产出的
-文件/测试报告；CLI 协作模式暂不接受图片；协作状态没有公开 resume API；headless Triad
-默认拒绝自动批准计划。
+已知限制：v1 严格串行，不并行角色；默认 Evaluator 没有 Exec，只能读取 Generator 已产出的
+文件/测试报告，`RunCheck` 也仅在可信宿主显式注入固定检查时可见；CLI 协作模式暂不接受
+图片；协作状态没有公开 resume API；headless Triad 默认拒绝自动批准计划。
 
 ## M21 Loop（有界的耐久迭代）
 
@@ -457,6 +467,10 @@ uv run python -m tests.golden.runner --real-model claude-sonnet-5 \
 ```
 
 离线 runner 当前验证结果为 **20/20（100%）**。真实模型入口不是 CI 门禁，且本文档不声明真实请求已经运行。成功退出 `0`，场景失败退出 `1`，配置、manifest 或报告预检失败退出 `2`。
+
+P2/P3 收尾时检测到本机存在模型凭证，但真实 golden、single/Triad 对比和 credentialed
+Evaluator 会向外部 provider 发送仓库派生内容，执行授权未获通过，因此仍记为未验证，
+不能把凭证存在写成真实模型通过。
 
 ## 独立 Evaluator（显式 opt-in）
 

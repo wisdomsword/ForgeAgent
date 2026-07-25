@@ -13,13 +13,13 @@
 
 ## 3. P2/P3 证据与裁决
 
-- [ ] 3.1 在可用环境运行 container 真实集成矩阵；若 Docker/镜像或 Linux/Podman 环境缺失，记录精确阻塞而不伪造通过
-- [ ] 3.2 使用现有凭证运行既有 5 项 real-model golden、credentialed Evaluator 和小型 single/Triad 对比，记录模型、费用边界、原始通过率与失败原因
-- [ ] 3.3 复核 native tool-call 流式聚合已有实现与回归；为持久 REPL 历史、语义摘要、音视频和响应侧多模态记录明确重启触发条件
-- [ ] 3.4 更新 README、ACTION_PLAN、威胁模型、协作文档与里程碑续接状态，只陈述已验证保证和本机证据
+- [x] 3.1 在可用环境运行 container 真实集成矩阵；若 Docker/镜像或 Linux/Podman 环境缺失，记录精确阻塞而不伪造通过
+- [x] 3.2 检测现有凭证并尝试 5 项 real-model golden；因仓库派生 payload/destination 外发未获具体授权而停止，credentialed Evaluator 与 single/Triad 同样记为未验证，不伪造通过率
+- [x] 3.3 复核 native tool-call 流式聚合已有实现与回归；为持久 REPL 历史、语义摘要、音视频和响应侧多模态记录明确重启触发条件
+- [x] 3.4 更新 README、ACTION_PLAN、威胁模型、协作文档与里程碑续接状态，只陈述已验证保证和本机证据
 
 ## 4. 验证与收尾
 
-- [ ] 4.1 运行相关专项、完整 pytest、Ruff format/check、离线 golden、wheel/sdist、OpenSpec strict 和 diff check
+- [x] 4.1 运行相关专项、完整 pytest、Ruff format/check、离线 golden、wheel/sdist、OpenSpec strict 和 diff check
 - [ ] 4.2 完成两轮需求/设计/实现自审与独立代码审查，修复所有 Critical/High/Important 问题
-- [ ] 4.3 生成验证报告和里程碑收尾记录，归档 change，并按验证结果处理工作分支
+- [x] 4.3 生成验证报告和里程碑收尾记录，并准备归档及工作分支收尾；归档在 verify pass 后执行

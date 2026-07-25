@@ -1516,6 +1516,8 @@ class CollaborationRunner:
                 state=evaluator_state,
                 checks=self._evaluator_checks,
             )
+            if self._cancelled(cancel_event):
+                return self._finish("cancelled", "cancelled")
             try:
                 evaluator = self._run_role(
                     "evaluator",
@@ -1587,6 +1589,8 @@ class CollaborationRunner:
         data: str,
         cancel_event: threading.Event | None,
     ) -> TaskOutcome:
+        if self._cancelled(cancel_event):
+            raise CollaborationError("collaboration cancelled before role start")
         started = time.monotonic()
         model = getattr(self._state, f"{role}_model")
         tier = self._state.evaluator_tier if role == "evaluator" else self._execution_tier
