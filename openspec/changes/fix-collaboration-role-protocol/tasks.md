@@ -16,5 +16,5 @@
 
 ## 4. 验证
 
-- [ ] 4.1 运行专项测试、ruff、完整 pytest 和 OpenSpec/Comet guard
-- [ ] 4.2 在两个全新临时目录连续运行真实模型 Triad，并独立验证 pytest 与 calc.py CLI 输出
+- [x] 4.1 运行专项测试、ruff、完整 pytest 和 OpenSpec/Comet guard
+- [x] 4.2 在两个全新临时目录连续运行真实模型 Triad，并独立验证 pytest 与 calc.py CLI 输出

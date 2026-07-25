@@ -12,7 +12,8 @@ import threading
 import time
 import unicodedata
 import weakref
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal, Protocol
 from uuid import uuid4
@@ -32,6 +33,11 @@ from .tools import (
     ToolRegistry,
     default_registry,
 )
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - collaboration storage already requires POSIX flags
+    fcntl = None  # type: ignore[assignment]
 
 COLLABORATION_SCHEMA = "forgeagent.collaboration.v1"
 MAX_STATE_BYTES = 256 * 1024
@@ -752,6 +758,41 @@ class CollaborationStore:
             raise CollaborationError("invalid collaboration id")
         return f"{collaboration_id}.json"
 
+    @contextmanager
+    def _state_lock(self, collaboration_id: str) -> Iterator[None]:
+        if fcntl is None:
+            raise CollaborationError("collaboration locking is unavailable")
+        name = f".{collaboration_id}.lock"
+        descriptor = -1
+        locked = False
+        try:
+            self._ensure_binding()
+            descriptor = os.open(
+                name,
+                os.O_RDWR | os.O_CREAT | self._no_follow | getattr(os, "O_CLOEXEC", 0),
+                0o600,
+                dir_fd=self._directory_fd,
+            )
+            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                raise CollaborationError("collaboration lock is unsafe")
+            os.fchmod(descriptor, 0o600)
+            fcntl.flock(descriptor, fcntl.LOCK_EX)
+            locked = True
+            self._ensure_binding()
+            yield
+        except CollaborationError:
+            raise
+        except (OSError, TypeError) as error:
+            raise CollaborationError("collaboration lock failed") from error
+        finally:
+            if descriptor >= 0:
+                if locked:
+                    try:
+                        fcntl.flock(descriptor, fcntl.LOCK_UN)
+                    except OSError:
+                        pass
+                os.close(descriptor)
+
     def _ensure_binding(self) -> None:
         if self._closed:
             raise CollaborationError("collaboration store is closed")
@@ -809,16 +850,17 @@ class CollaborationStore:
             except ValidationError as error:
                 raise CollaborationError("invalid collaboration state") from error
             name = self._name(identifier)
-            self._ensure_binding()
-            try:
-                os.stat(name, dir_fd=self._directory_fd, follow_symlinks=False)
-            except FileNotFoundError:
-                self._write(name, state)
-                self._audit(state, "created")
-                return state
-            except OSError as error:
-                raise CollaborationError("collaboration file is invalid") from error
-            raise CollaborationError("collaboration already exists")
+            with self._state_lock(identifier):
+                try:
+                    os.stat(name, dir_fd=self._directory_fd, follow_symlinks=False)
+                except FileNotFoundError:
+                    self._write(name, state)
+                except OSError as error:
+                    raise CollaborationError("collaboration file is invalid") from error
+                else:
+                    raise CollaborationError("collaboration already exists")
+            self._audit(state, "created")
+            return state
 
     def load(self, collaboration_id: str) -> CollaborationState:
         with self._lock:
@@ -858,19 +900,20 @@ class CollaborationStore:
         if type(expected_revision) is not int or expected_revision < 0:
             raise CollaborationError("invalid collaboration revision")
         with self._lock:
-            current = self.load(state.collaboration_id)
-            if current.revision != expected_revision:
-                raise CollaborationError("collaboration revision is stale")
-            if not _status_phase_is_valid(state.status, state.phase):
-                raise CollaborationError("invalid collaboration state transition")
-            try:
-                updated = CollaborationState.model_validate(
-                    state.model_dump(mode="python") | {"revision": expected_revision + 1}
-                )
-            except ValidationError as error:
-                raise CollaborationError("invalid collaboration state") from error
-            _validate_state_transition(current, updated)
-            self._write(self._name(updated.collaboration_id), updated)
+            with self._state_lock(state.collaboration_id):
+                current = self.load(state.collaboration_id)
+                if current.revision != expected_revision:
+                    raise CollaborationError("collaboration revision is stale")
+                if not _status_phase_is_valid(state.status, state.phase):
+                    raise CollaborationError("invalid collaboration state transition")
+                try:
+                    updated = CollaborationState.model_validate(
+                        state.model_dump(mode="python") | {"revision": expected_revision + 1}
+                    )
+                except ValidationError as error:
+                    raise CollaborationError("invalid collaboration state") from error
+                _validate_state_transition(current, updated)
+                self._write(self._name(updated.collaboration_id), updated)
             self._audit(updated, "saved")
             return updated
 

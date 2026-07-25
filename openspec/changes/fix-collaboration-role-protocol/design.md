@@ -2,8 +2,9 @@
 
 协作角色使用独立 Task 和 registry。现有 Runner 把 Generator 的普通 Task completion 直接视为
 可进入 Evaluator，并要求 Planner/Evaluator 在 Submit 成功后再发送 standalone
-`task_status`。真实模型证明这两种隐式边界都不稳定。CollaborationStore 已提供 revision CAS，
-因此可以在不新增持久字段的情况下把结构化提交作为原子状态边界。
+`task_status`。真实模型证明这两种隐式边界都不稳定。CollaborationStore 的 revision CAS 在每个
+collaboration ID 的跨进程 `flock` 内执行，因此可以在不新增持久字段的情况下把结构化提交作为
+原子状态边界。
 
 ## Goals / Non-Goals
 
@@ -34,6 +35,8 @@
 6. Runner 对成功提交只补记 rounds/usage；失败角色仍在角色边界计数。Runner 独占 verdict
    判定、rejection limit 和终态转换。
 7. 拒绝回到 Generator 时保留旧 verdict 供崩溃恢复重建反馈；下一 Candidate 提交时才清空。
+8. CollaborationStore 的 create 存在性检查和 save revision 比较与原子替换在同一 per-ID
+   `flock` 临界区执行，避免两个恢复 Runner 同时提交同一 revision。
 
 ## Rejected Alternatives
 

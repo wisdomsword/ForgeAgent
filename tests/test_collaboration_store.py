@@ -4,16 +4,19 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from pathlib import Path
 from typing import Literal
 
 import pytest
 
+import forgeagent.collaboration as collaboration_module
 from forgeagent.collaboration import (
     MAX_GOAL_CHARS,
     MAX_STATE_BYTES,
     AcceptanceItem,
     CollaborationError,
+    CollaborationState,
     CollaborationStore,
     CollaborationUsage,
     EvaluationItem,
@@ -87,6 +90,132 @@ def test_store_rejects_stale_corrupt_oversized_and_unknown_schema(tmp_path: Path
     with pytest.raises(CollaborationError):
         store.load("d" * 32)
     assert saved.revision == 1
+
+
+def test_overlapping_saves_from_distinct_stores_commit_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    first = CollaborationStore(str(tmp_path))
+    created = first.create("Build an artifact", "duo", collaboration_id="9" * 32)
+    second = CollaborationStore(str(tmp_path))
+    barrier = threading.Barrier(2)
+    original_flock = collaboration_module.fcntl.flock
+
+    def overlap_before_lock(descriptor: int, operation: int):
+        if operation == collaboration_module.fcntl.LOCK_EX:
+            barrier.wait(timeout=2)
+        return original_flock(descriptor, operation)
+
+    monkeypatch.setattr(collaboration_module.fcntl, "flock", overlap_before_lock)
+
+    results: list[object] = []
+
+    def save(store: CollaborationStore, rounds: int) -> None:
+        try:
+            results.append(
+                store.save(created.model_copy(update={"rounds": rounds}), expected_revision=0)
+            )
+        except CollaborationError as error:
+            results.append(error)
+
+    threads = [
+        threading.Thread(target=save, args=(first, 1)),
+        threading.Thread(target=save, args=(second, 2)),
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=3)
+
+    assert not any(thread.is_alive() for thread in threads)
+    assert sum(isinstance(result, CollaborationState) for result in results) == 1
+    assert sum(isinstance(result, CollaborationError) for result in results) == 1
+    assert first.load(created.collaboration_id).revision == 1
+
+
+def test_overlapping_creates_from_distinct_stores_commit_once(tmp_path: Path):
+    both_writing = threading.Event()
+    write_count = 0
+    count_lock = threading.Lock()
+
+    class CoordinatedStore(CollaborationStore):
+        def _write(self, name: str, state: CollaborationState) -> None:
+            nonlocal write_count
+            with count_lock:
+                write_count += 1
+                if write_count == 2:
+                    both_writing.set()
+            both_writing.wait(timeout=0.5)
+            super()._write(name, state)
+
+    stores = (CoordinatedStore(str(tmp_path)), CoordinatedStore(str(tmp_path)))
+    start = threading.Barrier(2)
+    results: list[object] = []
+
+    def create(store: CollaborationStore) -> None:
+        start.wait(timeout=2)
+        try:
+            results.append(store.create("Build an artifact", "duo", collaboration_id="a" * 32))
+        except CollaborationError as error:
+            results.append(error)
+
+    threads = [threading.Thread(target=create, args=(store,)) for store in stores]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=3)
+
+    assert not any(thread.is_alive() for thread in threads)
+    assert sum(isinstance(result, CollaborationState) for result in results) == 1
+    assert sum(isinstance(result, CollaborationError) for result in results) == 1
+
+
+def test_store_rejects_symlink_collaboration_lock(tmp_path: Path):
+    store = CollaborationStore(str(tmp_path))
+    created = store.create("Build an artifact", "duo", collaboration_id="8" * 32)
+    lock_path = tmp_path / ".forgeagent" / "collaborations" / f".{created.collaboration_id}.lock"
+    outside = tmp_path / "outside-lock"
+    outside.write_text("unchanged", encoding="utf-8")
+    lock_path.unlink()
+    lock_path.symlink_to(outside)
+
+    with pytest.raises(CollaborationError):
+        store.save(created.model_copy(update={"rounds": 1}), expected_revision=0)
+
+    assert outside.read_text(encoding="utf-8") == "unchanged"
+    assert store.load(created.collaboration_id).revision == 0
+
+
+@pytest.mark.skipif(collaboration_module.fcntl is None, reason="flock is POSIX-only")
+def test_collaboration_lock_failure_preserves_revision(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    store = CollaborationStore(str(tmp_path))
+    created = store.create("Build an artifact", "duo", collaboration_id="6" * 32)
+    path = tmp_path / ".forgeagent" / "collaborations" / f"{created.collaboration_id}.json"
+    before = path.read_bytes()
+
+    def fail_lock(*args: object, **kwargs: object) -> None:
+        raise OSError("lock unavailable")
+
+    monkeypatch.setattr(collaboration_module.fcntl, "flock", fail_lock)
+
+    with pytest.raises(CollaborationError):
+        store.save(created.model_copy(update={"rounds": 1}), expected_revision=0)
+
+    assert path.read_bytes() == before
+
+
+def test_collaboration_create_fails_closed_without_platform_locking(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    store = CollaborationStore(str(tmp_path))
+    monkeypatch.setattr(collaboration_module, "fcntl", None)
+
+    with pytest.raises(CollaborationError):
+        store.create("Build an artifact", "duo", collaboration_id="5" * 32)
+
+    assert not (tmp_path / ".forgeagent" / "collaborations" / ("5" * 32 + ".json")).exists()
 
 
 def test_store_rejects_symlink_and_directory_replacement(tmp_path: Path):

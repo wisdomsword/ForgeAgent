@@ -29,6 +29,11 @@ completed、rejection、rejection limit 或失败终态。
 当前协议。Submit 保存成功但 rounds/usage 边界尚未保存时崩溃，允许丢失未持久化统计，不进行
 不可靠推断。
 
+revision CAS 的 load/compare/replace 窗口由每 collaboration ID 的稳定私有 lock file 和 POSIX
+`flock(LOCK_EX)` 串行化。create 的存在性检查也位于同一临界区，防止两个 Store/恢复进程同时
+创建或提交同一旧 revision。锁文件通过 collaborations directory fd、`O_NOFOLLOW`、regular-file
+校验和 `0o600` 保护；锁能力缺失或失败时 fail closed。
+
 ## Step 与工具层契约
 
 `ToolOutcome` 增加默认 false 的通用 `completes_task` 信号，沿用 `needs_info` 的既有模式。
@@ -86,7 +91,8 @@ Step 单测覆盖 completion signal 默认关闭、文本/原生双通道确定�
 phase、stale revision、重复提交与完整 verdict。Runner 测试覆盖 attempt 不双计、失败计数、
 pass/reject/rejection limit、三条恢复路径、冻结 plan 和稳定失败原因。模式测试覆盖 Duo、Triad、
 Loop duo/triad、single、Loop single；安全回归覆盖 allowed root、Evaluator 只读、secret masking
-和审计边界。
+和审计边界；存储回归覆盖两个独立 Store 的同 revision 重叠提交、重叠 create、symlink lock、
+flock 失败与缺失平台锁。
 
 自动测试、ruff 和完整 pytest 通过后，在两个全新临时目录连续运行真实模型 Triad。每次必须
 completed，三个角色均结构化提交，外部 pytest 通过，且
@@ -98,3 +104,10 @@ completed，三个角色均结构化提交，外部 pytest 通过，且
 第一轮检查协议闭环，确认 Submit 保存、Step 终止、Runner invariant 和恢复状态之间没有隐式
 完成或双计数缺口。第二轮检查范围与兼容性，确认未增加依赖、状态字段、schema 版本、Generator
 验收权限或 single 行为；删除了 manifest、动态锁和统计推断等非必要设计。
+
+## Implementation Divergence
+
+最终独立代码审查发现，原设计把已有 revision CAS 视为跨恢复进程原子，但实现当时只用单个
+Store 实例的 `threading.RLock`，两个 Store 可同时通过同一 revision 检查。修复复用仓库 Loop
+checkpoint 已验证的 per-ID `flock` 模式，把 create/save 的检查和原子替换纳入同一跨进程临界区。
+该变化强化既定原子提交语义，不改变公开接口、状态字段或 schema。
