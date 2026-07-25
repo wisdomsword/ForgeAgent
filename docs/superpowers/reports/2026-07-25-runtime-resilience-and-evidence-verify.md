@@ -1,80 +1,73 @@
-# P2/P3 Runtime Resilience and Evidence Verification
+# P2/P3 运行时韧性与证据验证报告
 
-## Outcome
+## 结论
 
-P2/P3 are handled in one Comet change. The implementation adds host-frozen Evaluator
-checks, an executable MCP hung-call regression, and bounded search fallback. Native
-tool-call streaming assembly remains covered. No claim is made for unexecuted external
-model calls or unavailable container platforms.
+P2/P3 已合并在同一个 Comet change 中处理。实现新增宿主冻结的 Evaluator
+检查、可执行 MCP hung-call 回归和有界搜索 fallback；native tool-call 流式聚合继续由
+既有回归覆盖。未执行的外部模型调用和不可用容器平台不声明通过。
 
-## Implemented Contracts
+## 已实现契约
 
-- `RunCheck` accepts only a registered check ID. A trusted host owns argv, environment,
-  timeout and injection; standard CLI/HTTP schemas do not expose this authority.
-- Checks reject all symlinks and special files, copy the project into a temporary tree,
-  and run only current-Python invocations through a restricted audit-hook worker. Reads
-  and writes stay in the copy; network, spawn, fork, exec and process-signal control are denied. Output is drained
-  with a fixed head/tail memory cap. Timeout or cancellation terminates the POSIX group.
-- Cancellation after Planner/Generator/Evaluator boundaries does not construct the next
-  role or rejection attempt. Provider calls remain cooperatively cancellable only.
-- The formerly skipped MCP hung-call test now launches a real local stdio server whose
-  tool never returns, verifies the fixed deadline, invalidation and bounded close.
-- Search tries the preferred built-in engine and then the other engine at most once.
-  Each request independently uses the existing SSRF and redirect policy. Result/error
-  precedence is: any results, blocked, unavailable, then two zero-result successes.
+- `RunCheck` 只接受已注册检查 ID。argv、环境和超时由可信宿主拥有；标准 CLI/HTTP
+  schema 不暴露该权限。
+- 检查拒绝全部 symlink 和特殊文件，把项目复制到临时树，只允许当前 Python 入口通过
+  restricted audit-hook worker 执行。读写限制在副本内，禁止网络、spawn、fork、exec 和
+  进程信号控制。输出用固定 head/tail 内存上限持续 drain；超时或取消终止 POSIX 进程组。
+- Planner/Generator/Evaluator 边界取消后不再构造下一角色或 rejection attempt。provider
+  调用仍只承诺 cooperative cancel。
+- 原永久 skip 的 MCP hung-call 测试现启动真实本地 stdio server，其工具永不返回；测试
+  验证固定 deadline、generation 失效和有界 close。
+- 搜索先尝试首选内置引擎，失败或零结果时最多尝试另一个内置引擎一次。每次请求独立
+  使用既有 SSRF/redirect 策略。最终优先级为：任一结果、blocked、unavailable、两次零结果。
 
-## Evidence Matrix
+## 证据矩阵
 
-| Evidence | Result |
+| 证据 | 结果 |
 | --- | --- |
-| Final full pytest after review fixes | `2125 passed, 10 skipped` with a fresh temporary uv cache |
-| Latest sandbox full pytest | `2101 passed, 12 failed, 22 skipped`; 11 loopback and 1 package-build environment failures |
-| Check/collaboration/MCP focused suite | post-hardening security and contract suite `329 passed` |
-| Search focused suite | `27 passed` |
-| Search + SSRF + CLI adjacent suite | `108 passed, 2 skipped` |
-| Native tool-call silent aggregation fallback | `1 passed, 25 deselected` |
-| Container + MCP matrix | `219 passed, 10 skipped`; all skips are Docker daemon/image availability checks |
-| Offline golden | `20/20 passed` |
-| Ruff | format check and lint passed |
-| Package build | wheel and sdist built; a stale shared uv cache entry first broke dependency installation, while a fresh temporary cache passed the complete packaging test |
-| OpenSpec | strict `18/18` passed before archive |
-| Host | macOS 26.5.1, Darwin arm64 |
-| Docker | CLI 29.2.1 present; daemon unavailable after bounded Docker Desktop startup wait |
-| Linux Docker / Podman | not available in this environment; not verified |
-| Real-model golden / single-Triad / credentialed Evaluator | credentials detected, but execution was rejected because repository-derived payload/destination external disclosure was not specifically authorized; not verified |
+| 复审修复后最终完整 pytest | 使用全新临时 uv cache：`2125 passed, 10 skipped` |
+| 最新沙箱内完整 pytest | `2101 passed, 12 failed, 22 skipped`；11 项 loopback 与 1 项 package build 环境失败 |
+| Check/Collaboration/MCP 专项 | 最终安全与契约专项 `329 passed` |
+| 搜索专项 | `27 passed` |
+| 搜索 + SSRF + CLI 相邻专项 | `108 passed, 2 skipped` |
+| Native tool-call 静默聚合 fallback | `1 passed, 25 deselected` |
+| Container + MCP 矩阵 | `219 passed, 10 skipped`；skip 均为 Docker daemon/image 可用性检查 |
+| 离线 golden | `20/20 passed` |
+| Ruff | format check 与 lint 通过 |
+| 打包 | wheel/sdist 构建通过；共享 uv cache 的损坏条目曾导致依赖安装失败，全新临时 cache 下完整 packaging test 通过 |
+| OpenSpec | 归档前 strict `18/18` 通过 |
+| 宿主 | macOS 26.5.1，Darwin arm64 |
+| Docker | CLI 29.2.1 存在；有界启动 Docker Desktop 后 daemon 仍不可用 |
+| Linux Docker / Podman | 当前环境不可用，未验证 |
+| 真实模型 golden / single-Triad / credentialed Evaluator | 检测到凭证，但仓库派生 payload/destination 外发未获具体授权；未验证 |
 
-## P3 Disposition
+## P3 裁决
 
-- Native tool-call stream fragment assembly is already implemented and its focused
-  fallback regression passes.
-- Persistent REPL history remains deferred until users need cross-process/session recall
-  and a reviewed storage, redaction, retention and opt-out contract exists.
-- Semantic summaries remain deferred until sliding-window eviction demonstrably harms
-  real workloads and a deterministic evaluation set can show benefit over extraction.
-- Audio/video input remains deferred until at least one configured provider and CLI/HTTP
-  transport require it, with size/type/storage and cost limits designed first.
-- Response-side multimodal output remains deferred until a consumer needs typed binary
-  artifacts and an explicit rendering/storage/safe-projection contract.
-- Model routers, schedulers, plugin markets, team memory/approval, MCP Apps UI and memory
-  confidence/decay remain outside this change; they require separate user demand and design.
+- Native tool-call 流式片段聚合已有实现，专项 fallback 回归通过。
+- 持久 REPL 历史继续延期，直到出现跨进程/会话回忆需求，并先完成存储、脱敏、保留和
+  opt-out 契约评审。
+- 语义摘要继续延期，直到 sliding-window eviction 对真实工作负载造成可测损害，且确定性
+  评估集能证明其优于抽取式方案。
+- 音视频输入继续延期，直到至少一个已配置 provider 和 CLI/HTTP transport 需要它，并先
+  设计大小、类型、存储和成本限制。
+- 响应侧多模态继续延期，直到消费者需要 typed binary artifact，并具备显式渲染、存储和
+  safe projection 契约。
+- Model router、scheduler、plugin market、team memory/approval、MCP Apps UI 和 memory
+  confidence/decay 不进入本 change；需要独立用户需求和设计。
 
-## Residual Risks
+## 残留风险
 
-- `RunCheck` uses Python audit-hook isolation rather than an OS/container sandbox. Native
-  or kernel bypasses and hostile same-host copy/check races remain residual risks.
-- Cancellation cannot asynchronously kill an in-flight provider call. MCP relies on its
-  SDK deadline and session-generation invalidation.
-- Search HTML remains provider-layout dependent even with fallback.
-- Docker and real-provider evidence must be rerun in an authorized, available environment
-  before claiming those matrices pass.
+- `RunCheck` 使用 Python audit-hook 隔离，不是 OS/container 密封 sandbox。native/kernel
+  bypass 与恶意同宿主 copy/check race 仍是残留风险。
+- 取消不能异步杀死在途 provider 调用；MCP 依赖 SDK deadline 与 session generation 失效。
+- 搜索 HTML 仍依赖 provider 页面布局，即使已有 fallback。
+- 在具备授权和环境后，必须重跑 Docker 与真实 provider 证据，才能声明对应矩阵通过。
 
-## Review Closure
+## 评审闭环
 
-The thorough segment review found five Important issues: host-privileged project checks,
-unbounded output storage/readback, incomplete descendant termination, stale successful
-MCP results, and a cancellation window before Evaluator construction. The fixes add the
-restricted Python worker, streaming bounded capture, unconditional POSIX group SIGKILL
-attempt after grace, post-await MCP generation/session validation, and role-start guards.
-The final focused suite passed `329/329`; final full pytest passed `2125/2125` with
-10 Docker environment skips. A second self-review also added process-signal denial and
-removed stale fake-session wording from the design/spec/plan evidence chain.
+独立 thorough review 找到五个 Important：项目检查以宿主权限运行、输出存储/回读无界、
+descendant 终止不完整、MCP stale success、Evaluator 构造前取消窗口。修复分别加入 restricted
+Python worker、流式有界 capture、grace 后无条件尝试 POSIX group SIGKILL、await 后 MCP
+generation/session 复检和角色启动守卫。
+
+两轮自审进一步加入进程信号控制拒绝，并清除 design/spec/plan 中残留的 fake-session 旧方案。
+最终专项为 `329/329`，完整 pytest 为 `2125/2125`，保留 10 个 Docker 环境 skip。
