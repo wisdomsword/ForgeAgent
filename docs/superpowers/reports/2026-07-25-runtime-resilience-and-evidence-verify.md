@@ -25,7 +25,7 @@ P2/P3 已合并在同一个 Comet change 中处理。实现新增宿主冻结的
 
 | 证据 | 结果 |
 | --- | --- |
-| 复审修复后最终完整 pytest | 使用全新临时 uv cache：`2125 passed, 10 skipped` |
+| 复审修复后最终完整 pytest | 使用全新临时 uv cache：`2131 passed, 10 skipped` |
 | 最新沙箱内完整 pytest | `2101 passed, 12 failed, 22 skipped`；11 项 loopback 与 1 项 package build 环境失败 |
 | Check/Collaboration/MCP 专项 | 最终安全与契约专项 `329 passed` |
 | 搜索专项 | `27 passed` |
@@ -72,5 +72,6 @@ generation/session 复检和角色启动守卫。
 
 两轮自审进一步加入进程信号控制拒绝，并清除 design/spec/plan 中残留的 fake-session 旧方案。
 最终独立复审另发现副本外路径变更与 `socket.sendmsg`/DNS 绕过；实现改为校验目录枚举和全部
-已知路径变更事件，并拒绝全部 `socket.*` 事件。修复后相邻安全专项为 `60/60`；最终完整
-pytest、golden 与构建结果在最终门禁后更新。
+已知路径变更事件，并拒绝全部 `socket.*` 事件。修复后相邻安全专项为 `60/60`，最终相关
+契约专项为 `335/335`；完整 pytest 为 `2131/2131`，离线 golden `20/20`，wheel/sdist、
+Ruff、OpenSpec strict `18/18` 与 diff check 均通过，保留 10 个 Docker 环境 skip。
