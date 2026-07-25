@@ -18,6 +18,7 @@ import http.client
 import logging
 import os
 import stat
+import threading
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable
@@ -159,6 +160,7 @@ class ToolContext:
     # MCP autoApprove is a CLI/REPL compatibility path. HTTP contexts disable it so
     # their explicit headless allowlist is the only non-interactive pre-approval.
     allow_auto_approve: bool = True
+    cancel_event: threading.Event | None = None
 
 
 class Tool(ABC):

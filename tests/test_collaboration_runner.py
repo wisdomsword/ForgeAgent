@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+import sys
 import threading
 from pathlib import Path
 
 import pytest
 
 from forgeagent.audit import AuditEvent
+from forgeagent.check_runner import CheckDefinition
 from forgeagent.client import MockClient
 from forgeagent.collaboration import (
     CollaborationError,
@@ -130,6 +132,27 @@ def test_duo_rejects_then_uses_fresh_generator_and_passes(tmp_path: Path):
     assert retry_data["plan_digest"]
 
 
+def test_duo_injects_host_checks_only_into_evaluator_registry(tmp_path: Path):
+    builder = _RoleBuilder(
+        {
+            ("generator", 1): [_reply(_done())],
+            ("evaluator", 1): [_evaluation(passed=True), _reply(_done())],
+        }
+    )
+
+    report = _runner(
+        tmp_path,
+        builder,
+        evaluator_checks={
+            "unit": CheckDefinition(id="unit", argv=(sys.executable, "-V"))
+        },
+    ).run("write PRIVATE_GOAL artifact")
+
+    assert report.status == "completed"
+    assert "RunCheck" not in builder.registries[0].arg_schemas()
+    assert "RunCheck" in builder.registries[1].arg_schemas()
+
+
 def test_duo_requires_generator_strict_completion(tmp_path: Path):
     builder = _RoleBuilder({("generator", 1): [_reply("plain answer"), _reply("still plain")]})
     runner = _runner(tmp_path, builder)
@@ -216,7 +239,45 @@ def test_duo_cancel_wins_after_role_boundary_and_closes_resources(tmp_path: Path
 
     assert report.status == "cancelled"
     assert report.stop_reason == "cancelled"
+    assert [role for role, _attempt, _prompt in builder.calls] == ["generator"]
     assert all(client.closed for client in builder.clients)
+
+
+def test_duo_cancel_after_rejection_does_not_start_next_generator(tmp_path: Path):
+    cancel = threading.Event()
+
+    class _CancellingEvaluatorBuilder(_RoleBuilder):
+        def __call__(self, role, attempt, registry, system_prompt):
+            task = super().__call__(role, attempt, registry, system_prompt)
+            if role != "evaluator":
+                return task
+            original = task.run
+
+            def run(goal, *, cancel_event=None):
+                outcome = original(goal, cancel_event=cancel_event)
+                cancel.set()
+                return outcome
+
+            task.run = run
+            return task
+
+    builder = _CancellingEvaluatorBuilder(
+        {
+            ("generator", 1): [_reply(_done())],
+            ("evaluator", 1): [_evaluation(passed=False), _reply(_done())],
+        }
+    )
+
+    report = _runner(tmp_path, builder).run(
+        "write PRIVATE_GOAL artifact", cancel_event=cancel
+    )
+
+    assert report.status == "cancelled"
+    assert report.stop_reason == "cancelled"
+    assert [(role, attempt) for role, attempt, _prompt in builder.calls] == [
+        ("generator", 1),
+        ("evaluator", 1),
+    ]
 
 
 def test_duo_rejects_concurrent_run_without_blocking(tmp_path: Path):

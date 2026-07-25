@@ -6307,6 +6307,30 @@ def test_mcp_result_secret_values_are_masked():
         del os.environ["FORGE_TEST_FAKE_TOKEN"]
 
 
-@pytest.mark.skip(reason="hang test is slow; covered by the Phase-0 spike (§八 D4)")
-def test_hung_call_times_out():  # pragma: no cover - documented, exercised in spike
-    ...
+def test_hung_call_times_out():
+    mgr = MCPManager(
+        {"hang": _server("hang", mode="hang_on_call")},
+        connect_timeout=2,
+        call_timeout=0.05,
+        shutdown_timeout=0.5,
+        thread_join_timeout=0.5,
+    )
+    close_elapsed = None
+    try:
+        mgr.connect()
+        assert mgr.server_status()["hang"] == "available"
+
+        started = time.monotonic()
+        result = mgr.call_tool("hang", "echo", {"text": "never returned"})
+        call_elapsed = time.monotonic() - started
+
+        assert result == {"ok": False, "text": "MCP call failed"}
+        assert call_elapsed < 1
+        assert mgr.server_status()["hang"].startswith("unavailable")
+        assert mgr.list_tools() == []
+    finally:
+        started = time.monotonic()
+        mgr.close()
+        close_elapsed = time.monotonic() - started
+
+    assert close_elapsed < 2

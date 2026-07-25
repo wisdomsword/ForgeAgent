@@ -1,13 +1,13 @@
 ## 1. Evaluator 隔离检查与取消边界
 
-- [ ] 1.1 以失败测试定义 `CheckDefinition`、`RunCheck` 仅接收检查 ID、默认不注册和未知 ID 不启动子进程
-- [ ] 1.2 以失败测试定义临时副本排除规则、无 shell/最小环境/固定 cwd、输出脱敏与上限、退出码和清理
-- [ ] 1.3 以失败测试定义 timeout/cancel 终止检查进程组，并验证取消后不启动下一协作角色或 rejection attempt
-- [ ] 1.4 实现最小 `RunCheck` 工具、registry 接线和宿主注入接口，不扩大 CLI/HTTP 请求 schema 或普通 Evaluator 权限
+- [x] 1.1 以失败测试定义 `CheckDefinition`、`RunCheck` 仅接收检查 ID、默认不注册和未知 ID 不启动子进程
+- [x] 1.2 以失败测试定义临时副本排除规则、无 shell/最小环境/固定 cwd、输出脱敏与上限、退出码和清理
+- [x] 1.3 以失败测试定义 timeout/cancel 终止检查进程组，并验证取消后不启动下一协作角色或 rejection attempt
+- [x] 1.4 实现最小 `RunCheck` 工具、registry 接线和宿主注入接口，不扩大 CLI/HTTP 请求 schema 或普通 Evaluator 权限
 
 ## 2. MCP 与搜索可靠性
 
-- [ ] 2.1 将永久 skip 的 MCP hung-call 占位改为短 deadline 本地回归，验证固定 timeout、迟到结果隔离和有界 close
+- [x] 2.1 将永久 skip 的 MCP hung-call 占位改为短 deadline 本地回归，验证固定 timeout、迟到结果隔离和有界 close
 - [ ] 2.2 以失败测试定义搜索首选引擎网络失败、非成功状态和零结果时的单次固定 fallback，以及 blocked/unavailable/zero 的最终优先级
 - [ ] 2.3 实现双引擎有界 fallback，确保每次请求继续独立经过既有 SSRF、redirect、scheme 和 proxy 策略
 
