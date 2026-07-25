@@ -109,6 +109,20 @@ def test_check_blocks_project_code_from_listing_host_directories(tmp_path: Path,
     assert "restricted: file access outside allowed root denied" in result.stderr
 
 
+@pytest.mark.parametrize("operation", ["listdir", "scandir"])
+def test_check_allows_listing_its_working_copy_without_a_path(tmp_path: Path, operation: str):
+    (tmp_path / "visible.txt").write_text("copy", encoding="utf-8")
+    code = (
+        f"import os; entries=os.{operation}(); "
+        "print([entry.name if hasattr(entry, 'name') else entry for entry in entries])"
+    )
+
+    result = run_check(_python_check(operation, code), allowed_root=tmp_path)
+
+    assert result.status == "passed"
+    assert "visible.txt" in result.stdout
+
+
 @pytest.mark.parametrize(
     ("check_id", "code"),
     [

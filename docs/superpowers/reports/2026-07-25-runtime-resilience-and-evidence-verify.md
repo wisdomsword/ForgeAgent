@@ -75,3 +75,5 @@ generation/session 复检和角色启动守卫。
 已知路径变更事件，并拒绝全部 `socket.*` 事件。修复后相邻安全专项为 `60/60`，最终相关
 契约专项为 `335/335`；完整 pytest 为 `2131/2131`，离线 golden `20/20`，wheel/sdist、
 Ruff、OpenSpec strict `18/18` 与 diff check 均通过，保留 10 个 Docker 环境 skip。
+复审同时发现无参 `os.listdir()`/`os.scandir()` 的 audit path 为 `None`；现将其明确解释为
+worker cwd，并以副本内合法目录枚举回归锁定，避免安全收紧破坏正常检查。

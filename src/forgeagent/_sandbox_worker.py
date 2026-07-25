@@ -123,8 +123,8 @@ def _open_requests_write(args: tuple) -> bool:
     return isinstance(flags, int) and bool(flags & write_flags)
 
 
-def _audit_path_within_root(path: str | bytes, dir_fd: int, real_root: str) -> bool:
-    decoded = os.fsdecode(path) if isinstance(path, bytes) else path
+def _audit_path_within_root(path: str | bytes | None, dir_fd: int, real_root: str) -> bool:
+    decoded = os.curdir if path is None else os.fsdecode(path) if isinstance(path, bytes) else path
     if not os.path.isabs(decoded):
         if dir_fd in {-1, None}:
             base = os.getcwd()
