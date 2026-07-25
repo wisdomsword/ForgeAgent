@@ -123,6 +123,15 @@ _PROSE_NUDGE = (
 )
 
 
+def _missing_completion_message(tool_name: str) -> str:
+    return (
+        f"{tool_name} must be called successfully before completion. Use "
+        f'<!-- ToolCall: {{"name":"{tool_name}","arguments":{{...}}}} --> with valid JSON '
+        "arguments exactly as described in the system prompt. XML/function_calls syntax is not "
+        "recognized."
+    )
+
+
 def _render_history_content(reply: AssistantMessage) -> str:
     """What goes into convo history for this reply: reply.content plus, for the
     native tool_calls channel (ToolSource.OPENAI, M6), the same text-protocol
@@ -453,9 +462,7 @@ class Step:
                 break
             required_submission = self._registry.required_completion_tool
             if required_submission:
-                missing_submission = (
-                    f"{required_submission} must be called successfully before completion"
-                )
+                missing_submission = _missing_completion_message(required_submission)
                 rr.parse_errors.append(missing_submission)
                 if required_submission in self._submission_recovery_sent:
                     rr.stopped_reason = Termination.FAILED
@@ -557,9 +564,7 @@ class Step:
         if status.completed:
             required_submission = self._registry.required_completion_tool
             if required_submission and required_submission not in self._successful_tools:
-                rr.parse_errors.append(
-                    f"{required_submission} must be called successfully before completion"
-                )
+                rr.parse_errors.append(_missing_completion_message(required_submission))
                 if required_submission in self._submission_recovery_sent:
                     rr.stopped_reason = Termination.FAILED
                 else:

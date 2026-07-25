@@ -847,8 +847,16 @@ def test_required_completion_prose_gets_same_one_recovery_then_fails():
 
     recovery = str(client.seen_messages[1][-1].content)
     assert len(rounds) == 2
-    assert "Finish must be called successfully before completion" in recovery
-    assert rounds[-1].parse_errors == ["Finish must be called successfully before completion"]
+    assert (
+        'Finish must be called successfully before completion. Use <!-- ToolCall: {"name":"Finish"'
+        in recovery
+    )
+    assert "XML/function_calls syntax is not recognized" in recovery
+    assert (
+        rounds[-1]
+        .parse_errors[0]
+        .startswith("Finish must be called successfully before completion")
+    )
     assert rounds[-1].stopped_reason == Termination.FAILED
 
 

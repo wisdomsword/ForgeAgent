@@ -558,6 +558,8 @@ def test_duo_evaluator_prose_recovers_to_structured_submission(tmp_path: Path):
     assert len(builder.clients[1].requests) == 2
     recovery = str(builder.clients[1].requests[1][-1].content)
     assert "SubmitEvaluation must be called successfully" in recovery
+    assert '<!-- ToolCall: {"name":"SubmitEvaluation","arguments":{...}} -->' in recovery
+    assert "XML/function_calls syntax is not recognized" in recovery
 
 
 def test_duo_resume_with_persisted_verdict_skips_evaluator(tmp_path: Path):
