@@ -8,8 +8,9 @@
 人工复测 hotfix）、M19 Skills Runtime（程序性知识从 Memory 分流到可验证、快照化、渐进
 加载的 Skill）、M20 Eval（离线评估记录、趋势与显式 opt-in 独立 Evaluator）与 M21 Loop
 Engineering（有界的耐久多 Task 迭代、版本化 checkpoint/resume、stop conditions、
-HTTP/CLI/cron 调度示例）。M22 Duo/Triad 协作运行时已完成并归档，最终全量验证为
-`2069 passed, 11 skipped`，OpenSpec strict 为 `17/17`。
+HTTP/CLI/cron 调度示例）。M22 Duo/Triad 协作运行时已完成并归档，归档前全量验证为
+`2069 passed, 11 skipped`，OpenSpec strict 为 `17/17`；含归档后复核 hotfix 的最终全量
+验证为 `2073 passed, 11 skipped`（见下文 2026-07-25 复核段）。
 收尾记录见
 [`milestone_017.md`](milestones/milestone_017.md)、[`milestone_018.md`](milestones/milestone_018.md)、
 [`milestone_019.md`](milestones/milestone_019.md)、[`milestone_020.md`](milestones/milestone_020.md)
@@ -274,7 +275,8 @@ stderr 按 server generation 隔离并限制为 8 KiB，只映射为固定、脱
 
 ## 配置（API key 与端点）
 
-key 只从环境变量读取，**绝不写进配置文件或代码**，运行时才解析：
+随包提供的内置配置只通过环境变量读取 key，**不在内置配置或代码中保存 literal API
+key**，运行时才解析：
 
 按**模型 → provider group** 精确路由，不做跨 group 优先级扫描：每个模型注册在 `res/config.yaml` 的唯一一个 group 下，请求该模型时只读取**它自己所属 group** 的 key/端点变量——其它 group 的环境变量即使设了也不生效（不会把 A 家的 key 发到 B 家的端点）。内置三个 group：
 
@@ -284,7 +286,12 @@ key 只从环境变量读取，**绝不写进配置文件或代码**，运行时
 | `openai` | gpt-5.5 / gpt-5.4-mini | `OPENAI_API_KEY` | `OPENAI_BASE_URL`（必须含 `/v1`） |
 | `llm` | glm-5.2 / deepseek-v4-flash | `LLM_API_KEY` | `LLM_BASE_URL`（必须含 `/v1`） |
 
-缺对应 key 时报清晰错误并退出（退出码 2），不会崩溃、不会用错 group 的 key。可用 `~/.forgeagent/config.yaml`/`models.yaml` 扩展或覆盖分组与模型（见 [`docs/model-client-contract.md`](docs/model-client-contract.md)）。不硬编码任何厂商端点。
+缺对应 key 时报清晰错误并退出（退出码 2），不会崩溃、不会用错 group 的 key。可用
+`~/.forgeagent/config.yaml`/`models.yaml` 扩展或覆盖分组与模型（见
+[`docs/model-client-contract.md`](docs/model-client-contract.md)）。用户 `config.yaml` 也允许为
+provider group 配置 literal `api_key` 或 `base_url`，并优先于对应的 `*_env` 值；literal key
+会以明文保存在该文件中，因此推荐继续使用环境变量，且不要提交或共享含凭证的用户配置。
+随包配置和源码不硬编码任何厂商端点或 API key。
 
 ```bash
 export ANTHROPIC_API_KEY="你的-key"
