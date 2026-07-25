@@ -1,0 +1,16 @@
+{
+  "change": "harden-local-persistence-boundaries",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "61f2972623be6c8c69280a3a08682cdc1ce2cddf0a481ed3f803dfc764819ee7",
+  "files": [
+    { "path": "openspec/changes/harden-local-persistence-boundaries/proposal.md", "sha256": "2f87818aa9b3d1f07675ed875ce26453a54addd755a4b26c90b1db256654cea5" },
+    { "path": "openspec/changes/harden-local-persistence-boundaries/design.md", "sha256": "b18980448ae82f683669f760de6cf560a6ae4d5bd3464842dfb248fae29e0fe7" },
+    { "path": "openspec/changes/harden-local-persistence-boundaries/tasks.md", "sha256": "a9164a9dc7deecfa55d31e411f37f1b2d85b9fb5a2d18f41a9ade6b2200401f2" },
+    { "path": "openspec/changes/harden-local-persistence-boundaries/specs/loop-execution/spec.md", "sha256": "927aeb8c28bbf4b737ea06e507523a85c0e49cdd7d0d4ca3fe6b170d3e1eebc5" },
+    { "path": "openspec/changes/harden-local-persistence-boundaries/specs/runtime-memory/spec.md", "sha256": "37c372bd6cca93348f23b7e077e2c514eabc582f6eab6ceb0b88dd864d44b5c3" },
+    { "path": "openspec/changes/harden-local-persistence-boundaries/specs/tool-approval/spec.md", "sha256": "991307dbceb9611a3a69b1dfc8c6c245fd9f35695f008668c2546db5ca93d2fc" }
+  ]
+}
