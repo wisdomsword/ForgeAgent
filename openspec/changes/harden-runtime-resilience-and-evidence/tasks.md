@@ -8,8 +8,8 @@
 ## 2. MCP 与搜索可靠性
 
 - [x] 2.1 将永久 skip 的 MCP hung-call 占位改为短 deadline 本地回归，验证固定 timeout、迟到结果隔离和有界 close
-- [ ] 2.2 以失败测试定义搜索首选引擎网络失败、非成功状态和零结果时的单次固定 fallback，以及 blocked/unavailable/zero 的最终优先级
-- [ ] 2.3 实现双引擎有界 fallback，确保每次请求继续独立经过既有 SSRF、redirect、scheme 和 proxy 策略
+- [x] 2.2 以失败测试定义搜索首选引擎网络失败、非成功状态和零结果时的单次固定 fallback，以及 blocked/unavailable/zero 的最终优先级
+- [x] 2.3 实现双引擎有界 fallback，确保每次请求继续独立经过既有 SSRF、redirect、scheme 和 proxy 策略
 
 ## 3. P2/P3 证据与裁决
 
