@@ -652,6 +652,20 @@ def test_file_write_rejects_root_rebound_after_validation(tmp_path, monkeypatch)
     assert not (outside / "result.txt").exists()
 
 
+def test_file_write_rejects_non_regular_target_without_blocking(tmp_path):
+    target = tmp_path / "result.pipe"
+    os.mkfifo(target)
+
+    outcome = FileWriteTool().run(
+        FileWriteArgs(path="result.pipe", content="overwritten"),
+        _file_ctx(allowed_root=str(tmp_path)),
+    )
+
+    assert outcome.success is False
+    assert outcome.detail == "FileWrite failed"
+    assert target.is_fifo()
+
+
 def test_file_write_escaping_root_is_blocked(tmp_path):
     ctx = _file_ctx(allowed_root=str(tmp_path))
     external_path = tmp_path.parent / "private-secrets" / "escape.txt"

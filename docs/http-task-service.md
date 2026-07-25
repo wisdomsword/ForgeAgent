@@ -168,8 +168,9 @@ events for authentication failure, reject, capacity, submit, query, and cancel.
 
 ## Residual risk
 
-* FileWrite canonical path validation and pathname open still have a hostile-host
-  symlink TOCTOU window.
+* FileWrite closes its validation/open symlink window with descriptor-relative
+  `O_NOFOLLOW` traversal, but cannot roll back writes to an original inode that a
+  hostile same-host process concurrently moves or removes.
 * Cooperative cancellation cannot interrupt an in-flight provider request.
 * Audit startup compaction may read an old log file into memory in one operation.
 * The path checks are Unix-oriented and do not claim dedicated Windows UNC coverage.

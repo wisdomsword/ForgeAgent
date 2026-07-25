@@ -91,8 +91,9 @@ uv run forgeagent loop "生成依赖状态报告，不改动任何文件" --toke
 uv run forgeagent loop --resume LOOP_ID
 ```
 
-模型在完成可独立验证的进度后调用 Loop 专用 `Checkpoint` 工具。工具成功返回前会原子
-commit 新 revision；进程中断后的 resume 从最后一次 commit replay，已提交条目会作为
+模型在完成可独立验证的进度后调用 Loop 专用 `Checkpoint` 工具。每个 Loop ID 使用独立的
+本地跨进程锁，工具成功返回前会在锁内校验并原子 commit 新 revision；进程中断后的 resume
+从最后一次 commit replay，已提交条目会作为
 完成项注入下一次 Task，未提交的外部副作用可能重做。因此应把副作用切成可验证步骤，并在
 每一步后 checkpoint；这不是外部操作的 exactly-once 承诺。
 
@@ -202,7 +203,7 @@ REPL 内输入 `/` 加回车查看指令菜单，或直接 `/help`。当前支�
 
 REPL 命令必须以 `/` 开头。裸 `models`、`reload`、`mcp` 和 `mcp ...` 都是普通任务目标；这与顶层 CLI 子命令 `forgeagent models` 无关，后者仍用于列出模型。
 
-Memory 只保存经过确定性准入的事实、偏好和决策。程序性做事方法会被拒绝并提示沉淀为 Skill；项目级冲突按后写入者替换，文件可直接编辑纠正。`--no-memory` 同时关闭两级记忆。
+Memory 只保存经过确定性准入的事实、偏好和决策。程序性做事方法会被拒绝并提示沉淀为 Skill；项目级更新使用稳定本地锁，在锁内重读并合并最新条目，相同 key 按后获得锁者替换，不同 key 不互相丢失。文件仍可直接编辑纠正，`--no-memory` 同时关闭两级记忆。
 
 交互式终端中的 REPL 会在输入 `/` 时即时显示 slash 指令，并随继续输入过滤候选；可用键盘选择候选。上下方向键只回放当前进程内的会话输入，ForgeAgent 不会把 REPL 历史写入文件。测试注入 reader 和非 TTY 输入仍沿用普通输入路径。
 
@@ -350,7 +351,7 @@ uv run forgeagent --tier container --container-image my-image:latest run "..."
 - **Survey**（M7）：任务中途向你提问获取信息（`question` + 可选 `options`）。REPL 与 `run --interactive` 下在终端提问并等你输入；无交互通道（headless）时任务以 `need_info` 干净终止，把问题回传给调用方，而不是卡住或瞎猜。
 - **Skill**（M19）：从当前不可变 Skill 快照只读一个已验证的 Skill 全文，或重读 `steps`、`failure_branches`、`completion_criteria` 段。它没有文件路径或写入参数，不需要确认，也不改变其他工具的确认或审计规则。
 - **WebFetch**（M10）：GET 单个 http(s) URL，经 SSRF 防护后抓取。正文存到 `allowed_root` 下的文件（模型可在后续轮用 Exec/FileRead 处理全文），`detail` 只回传预览（≤1MB 截断），未经审查的网页正文不会整段进模型上下文。`restricted`/`container` 档下这是**唯一**出网路径（Exec 在这两档不能开 socket），因此确认门在这两档是真实的安全边界，不是提示性的 UX。
-- **FileRead / FileWrite / FileList**（M10）：读/写/列出 `allowed_root` 下的文件，路径校验拒绝逃出项目根目录。FileRead 默认不设确认门（只在非 trusted 档记日志，不拦截）；**FileWrite 的确认门只是 UX 提示，不是安全边界**——Exec 工具跑的代码在 `restricted`/`container` 档下本来就能在 `allowed_root` 内任意写文件，不经过这个确认门。FileList 只返回相对路径，不暴露宿主真实目录结构。
+- **FileRead / FileWrite / FileList**（M10）：读/写/列出 `allowed_root` 下的文件，路径校验拒绝逃出项目根目录；FileWrite 还通过 directory fd 逐级 `O_NOFOLLOW` 打开父目录和最终目标，拒绝校验后发生的 symlink 替换。FileRead 默认不设确认门（只在非 trusted 档记日志，不拦截）；**FileWrite 的确认门只是 UX 提示，不是安全边界**——Exec 工具跑的代码在 `restricted`/`container` 档下本来就能在 `allowed_root` 内任意写文件，不经过这个确认门。FileList 只返回相对路径，不暴露宿主真实目录结构。
 - **MCP**（M7）：调用外部 [MCP](https://modelcontextprotocol.io) server 暴露的工具，见下节。
 
 出网与文件访问的边界详见 [`docs/threat-model.md`](docs/threat-model.md)；SSRF 防护实现见 [`docs/m10-usage-observability-and-tools.md`](docs/m10-usage-observability-and-tools.md)（逐候选地址校验 + NAT64 解包 + 直连已校验 sockaddr 堵 DNS-rebinding TOCTOU + 重定向逐跳复检）。

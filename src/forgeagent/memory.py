@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import fcntl
 import os
 import re
 import stat
@@ -16,6 +15,11 @@ from typing import Literal
 from .audit import AuditEvent, AuditSink, emit_audit
 from .protocol import MemoryCandidate
 from .secret_policy import mask_secrets, sensitive_env_values
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - exercised on non-POSIX platforms
+    fcntl = None  # type: ignore[assignment]
 
 _KEY = re.compile(r"^[a-z0-9][a-z0-9._-]{0,79}$")
 _LINE = re.compile(r"^- ([a-z0-9][a-z0-9._-]{0,79}): ([^\r\n]{1,512})$")
@@ -191,6 +195,8 @@ class MemoryManager:
         try:
             with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
                 handle.write(content)
+                handle.flush()
+                os.fsync(handle.fileno())
             os.replace(temporary_name, path)
         except BaseException:
             try:
@@ -233,6 +239,8 @@ class MemoryManager:
 
     @contextmanager
     def _project_lock(self) -> Iterator[None]:
+        if fcntl is None:
+            raise OSError("project memory locking is unavailable")
         path = self._safe_storage_path(for_write=True)
         directory = path.parent
         directory.mkdir(parents=True, exist_ok=True)

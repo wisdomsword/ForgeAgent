@@ -115,6 +115,17 @@ def test_project_memory_lock_failure_preserves_memory_and_disk(tmp_path, monkeyp
     assert path.read_text(encoding="utf-8") == disk_before
 
 
+def test_project_memory_fails_closed_without_platform_locking(tmp_path, monkeypatch):
+    monkeypatch.setattr("forgeagent.memory.fcntl", None)
+
+    result = MemoryManager(str(tmp_path)).apply(
+        MemoryCandidate(scope="project", kind="fact", key="editor", content="vim")
+    )
+
+    assert result.status == "persistence_error"
+    assert not (tmp_path / ".forgeagent" / "MEMORY.md").exists()
+
+
 def test_session_memory_is_rendered_but_not_persisted(tmp_path):
     manager = MemoryManager(str(tmp_path))
     candidate = MemoryCandidate(scope="session", kind="preference", key="format", content="compact")

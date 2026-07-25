@@ -525,6 +525,16 @@ def test_checkpoint_lock_failure_preserves_revision(tmp_path: Path, monkeypatch)
     assert path.read_bytes() == before
 
 
+def test_checkpoint_create_fails_closed_without_platform_locking(tmp_path: Path, monkeypatch):
+    store = LoopCheckpointStore(str(tmp_path))
+    monkeypatch.setattr("forgeagent.loop.fcntl", None)
+
+    with pytest.raises(LoopCheckpointError):
+        store.create("Build it", _budgets(), loop_id="f" * 32)
+
+    assert not (tmp_path / ".forgeagent" / "loops" / ("f" * 32 + ".json")).exists()
+
+
 def test_distinct_checkpoint_ids_do_not_share_one_process_lock(tmp_path: Path):
     both_writing = threading.Event()
     write_count = 0

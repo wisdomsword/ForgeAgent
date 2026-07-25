@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import fcntl
 import json
 import math
 import os
@@ -26,6 +25,11 @@ from .secret_policy import mask_secrets, sensitive_env_values
 from .skills import SkillRegistry
 from .task import TaskOutcome
 from .tools import Tool, ToolContext, ToolOutcome, ToolRegistry, default_registry
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - exercised on non-POSIX platforms
+    fcntl = None  # type: ignore[assignment]
 
 LOOP_SCHEMA = "forgeagent.loop.v1"
 DEFAULT_MAX_ROUNDS = 50
@@ -453,6 +457,8 @@ class LoopCheckpointStore:
 
     @contextmanager
     def _checkpoint_lock(self, loop_id: str) -> Iterator[None]:
+        if fcntl is None:
+            raise LoopCheckpointError("checkpoint locking is unavailable")
         name = f".{self._checkpoint_name(loop_id)[:-5]}.lock"
         descriptor = -1
         locked = False

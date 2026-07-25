@@ -633,13 +633,14 @@ def _write_file_safely(
             raise OSError("project root binding changed")
         file_fd = os.open(
             relative.parts[-1],
-            os.O_WRONLY | os.O_CREAT | os.O_TRUNC | no_follow | getattr(os, "O_CLOEXEC", 0),
+            os.O_WRONLY | os.O_CREAT | os.O_NONBLOCK | no_follow | getattr(os, "O_CLOEXEC", 0),
             0o666,
             dir_fd=current_fd,
         )
         try:
             if not stat.S_ISREG(os.fstat(file_fd).st_mode):
                 raise OSError("file target is not regular")
+            os.ftruncate(file_fd, 0)
             with os.fdopen(file_fd, "w", encoding="utf-8") as handle:
                 file_fd = -1
                 handle.write(content)
