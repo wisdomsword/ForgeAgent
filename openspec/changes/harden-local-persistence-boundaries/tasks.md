@@ -19,5 +19,5 @@
 ## 4. 契约与完成门禁
 
 - [x] 4.1 更新 `docs/threat-model.md` 和受影响的公开文档，说明增强后的本地文件系统保证以及 advisory lock/网络文件系统残余边界。
-- [ ] 4.2 运行格式化、Ruff、专项测试、完整 pytest、golden 20/20、包构建、OpenSpec strict 和 `git diff --check`。
-- [ ] 4.3 完成两轮最终自审和独立代码审查；修复全部 Critical/Important 发现并记录验证报告。
+- [x] 4.2 运行格式化、Ruff、专项测试、完整 pytest、golden 20/20、包构建、OpenSpec strict 和 `git diff --check`。
+- [x] 4.3 完成两轮最终自审和独立代码审查；修复全部 Critical/Important 发现并记录验证报告。
