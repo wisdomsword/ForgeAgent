@@ -1,3 +1,5 @@
+import fcntl
+
 from forgeagent.memory import MemoryManager
 from forgeagent.protocol import MemoryCandidate
 
@@ -26,6 +28,91 @@ def test_project_memory_conflict_replaces_atomically(tmp_path):
     contents = (tmp_path / ".forgeagent" / "MEMORY.md").read_text()
     assert "- editor: nvim\n" in contents
     assert "- editor: vim\n" not in contents
+
+
+def test_project_memory_merges_updates_from_stale_managers(tmp_path):
+    first = MemoryManager(str(tmp_path))
+    second = MemoryManager(str(tmp_path))
+    first.load()
+    second.load()
+
+    assert (
+        first.apply(
+            MemoryCandidate(scope="project", kind="fact", key="editor", content="vim")
+        ).status
+        == "accepted"
+    )
+    assert (
+        second.apply(
+            MemoryCandidate(scope="project", kind="fact", key="language", content="python")
+        ).status
+        == "accepted"
+    )
+
+    contents = (tmp_path / ".forgeagent" / "MEMORY.md").read_text(encoding="utf-8")
+    assert "- editor: vim\n" in contents
+    assert "- language: python\n" in contents
+
+
+def test_project_memory_conflict_status_uses_latest_disk_state(tmp_path):
+    first = MemoryManager(str(tmp_path))
+    second = MemoryManager(str(tmp_path))
+    first.load()
+    second.load()
+
+    assert (
+        first.apply(
+            MemoryCandidate(scope="project", kind="fact", key="editor", content="vim")
+        ).status
+        == "accepted"
+    )
+    result = second.apply(
+        MemoryCandidate(scope="project", kind="fact", key="editor", content="nvim")
+    )
+
+    assert result.status == "replaced"
+    assert "- editor: nvim\n" in (tmp_path / ".forgeagent" / "MEMORY.md").read_text()
+
+
+def test_project_memory_rejects_symlink_lock_file(tmp_path):
+    directory = tmp_path / ".forgeagent"
+    directory.mkdir()
+    outside = tmp_path.parent / f"{tmp_path.name}-memory-lock"
+    outside.write_text("unchanged")
+    (directory / ".MEMORY.lock").symlink_to(outside)
+
+    result = MemoryManager(str(tmp_path)).apply(
+        MemoryCandidate(scope="project", kind="fact", key="editor", content="vim")
+    )
+
+    assert result.status == "persistence_error"
+    assert outside.read_text() == "unchanged"
+    assert not (directory / "MEMORY.md").exists()
+
+
+def test_project_memory_lock_failure_preserves_memory_and_disk(tmp_path, monkeypatch):
+    manager = MemoryManager(str(tmp_path))
+    assert (
+        manager.apply(
+            MemoryCandidate(scope="project", kind="fact", key="editor", content="vim")
+        ).status
+        == "accepted"
+    )
+    before = manager.render()
+    path = tmp_path / ".forgeagent" / "MEMORY.md"
+    disk_before = path.read_text(encoding="utf-8")
+
+    def fail_lock(*args, **kwargs):
+        raise OSError("lock unavailable")
+
+    monkeypatch.setattr(fcntl, "flock", fail_lock)
+    result = manager.apply(
+        MemoryCandidate(scope="project", kind="fact", key="language", content="python")
+    )
+
+    assert result.status == "persistence_error"
+    assert manager.render() == before
+    assert path.read_text(encoding="utf-8") == disk_before
 
 
 def test_session_memory_is_rendered_but_not_persisted(tmp_path):

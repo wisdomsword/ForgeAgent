@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import fcntl
 import os
 import re
+import stat
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -83,22 +86,7 @@ class MemoryManager:
             self._diagnose("memory file ignored: unreadable")
             self._project = {}
             return
-        loaded: dict[str, MemoryCandidate] = {}
-        for line in lines:
-            match = _LINE.fullmatch(line)
-            if match is None:
-                if line and not line.startswith("<!-- forgeagent-memory-v1 -->"):
-                    self._diagnose("memory entry ignored: invalid format")
-                continue
-            key, content = match.groups()
-            candidate = MemoryCandidate(scope="project", kind="fact", key=key, content=content)
-            if self._admission_reason(candidate) is None and len(loaded) < _MAX_ENTRIES:
-                loaded[key] = candidate
-            elif len(loaded) >= _MAX_ENTRIES:
-                self._diagnose("memory entry ignored: memory_limit")
-            else:
-                self._diagnose("memory entry ignored: invalid content")
-        self._project = loaded
+        self._project = self._parse_project_lines(lines, diagnose=True)
 
     def disable(self) -> None:
         if self._enabled:
@@ -129,28 +117,37 @@ class MemoryManager:
         reason = self._admission_reason(candidate)
         if reason is not None:
             return self._result(candidate, "rejected", reason, task_id)
-        target = self._session if candidate.scope == "session" else self._project
-        replaced = candidate.key in target
-        if not replaced and len(target) >= _MAX_ENTRIES:
-            return self._result(candidate, "rejected", "memory_limit", task_id)
         if candidate.scope == "project":
-            new_project = dict(target)
-            new_project[candidate.key] = candidate
-            rendered_size = len(self._render_memory(self._session, new_project).encode("utf-8"))
-            if rendered_size > _MAX_RENDER_BYTES:
-                return self._result(candidate, "rejected", "memory_limit", task_id)
             try:
-                self._write_project(new_project)
+                with self._project_lock():
+                    target = self._read_project_for_update()
+                    replaced = candidate.key in target
+                    if not replaced and len(target) >= _MAX_ENTRIES:
+                        return self._result(candidate, "rejected", "memory_limit", task_id)
+                    new_project = dict(target)
+                    new_project[candidate.key] = candidate
+                    rendered_size = len(
+                        self._render_memory(self._session, new_project).encode("utf-8")
+                    )
+                    if rendered_size > _MAX_RENDER_BYTES:
+                        return self._result(candidate, "rejected", "memory_limit", task_id)
+                    self._write_project(new_project)
             except OSError:
                 return self._result(candidate, "persistence_error", "project_write_failed", task_id)
             self._project = new_project
-        else:
-            new_session = dict(target)
-            new_session[candidate.key] = candidate
-            rendered_size = len(self._render_memory(new_session, self._project).encode("utf-8"))
-            if rendered_size > _MAX_RENDER_BYTES:
-                return self._result(candidate, "rejected", "memory_limit", task_id)
-            self._session = new_session
+            status: Literal["accepted", "replaced"] = "replaced" if replaced else "accepted"
+            return self._result(candidate, status, "", task_id)
+
+        target = self._session
+        replaced = candidate.key in target
+        if not replaced and len(target) >= _MAX_ENTRIES:
+            return self._result(candidate, "rejected", "memory_limit", task_id)
+        new_session = dict(target)
+        new_session[candidate.key] = candidate
+        rendered_size = len(self._render_memory(new_session, self._project).encode("utf-8"))
+        if rendered_size > _MAX_RENDER_BYTES:
+            return self._result(candidate, "rejected", "memory_limit", task_id)
+        self._session = new_session
         status: Literal["accepted", "replaced"] = "replaced" if replaced else "accepted"
         return self._result(candidate, status, "", task_id)
 
@@ -201,6 +198,65 @@ class MemoryManager:
             except OSError:
                 pass
             raise
+
+    def _read_project_for_update(self) -> dict[str, MemoryCandidate]:
+        path = self._safe_storage_path()
+        if path is None:
+            return {}
+        try:
+            if path.stat().st_size > _MAX_RENDER_BYTES:
+                raise OSError("memory file exceeds limit")
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except UnicodeError as exc:
+            raise OSError("memory file is unreadable") from exc
+        return self._parse_project_lines(lines, diagnose=False)
+
+    def _parse_project_lines(
+        self, lines: list[str], *, diagnose: bool
+    ) -> dict[str, MemoryCandidate]:
+        loaded: dict[str, MemoryCandidate] = {}
+        for line in lines:
+            match = _LINE.fullmatch(line)
+            if match is None:
+                if diagnose and line and not line.startswith("<!-- forgeagent-memory-v1 -->"):
+                    self._diagnose("memory entry ignored: invalid format")
+                continue
+            key, content = match.groups()
+            candidate = MemoryCandidate(scope="project", kind="fact", key=key, content=content)
+            if self._admission_reason(candidate) is None and len(loaded) < _MAX_ENTRIES:
+                loaded[key] = candidate
+            elif diagnose and len(loaded) >= _MAX_ENTRIES:
+                self._diagnose("memory entry ignored: memory_limit")
+            elif diagnose:
+                self._diagnose("memory entry ignored: invalid content")
+        return loaded
+
+    @contextmanager
+    def _project_lock(self) -> Iterator[None]:
+        path = self._safe_storage_path(for_write=True)
+        directory = path.parent
+        directory.mkdir(parents=True, exist_ok=True)
+        path = self._safe_storage_path(for_write=True)
+        no_follow = getattr(os, "O_NOFOLLOW", None)
+        if no_follow is None:
+            raise OSError("safe memory lock is unavailable")
+        descriptor = os.open(
+            path.parent / ".MEMORY.lock",
+            os.O_RDWR | os.O_CREAT | no_follow | getattr(os, "O_CLOEXEC", 0),
+            0o600,
+        )
+        locked = False
+        try:
+            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                raise OSError("memory lock is not regular")
+            os.fchmod(descriptor, 0o600)
+            fcntl.flock(descriptor, fcntl.LOCK_EX)
+            locked = True
+            yield
+        finally:
+            if locked:
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+            os.close(descriptor)
 
     def _admission_reason(self, candidate: MemoryCandidate) -> str | None:
         if not _KEY.fullmatch(candidate.key):

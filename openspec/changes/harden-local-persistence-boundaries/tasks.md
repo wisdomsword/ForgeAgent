@@ -6,8 +6,8 @@
 
 ## 2. 项目 Memory 跨进程更新
 
-- [ ] 2.1 新增失败测试，以两个独立 manager/进程覆盖不同 key 合并、同 key 后锁获得者胜、不安全 lock path 和锁/写入失败回滚。
-- [ ] 2.2 实现稳定私有的 Memory lock file，以及锁内磁盘重载、准入/限额检查、合并和原子替换。
+- [x] 2.1 新增失败测试，以两个独立 manager/进程覆盖不同 key 合并、同 key 后锁获得者胜、不安全 lock path 和锁/写入失败回滚。
+- [x] 2.2 实现稳定私有的 Memory lock file，以及锁内磁盘重载、准入/限额检查、合并和原子替换。
 - [ ] 2.3 运行 Memory、CLI reload、identity 和 audit 专项回归。
 
 ## 3. Loop checkpoint 跨进程 CAS
