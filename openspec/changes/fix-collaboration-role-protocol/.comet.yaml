@@ -1,6 +1,6 @@
 workflow: full
 language: zh-CN
-phase: build
+phase: verify
 context_compression: off
 build_mode: executing-plans
 build_pause: null
@@ -14,8 +14,8 @@ base_ref: 1ba638b7fce626908e3dfe79cc9baf4f15a705c4
 design_doc: docs/superpowers/specs/2026-07-25-collaboration-role-submission-design.md
 plan: docs/superpowers/plans/2026-07-25-collaboration-role-submission.md
 verify_result: pending
-verification_report: null
-branch_status: pending
+verification_report: docs/superpowers/reports/2026-07-25-collaboration-role-submission-verify.md
+branch_status: handled
 created_at: 2026-07-25
 verified_at: null
 archived: false

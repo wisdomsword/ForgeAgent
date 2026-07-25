@@ -133,3 +133,8 @@ IMPORTANT 已关闭，无新增 Critical/Important；残余风险仅为文档已
 
 当前没有未解决的 CRITICAL、IMPORTANT、WARNING 或 SUGGESTION 级实现偏差。可由 Comet guard
 推进到 verify/archive。
+
+分支收尾选择保留 `codex/feature/20260725/fix-collaboration-role-protocol`，不执行本地合并、推送
+或 PR，避免扩大当前任务的外部状态变更范围。Comet 的自动 build/verify 推断不支持 uv/Python，
+因此 guard 使用 `COMET_SKIP_BUILD=1` 跳过不适用的 npm/maven/cargo 推断；实际验证仍以本报告
+记录的 ruff、完整 pytest、严格 OpenSpec 和真实模型 Triad 结果为准。
