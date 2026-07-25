@@ -418,16 +418,14 @@ def test_overlapping_saves_from_distinct_stores_commit_once(tmp_path: Path, monk
     checkpoint = first.create("Build it", _budgets(), loop_id="9" * 32)
     second = LoopCheckpointStore(str(tmp_path))
     barrier = threading.Barrier(2)
-    first_load = first.load
-    second_load = second.load
+    original_flock = loop_module.fcntl.flock
 
-    def stale_read(load, loop_id):
-        current = load(loop_id)
-        barrier.wait(timeout=2)
-        return current
+    def overlap_before_lock(descriptor, operation):
+        if operation == loop_module.fcntl.LOCK_EX:
+            barrier.wait(timeout=2)
+        return original_flock(descriptor, operation)
 
-    monkeypatch.setattr(first, "load", lambda loop_id: stale_read(first_load, loop_id))
-    monkeypatch.setattr(second, "load", lambda loop_id: stale_read(second_load, loop_id))
+    monkeypatch.setattr(loop_module.fcntl, "flock", overlap_before_lock)
     results = []
 
     def save(store, handoff):
@@ -450,7 +448,7 @@ def test_overlapping_saves_from_distinct_stores_commit_once(tmp_path: Path, monk
     assert not any(thread.is_alive() for thread in threads)
     assert sum(isinstance(result, LoopCheckpoint) for result in results) == 1
     assert sum(isinstance(result, LoopCheckpointError) for result in results) == 1
-    assert first_load(checkpoint.loop_id).revision == 1
+    assert first.load(checkpoint.loop_id).revision == 1
 
 
 def test_overlapping_creates_from_distinct_stores_commit_once(tmp_path: Path):
