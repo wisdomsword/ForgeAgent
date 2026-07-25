@@ -2,6 +2,8 @@
 comet_change: fix-collaboration-role-protocol
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-07-25-fix-collaboration-role-protocol
+status: final
 ---
 
 # 协作角色结构化提交设计
@@ -111,3 +113,4 @@ completed，三个角色均结构化提交，外部 pytest 通过，且
 Store 实例的 `threading.RLock`，两个 Store 可同时通过同一 revision 检查。修复复用仓库 Loop
 checkpoint 已验证的 per-ID `flock` 模式，把 create/save 的检查和原子替换纳入同一跨进程临界区。
 该变化强化既定原子提交语义，不改变公开接口、状态字段或 schema。
+

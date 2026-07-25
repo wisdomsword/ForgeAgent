@@ -2,6 +2,7 @@
 change: fix-collaboration-role-protocol
 design-doc: docs/superpowers/specs/2026-07-25-collaboration-role-submission-design.md
 base-ref: 1ba638b7fce626908e3dfe79cc9baf4f15a705c4
+archived-with: 2026-07-25-fix-collaboration-role-protocol
 ---
 
 # Collaboration Role Submission Implementation Plan
@@ -22,6 +23,7 @@ base-ref: 1ba638b7fce626908e3dfe79cc9baf4f15a705c4
 - 所有生产逻辑先写失败测试并观察 RED。
 - 保留当前 change 已有实验性 diff，仅以批准设计替换其过时的 standalone completion 与硬编码 Submit 逻辑。
 
+archived-with: 2026-07-25-fix-collaboration-role-protocol
 ---
 
 ### Task 1: 通用工具终止与 required completion 元数据
@@ -233,3 +235,4 @@ Expected: 全部 PASS 并进入 verify。
 - Spec coverage：三个 delta requirements 分别由 Tasks 1-4 实现，Task 5 覆盖全部验收门。
 - Placeholder scan：无 TBD/TODO/“稍后实现”；每项包含精确文件、命令和预期结果。
 - Type consistency：统一使用 `completes_task`、`required_completion_tool`、`require_completion`、`SubmitCandidateArgs/Tool`；后续任务不另造同义接口。
+
