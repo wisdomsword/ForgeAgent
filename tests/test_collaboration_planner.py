@@ -291,6 +291,8 @@ def test_collaboration_role_prompts_explain_their_text_protocol(tmp_path: Path):
     assert report.status == "completed"
     assert '"name":"SubmitPlan"' in prompts["planner"]
     assert '"items"' in prompts["planner"]
+    assert "verifiable with FileList and FileRead" in prompts["planner"]
+    assert "Do not require proof that pytest or another command actually ran" in prompts["planner"]
     assert '"name":"SubmitCandidate"' in prompts["generator"]
     assert "Do not substitute prose or task_status" in prompts["generator"]
     assert "SubmitCandidate does not create or validate artifacts" in prompts["generator"]

@@ -1199,7 +1199,12 @@ _PLANNER_PROMPT = (
     '<!-- ToolCall: {"name":"SubmitPlan","arguments":{"items":[{"id":"stable_id",'
     '"behavior":"observable behavior","acceptance":"objective acceptance criterion"}]}} -->. '
     "IDs must be unique and use letters, digits, underscore, or hyphen. SubmitPlan is the "
-    "only valid completion signal; do not substitute prose or task_status. A successful "
+    "only valid completion signal. Every acceptance item must be verifiable with FileList and "
+    "FileRead by the default read-only Evaluator. For command or test requirements, require "
+    "inspectable implementation and test assertions that imply the requested behavior. Do not "
+    "require proof that pytest or another command actually ran, a zero exit code, or runtime "
+    "output unless the task data explicitly provides a host RunCheck capability. Do not "
+    "substitute prose or task_status. A successful "
     "SubmitPlan ends this role immediately."
 )
 
