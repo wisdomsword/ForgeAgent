@@ -750,19 +750,19 @@ def test_audit_emits_lifecycle_events_without_private_loop_text(tmp_path: Path):
 
 
 @pytest.mark.parametrize("collaboration_mode", ["single", "triad"])
-def test_loop_audits_route_with_loop_correlation(
-    tmp_path: Path, collaboration_mode: str
-):
+def test_loop_audits_route_with_loop_correlation(tmp_path: Path, collaboration_mode: str):
     sink = _AuditSink()
     runner = LoopRunner.create(
         allowed_root=str(tmp_path),
         task_builder=_Builder([]),
         collaboration_builder=(
-            lambda *_args: _FakeCollaborationRunner(
-                _collaboration_report(status="completed", stop_reason="completed")
+            lambda *_args: (
+                _FakeCollaborationRunner(
+                    _collaboration_report(status="completed", stop_reason="completed")
+                )
+                if collaboration_mode != "single"
+                else None
             )
-            if collaboration_mode != "single"
-            else None
         ),
         collaboration_mode=collaboration_mode,
         collaboration_id="b" * 32 if collaboration_mode != "single" else "",

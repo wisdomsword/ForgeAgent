@@ -248,9 +248,7 @@ def test_duo_audit_projection_uses_only_safe_counters(tmp_path: Path):
         max_rejections=0,
         audit_sink=sink,
         loop_id="b" * 32,
-    ).run(
-        "write PRIVATE_GOAL artifact"
-    )
+    ).run("write PRIVATE_GOAL artifact")
 
     assert report.stop_reason == "rejection_limit"
     collaboration_events = [e for e in sink.events if e.event_type.startswith("collaboration.")]
