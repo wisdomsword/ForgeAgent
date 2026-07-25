@@ -21,5 +21,5 @@
 ## 4. 验证与收尾
 
 - [x] 4.1 运行相关专项、完整 pytest、Ruff format/check、离线 golden、wheel/sdist、OpenSpec strict 和 diff check
-- [ ] 4.2 完成两轮需求/设计/实现自审与独立代码审查，修复所有 Critical/High/Important 问题
+- [x] 4.2 完成两轮需求/设计/实现自审与独立代码审查，修复所有 Critical/High/Important 问题
 - [x] 4.3 生成验证报告和里程碑收尾记录，并准备归档及工作分支收尾；归档在 verify pass 后执行
