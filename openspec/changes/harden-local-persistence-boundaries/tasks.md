@@ -1,7 +1,7 @@
 ## 1. FileWrite descriptor 边界
 
-- [ ] 1.1 新增失败测试，覆盖最终目标 symlink 替换、父目录 symlink 替换、根目录绑定替换和固定失败信息不变。
-- [ ] 1.2 实现基于 descriptor 的 `O_NOFOLLOW` 父目录遍历与最终写入，不新增依赖或公共 API 变更。
+- [x] 1.1 新增失败测试，覆盖最终目标 symlink 替换、父目录 symlink 替换、根目录绑定替换和固定失败信息不变。
+- [x] 1.2 实现基于 descriptor 的 `O_NOFOLLOW` 父目录遍历与最终写入，不新增依赖或公共 API 变更。
 - [ ] 1.3 运行 FileWrite、headless 确认、golden 和威胁模型专项回归。
 
 ## 2. 项目 Memory 跨进程更新

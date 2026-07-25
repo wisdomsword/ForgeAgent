@@ -17,6 +17,7 @@ import hashlib
 import http.client
 import logging
 import os
+import stat
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable
@@ -589,6 +590,69 @@ def _validate_path(path: str, allowed_root: str) -> Path:
     return Path(resolved)
 
 
+def _root_binding_matches(root: Path, root_stat: os.stat_result) -> bool:
+    try:
+        current = os.stat(root, follow_symlinks=False)
+    except OSError:
+        return False
+    return (
+        stat.S_ISDIR(current.st_mode)
+        and current.st_dev == root_stat.st_dev
+        and current.st_ino == root_stat.st_ino
+    )
+
+
+def _write_file_safely(
+    path: Path,
+    root: Path,
+    root_fd: int,
+    root_stat: os.stat_result,
+    content: str,
+) -> str:
+    """Write through directory descriptors so path components cannot be rebound."""
+    relative = path.relative_to(root)
+    if not relative.parts:
+        raise OSError("file target required")
+    no_follow = getattr(os, "O_NOFOLLOW", None)
+    directory_flag = getattr(os, "O_DIRECTORY", None)
+    if no_follow is None or directory_flag is None:
+        raise OSError("safe file open is unavailable")
+
+    current_fd = os.dup(root_fd)
+    try:
+        for component in relative.parts[:-1]:
+            next_fd = os.open(
+                component,
+                os.O_RDONLY | directory_flag | no_follow | getattr(os, "O_CLOEXEC", 0),
+                dir_fd=current_fd,
+            )
+            os.close(current_fd)
+            current_fd = next_fd
+
+        if not _root_binding_matches(root, root_stat):
+            raise OSError("project root binding changed")
+        file_fd = os.open(
+            relative.parts[-1],
+            os.O_WRONLY | os.O_CREAT | os.O_TRUNC | no_follow | getattr(os, "O_CLOEXEC", 0),
+            0o666,
+            dir_fd=current_fd,
+        )
+        try:
+            if not stat.S_ISREG(os.fstat(file_fd).st_mode):
+                raise OSError("file target is not regular")
+            with os.fdopen(file_fd, "w", encoding="utf-8") as handle:
+                file_fd = -1
+                handle.write(content)
+        finally:
+            if file_fd >= 0:
+                os.close(file_fd)
+        if not _root_binding_matches(root, root_stat):
+            raise OSError("project root binding changed")
+    finally:
+        os.close(current_fd)
+    return relative.as_posix()
+
+
 class FileReadTool(Tool):
     """Read a file under `ctx.allowed_root`, masking secrets before returning it.
 
@@ -663,8 +727,20 @@ class FileWriteTool(Tool):
                     success=False,
                     detail=_denial_detail(ctx, "FileWrite was not approved by the user"),
                 )
+        root_fd = -1
         try:
+            root = Path(os.path.realpath(ctx.allowed_root))
+            no_follow = getattr(os, "O_NOFOLLOW", None)
+            directory_flag = getattr(os, "O_DIRECTORY", None)
+            if no_follow is None or directory_flag is None:
+                raise OSError("safe file open is unavailable")
+            root_fd = os.open(
+                root,
+                os.O_RDONLY | directory_flag | no_follow | getattr(os, "O_CLOEXEC", 0),
+            )
+            root_stat = os.fstat(root_fd)
             resolved = _validate_path(args.path, ctx.allowed_root)
+            relative = _write_file_safely(resolved, root, root_fd, root_stat, args.content)
         except PermissionError:
             return ToolOutcome(
                 tool="FileWrite",
@@ -673,12 +749,9 @@ class FileWriteTool(Tool):
             )
         except (OSError, ValueError):
             return ToolOutcome(tool="FileWrite", success=False, detail="FileWrite failed")
-        try:
-            resolved.write_text(args.content, encoding="utf-8")
-        except (OSError, ValueError):
-            return ToolOutcome(tool="FileWrite", success=False, detail="FileWrite failed")
-        base = Path(os.path.realpath(ctx.allowed_root))
-        relative = resolved.relative_to(base).as_posix()
+        finally:
+            if root_fd >= 0:
+                os.close(root_fd)
         return ToolOutcome(tool="FileWrite", success=True, detail=f"wrote {relative}")
 
 

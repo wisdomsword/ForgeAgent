@@ -519,7 +519,10 @@ def test_file_tool_os_errors_do_not_disclose_paths(
     def fail(*args, **kwargs):
         raise OSError(f"host failure at {tmp_path}")
 
-    monkeypatch.setattr(Path, operation, fail)
+    if operation == "write_text":
+        monkeypatch.setattr("forgeagent.tools._write_file_safely", fail)
+    else:
+        monkeypatch.setattr(Path, operation, fail)
     outcome = tool.run(args, _file_ctx(allowed_root=str(tmp_path)))
 
     assert outcome.success is False
@@ -570,6 +573,83 @@ def test_file_write_static_symlink_escape_is_blocked(tmp_path):
     assert outcome.success is False
     assert outcome.detail == "FileWrite path is outside project root"
     assert not (outside / "escape.txt").exists()
+
+
+def test_file_write_rejects_target_symlink_created_after_validation(tmp_path, monkeypatch):
+    outside = tmp_path.parent / f"{tmp_path.name}-outside-target.txt"
+    outside.write_text("unchanged")
+    target = tmp_path / "result.txt"
+    original_validate = _validate_path
+
+    def replace_target_after_validation(path, allowed_root):
+        resolved = original_validate(path, allowed_root)
+        target.symlink_to(outside)
+        return resolved
+
+    monkeypatch.setattr("forgeagent.tools._validate_path", replace_target_after_validation)
+
+    outcome = FileWriteTool().run(
+        FileWriteArgs(path="result.txt", content="overwritten"),
+        _file_ctx(allowed_root=str(tmp_path)),
+    )
+
+    assert outcome.success is False
+    assert outcome.detail == "FileWrite failed"
+    assert outside.read_text() == "unchanged"
+
+
+def test_file_write_rejects_parent_symlink_created_after_validation(tmp_path, monkeypatch):
+    outside = tmp_path.parent / f"{tmp_path.name}-outside-parent"
+    outside.mkdir()
+    parent = tmp_path / "nested"
+    parent.mkdir()
+    original_validate = _validate_path
+
+    def replace_parent_after_validation(path, allowed_root):
+        resolved = original_validate(path, allowed_root)
+        parent.rmdir()
+        parent.symlink_to(outside, target_is_directory=True)
+        return resolved
+
+    monkeypatch.setattr("forgeagent.tools._validate_path", replace_parent_after_validation)
+
+    outcome = FileWriteTool().run(
+        FileWriteArgs(path="nested/result.txt", content="overwritten"),
+        _file_ctx(allowed_root=str(tmp_path)),
+    )
+
+    assert outcome.success is False
+    assert outcome.detail == "FileWrite failed"
+    assert not (outside / "result.txt").exists()
+
+
+def test_file_write_rejects_root_rebound_after_validation(tmp_path, monkeypatch):
+    outside = tmp_path.parent / f"{tmp_path.name}-outside-root"
+    outside.mkdir()
+    original_root = tmp_path.parent / f"{tmp_path.name}-original-root"
+    original_validate = _validate_path
+
+    def replace_root_after_validation(path, allowed_root):
+        resolved = original_validate(path, allowed_root)
+        tmp_path.rename(original_root)
+        tmp_path.symlink_to(outside, target_is_directory=True)
+        return resolved
+
+    monkeypatch.setattr("forgeagent.tools._validate_path", replace_root_after_validation)
+    try:
+        outcome = FileWriteTool().run(
+            FileWriteArgs(path="result.txt", content="overwritten"),
+            _file_ctx(allowed_root=str(tmp_path)),
+        )
+    finally:
+        if tmp_path.is_symlink():
+            tmp_path.unlink()
+        if original_root.exists():
+            original_root.rename(tmp_path)
+
+    assert outcome.success is False
+    assert outcome.detail == "FileWrite failed"
+    assert not (outside / "result.txt").exists()
 
 
 def test_file_write_escaping_root_is_blocked(tmp_path):
