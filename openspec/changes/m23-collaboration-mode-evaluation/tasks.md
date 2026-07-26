@@ -1,14 +1,14 @@
 ## 1. 固定评估合同
 
 - [x] 1.1 新增版本化 `protocol.json`，固定 3 个任务、3 次重复、轮换模式顺序、模型、生成参数、环境和产物检查
-- [ ] 1.2 新增离线合同测试，覆盖协议完整性、27 次排程、N/A 语义、usage 缺失和中立报告约束
+- [x] 1.2 新增离线合同测试，覆盖协议完整性、27 次排程、N/A 语义、usage 缺失和中立报告约束
 
 ## 2. 独立评估 Harness
 
-- [ ] 2.1 实现协议校验、环境指纹、隔离工作区和固定任务夹具初始化
-- [ ] 2.2 复用公开 Task/CollaborationRunner 运行 Single/Duo/Triad，不修改协作运行时或 credential 路径
-- [ ] 2.3 实现安全 audit 采集、外部产物检查、指标口径和单次原始 JSON 原子写入
-- [ ] 2.4 实现从原始记录复算 `summary.json` 和中立 `report.md` 的聚合器
+- [x] 2.1 实现协议校验、环境指纹、隔离工作区和固定任务夹具初始化
+- [x] 2.2 复用公开 Task/CollaborationRunner 运行 Single/Duo/Triad，不修改协作运行时或 credential 路径
+- [x] 2.3 实现安全 audit 采集、外部产物检查、指标口径和单次原始 JSON 原子写入
+- [x] 2.4 实现从原始记录复算 `summary.json` 和中立 `report.md` 的聚合器
 
 ## 3. M23 真实评估证据
 
