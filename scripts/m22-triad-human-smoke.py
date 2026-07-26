@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
+import sys
+import tempfile
+import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -61,6 +65,35 @@ _STOP_REASONS = frozenset(
         "role_failed",
     }
 )
+
+_DEFAULT_MODELS = SmokeModels(
+    generator="claude-sonnet-5",
+    planner="claude-haiku-4-5",
+    evaluator="claude-haiku-4-5",
+)
+_MODEL_ENVIRONMENT_NAMES = (
+    "FORGEAGENT_M22_MODEL",
+    "FORGEAGENT_M22_PLANNER_MODEL",
+    "FORGEAGENT_M22_EVALUATOR_MODEL",
+)
+
+
+def _valid_model_id(value: str) -> bool:
+    return 0 < len(value) <= 500 and all(
+        not unicodedata.category(character).startswith("C") for character in value
+    )
+
+
+def models_from_environment() -> SmokeModels:
+    """Return the bounded model overrides for this one manual smoke run."""
+    defaults = (_DEFAULT_MODELS.generator, _DEFAULT_MODELS.planner, _DEFAULT_MODELS.evaluator)
+    values = tuple(
+        os.environ.get(name, default)
+        for name, default in zip(_MODEL_ENVIRONMENT_NAMES, defaults, strict=True)
+    )
+    if not all(_valid_model_id(value) for value in values):
+        raise ValueError("invalid model configuration")
+    return SmokeModels(*values)
 
 
 def build_forgeagent_command(forgeagent: Path, models: SmokeModels) -> list[str]:
@@ -263,6 +296,40 @@ def run_smoke(config: SmokeConfig, run: RunCommand = subprocess.run) -> int:
         return 130
 
 
+def main() -> int:
+    """Run the interactive smoke harness after local fail-closed preflight checks."""
+    try:
+        if not sys.stdin.isatty() or not sys.stdout.isatty():
+            print("M22 Triad human smoke requires an interactive terminal.", file=sys.stderr)
+            return 2
+        try:
+            models = models_from_environment()
+        except ValueError:
+            print("M22 Triad human smoke has invalid model configuration.", file=sys.stderr)
+            return 2
+
+        repository = Path(__file__).resolve().parents[1]
+        forgeagent = repository / ".venv" / "bin" / "forgeagent"
+        python = repository / ".venv" / "bin" / "python"
+        for executable in (forgeagent, python):
+            if not executable.is_file() or not os.access(executable, os.X_OK):
+                print(f"M22 Triad human smoke requires executable: {executable}", file=sys.stderr)
+                return 2
+
+        workdir = Path(tempfile.mkdtemp(prefix="forgeagent-m22-human-", dir="/tmp"))
+        return run_smoke(
+            SmokeConfig(
+                workdir=workdir,
+                forgeagent=forgeagent,
+                python=python,
+                models=models,
+            )
+        )
+    except KeyboardInterrupt:
+        print("M22 TRIAD HUMAN SMOKE: INTERRUPTED")
+        return 130
+
+
 def _is_regular_file(path: Path) -> bool:
     return not path.is_symlink() and path.is_file()
 
@@ -279,3 +346,7 @@ def _print_success_summary(state: dict[str, object]) -> None:
     print(f"generator_attempts: {state['generator_attempts']}")
     print(f"evaluator_attempts: {state['evaluator_attempts']}")
     print(f"rejections: {state['rejections']}")
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

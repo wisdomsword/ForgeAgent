@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -62,6 +63,112 @@ def _config(smoke, workdir: Path):
         python=workdir / ".venv" / "bin" / "python",
         models=smoke.SmokeModels("generator", "planner", "evaluator"),
     )
+
+
+def test_main_rejects_non_tty_before_creating_workdir(monkeypatch, capsys):
+    smoke = _load_smoke_module()
+    monkeypatch.setattr(smoke.sys.stdin, "isatty", lambda: False)
+    monkeypatch.setattr(smoke.sys.stdout, "isatty", lambda: True)
+    monkeypatch.setattr(smoke.tempfile, "mkdtemp", lambda **kwargs: pytest.fail("created workdir"))
+
+    assert smoke.main() == 2
+    assert "interactive terminal" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["", "model\nname", "m" * 501],
+    ids=["empty", "control-character", "too-long"],
+)
+def test_main_rejects_invalid_model_environment_before_creating_workdir(monkeypatch, capsys, value):
+    smoke = _load_smoke_module()
+    monkeypatch.setattr(smoke.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(smoke.sys.stdout, "isatty", lambda: True)
+    monkeypatch.setenv("FORGEAGENT_M22_MODEL", value)
+    monkeypatch.setattr(smoke.tempfile, "mkdtemp", lambda **kwargs: pytest.fail("created workdir"))
+
+    assert smoke.main() == 2
+    error = capsys.readouterr().err
+    assert "model configuration" in error
+    if value:
+        assert value not in error
+
+
+def test_models_from_environment_uses_defaults_and_explicit_overrides(monkeypatch):
+    smoke = _load_smoke_module()
+    for name in (
+        "FORGEAGENT_M22_MODEL",
+        "FORGEAGENT_M22_PLANNER_MODEL",
+        "FORGEAGENT_M22_EVALUATOR_MODEL",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    assert smoke.models_from_environment() == smoke.SmokeModels(
+        "claude-sonnet-5", "claude-haiku-4-5", "claude-haiku-4-5"
+    )
+
+    monkeypatch.setenv("FORGEAGENT_M22_MODEL", "generator-override")
+    monkeypatch.setenv("FORGEAGENT_M22_PLANNER_MODEL", "planner-override")
+    monkeypatch.setenv("FORGEAGENT_M22_EVALUATOR_MODEL", "evaluator-override")
+
+    assert smoke.models_from_environment() == smoke.SmokeModels(
+        "generator-override", "planner-override", "evaluator-override"
+    )
+
+
+@pytest.mark.parametrize("missing", ["forgeagent", "python"])
+def test_main_rejects_missing_venv_executable_before_creating_workdir(monkeypatch, capsys, missing):
+    smoke = _load_smoke_module()
+    monkeypatch.setattr(smoke.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(smoke.sys.stdout, "isatty", lambda: True)
+    monkeypatch.setattr(
+        smoke.Path,
+        "is_file",
+        lambda path: path.name != missing,
+    )
+    monkeypatch.setattr(smoke.os, "access", lambda path, mode: mode == os.X_OK)
+    monkeypatch.setattr(smoke.tempfile, "mkdtemp", lambda **kwargs: pytest.fail("created workdir"))
+
+    assert smoke.main() == 2
+    assert f".venv/bin/{missing}" in capsys.readouterr().err
+
+
+def test_main_builds_config_from_environment_and_returns_smoke_result(monkeypatch, tmp_path):
+    smoke = _load_smoke_module()
+    monkeypatch.setattr(smoke.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(smoke.sys.stdout, "isatty", lambda: True)
+    monkeypatch.setenv("FORGEAGENT_M22_MODEL", "generator-override")
+    monkeypatch.setenv("FORGEAGENT_M22_PLANNER_MODEL", "planner-override")
+    monkeypatch.setenv("FORGEAGENT_M22_EVALUATOR_MODEL", "evaluator-override")
+    monkeypatch.setattr(smoke.Path, "is_file", lambda path: True)
+    monkeypatch.setattr(smoke.os, "access", lambda path, mode: mode == os.X_OK)
+
+    calls: list[dict[str, object]] = []
+
+    def fake_mkdtemp(**kwargs):
+        calls.append(kwargs)
+        return str(tmp_path / "workdir")
+
+    captured_config = None
+
+    def fake_run_smoke(config):
+        nonlocal captured_config
+        captured_config = config
+        return 17
+
+    monkeypatch.setattr(smoke.tempfile, "mkdtemp", fake_mkdtemp)
+    monkeypatch.setattr(smoke, "run_smoke", fake_run_smoke)
+
+    assert smoke.main() == 17
+    assert calls == [{"prefix": "forgeagent-m22-human-", "dir": "/tmp"}]
+    assert captured_config is not None
+    assert captured_config.workdir == tmp_path / "workdir"
+    assert captured_config.models == smoke.SmokeModels(
+        "generator-override", "planner-override", "evaluator-override"
+    )
+    repository = Path(smoke.__file__).resolve().parents[1]
+    assert captured_config.forgeagent == repository / ".venv" / "bin" / "forgeagent"
+    assert captured_config.python == repository / ".venv" / "bin" / "python"
 
 
 def test_build_command_preserves_triad_and_manual_stdio_contract(tmp_path):
