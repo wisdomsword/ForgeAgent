@@ -491,11 +491,11 @@ uv run pytest -q
 
 预期：OpenSpec valid、diff 无 whitespace error、完整测试全部通过。
 
-- [ ] **Step 4：按所选 review_mode 完成独立代码审查并修复阻塞项**
+- [x] **Step 4：按所选 review_mode 完成独立代码审查并修复阻塞项**
 
 若 `review_mode=standard`，使用 `requesting-code-review` 对 `base-ref..HEAD` 加未提交 diff 做一次正确性、安全、边界轻量审查。Critical/Important 必须修复并重新运行 Step 2/3；接受非阻塞发现时，在提交正文或验证报告记录理由。
 
-- [ ] **Step 5：勾选 OpenSpec 3.1 和 3.2，确认计划与 OpenSpec 均无未完成项**
+- [x] **Step 5：勾选 OpenSpec 3.1 和 3.2，确认计划与 OpenSpec 均无未完成项**
 
 ```bash
 rtk node .agents/skills/comet/scripts/comet-state.mjs task-checkoff openspec/changes/add-m22-triad-human-smoke/tasks.md "3.1 更新 README 一键命令、人工确认、模型覆盖、费用和现场保留说明"
@@ -505,7 +505,7 @@ rg -n '\- \[ \]' openspec/changes/add-m22-triad-human-smoke/tasks.md docs/superp
 
 预期：`rg` 无输出。只有验证通过后才能勾选当前计划的最后步骤。
 
-- [ ] **Step 6：提交文档和最终验证状态**
+- [x] **Step 6：提交文档和最终验证状态**
 
 ```bash
 git add README.md openspec/changes/add-m22-triad-human-smoke/tasks.md docs/superpowers/plans/2026-07-26-m22-triad-human-smoke.md
