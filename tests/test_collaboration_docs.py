@@ -126,9 +126,20 @@ def test_m22_closeout_artifacts_record_final_gates() -> None:
     assert "M22 Duo/Triad 协作运行时已完成并归档" in readme
     assert "最终全量验证与归档仍在进行" not in readme
     assert "milestone_022.md" in readme
-    assert "主规格为 `17/17`" in readme
-    assert "2155 passed, 10 skipped" in readme
     assert "两次真实模型 Triad" in readme
+
+    current_verification = re.findall(
+        r"^## 当前验证\n\n"
+        r"pytest: `(?P<passed>\d+) passed, (?P<skipped>\d+) skipped`；"
+        r"OpenSpec strict: `(?P<spec_passed>\d+)/(?P<spec_total>\d+)`\.$",
+        readme,
+        flags=re.MULTILINE,
+    )
+    assert len(current_verification) == 1
+    passed, skipped, spec_passed, spec_total = map(int, current_verification[0])
+    assert passed > 0
+    assert skipped >= 0
+    assert spec_passed == spec_total > 0
 
     action_plan = _text("ACTION_PLAN.md")
     m22_row = next(line for line in action_plan.splitlines() if line.startswith("| **M22**"))

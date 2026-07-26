@@ -54,6 +54,30 @@ def test_wheel_and_sdist_contain_prompt_resources(tmp_path):
 
     with tarfile.open(sdists[0]) as tar:
         names = tar.getnames()
+    archive_root = names[0].split("/", 1)[0]
+    relative_names = {
+        name.removeprefix(f"{archive_root}/") for name in names if name != archive_root
+    }
+    allowed_roots = {
+        ".gitignore",
+        "src",
+        "pyproject.toml",
+        "README.md",
+        "uv.lock",
+        "PKG-INFO",
+    }
+    assert {name.split("/", 1)[0] for name in relative_names} == allowed_roots
+    forbidden_prefixes = (
+        ".agent/",
+        ".agents/",
+        ".claude/",
+        ".codex/",
+        ".superpowers/",
+        "openspec/",
+    )
+    assert not any(name.startswith(forbidden_prefixes) for name in relative_names)
+    assert "skills-lock.json" not in relative_names
+    assert "何为Harness.html" not in relative_names
     required_suffixes = (
         "res/prompts/system.j2",
         "res/prompts/protocol.md",

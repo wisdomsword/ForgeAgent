@@ -32,6 +32,14 @@ build-backend = "hatchling.build"
 packages = ["src/forgeagent"]
 artifacts = ["src/forgeagent/res/*.yaml", "src/forgeagent/res/prompts/**"]
 
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src/forgeagent",
+    "/pyproject.toml",
+    "/README.md",
+    "/uv.lock",
+]
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"
