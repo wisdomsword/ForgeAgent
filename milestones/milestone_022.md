@@ -1,12 +1,13 @@
 # 里程碑 M22: Triad Mode
 
 - 状态: 已完成
-- 起止: 2026-07-24 ~ 2026-07-25
+- 起止: 2026-07-24 ~ 2026-07-26
 - 对应 ACTION_PLAN 行: M22（见该文件 §四 里程碑表）
 - 前置里程碑: [milestone_021](milestone_021.md)
 - 技术设计: [2026-07-24-triad-mode-design](../docs/superpowers/specs/2026-07-24-triad-mode-design.md)
 - 验证报告: [2026-07-24-triad-mode-verify](../docs/superpowers/reports/2026-07-24-triad-mode-verify.md)
 - 结构化提交验证报告: [2026-07-25-collaboration-role-submission-verify](../docs/superpowers/reports/2026-07-25-collaboration-role-submission-verify.md)
+- 人类冒烟最终验收报告: [2026-07-26-m22-triad-human-smoke-final](../docs/superpowers/reports/2026-07-26-m22-triad-human-smoke-final.md)
 - OpenSpec change: [`2026-07-24-triad-mode`](../openspec/changes/archive/2026-07-24-triad-mode/)
 - 归档后修复: [`2026-07-24-collaboration-contract-hotfix`](../openspec/changes/archive/2026-07-24-collaboration-contract-hotfix/)（Planner WHAT-only 双字段校验与协作审计闭环；全量 `2073 passed, 11 skipped`；归档前 strict `18/18`、归档后主规格 `17/17`）
 - 结构化提交收尾: [`2026-07-25-fix-collaboration-role-protocol`](../openspec/changes/archive/2026-07-25-fix-collaboration-role-protocol/)（三角色 required Submit、零载荷 `SubmitCandidate`、attempt/verdict 原子恢复、跨进程 state CAS）；合并前复核补充了并发 Runner Submit 归属和 Store 首次初始化保护，最终 `2155 passed, 10 skipped`
@@ -84,10 +85,11 @@ resume API 或默认 Evaluator Exec 权限。
 - [x] OpenSpec 归档前完整验证通过；归档后运行 strict 验证与合并结果复验
 - [x] 结构化提交及并发归属收尾完整 pytest `2155 passed, 10 skipped`，OpenSpec 主规格 `17/17`
 - [x] 两次真实模型 Triad 均 completed：一次 7/7 直接通过，一次 8/8 经一次 reject 后修正通过
+- [x] 原两次结构化提交协议验收之后，后续四次可追溯人类冒烟完整覆盖两次空 Candidate、一次 RunCheck 假失败与最终 `M22 TRIAD HUMAN SMOKE: PASS`；最终 collaboration `8efdd58913dc4b81a7918502faf23b82` 为 8/8、Generator/Evaluator 各 1 attempt、0 rejection
 
 ## 遗留问题
 
-- [ ] 真实模型 single/Triad 对照质量评估未运行 — 已完成两次真实 Triad 协议验收，但没有与同任务 single 形成质量/成本对照，因此不能声称 Triad 相对 single 提升；保持 opt-in，按明确评估方案另行执行。
+- [ ] 真实模型 single/Triad 对照质量评估未运行 — 已完成原两次结构化提交协议验收和后续四次可追溯人类冒烟，但没有与同任务 single 形成质量/成本对照，因此不能声称 Triad 相对 single 提升；保持 opt-in，按明确评估方案另行执行。
 - [x] 默认 Evaluator 无 Exec 的缺口已部分收口 — P2/P3 change 增加可信宿主冻结的 `RunCheck` ID、当前 Python 固定入口、临时副本与 restricted audit hook（禁止副本外文件内容访问、目录枚举、路径变更，以及网络、spawn/fork/exec 和进程信号控制）、timeout/cancel 和有界脱敏输出；标准 CLI/HTTP 仍不接受检查定义，默认工具集不变。
 - [ ] Duo/Triad 严格串行且多次 rejection 增加模型成本 — 影响：延迟和费用高于 single — 计划：保持显式 mode、角色模型选择与有界 rejection，不在 M22 引入并行。
 - [ ] 协作取消仍是 cooperative — 影响：不能强杀在途 provider/tool 调用 — 计划：沿用安全边界停止，不伪造硬截止。

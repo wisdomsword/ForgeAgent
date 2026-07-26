@@ -192,6 +192,27 @@ def test_m22_closeout_artifacts_record_final_gates() -> None:
     assert "JSONL" in audit_spec.split("## Requirements", 1)[0]
 
 
+def test_m22_milestone_links_final_human_smoke_evidence() -> None:
+    milestone = _text("milestones/milestone_022.md")
+    report_path = "docs/superpowers/reports/2026-07-26-m22-triad-human-smoke-final.md"
+    report = _text(report_path)
+
+    assert "- 起止: 2026-07-24 ~ 2026-07-26" in milestone
+    assert "2026-07-26-m22-triad-human-smoke-final" in milestone
+    assert "原两次结构化提交协议验收" in milestone
+    assert "后续四次可追溯人类冒烟" in milestone
+    assert "M22 TRIAD HUMAN SMOKE: PASS" in milestone
+    for collaboration_id in (
+        "c433416babd444efae89988cc399c1b6",
+        "8c98fdc15eba4e22a5511951832b84bb",
+        "bd2633c970784ea7929af75eaf2f94aa",
+        "8efdd58913dc4b81a7918502faf23b82",
+    ):
+        assert collaboration_id in report
+    assert "8/8" in report
+    assert "0 rejection" in report
+
+
 def test_m22_adds_no_runtime_dependency() -> None:
     project = tomllib.loads(_text("pyproject.toml"))["project"]
 
