@@ -68,7 +68,7 @@ ForgeAgent 退出后，脚本只搜索 `<workdir>/.forgeagent/collaborations/*.j
 - `status == "completed"`
 - `phase == "completed"`
 - `stop_reason == "completed"`
-- `plan` 是非空 acceptance item 列表，且 `plan_digest` 是 64 位小写十六进制字符串；脚本只验证摘要格式，不重算运行时 digest
+- `plan` 是非空 acceptance item 列表；每项具有唯一非空 ID，以及不超过 1000 字符的安全非空 `behavior`/`acceptance`；`plan_digest` 是 64 位小写十六进制字符串，脚本只验证摘要格式，不重算运行时 digest
 - `generator_attempts >= 1`
 - `evaluator_attempts >= 1`
 - `last_evaluation` 非空、item ID 按相同顺序完整覆盖 plan，并且每一项的 `passed is True`
@@ -80,11 +80,11 @@ ForgeAgent 退出后，脚本只搜索 `<workdir>/.forgeagent/collaborations/*.j
 只有状态验收通过后才执行产物命令：
 
 1. 要求工作目录中的 `calc.py` 和 `test_calc.py` 都是普通文件。
-2. 以继承终端输出的方式运行 `.venv/bin/python -m pytest -q`，并要求退出码为 0。
-3. 捕获文本输出运行 `.venv/bin/python calc.py '[1,2,3,4]' 2`。
+2. 通过现有 `check_runner` 在一次性项目副本中运行 `.venv/bin/python -m pytest -q`，并要求退出码为 0。
+3. 通过同一受限检查机制运行 `.venv/bin/python calc.py '[1,2,3,4]' 2`。
 4. 要求 stderr 为空，将 stdout 解析为 JSON，并要求与 `[1.5, 2.5, 3.5]` 精确相等。
 
-诊断中引用 CLI 输出前必须截断到固定长度。包装脚本不新增超时：底层模型和工具客户端继续使用现有超时策略，任意额外超时可能在用户审阅计划时误中断流程。
+`check_runner` 负责最小环境、宿主路径/网络/进程阻断、固定输出上限和检查超时；包装脚本不回显产物输出。真实模型主流程不新增超时，避免在用户审阅计划时误中断。
 
 ## 7. 结果与退出码
 
@@ -102,11 +102,11 @@ ForgeAgent 退出后，脚本只搜索 `<workdir>/.forgeagent/collaborations/*.j
 - `build_forgeagent_command(forgeagent: Path, models: SmokeModels) -> list[str]`
 - `load_collaboration_state(workdir: Path) -> dict[str, object]`
 - `collaboration_failures(state: dict[str, object]) -> list[str]`
-- `artifact_failures(workdir: Path, python: Path, run: RunCommand) -> list[str]`
-- `run_smoke(config: SmokeConfig, run: RunCommand = subprocess.run) -> int`
+- `artifact_failures(workdir: Path, python: Path, check: RunCheck = run_check) -> list[str]`
+- `run_smoke(config: SmokeConfig, run: RunCommand = subprocess.run, check: RunCheck = run_check) -> int`
 - `main() -> int`
 
-`SmokeModels` 与 `SmokeConfig` 使用 frozen dataclass，只为明确命令参数和测试注入依赖。`RunCommand` 是与 `subprocess.run` 兼容的 callable 类型别名；不新增 wrapper 类或依赖。
+`SmokeModels` 与 `SmokeConfig` 使用 frozen dataclass，只为明确命令参数和测试注入依赖。`RunCommand` 与 `RunCheck` 分别是 subprocess 和现有 check runner 的 callable 类型别名；不新增 wrapper 类或依赖。
 
 离线测试通过路径导入脚本并注入假 runner。fixture 只在 `tmp_path` 下写入合成状态与产物，不调用真实 ForgeAgent、不读取用户 HOME、不访问网络。合成 secret 放入不可信的 plan/evaluation/额外状态字段，验证稳定投影不会回显它；测试不要求脚本扫描或隐藏环境变量，因为真实模型执行需要继承用户已有配置。矩阵覆盖命令组装、成功验收、非 TTY 预检、计划拒绝、ForgeAgent 非零退出、零份/多份/损坏状态、非法计数器、缺文件、pytest 失败、stderr 输出、非法 JSON 和错误 moving-average 值。
 
@@ -124,6 +124,6 @@ README 在 M22 Duo/Triad 说明附近记录一键命令，并明确：
 
 - 固定目标和参数数组通过不带 `shell=True` 的 `subprocess.run` 执行。
 - 模型 ID 有长度和控制字符约束，且不会插入 shell 文本。
-- 状态发现仅限脚本新建的隔离目录。
+- 状态发现仅限脚本新建的隔离目录，并沿用运行时的 256 KiB 状态大小上限。
 - 状态详情只投影稳定计数器，不打印不可信的计划或证据文本。
-- 仅在用户请求的 restricted-tier 人类验收流程中执行生成代码；脚本不扩大 ForgeAgent sandbox 或确认策略。
+- 模型生成的 pytest 与 CLI 只在 `check_runner` 的一次性副本和受限 worker 中执行，不继承 credential，也不能访问宿主路径、网络或创建子进程。

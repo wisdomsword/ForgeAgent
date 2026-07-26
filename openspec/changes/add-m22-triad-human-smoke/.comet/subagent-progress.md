@@ -3,15 +3,15 @@
 - Change: `add-m22-triad-human-smoke`
 - Review mode: `standard`
 - TDD mode: `tdd`
-- Current task: `Task 3：以 TDD 完成交互预检、模型覆盖和一键入口`
-- OpenSpec mapping: `1.2 实现隔离目录、真实 Triad 子进程、状态读取与稳定诊断`
-- Stage: `done`
-- Base commit: `d66c1ef6f9023111f51adf1ce47d1944bfb918e6`
-- Implementer: `/root/m22_task3_impl` (`DONE`)
-- Implementation commit: `10df3a7 feat: add interactive M22 Triad smoke entry`
-- Changed files: `scripts/m22-triad-human-smoke.py`, `tests/test_m22_triad_human_smoke.py`
-- RED evidence: 8 new entry/preflight tests failed because entry APIs were absent
-- GREEN evidence: focused pytest 48 passed; Ruff check, format check and diff check passed
-- Risk review: required (`环境配置/凭证继承`, `真实模型子进程启动`)
-- Review/fix round: `0/1`
-- Open findings: none. Accepted residual test gaps: shared model-validation loop makes per-variable duplication low value; real venv symlink is covered by final environment/human execution boundary.
+- Current task: `Task 4：文档、严格验证和最终代码审查`
+- OpenSpec mapping: `3.1 更新 README 一键命令、人工确认、模型覆盖、费用和现场保留说明`; `3.2 运行专项、ruff、OpenSpec strict 与完整 pytest，并完成独立代码复审`
+- Stage: `final-review-fix`
+- Base commit: `6dac4e3e5047e1635fa4ca3a5ad9825ecd44b2f9`
+- Implementer: `/root/m22_task4_impl`
+- Implementation commit: `3d3add6`
+- Changed files: `README.md`
+- RED evidence: documentation assertions/inspection as specified in brief
+- GREEN evidence: `88 passed` focused/security checks; non-TTY exit 2 with no workdir; Ruff clean; OpenSpec strict valid; full suite `2219 passed, 10 skipped`
+- Risk review: not required for this documentation/verification task
+- Review/fix round: `1/1`
+- Open findings: final review required restricted execution for generated pytest/CLI; fixed by reusing `check_runner`. Also bounded state reads, validated complete plan items, and stabilized launch/workdir errors.

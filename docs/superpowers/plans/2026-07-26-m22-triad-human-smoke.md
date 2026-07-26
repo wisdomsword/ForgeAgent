@@ -10,9 +10,9 @@ base-ref: 5e08c89ea70a9de83be8de0a4026ecf8f2ccbc39
 
 **目标：** 新增一个保留 Planner 人工确认的一键真实模型 Triad 冒烟脚本，并自动验收协作终态、生成文件、pytest 和 moving-average CLI JSON。
 
-**架构：** 一个独立标准库 Python 脚本负责预检、创建 `/tmp` 隔离目录、以原生终端 stdio 运行现有 ForgeAgent CLI、读取单份协作状态并执行产物验收。离线 pytest 通过路径导入脚本和注入 fake `subprocess.run`，不调用真实模型、不读取用户 HOME、不访问网络。
+**架构：** 一个独立 Python 脚本负责预检、创建 `/tmp` 隔离目录、以原生终端 stdio 运行现有 ForgeAgent CLI、读取单份协作状态，并通过现有 `check_runner` 在受限一次性副本中执行产物验收。离线 pytest 通过路径导入脚本和注入 fake runner，不调用真实模型、不读取用户 HOME、不访问网络。
 
-**技术栈：** Python 3.11、标准库 `dataclasses/json/os/pathlib/stat/subprocess/sys/tempfile/unicodedata`、pytest、uv、ruff、OpenSpec/Comet。
+**技术栈：** Python 3.11、标准库 `dataclasses/json/os/pathlib/stat/subprocess/sys/tempfile/unicodedata`、现有 `forgeagent.check_runner`、pytest、uv、ruff、OpenSpec/Comet。
 
 ## 全局约束
 
@@ -21,7 +21,7 @@ base-ref: 5e08c89ea70a9de83be8de0a4026ecf8f2ccbc39
 - stdin 或 stdout 非 TTY 时必须在创建工作目录和调用真实模型前以退出码 2 失败。
 - Planner 计划只能通过原 CLI 人工确认；脚本不得自动输入 `y`，并保留 restricted tier 的其他原生确认。
 - 成功和失败都保留工作目录；任何自动测试不得调用真实模型、访问网络、读取真实用户 HOME 或消耗凭证。
-- 只打印有界稳定诊断，不回显 API key、目标、计划正文、verdict evidence、模型原始输出或产物正文。
+- 只打印有界稳定诊断，不回显 API key、目标、计划正文、verdict evidence、模型原始输出或产物正文；模型生成的测试与 CLI 只通过受限 `check_runner` 执行。
 - 写代码时遵循 YAGNI：不新增 argparse、wrapper class、配置文件、通用 helper 模块或第三方依赖。
 - 保留所有无关 dirty-worktree 文件，每次提交只暂存本计划列出的文件。
 
@@ -210,6 +210,7 @@ GOAL = (
 )
 
 RunCommand = Callable[..., subprocess.CompletedProcess[str]]
+RunCheck = Callable[..., CheckResult]
 ```
 
 相应导入 `Callable`（`collections.abc`）与 `subprocess`；该别名只用于测试注入标注，不包装或改变 `subprocess.run`。
@@ -251,7 +252,7 @@ git commit -m "feat: add M22 Triad smoke state checks"
 
 - [x] **Step 1：写入 fake runner 与产物失败测试**
 
-测试 runner 必须记录 `args`、`cwd` 以及可选的 `capture_output`、`text`，并返回 `subprocess.CompletedProcess`。pytest 调用继承终端输出，所以其 CompletedProcess 的 stdout/stderr 可以是 `None`；只有 CLI 调用要求捕获文本。至少加入：缺 `calc.py`、缺 `test_calc.py`、pytest 非零、CLI stderr 非空、CLI stdout 非 JSON、JSON 值错误。示例：
+测试 check runner 必须记录固定 `CheckDefinition` 和 `allowed_root`，并返回合成 `CheckResult`。至少加入：缺 `calc.py`、缺 `test_calc.py`、pytest 非零、CLI stderr 非空、CLI stdout 非 JSON、JSON 值错误，以及生成测试尝试读取环境、访问根外路径、联网和创建子进程时被真实 `check_runner` 阻断。示例：
 
 ```python
 def test_artifact_check_rejects_wrong_cli_json(tmp_path):
@@ -259,15 +260,15 @@ def test_artifact_check_rejects_wrong_cli_json(tmp_path):
     (tmp_path / "calc.py").write_text("pass\n", encoding="utf-8")
     (tmp_path / "test_calc.py").write_text("pass\n", encoding="utf-8")
     results = iter([
-        smoke.subprocess.CompletedProcess([], 0),
-        smoke.subprocess.CompletedProcess([], 0, "[1.5, 2.5]\\n", ""),
+        smoke.CheckResult(status="passed", exit_code=0),
+        smoke.CheckResult(status="passed", exit_code=0, stdout="[1.5, 2.5]\\n"),
     ])
 
-    def run(*args, **kwargs):
+    def check(*args, **kwargs):
         return next(results)
 
-    failures = smoke.artifact_failures(tmp_path, Path("/venv/python"), run)
-    assert any("[1.5, 2.5, 3.5]" in item for item in failures)
+    failures = smoke.artifact_failures(tmp_path, Path(sys.executable), check)
+    assert failures == ["calc.py CLI output validation failed"]
 ```
 
 - [x] **Step 2：运行新增测试确认 RED**
@@ -278,27 +279,30 @@ def test_artifact_check_rejects_wrong_cli_json(tmp_path):
 
 - [x] **Step 3：实现普通文件、pytest 与 CLI JSON 验收**
 
-`artifact_failures(workdir, python, run)` 按顺序：
+`artifact_failures(workdir, python, check)` 按顺序创建固定 `CheckDefinition` 并调用 `run_check`：
 
 ```python
-pytest_result = run([str(python), "-m", "pytest", "-q"], cwd=workdir, check=False)
-cli_result = run(
-    [str(python), "calc.py", "[1,2,3,4]", "2"],
-    cwd=workdir,
-    check=False,
-    capture_output=True,
-    text=True,
+pytest_result = check(
+    CheckDefinition(id="pytest", argv=(str(python), "-m", "pytest", "-q")),
+    allowed_root=workdir,
+)
+cli_result = check(
+    CheckDefinition(
+        id="moving-average-cli",
+        argv=(str(python), "calc.py", "[1,2,3,4]", "2"),
+    ),
+    allowed_root=workdir,
 )
 ```
 
-只有两个文件均为非 symlink 普通文件时运行命令；pytest 失败后不运行 CLI。pytest 失败诊断只引用 exit code，不读取或截断其 `stdout`/`stderr`，因此继承 stdio 产生的 `None` 不会触发字符串操作。CLI 要求 `returncode == 0`、`isinstance(stderr, str)`、`stderr.strip() == ""`、`isinstance(stdout, str)` 且 `json.loads(stdout) == [1.5, 2.5, 3.5]`；只有 CLI 的字符串 stdout/stderr 才会在诊断中截断到 200 个字符。
+只有两个文件均为非 symlink 普通文件时运行检查；pytest 失败后不运行 CLI。`check_runner` 在一次性副本中使用最小环境、阻断宿主路径/网络/进程并限制输出和执行时间。失败诊断只引用稳定 status/exit code，不回显 stdout/stderr。CLI 要求 `status == "passed"`、stderr 为空，且 `json.loads(stdout) == [1.5, 2.5, 3.5]`。
 
 - [x] **Step 4：写入 `run_smoke()` 成功、人工计划拒绝和 ForgeAgent 非零测试**
 
-成功 fake runner 的第一次调用在 `cwd` 下写入单份成功状态、`calc.py` 和 `test_calc.py`；后两次分别模拟 pytest 与 CLI。断言：
+成功 fake subprocess runner 在 `cwd` 下写入单份成功状态、`calc.py` 和 `test_calc.py`；fake check runner 分别模拟 pytest 与 CLI。断言：
 
 ```python
-assert smoke.run_smoke(config, run=fake_run) == 0
+assert smoke.run_smoke(config, run=fake_run, check=fake_check) == 0
 output = capsys.readouterr().out
 assert "M22 TRIAD HUMAN SMOKE: PASS" in output
 assert f"workdir: {config.workdir}" in output
@@ -444,7 +448,7 @@ git commit -m "feat: add interactive M22 Triad smoke entry"
 - 消费：前 3 个任务完成的一键入口。
 - 产出：用户可直接运行的说明、完整验证证据和全部已勾选任务。
 
-- [ ] **Step 1：更新 README 的 M22 人类冒烟说明**
+- [x] **Step 1：更新 README 的 M22 人类冒烟说明**
 
 在现有 M22 Duo/Triad 文档附近加入：
 
@@ -466,7 +470,7 @@ uv run --offline python scripts/m22-triad-human-smoke.py
 
 调整围栏嵌套使 Markdown 合法；不要记录 API key 示例或自动批准命令。
 
-- [ ] **Step 2：运行专项、非 TTY 黑盒和 Ruff**
+- [x] **Step 2：运行专项、非 TTY 黑盒和 Ruff**
 
 ```bash
 uv run pytest tests/test_m22_triad_human_smoke.py -v
@@ -477,7 +481,7 @@ uv run ruff format --check scripts/m22-triad-human-smoke.py tests/test_m22_triad
 
 预期：pytest 全部 PASS；非 TTY 黑盒以 2 退出并且不创建新 `/tmp/forgeagent-m22-human-*`；Ruff 全部通过。不要在自动验证中执行交互式真实模型路径。
 
-- [ ] **Step 3：运行 OpenSpec、格式和完整 pytest**
+- [x] **Step 3：运行 OpenSpec、格式和完整 pytest**
 
 ```bash
 openspec validate add-m22-triad-human-smoke --strict

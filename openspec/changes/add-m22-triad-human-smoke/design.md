@@ -32,7 +32,7 @@ M22 当前的人类测试依赖手工创建目录、复制长 CLI 命令、人�
 每次运行在 `/tmp` 创建唯一临时目录，并在其中执行 ForgeAgent。脚本从
 `.forgeagent/collaborations/*.json` 要求恰好找到一份状态，以标准库读取 raw JSON dict 并只解析本冒烟
 契约依赖的稳定字段，而不调用完整 `CollaborationState` 校验或抓取终端文案。这样可确认
-`completed`、attempts、rejections 和 `invalid_role_submission`，同时避免复制持久化 schema 或依赖 Rich 输出格式。
+`completed`、acceptance item、attempts、rejections 和 `invalid_role_submission`，同时避免复制持久化 schema 或依赖 Rich 输出格式。读取沿用运行时 256 KiB 上限，避免异常状态文件导致无界内存使用。
 
 ### 默认保留现场，环境变量只覆盖模型
 
@@ -43,7 +43,8 @@ M22 当前的人类测试依赖手工创建目录、复制长 CLI 命令、人�
 ### 自动验收使用项目虚拟环境解释器
 
 脚本定位仓库 `.venv/bin/forgeagent` 与 `.venv/bin/python`，先验证它们是可执行文件（允许虚拟环境
-的标准 symlink），再使用同一 Python 执行 pytest 和 `calc.py`，避免 PATH 指向其他安装。pytest 输出继承终端；CLI JSON 使用 capture 后严格
+的标准 symlink），再把 pytest 和 `calc.py` 作为固定 `CheckDefinition` 交给现有 `check_runner`。
+检查在一次性项目副本、最小环境和受限 worker 中执行，CLI JSON 使用有界捕获后严格
 `json.loads` 比较数值数组。
 
 ## Risks / Trade-offs

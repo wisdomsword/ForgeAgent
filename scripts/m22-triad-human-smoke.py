@@ -13,6 +13,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from forgeagent.check_runner import CheckDefinition, CheckResult, run_check
+
 
 @dataclass(frozen=True)
 class SmokeModels:
@@ -37,7 +39,12 @@ GOAL = (
 )
 
 RunCommand = Callable[..., subprocess.CompletedProcess[str]]
+RunCheck = Callable[..., CheckResult]
 
+MAX_STATE_BYTES = 256 * 1024
+_MAX_PLAN_ITEMS = 50
+_MAX_PLAN_ID_CHARS = 64
+_MAX_PLAN_TEXT_CHARS = 1000
 _COLLABORATION_ID = re.compile(r"^[0-9a-f]{32}$")
 _PLAN_DIGEST = re.compile(r"^[0-9a-f]{64}$")
 _STATUSES = frozenset({"active", "completed", "stopped", "cancelled", "failed"})
@@ -132,7 +139,15 @@ def load_collaboration_state(workdir: Path) -> dict[str, object]:
         raise ValueError("expected exactly one collaboration state")
 
     try:
-        value = json.loads(candidates[0].read_text(encoding="utf-8"))
+        with candidates[0].open("rb") as state_file:
+            encoded = state_file.read(MAX_STATE_BYTES + 1)
+        if len(encoded) > MAX_STATE_BYTES:
+            raise ValueError("collaboration state is too large")
+        value = json.loads(encoded.decode("utf-8"))
+    except ValueError as error:
+        if str(error) == "collaboration state is too large":
+            raise error from None
+        raise ValueError("invalid collaboration state JSON") from None
     except (OSError, UnicodeError, json.JSONDecodeError, RecursionError):
         raise ValueError("invalid collaboration state JSON") from None
     if not isinstance(value, dict):
@@ -176,20 +191,50 @@ def _stable_value(value: object, allowed: frozenset[str]) -> str:
 
 
 def _plan_ids(value: object, failures: list[str]) -> list[str]:
-    if type(value) is not list or not value:
-        failures.append("plan must be a non-empty list")
+    if type(value) is not list or not value or len(value) > _MAX_PLAN_ITEMS:
+        failures.append("plan must be a non-empty bounded list")
         return []
 
     ids: list[str] = []
     for item in value:
         item_id = item.get("id") if type(item) is dict else None
-        if type(item_id) is not str or not item_id:
-            failures.append("plan item id must be a non-empty string")
+        behavior = item.get("behavior") if type(item) is dict else None
+        acceptance = item.get("acceptance") if type(item) is dict else None
+        if not _valid_plan_id(item_id):
+            failures.append("plan item id must be a bounded safe string")
             continue
         ids.append(item_id)
+        if not _valid_plan_text(behavior):
+            failures.append("plan item behavior must be a bounded safe string")
+        if not _valid_plan_text(acceptance):
+            failures.append("plan item acceptance must be a bounded safe string")
     if len(ids) != len(set(ids)):
         failures.append("plan item ids must be unique")
     return ids
+
+
+def _valid_plan_text(value: object) -> bool:
+    return (
+        type(value) is str
+        and bool(value.strip())
+        and len(value) <= _MAX_PLAN_TEXT_CHARS
+        and all(
+            unicodedata.category(character) not in {"Cc", "Cf", "Cs", "Zl", "Zp"}
+            for character in value
+        )
+    )
+
+
+def _valid_plan_id(value: object) -> bool:
+    return (
+        type(value) is str
+        and bool(value.strip())
+        and len(value) <= _MAX_PLAN_ID_CHARS
+        and all(
+            unicodedata.category(character) not in {"Cc", "Cf", "Cs", "Zl", "Zp"}
+            for character in value
+        )
+    )
 
 
 def _positive_attempt(state: dict[str, object], name: str, failures: list[str]) -> None:
@@ -223,7 +268,11 @@ def _evaluation_ids(value: object, plan_ids: list[str], failures: list[str]) -> 
         failures.append("last_evaluation ids must match plan ids in order")
 
 
-def artifact_failures(workdir: Path, python: Path, run: RunCommand) -> list[str]:
+def artifact_failures(
+    workdir: Path,
+    python: Path,
+    check: RunCheck = run_check,
+) -> list[str]:
     """Validate the two generated files and their required CLI behavior."""
     failures = [
         f"missing regular file: {name}"
@@ -233,23 +282,28 @@ def artifact_failures(workdir: Path, python: Path, run: RunCommand) -> list[str]
     if failures:
         return failures
 
-    pytest_result = run(
-        [str(python), "-m", "pytest", "-q"],
-        cwd=workdir,
-        check=False,
-    )
-    if pytest_result.returncode != 0:
-        return [f"pytest failed with exit code {pytest_result.returncode}"]
+    try:
+        pytest_result = check(
+            CheckDefinition(id="pytest", argv=(str(python), "-m", "pytest", "-q")),
+            allowed_root=workdir,
+        )
+    except (OSError, UnicodeError, ValueError):
+        return ["pytest check could not start"]
+    if pytest_result.status != "passed":
+        return [_check_failure("pytest", pytest_result)]
 
-    cli_result = run(
-        [str(python), "calc.py", "[1,2,3,4]", "2"],
-        cwd=workdir,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if cli_result.returncode != 0:
-        return [f"calc.py CLI failed with exit code {cli_result.returncode}"]
+    try:
+        cli_result = check(
+            CheckDefinition(
+                id="moving-average-cli",
+                argv=(str(python), "calc.py", "[1,2,3,4]", "2"),
+            ),
+            allowed_root=workdir,
+        )
+    except (OSError, UnicodeError, ValueError):
+        return ["calc.py CLI check could not start"]
+    if cli_result.status != "passed":
+        return [_check_failure("calc.py CLI", cli_result)]
     if not isinstance(cli_result.stderr, str) or cli_result.stderr.strip():
         return ["calc.py CLI output validation failed"]
     if not isinstance(cli_result.stdout, str):
@@ -263,15 +317,29 @@ def artifact_failures(workdir: Path, python: Path, run: RunCommand) -> list[str]
     return []
 
 
-def run_smoke(config: SmokeConfig, run: RunCommand = subprocess.run) -> int:
+def _check_failure(label: str, result: CheckResult) -> str:
+    if type(result.exit_code) is int:
+        return f"{label} check failed with exit code {result.exit_code}"
+    return f"{label} check failed with status {result.status}"
+
+
+def run_smoke(
+    config: SmokeConfig,
+    run: RunCommand = subprocess.run,
+    check: RunCheck = run_check,
+) -> int:
     """Run the manual Triad smoke test and print a stable, safe summary."""
     print(f"workdir: {config.workdir}")
     try:
-        forgeagent_result = run(
-            build_forgeagent_command(config.forgeagent, config.models),
-            cwd=config.workdir,
-            check=False,
-        )
+        try:
+            forgeagent_result = run(
+                build_forgeagent_command(config.forgeagent, config.models),
+                cwd=config.workdir,
+                check=False,
+            )
+        except (OSError, UnicodeError):
+            _print_failure_summary(["ForgeAgent could not start"])
+            return 1
         failures: list[str] = []
         try:
             state = load_collaboration_state(config.workdir)
@@ -284,7 +352,7 @@ def run_smoke(config: SmokeConfig, run: RunCommand = subprocess.run) -> int:
         if state is not None:
             failures.extend(collaboration_failures(state))
         if not failures:
-            failures.extend(artifact_failures(config.workdir, config.python, run))
+            failures.extend(artifact_failures(config.workdir, config.python, check))
         if failures:
             _print_failure_summary(failures)
             return 1
@@ -316,7 +384,11 @@ def main() -> int:
                 print(f"M22 Triad human smoke requires executable: {executable}", file=sys.stderr)
                 return 2
 
-        workdir = Path(tempfile.mkdtemp(prefix="forgeagent-m22-human-", dir="/tmp"))
+        try:
+            workdir = Path(tempfile.mkdtemp(prefix="forgeagent-m22-human-", dir="/tmp"))
+        except OSError:
+            print("M22 Triad human smoke could not create workdir.", file=sys.stderr)
+            return 2
         return run_smoke(
             SmokeConfig(
                 workdir=workdir,

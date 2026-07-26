@@ -60,8 +60,17 @@ def _config(smoke, workdir: Path):
     return smoke.SmokeConfig(
         workdir=workdir,
         forgeagent=workdir / "forgeagent",
-        python=workdir / ".venv" / "bin" / "python",
+        python=Path(sys.executable),
         models=smoke.SmokeModels("generator", "planner", "evaluator"),
+    )
+
+
+def _check_result(smoke, *, status="passed", exit_code=0, stdout="", stderr=""):
+    return smoke.CheckResult(
+        status=status,
+        exit_code=exit_code,
+        stdout=stdout,
+        stderr=stderr,
     )
 
 
@@ -171,6 +180,24 @@ def test_main_builds_config_from_environment_and_returns_smoke_result(monkeypatc
     assert captured_config.python == repository / ".venv" / "bin" / "python"
 
 
+def test_main_converts_workdir_creation_error_to_stable_preflight_failure(monkeypatch, capsys):
+    smoke = _load_smoke_module()
+    monkeypatch.setattr(smoke.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(smoke.sys.stdout, "isatty", lambda: True)
+    monkeypatch.setattr(smoke.Path, "is_file", lambda path: True)
+    monkeypatch.setattr(smoke.os, "access", lambda path, mode: mode == os.X_OK)
+
+    def fail_mkdtemp(**kwargs):
+        raise OSError("synthetic-workdir-secret")
+
+    monkeypatch.setattr(smoke.tempfile, "mkdtemp", fail_mkdtemp)
+
+    assert smoke.main() == 2
+    error = capsys.readouterr().err
+    assert "could not create workdir" in error
+    assert "synthetic-workdir-secret" not in error
+
+
 def test_build_command_preserves_triad_and_manual_stdio_contract(tmp_path):
     smoke = _load_smoke_module()
     models = smoke.SmokeModels("claude-sonnet-5", "claude-haiku-4-5", "claude-haiku-4-5")
@@ -269,6 +296,25 @@ def test_invalid_success_state_projection_is_rejected(tmp_path, overrides, field
     assert any(field in item for item in failures)
 
 
+@pytest.mark.parametrize(
+    "plan",
+    [
+        [{"id": "moving_average", "acceptance": "observable"}],
+        [{"id": "moving_average", "behavior": "observable"}],
+        [{"id": "moving_average", "behavior": " ", "acceptance": "observable"}],
+        [{"id": "moving_average", "behavior": "observable\n", "acceptance": "observable"}],
+        [{"id": "moving_average", "behavior": "x" * 1_001, "acceptance": "observable"}],
+    ],
+)
+def test_plan_requires_bounded_safe_behavior_and_acceptance(tmp_path, plan):
+    smoke = _load_smoke_module()
+    _write_state(tmp_path, plan=plan)
+
+    failures = smoke.collaboration_failures(smoke.load_collaboration_state(tmp_path))
+
+    assert any("plan item" in failure for failure in failures)
+
+
 def test_state_discovery_requires_exactly_one_regular_json(tmp_path):
     smoke = _load_smoke_module()
     with pytest.raises(ValueError, match="exactly one collaboration state"):
@@ -305,14 +351,14 @@ def test_state_loader_hides_discovery_error(monkeypatch, tmp_path):
 def test_state_loader_hides_read_error(monkeypatch, tmp_path):
     smoke = _load_smoke_module()
     state_file = _write_state(tmp_path)
-    original_read_text = Path.read_text
+    original_open = Path.open
 
-    def fail_state_read(self, *args, **kwargs):
+    def fail_state_open(self, *args, **kwargs):
         if self == state_file:
             raise OSError("synthetic-read-secret")
-        return original_read_text(self, *args, **kwargs)
+        return original_open(self, *args, **kwargs)
 
-    monkeypatch.setattr(Path, "read_text", fail_state_read)
+    monkeypatch.setattr(Path, "open", fail_state_open)
     with pytest.raises(ValueError, match="invalid collaboration state JSON") as error:
         smoke.load_collaboration_state(tmp_path)
     assert error.value.__cause__ is None
@@ -335,6 +381,17 @@ def test_state_loader_rejects_non_object_json(tmp_path):
     state_file.write_text("[]", encoding="utf-8")
     with pytest.raises(ValueError, match="invalid collaboration state JSON") as error:
         smoke.load_collaboration_state(tmp_path)
+    assert error.value.__cause__ is None
+
+
+def test_state_loader_rejects_oversized_json_before_unbounded_read(tmp_path):
+    smoke = _load_smoke_module()
+    state_file = _write_state(tmp_path)
+    state_file.write_bytes(b"{" + b"x" * smoke.MAX_STATE_BYTES)
+
+    with pytest.raises(ValueError, match="collaboration state is too large") as error:
+        smoke.load_collaboration_state(tmp_path)
+
     assert error.value.__cause__ is None
 
 
@@ -363,43 +420,62 @@ def test_plan_ids_must_be_unique_nonempty_strings(tmp_path):
     assert any("plan" in item for item in failures)
 
 
+@pytest.mark.parametrize(
+    "plan",
+    [
+        [{"id": "x" * 65, "behavior": "observable", "acceptance": "observable"}],
+        [{"id": "moving\naverage", "behavior": "observable", "acceptance": "observable"}],
+        [
+            {"id": f"item-{index}", "behavior": "observable", "acceptance": "observable"}
+            for index in range(51)
+        ],
+    ],
+    ids=["long-id", "unsafe-id", "too-many-items"],
+)
+def test_plan_matches_runtime_item_bounds(tmp_path, plan):
+    smoke = _load_smoke_module()
+    _write_state(tmp_path, plan=plan)
+
+    failures = smoke.collaboration_failures(smoke.load_collaboration_state(tmp_path))
+
+    assert any("plan" in failure for failure in failures)
+
+
 @pytest.mark.parametrize("missing", ["calc.py", "test_calc.py"])
 def test_artifact_check_requires_each_regular_source_file(tmp_path, missing):
     smoke = _load_smoke_module()
     for name in {"calc.py", "test_calc.py"} - {missing}:
         (tmp_path / name).write_text("pass\n", encoding="utf-8")
 
-    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+    calls = []
 
-    def run(*args, **kwargs):
+    def check(*args, **kwargs):
         calls.append((args, kwargs))
-        return subprocess.CompletedProcess([], 0)
+        return _check_result(smoke)
 
-    failures = smoke.artifact_failures(tmp_path, Path("/venv/python"), run)
+    failures = smoke.artifact_failures(tmp_path, Path(sys.executable), check)
 
     assert any(missing in item for item in failures)
     assert calls == []
 
 
-def test_artifact_check_stops_after_pytest_failure_without_reading_inherited_stdio(tmp_path):
+def test_artifact_check_stops_after_restricted_pytest_failure(tmp_path):
     smoke = _load_smoke_module()
     (tmp_path / "calc.py").write_text("pass\n", encoding="utf-8")
     (tmp_path / "test_calc.py").write_text("pass\n", encoding="utf-8")
-    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+    calls = []
 
-    def run(*args, **kwargs):
+    def check(*args, **kwargs):
         calls.append((args, kwargs))
-        return subprocess.CompletedProcess([], 4)
+        return _check_result(smoke, status="failed", exit_code=4)
 
-    failures = smoke.artifact_failures(tmp_path, Path("/venv/python"), run)
+    failures = smoke.artifact_failures(tmp_path, Path(sys.executable), check)
 
-    assert failures == ["pytest failed with exit code 4"]
-    assert calls == [
-        (
-            (["/venv/python", "-m", "pytest", "-q"],),
-            {"cwd": tmp_path, "check": False},
-        )
-    ]
+    assert failures == ["pytest check failed with exit code 4"]
+    assert len(calls) == 1
+    definition = calls[0][0][0]
+    assert definition.argv[1:] == ("-m", "pytest", "-q")
+    assert calls[0][1] == {"allowed_root": tmp_path}
 
 
 @pytest.mark.parametrize(
@@ -416,15 +492,15 @@ def test_artifact_check_rejects_invalid_cli_output(tmp_path, stdout, stderr, exp
     (tmp_path / "test_calc.py").write_text("pass\n", encoding="utf-8")
     results = iter(
         [
-            subprocess.CompletedProcess([], 0),
-            subprocess.CompletedProcess([], 0, stdout, stderr),
+            _check_result(smoke),
+            _check_result(smoke, stdout=stdout, stderr=stderr),
         ]
     )
 
-    def run(*args, **kwargs):
+    def check(*args, **kwargs):
         return next(results)
 
-    failures = smoke.artifact_failures(tmp_path, Path("/venv/python"), run)
+    failures = smoke.artifact_failures(tmp_path, Path(sys.executable), check)
 
     assert any(expected in item for item in failures)
 
@@ -434,29 +510,25 @@ def test_artifact_check_does_not_echo_cli_output_in_diagnostics(tmp_path):
     (tmp_path / "calc.py").write_text("pass\n", encoding="utf-8")
     (tmp_path / "test_calc.py").write_text("pass\n", encoding="utf-8")
     secret = "synthetic-cli-secret"
-    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+    calls = []
     results = iter(
         [
-            subprocess.CompletedProcess([], 0),
-            subprocess.CompletedProcess([], 0, secret, secret),
+            _check_result(smoke),
+            _check_result(smoke, stdout=secret, stderr=secret),
         ]
     )
 
-    def run(*args, **kwargs):
+    def check(*args, **kwargs):
         calls.append((args, kwargs))
         return next(results)
 
-    failures = smoke.artifact_failures(tmp_path, Path("/venv/python"), run)
+    failures = smoke.artifact_failures(tmp_path, Path(sys.executable), check)
 
     assert failures == ["calc.py CLI output validation failed"]
     assert secret not in "\n".join(failures)
-    assert calls[0][1] == {"cwd": tmp_path, "check": False}
-    assert calls[1][1] == {
-        "cwd": tmp_path,
-        "check": False,
-        "capture_output": True,
-        "text": True,
-    }
+    assert calls[0][0][0].argv[1:] == ("-m", "pytest", "-q")
+    assert calls[1][0][0].argv[1:] == ("calc.py", "[1,2,3,4]", "2")
+    assert all(kwargs == {"allowed_root": tmp_path} for _, kwargs in calls)
 
 
 @pytest.mark.parametrize(
@@ -472,19 +544,60 @@ def test_artifact_check_never_echoes_captured_cli_streams(tmp_path, stdout, stde
     (tmp_path / "test_calc.py").write_text("pass\n", encoding="utf-8")
     results = iter(
         [
-            subprocess.CompletedProcess([], 0),
-            subprocess.CompletedProcess([], 0, stdout, stderr),
+            _check_result(smoke),
+            _check_result(smoke, stdout=stdout, stderr=stderr),
         ]
     )
 
     failures = smoke.artifact_failures(
-        tmp_path, Path("/venv/python"), lambda *a, **k: next(results)
+        tmp_path, Path(sys.executable), lambda *a, **k: next(results)
     )
 
     assert failures == ["calc.py CLI output validation failed"]
     assert stdout not in "\n".join(failures)
     if stderr:
         assert stderr not in "\n".join(failures)
+
+
+@pytest.mark.parametrize(
+    "hostile_test",
+    [
+        "import os\ndef test_env(): assert os.getenv('FORGEAGENT_M22_TEST_SECRET') == 'secret'\n",
+        "from pathlib import Path\ndef test_outside(): Path({outside!r}).write_text('changed')\n",
+        "import socket\ndef test_network(): socket.gethostbyname('localhost')\n",
+        "import subprocess, sys\ndef test_process(): subprocess.run([sys.executable, '-V'])\n",
+    ],
+    ids=["environment", "outside-root", "network", "process"],
+)
+def test_artifact_checks_restrict_hostile_generated_tests(tmp_path, monkeypatch, hostile_test):
+    smoke = _load_smoke_module()
+    outside = tmp_path.parent / "m22-outside.txt"
+    outside.write_text("original", encoding="utf-8")
+    monkeypatch.setenv("FORGEAGENT_M22_TEST_SECRET", "secret")
+    (tmp_path / "calc.py").write_text("pass\n", encoding="utf-8")
+    (tmp_path / "test_calc.py").write_text(
+        hostile_test.format(outside=str(outside)), encoding="utf-8"
+    )
+
+    failures = smoke.artifact_failures(tmp_path, Path(sys.executable))
+
+    assert failures == ["pytest check failed with exit code 1"]
+    assert outside.read_text(encoding="utf-8") == "original"
+    assert "secret" not in "\n".join(failures)
+
+
+def test_artifact_check_converts_runner_exceptions_to_stable_failure(tmp_path):
+    smoke = _load_smoke_module()
+    (tmp_path / "calc.py").write_text("pass\n", encoding="utf-8")
+    (tmp_path / "test_calc.py").write_text("pass\n", encoding="utf-8")
+
+    def fail_check(*args, **kwargs):
+        raise OSError("synthetic-check-secret")
+
+    failures = smoke.artifact_failures(tmp_path, Path(sys.executable), fail_check)
+
+    assert failures == ["pytest check could not start"]
+    assert "synthetic-check-secret" not in "\n".join(failures)
 
 
 def test_state_loader_rejects_deeply_nested_json_without_crashing(tmp_path):
@@ -519,16 +632,14 @@ def test_run_smoke_prints_stable_success_summary_and_inherits_forgeagent_stdio(t
 
     def fake_run(*args, **kwargs):
         calls.append((args, kwargs))
-        if len(calls) == 1:
-            _write_state(tmp_path)
-            (tmp_path / "calc.py").write_text("pass\n", encoding="utf-8")
-            (tmp_path / "test_calc.py").write_text("pass\n", encoding="utf-8")
-            return subprocess.CompletedProcess(args[0], 0)
-        if len(calls) == 2:
-            return subprocess.CompletedProcess(args[0], 0)
-        return subprocess.CompletedProcess(args[0], 0, "[1.5, 2.5, 3.5]\n", "")
+        _write_state(tmp_path)
+        (tmp_path / "calc.py").write_text("pass\n", encoding="utf-8")
+        (tmp_path / "test_calc.py").write_text("pass\n", encoding="utf-8")
+        return subprocess.CompletedProcess(args[0], 0)
 
-    assert smoke.run_smoke(config, run=fake_run) == 0
+    results = iter([_check_result(smoke), _check_result(smoke, stdout="[1.5, 2.5, 3.5]\n")])
+
+    assert smoke.run_smoke(config, run=fake_run, check=lambda *a, **k: next(results)) == 0
 
     output = capsys.readouterr().out
     assert "M22 TRIAD HUMAN SMOKE: PASS" in output
@@ -545,16 +656,14 @@ def test_success_summary_reports_nonnegative_rejection_count(tmp_path, capsys):
     config = _config(smoke, tmp_path)
 
     def fake_run(*args, **kwargs):
-        if args[0][0] == str(config.forgeagent):
-            _write_state(tmp_path, rejections=2)
-            (tmp_path / "calc.py").write_text("pass\n", encoding="utf-8")
-            (tmp_path / "test_calc.py").write_text("pass\n", encoding="utf-8")
-            return subprocess.CompletedProcess(args[0], 0)
-        if args[0][1:3] == ["-m", "pytest"]:
-            return subprocess.CompletedProcess(args[0], 0)
-        return subprocess.CompletedProcess(args[0], 0, "[1.5, 2.5, 3.5]", "")
+        _write_state(tmp_path, rejections=2)
+        (tmp_path / "calc.py").write_text("pass\n", encoding="utf-8")
+        (tmp_path / "test_calc.py").write_text("pass\n", encoding="utf-8")
+        return subprocess.CompletedProcess(args[0], 0)
 
-    assert smoke.run_smoke(config, run=fake_run) == 0
+    results = iter([_check_result(smoke), _check_result(smoke, stdout="[1.5, 2.5, 3.5]")])
+
+    assert smoke.run_smoke(config, run=fake_run, check=lambda *a, **k: next(results)) == 0
     assert "rejections: 2" in capsys.readouterr().out
 
 
@@ -593,6 +702,20 @@ def test_run_smoke_rejects_forgeagent_nonzero_and_state_discovery_errors(tmp_pat
     output = capsys.readouterr().out
     assert "ForgeAgent failed with exit code 9" in output
     assert "expected exactly one collaboration state" in output
+    assert f"workdir: {config.workdir}" in output
+
+
+def test_run_smoke_converts_forgeagent_start_error_to_stable_failure(tmp_path, capsys):
+    smoke = _load_smoke_module()
+    config = _config(smoke, tmp_path)
+
+    def fail_start(*args, **kwargs):
+        raise OSError("synthetic-launch-secret")
+
+    assert smoke.run_smoke(config, run=fail_start) == 1
+    output = capsys.readouterr().out
+    assert "ForgeAgent could not start" in output
+    assert "synthetic-launch-secret" not in output
     assert f"workdir: {config.workdir}" in output
 
 
