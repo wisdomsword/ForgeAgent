@@ -10,4 +10,4 @@
 
 ## 3. 完成门禁
 
-- [ ] 3.1 运行包装专项、文档专项、完整 pytest、golden、Ruff、build、sdist 内容检查、OpenSpec strict 与 diff check，并完成两轮一致性自审
+- [x] 3.1 运行包装专项、文档专项、完整 pytest、golden、Ruff、build、sdist 内容检查、OpenSpec strict 与 diff check，并完成两轮一致性自审

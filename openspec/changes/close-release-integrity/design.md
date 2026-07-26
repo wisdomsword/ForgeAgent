@@ -22,6 +22,7 @@ Hatchling 当前按默认规则生成 sdist，仓库根目录中的开发资料�
 2. 负向测试读取真实 tar member，统一去掉 sdist 顶层目录后检查相对路径；禁止代理/IDE/工作流目录、OpenSpec、用户锁文件和已知本地 HTML 文件。
 3. README 使用 `## 当前验证` 标题及单行机器可读格式：`pytest: <passed> passed, <skipped> skipped；OpenSpec strict: <passed>/<total>`。测试只校验章节唯一、字段存在和数字格式，不固定数值。
 4. 当前 pytest 数量采用实现完成后的新鲜完整测试证据。历史 M22 的 `2155` 只保留在 ACTION_PLAN、验证报告和 milestone，不再要求 README 重复历史基线。
+5. 增量要求归入现有 `golden-validation-core`：该能力已拥有自动化文档一致性和公开文档与验证行为一致的合同；归档只追加 requirement，不新增第 19 个主规格。
 
 ## Risks / Trade-offs
 
