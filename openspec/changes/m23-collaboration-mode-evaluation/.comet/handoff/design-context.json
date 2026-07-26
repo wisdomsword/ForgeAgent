@@ -1,0 +1,14 @@
+{
+  "change": "m23-collaboration-mode-evaluation",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "44151d6161a63401a37da38723ac1db4816efc1aa4506a915d528188d52391c8",
+  "files": [
+    { "path": "openspec/changes/m23-collaboration-mode-evaluation/proposal.md", "sha256": "b011827ad5a43035e6dcaf130cdb840d6115979edd021f032b7386837a335046" },
+    { "path": "openspec/changes/m23-collaboration-mode-evaluation/design.md", "sha256": "83e9c3bddc7bcfe147d7ffc7c5eb110f6d55a11e1d86aa7d1e4a9f809ee3f664" },
+    { "path": "openspec/changes/m23-collaboration-mode-evaluation/tasks.md", "sha256": "17fd9ef5074ade93db03420d66eed05cc13ba468f8c97a4c545a274b2e46d5c2" },
+    { "path": "openspec/changes/m23-collaboration-mode-evaluation/specs/collaboration-mode-evaluation/spec.md", "sha256": "8a98157ec3119c034380d5ddec8066bf2b18b88e37af726b0e338a97553b78dc" }
+  ]
+}
