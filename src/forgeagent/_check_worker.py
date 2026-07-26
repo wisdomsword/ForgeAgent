@@ -14,7 +14,12 @@ from ._sandbox_worker import _install_audit_hook
 def main() -> int:
     allowed_root = os.environ.pop("FORGEAGENT_CHECK_ROOT")
     arguments = sys.argv[1:]
-    _install_audit_hook(allowed_root, writes_only_in_root=True)
+    _install_audit_hook(
+        allowed_root,
+        writes_only_in_root=True,
+        readable_directory_roots=(sys.base_prefix, sys.prefix),
+        allowed_files=(os.devnull,),
+    )
     sys.path.insert(0, allowed_root)
     try:
         if arguments[:1] == ["-c"] and len(arguments) >= 2:

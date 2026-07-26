@@ -83,6 +83,39 @@ def test_check_receives_only_minimal_environment_and_definition_values(
         CheckDefinition(id="bad-env", argv=(sys.executable, "-V"), env={"API_KEY": "secret"})
 
 
+def test_check_can_run_pytest_with_installed_submodules(tmp_path: Path):
+    (tmp_path / "test_generated.py").write_text(
+        "def test_generated():\n    assert 1 + 1 == 2\n",
+        encoding="utf-8",
+    )
+    check = CheckDefinition(
+        id="pytest",
+        argv=(sys.executable, "-m", "pytest", "-q"),
+    )
+
+    result = run_check(check, allowed_root=tmp_path)
+
+    assert result.status == "passed", result.stderr
+    assert result.exit_code == 0
+    assert "1 passed" in result.stdout
+
+
+def test_check_allows_only_the_exact_null_device_file(tmp_path: Path):
+    result = run_check(
+        _python_check(
+            "null-device",
+            "import os; "
+            "open(os.devnull).close(); "
+            "open(os.devnull, 'w').close(); "
+            "print(os.path.basename(os.devnull))",
+        ),
+        allowed_root=tmp_path,
+    )
+
+    assert result.status == "passed"
+    assert result.stdout.strip() == Path(os.devnull).name
+
+
 def test_check_blocks_project_code_from_host_files(tmp_path: Path):
     outside = tmp_path.parent / "outside-secret.txt"
     outside.write_text("host secret", encoding="utf-8")

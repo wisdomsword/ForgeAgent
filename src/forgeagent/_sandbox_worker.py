@@ -43,7 +43,6 @@ _BLOCKED_SPAWN_EVENTS = frozenset(
     }
 )
 _BLOCKED_PROCESS_CONTROL_EVENTS = frozenset({"os.kill", "os.killpg"})
-_PATH_READ_EVENTS = frozenset({"os.chdir", "os.listdir", "os.scandir"})
 _PATH_MUTATION_EVENTS: dict[str, tuple[tuple[int, int | None], ...]] = {
     "os.chflags": ((0, None),),
     "os.chmod": ((0, 2),),
@@ -61,7 +60,13 @@ _PATH_MUTATION_EVENTS: dict[str, tuple[tuple[int, int | None], ...]] = {
 }
 
 
-def _install_audit_hook(allowed_root: str, *, writes_only_in_root: bool = False) -> None:
+def _install_audit_hook(
+    allowed_root: str,
+    *,
+    writes_only_in_root: bool = False,
+    readable_directory_roots: tuple[str, ...] = (),
+    allowed_files: tuple[str, ...] = (),
+) -> None:
     """Install a PEP 578 hook: file opens limited to allowed roots; network denied."""
     real_root = os.path.realpath(allowed_root)
     allowed = [
@@ -69,6 +74,11 @@ def _install_audit_hook(allowed_root: str, *, writes_only_in_root: bool = False)
         os.path.realpath(sys.base_prefix),
         os.path.realpath(sys.prefix),
     ]
+    readable_directories = [
+        real_root,
+        *(os.path.realpath(root) for root in readable_directory_roots),
+    ]
+    allowed_file_paths = {os.path.realpath(path) for path in allowed_files}
 
     def hook(event: str, args: tuple) -> None:
         if event == "open":
@@ -83,6 +93,8 @@ def _install_audit_hook(allowed_root: str, *, writes_only_in_root: bool = False)
                     "restricted: file access outside allowed root denied"
                 ) from None
             write_access = _open_requests_write(args)
+            if rp in allowed_file_paths:
+                return
             permitted = [real_root] if writes_only_in_root and write_access else allowed
             for base in permitted:
                 try:
@@ -98,9 +110,15 @@ def _install_audit_hook(allowed_root: str, *, writes_only_in_root: bool = False)
             raise PermissionError(f"restricted: process spawn denied ({event})")
         elif event in _BLOCKED_PROCESS_CONTROL_EVENTS:
             raise PermissionError(f"restricted: process control denied ({event})")
-        elif event in _PATH_READ_EVENTS:
+        elif event == "os.chdir":
             path = args[0]
             if not isinstance(path, int) and not _audit_path_within_root(path, -1, real_root):
+                raise PermissionError("restricted: file access outside allowed root denied")
+        elif event in {"os.listdir", "os.scandir"}:
+            path = args[0]
+            if not isinstance(path, int) and not any(
+                _audit_path_within_root(path, -1, root) for root in readable_directories
+            ):
                 raise PermissionError("restricted: file access outside allowed root denied")
         elif path_specs := _PATH_MUTATION_EVENTS.get(event):
             for path_index, dir_fd_index in path_specs:

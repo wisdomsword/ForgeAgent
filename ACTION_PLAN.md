@@ -13,6 +13,7 @@
 > **M22 人类冒烟入口（2026-07-26）**：新增 `scripts/m22-triad-human-smoke.py` 一键真实模型 Triad 测试，保留 Planner 原生人工确认，自动验收协作终态、生成文件、pytest 与 CLI JSON；生成代码通过受限 `check_runner` 一次性副本执行。最终全量 `2219 passed, 10 skipped`、OpenSpec 主规格 `18/18`，change 已归档。
 > **M22 人类冒烟 feedback 隔离热修复（2026-07-26）**：真实运行发现用户全局 `tool_result_max_tokens=40`、`round_feedback_max_tokens=120` 会把 Evaluator 的短文件 `FileRead` 截断为约 147 字符，导致正确产物连续假拒绝。脚本现仅对子进程使用 2000/4000 feedback 预算，不修改用户配置、credential、模型路由或 Planner/FileWrite 人工确认；回归验证为 `2223 passed, 10 skipped`。
 > **M22 Candidate 文件就绪门（2026-07-26，自动验证通过）**：真实运行继续发现 Generator 可在工作目录只有 `.forgeagent` 时成功提交空 Candidate，并重复到 `rejection_limit`。本 change 为 M22 子进程冻结 `calc.py`、`test_calc.py` 普通文件存在性门禁；只检查载体、不读取内容或替代 Evaluator，默认 CLI/Loop/HTTP 不启用。最终全量 `2247 passed, 10 skipped`、Ruff、build、OpenSpec strict `19/19`、diff check 与标准代码审查均通过。离线自动回归不能外推真实模型 PASS；仍需用户在真实 TTY 执行 `uv run --offline python scripts/m22-triad-human-smoke.py`，人工批准 Planner 与 restricted FileWrite。
+> **M22 RunCheck Python 依赖导入热修复（2026-07-26，自动验证通过）**：真实人类冒烟的 Triad 已 `completed` 且生成产物直接运行 `9 passed`，但隔离 `RunCheck` 因 audit hook 禁止枚举当前 Python runtime 目录而把 `_pytest._code` 误报为缺失；pytest 捕获还需要精确访问平台 null device。本 hotfix 只为 check worker 放行当前 `sys.prefix`/`sys.base_prefix` 的只读目录枚举和 `os.devnull` 精确路径，普通 restricted executor 与其他宿主目录/设备仍保持拒绝。保留现场现已通过完整 artifact 验收；最终全量 `2249 passed, 10 skipped`、Ruff、build、OpenSpec strict `19/19` 与 diff check 通过，仍需用户重新运行一键脚本取得整体 PASS 输出。
 > 调研基础：已通读 agent 核心执行链路（taskmgr → task/step → response 解析 → toolcalls → executor → runtime）、LLM 客户端层、提示词模板、配置与测试。
 
 ## 一、结论
