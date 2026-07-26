@@ -1,0 +1,94 @@
+{
+  "schema": "forgeagent.m23.mode-evaluation/v1",
+  "model_id": "claude-haiku-4-5",
+  "generation": {
+    "max_output_tokens": 4096,
+    "temperature": 0.0,
+    "thinking": "off",
+    "effort": null,
+    "timeout_seconds": 120
+  },
+  "execution": {
+    "tier": "restricted",
+    "max_rounds": 10,
+    "max_rejections": 2,
+    "identity": false,
+    "memory": false,
+    "skills": false,
+    "mcp": false,
+    "plan_policy": "preauthorize",
+    "check_timeout_seconds": 30
+  },
+  "modes": ["single", "duo", "triad"],
+  "repetitions": 3,
+  "mode_orders": [
+    ["single", "duo", "triad"],
+    ["duo", "triad", "single"],
+    ["triad", "single", "duo"]
+  ],
+  "tasks": [
+    {
+      "id": "csv-region-summary",
+      "goal": "Read sales.csv. Create summarize.py using only the Python standard library. The script must accept INPUT_CSV OUTPUT_JSON arguments, sum integer amount values by region, and write a JSON object with region keys in sorted order. Also run it to create summary.json for the provided input. Do not change sales.csv.",
+      "initial_files": {
+        "sales.csv": "region,amount\nNorth,10\nSouth,7\nNorth,5\nSouth,3\nWest,8\n"
+      },
+      "required_candidate_files": ["summarize.py", "summary.json"],
+      "artifacts": ["summarize.py", "summary.json"],
+      "checks": [
+        {
+          "id": "csv-summary",
+          "command": [
+            "{python}",
+            "-c",
+            "import json, subprocess, sys; from pathlib import Path; expected = {'North': 15, 'South': 10, 'West': 8}; subprocess.run([sys.executable, 'summarize.py', 'sales.csv', '.m23-check-summary.json'], check=True); assert json.loads(Path('summary.json').read_text(encoding='utf-8')) == expected; assert json.loads(Path('.m23-check-summary.json').read_text(encoding='utf-8')) == expected"
+          ],
+          "timeout_seconds": 30
+        }
+      ]
+    },
+    {
+      "id": "fix-range-compression",
+      "goal": "Fix range_compression.py without changing the public compress_ranges(values) signature. It must sort and deduplicate integers, combine consecutive values into inclusive 'start-end' strings, keep single values as strings, and return an empty list for empty input. Make the existing test_range_compression.py pass. Do not edit the test file.",
+      "initial_files": {
+        "range_compression.py": "def compress_ranges(values):\n    ordered = sorted(set(values))\n    if not ordered:\n        return []\n    result = []\n    start = end = ordered[0]\n    for value in ordered[1:]:\n        if value == end:\n            end = value\n            continue\n        result.append(str(start) if start == end else f'{start}-{end}')\n        start = end = value\n    result.append(str(start) if start == end else f'{start}-{end}')\n    return result\n",
+        "test_range_compression.py": "from range_compression import compress_ranges\n\n\ndef test_mixed_ranges():\n    assert compress_ranges([1, 2, 3, 5, 7, 8]) == ['1-3', '5', '7-8']\n\n\ndef test_empty_and_duplicates():\n    assert compress_ranges([]) == []\n    assert compress_ranges([4, 4, 4]) == ['4']\n\n\ndef test_negative_values():\n    assert compress_ranges([-3, -2, 0]) == ['-3--2', '0']\n"
+      },
+      "required_candidate_files": ["range_compression.py"],
+      "artifacts": ["range_compression.py"],
+      "checks": [
+        {
+          "id": "range-pytest",
+          "command": [
+            "{python}",
+            "-m",
+            "pytest",
+            "-q",
+            "test_range_compression.py"
+          ],
+          "timeout_seconds": 30
+        }
+      ]
+    },
+    {
+      "id": "normalize-events",
+      "goal": "Read events.json. Create normalize_events.py using only the Python standard library. The script must accept INPUT_JSON OUTPUT_JSON arguments, keep the event with the lexicographically latest ISO-8601 timestamp for each id, then sort retained events by timestamp and id, preserving every event field. Also run it to create normalized.json. Do not change events.json.",
+      "initial_files": {
+        "events.json": "[\n  {\"id\": \"a\", \"timestamp\": \"2026-01-02T10:00:00Z\", \"kind\": \"open\"},\n  {\"id\": \"b\", \"timestamp\": \"2026-01-01T12:00:00Z\", \"kind\": \"create\"},\n  {\"id\": \"a\", \"timestamp\": \"2026-01-03T09:00:00Z\", \"kind\": \"close\"},\n  {\"id\": \"c\", \"timestamp\": \"2026-01-01T12:00:00Z\", \"kind\": \"create\"}\n]\n"
+      },
+      "required_candidate_files": ["normalize_events.py", "normalized.json"],
+      "artifacts": ["normalize_events.py", "normalized.json"],
+      "checks": [
+        {
+          "id": "normalized-events",
+          "command": [
+            "{python}",
+            "-c",
+            "import json, subprocess, sys; from pathlib import Path; expected = [{'id': 'b', 'timestamp': '2026-01-01T12:00:00Z', 'kind': 'create'}, {'id': 'c', 'timestamp': '2026-01-01T12:00:00Z', 'kind': 'create'}, {'id': 'a', 'timestamp': '2026-01-03T09:00:00Z', 'kind': 'close'}]; subprocess.run([sys.executable, 'normalize_events.py', 'events.json', '.m23-check-events.json'], check=True); assert json.loads(Path('normalized.json').read_text(encoding='utf-8')) == expected; assert json.loads(Path('.m23-check-events.json').read_text(encoding='utf-8')) == expected"
+          ],
+          "timeout_seconds": 30
+        }
+      ]
+    }
+  ]
+}
