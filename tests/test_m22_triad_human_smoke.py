@@ -375,6 +375,21 @@ def test_state_loader_rejects_invalid_json_without_echoing_content(tmp_path):
     assert error.value.__cause__ is None
 
 
+def test_state_loader_does_not_classify_parser_value_error_as_oversized(monkeypatch, tmp_path):
+    smoke = _load_smoke_module()
+    _write_state(tmp_path)
+
+    def fail_parse(_text):
+        raise ValueError("collaboration state is too large")
+
+    monkeypatch.setattr(smoke.json, "loads", fail_parse)
+
+    with pytest.raises(ValueError, match="invalid collaboration state JSON") as error:
+        smoke.load_collaboration_state(tmp_path)
+
+    assert error.value.__cause__ is None
+
+
 def test_state_loader_rejects_non_object_json(tmp_path):
     smoke = _load_smoke_module()
     state_file = _write_state(tmp_path)
@@ -413,11 +428,18 @@ def test_plan_ids_must_be_unique_nonempty_strings(tmp_path):
     smoke = _load_smoke_module()
     _write_state(
         tmp_path,
-        plan=[{"id": ""}, {"id": ""}],
-        last_evaluation=[{"id": "", "passed": True}, {"id": "", "passed": True}],
+        plan=[
+            {"id": "duplicate", "behavior": "observable", "acceptance": "observable"},
+            {"id": "duplicate", "behavior": "observable", "acceptance": "observable"},
+        ],
+        last_evaluation=[
+            {"id": "duplicate", "passed": True},
+            {"id": "duplicate", "passed": True},
+        ],
     )
     failures = smoke.collaboration_failures(smoke.load_collaboration_state(tmp_path))
-    assert any("plan" in item for item in failures)
+    assert "plan item ids must be unique" in failures
+    assert "plan item id must be a bounded safe string" not in failures
 
 
 @pytest.mark.parametrize(

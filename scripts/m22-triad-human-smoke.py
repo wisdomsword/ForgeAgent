@@ -152,14 +152,13 @@ def load_collaboration_state(workdir: Path) -> dict[str, object]:
     try:
         with candidates[0].open("rb") as state_file:
             encoded = state_file.read(MAX_STATE_BYTES + 1)
-        if len(encoded) > MAX_STATE_BYTES:
-            raise ValueError("collaboration state is too large")
-        value = json.loads(encoded.decode("utf-8"))
-    except ValueError as error:
-        if str(error) == "collaboration state is too large":
-            raise error from None
+    except OSError:
         raise ValueError("invalid collaboration state JSON") from None
-    except (OSError, UnicodeError, json.JSONDecodeError, RecursionError):
+    if len(encoded) > MAX_STATE_BYTES:
+        raise ValueError("collaboration state is too large") from None
+    try:
+        value = json.loads(encoded.decode("utf-8"))
+    except (UnicodeError, ValueError, RecursionError):
         raise ValueError("invalid collaboration state JSON") from None
     if not isinstance(value, dict):
         raise ValueError("invalid collaboration state JSON") from None
