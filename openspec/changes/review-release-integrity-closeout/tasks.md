@@ -10,5 +10,5 @@
 
 ## 3. 验证与复审
 
-- [ ] 3.1 运行 Ruff、专项 pytest、完整 pytest、golden、OpenSpec strict、build 与 sdist 内容检查
-- [ ] 3.2 二次复审 diff、记录验证报告并修复发现的遗漏
+- [x] 3.1 运行 Ruff、专项 pytest、完整 pytest、golden、OpenSpec strict、build 与 sdist 内容检查
+- [x] 3.2 二次复审 diff、记录验证报告并修复发现的遗漏

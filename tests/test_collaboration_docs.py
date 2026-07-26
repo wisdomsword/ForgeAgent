@@ -123,7 +123,7 @@ def test_threat_model_covers_collaboration_role_and_state_boundaries() -> None:
 
 def test_readme_current_verification_section_is_unique_and_structured() -> None:
     readme = _text("README.md")
-    headings = re.findall(r"^##[ \t]+当前验证[ \t]*$", readme, flags=re.MULTILINE)
+    headings = re.findall(r"^##[ \t]*当前验证[ \t]*$", readme, flags=re.MULTILINE)
     assert len(headings) == 1
 
     current_verification = re.findall(
