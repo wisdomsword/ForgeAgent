@@ -90,11 +90,15 @@ Evaluator 失败 SHALL 把有界、脱敏、逐项证据返回新的 Generator T
 - **THEN** 现有调用方仍收到原 `TaskOutcome` 形状，不需要解析协作字段
 
 ### Requirement: Evaluator 只能执行宿主冻结的隔离检查
-协作运行时 MUST 允许宿主为 Evaluator 注册零个或多个稳定检查 ID。Evaluator 只能提交检查 ID，MUST NOT 提交或覆盖 argv、shell 文本、工作目录、环境变量、超时或输出上限。检查 MUST 在项目临时工作副本内以无 shell 子进程执行，使用宿主冻结的参数、最小环境、固定超时和有界输出；检查结果 MUST 作为不含绝对路径和已知 secret 的结构化证据返回。未注册检查时 MUST 保持既有 Evaluator 工具集合与行为。
+协作运行时 MUST 允许宿主为 Evaluator 注册零个或多个稳定检查 ID。Evaluator 只能提交检查 ID，MUST NOT 提交或覆盖 argv、shell 文本、工作目录、环境变量、超时或输出上限。检查 MUST 在项目临时工作副本内以无 shell 子进程执行，使用宿主冻结的参数、最小环境、固定超时和有界输出；检查 worker MUST 能读取和枚举当前 Python 解释器环境以导入宿主已安装依赖，并 MUST 能读写当前平台固定的 null device 以支持测试框架捕获，但 MUST 继续拒绝项目副本和 Python 运行时之外的宿主目录枚举、其他宿主文件写入、网络与进程创建。检查结果 MUST 作为不含绝对路径和已知 secret 的结构化证据返回。未注册检查时 MUST 保持既有 Evaluator 工具集合与行为。
 
 #### Scenario: Evaluator 运行已注册检查
 - **WHEN** Evaluator 调用 `RunCheck` 并选择宿主已注册的检查 ID
 - **THEN** 运行时在临时工作副本中执行该检查的冻结 argv，并返回稳定状态、退出码、耗时和有界脱敏输出
+
+#### Scenario: 检查导入宿主已安装依赖
+- **WHEN** 宿主冻结的 Python 检查通过当前解释器导入 pytest 等已安装包及其子模块
+- **THEN** check worker 允许只读枚举当前 Python 运行时目录并正常执行检查，不把合法子模块误报为缺失
 
 #### Scenario: Evaluator 请求未知检查
 - **WHEN** Evaluator 提交不存在或未向本次协作注册的检查 ID
@@ -111,6 +115,10 @@ Evaluator 失败 SHALL 把有界、脱敏、逐项证据返回新的 Generator T
 #### Scenario: 未配置检查保持兼容
 - **WHEN** 宿主没有为本次协作注册任何检查
 - **THEN** Evaluator registry 仍只包含既有只读文件与提交验收工具，不广告 `RunCheck`
+
+#### Scenario: Python 运行时之外的宿主目录仍不可枚举
+- **WHEN** 检查代码尝试列出项目副本与当前 Python 运行时之外的宿主目录
+- **THEN** worker 返回固定的 restricted 失败且不泄露目录条目
 
 ### Requirement: 协作取消遵循可实现的有界停止语义
 协作运行时 MUST 在每个安全边界检查取消并阻止启动新的 Planner、Generator、Evaluator 或 rejection attempt。已经进入 provider、工具或宿主检查的操作 MUST 由各自冻结超时或子进程终止机制收敛；运行时 MUST NOT 声称能够异步强杀 Python 线程。取消后返回的终态报告仍按既有 HTTP 终态优先级发布。
