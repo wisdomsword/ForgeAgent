@@ -3143,7 +3143,11 @@ def test_cli_context_config_accepts_internal_json_override(monkeypatch):
     assert config.tool_result_max_tokens == 2_000
 
 
-@pytest.mark.parametrize("value", ["{", "[]"], ids=["malformed", "non-mapping"])
+@pytest.mark.parametrize(
+    "value",
+    ["{", "[]"],
+    ids=["malformed", "non-mapping"],
+)
 def test_cli_context_config_rejects_invalid_internal_json(monkeypatch, value):
     monkeypatch.setenv(cli_module._CONTEXT_CONFIG_ENVIRONMENT, value)
     monkeypatch.setattr(
@@ -3154,6 +3158,20 @@ def test_cli_context_config_rejects_invalid_internal_json(monkeypatch, value):
 
     with pytest.raises(RegistryError, match="Invalid context configuration"):
         cli_module._load_cli_context_config()
+
+
+def test_cli_context_config_converts_json_recursion_error(monkeypatch):
+    monkeypatch.setenv(cli_module._CONTEXT_CONFIG_ENVIRONMENT, "{}")
+    monkeypatch.setattr(
+        cli_module.json,
+        "loads",
+        lambda value: (_ for _ in ()).throw(RecursionError("synthetic secret")),
+    )
+
+    with pytest.raises(RegistryError, match="Invalid context configuration") as error:
+        cli_module._load_cli_context_config()
+
+    assert "synthetic secret" not in str(error.value)
 
 
 def test_main_custom_injected_model_uses_factory_without_registry_lookup():

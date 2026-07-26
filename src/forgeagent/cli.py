@@ -2026,6 +2026,8 @@ def _load_cli_context_config() -> ContextConfig:
         if not isinstance(override, Mapping):
             raise ValueError("context configuration root must be a mapping")
         return load_context_config(data=override)
+    except RecursionError:
+        raise RegistryError("Invalid context configuration: nesting is too deep") from None
     except (OSError, ValueError, yaml.YAMLError) as exc:
         raise RegistryError(f"Invalid context configuration: {exc}") from exc
 
