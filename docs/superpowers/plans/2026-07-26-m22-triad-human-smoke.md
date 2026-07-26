@@ -47,7 +47,7 @@ base-ref: 5e08c89ea70a9de83be8de0a4026ecf8f2ccbc39
 - 产出：`SmokeModels`、`SmokeConfig`、`build_forgeagent_command()`、`load_collaboration_state()`、`collaboration_failures()`。
 - 消费：现有 `.venv/bin/forgeagent` 参数契约和 `.forgeagent/collaborations/*.json` 状态格式。
 
-- [ ] **Step 1：写入按路径导入、命令组装和成功状态的失败测试**
+- [x] **Step 1：写入按路径导入、命令组装和成功状态的失败测试**
 
 在测试文件先加入以下骨架与断言；fixture 只写 `tmp_path`：
 
@@ -124,13 +124,13 @@ def test_success_state_has_no_collaboration_failures(tmp_path):
     assert smoke.collaboration_failures(state) == []
 ```
 
-- [ ] **Step 2：运行测试确认 RED**
+- [x] **Step 2：运行测试确认 RED**
 
 运行：`uv run pytest tests/test_m22_triad_human_smoke.py -v`
 
 预期：FAIL，原因是 `scripts/m22-triad-human-smoke.py` 尚不存在或接口尚未定义。
 
-- [ ] **Step 3：写入状态失败矩阵并再次确认 RED**
+- [x] **Step 3：写入状态失败矩阵并再次确认 RED**
 
 增加参数化测试，至少覆盖：零份状态、多份状态、损坏 JSON、`needs_confirmation`、`invalid_role_submission`、空 plan、非法 digest、布尔 attempts、零 attempts、空 evaluation、任一 evaluation `passed is not True`。关键断言如下：
 
@@ -182,7 +182,7 @@ def test_state_loader_rejects_invalid_json_without_echoing_content(tmp_path):
 
 预期：新增测试继续 FAIL，因为最小实现尚未完成。
 
-- [ ] **Step 4：实现最小命令与状态验收**
+- [x] **Step 4：实现最小命令与状态验收**
 
 脚本定义以下精确数据结构和常量；不引入可继承基类：
 
@@ -216,7 +216,7 @@ RunCommand = Callable[..., subprocess.CompletedProcess[str]]
 
 `build_forgeagent_command(forgeagent: Path, models: SmokeModels) -> list[str]` 必须返回设计文档中的固定参数数组；测试有意比较完整 argv，因为参数顺序、缺省开关和固定 goal 都是本冒烟入口的契约。`load_collaboration_state(workdir) -> dict[str, object]` 仅接受恰好一个非 symlink 普通 JSON 文件，使用 `json.loads()` 返回 raw dict；若 JSON root 不是 dict 或文件发现/解析失败，则抛出仅包含稳定原因的 `ValueError`。它不导入 `CollaborationState`，也不要求 fixture 补齐 `schema`、revision、model、usage、rounds 等未消费字段。`collaboration_failures(state)` 自己校验本脚本消费的稳定投影并忽略其他字段：`collaboration_id` 必须匹配 `[0-9a-f]{32}`，plan 必须是非空 list，plan item ID 必须是唯一非空字符串，`plan_digest` 只使用 `[0-9a-f]{64}` 做格式校验而不重算，attempts/rejections 使用 `type(value) is int`，evaluation ID 必须按相同顺序完整覆盖 plan，且 `type(passed) is bool and passed is True`。因此 fixture 中的 `"b" * 64` 是有意的格式样本，不代表真实 plan 哈希。
 
-- [ ] **Step 5：运行专项测试与 Ruff 确认 GREEN**
+- [x] **Step 5：运行专项测试与 Ruff 确认 GREEN**
 
 运行：
 
@@ -228,7 +228,7 @@ uv run ruff format --check scripts/m22-triad-human-smoke.py tests/test_m22_triad
 
 预期：专项测试全部 PASS，Ruff 无诊断、无需格式修改。
 
-- [ ] **Step 6：勾选 OpenSpec 1.1 并提交状态验收核心**
+- [x] **Step 6：勾选 OpenSpec 1.1 并提交状态验收核心**
 
 Task 1 尚未创建隔离目录或完成完整真实子进程入口，因此只勾选 1.1；跨 Task 1-3 的 1.2 延后到 Task 3 完整交付后勾选：
 
