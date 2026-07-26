@@ -109,6 +109,7 @@ if TYPE_CHECKING:
     from .evaluator import EvaluationRequest, EvaluatorResult
 
 DEFAULT_MODEL = "claude-sonnet-5"
+_CONTEXT_CONFIG_ENVIRONMENT = "FORGEAGENT_INTERNAL_CONTEXT_CONFIG_JSON"
 
 logger = logging.getLogger(__name__)
 
@@ -2018,7 +2019,13 @@ def print_models(console: Console, registry: Registry | None = None) -> None:
 def _load_cli_context_config() -> ContextConfig:
     """Translate context parsing failures to the CLI's existing config-error path."""
     try:
-        return load_context_config()
+        raw_override = os.environ.get(_CONTEXT_CONFIG_ENVIRONMENT)
+        if raw_override is None:
+            return load_context_config()
+        override = json.loads(raw_override)
+        if not isinstance(override, Mapping):
+            raise ValueError("context configuration root must be a mapping")
+        return load_context_config(data=override)
     except (OSError, ValueError, yaml.YAMLError) as exc:
         raise RegistryError(f"Invalid context configuration: {exc}") from exc
 

@@ -90,7 +90,9 @@ uv run --offline python scripts/m22-triad-human-smoke.py
 可通过 `FORGEAGENT_M22_MODEL`、`FORGEAGENT_M22_PLANNER_MODEL` 和
 `FORGEAGENT_M22_EVALUATOR_MODEL` 覆盖 Generator、Planner 和 Evaluator 模型。
 脚本会自动检查协作终态、生成文件、pytest 与 CLI JSON；生成代码的自动检查会在
-受限的一次性项目副本中运行，不继承 credential。无论成功或失败，现场目录都会
+受限的一次性项目副本中运行，不继承 credential。为避免用户日常的低反馈限额让
+Evaluator 只能看到截断文件，脚本仅在 ForgeAgent 子进程中固定使用 4000-token 单轮、
+2000-token 单工具反馈预算；不会修改用户配置，也不会改变模型路由或人工确认。无论成功或失败，现场目录都会
 保留在 `/tmp/forgeagent-m22-human-*`。这是人工验收冒烟测试，不是 benchmark 或 CI gate。
 
 REPL 提供 `/duo <goal>` 和 `/triad <goal>`，并复用 `/help`、completion 与历史路径。

@@ -625,10 +625,16 @@ def test_state_loader_converts_json_recursion_error_to_stable_failure(monkeypatc
     assert error.value.__cause__ is None
 
 
-def test_run_smoke_prints_stable_success_summary_and_inherits_forgeagent_stdio(tmp_path, capsys):
+def test_run_smoke_prints_stable_success_summary_and_inherits_forgeagent_stdio(
+    tmp_path, monkeypatch, capsys
+):
+    from forgeagent import cli as cli_module
+
     smoke = _load_smoke_module()
     config = _config(smoke, tmp_path)
     calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+    monkeypatch.setenv("FORGEAGENT_M22_TEST_MARKER", "preserved")
+    assert smoke._CONTEXT_CONFIG_ENVIRONMENT == cli_module._CONTEXT_CONFIG_ENVIRONMENT
 
     def fake_run(*args, **kwargs):
         calls.append((args, kwargs))
@@ -648,7 +654,18 @@ def test_run_smoke_prints_stable_success_summary_and_inherits_forgeagent_stdio(t
     assert "generator_attempts: 1" in output
     assert "evaluator_attempts: 1" in output
     assert "rejections: 0" in output
-    assert calls[0][1] == {"cwd": config.workdir, "check": False}
+    kwargs = calls[0][1]
+    assert kwargs["cwd"] == config.workdir
+    assert kwargs["check"] is False
+    assert not {"stdin", "stdout", "stderr", "capture_output"}.intersection(kwargs)
+    environment = kwargs["env"]
+    assert environment["FORGEAGENT_M22_TEST_MARKER"] == "preserved"
+    assert json.loads(environment[smoke._CONTEXT_CONFIG_ENVIRONMENT]) == {
+        "context": {
+            "round_feedback_max_tokens": 4_000,
+            "tool_result_max_tokens": 2_000,
+        }
+    }
 
 
 def test_success_summary_reports_nonnegative_rejection_count(tmp_path, capsys):

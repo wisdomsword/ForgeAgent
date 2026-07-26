@@ -3114,6 +3114,48 @@ def test_main_returns_config_error_for_initial_unresolvable_context_policy(monke
     assert "config error" in capsys.readouterr().err
 
 
+def test_cli_context_config_uses_default_loader_without_internal_override(monkeypatch):
+    from forgeagent.context import ContextConfig
+
+    expected = ContextConfig(image_token_reserve=123)
+    calls = []
+    monkeypatch.delenv(cli_module._CONTEXT_CONFIG_ENVIRONMENT, raising=False)
+
+    def fake_load_context_config(*args, **kwargs):
+        calls.append((args, kwargs))
+        return expected
+
+    monkeypatch.setattr(cli_module, "load_context_config", fake_load_context_config)
+
+    assert cli_module._load_cli_context_config() is expected
+    assert calls == [((), {})]
+
+
+def test_cli_context_config_accepts_internal_json_override(monkeypatch):
+    monkeypatch.setenv(
+        cli_module._CONTEXT_CONFIG_ENVIRONMENT,
+        '{"context":{"round_feedback_max_tokens":4000,"tool_result_max_tokens":2000}}',
+    )
+
+    config = cli_module._load_cli_context_config()
+
+    assert config.round_feedback_max_tokens == 4_000
+    assert config.tool_result_max_tokens == 2_000
+
+
+@pytest.mark.parametrize("value", ["{", "[]"], ids=["malformed", "non-mapping"])
+def test_cli_context_config_rejects_invalid_internal_json(monkeypatch, value):
+    monkeypatch.setenv(cli_module._CONTEXT_CONFIG_ENVIRONMENT, value)
+    monkeypatch.setattr(
+        cli_module,
+        "load_context_config",
+        lambda *args, **kwargs: pytest.fail("invalid JSON reached context loader"),
+    )
+
+    with pytest.raises(RegistryError, match="Invalid context configuration"):
+        cli_module._load_cli_context_config()
+
+
 def test_main_custom_injected_model_uses_factory_without_registry_lookup():
     custom_capability = ModelCapability(
         model_id="custom-model",

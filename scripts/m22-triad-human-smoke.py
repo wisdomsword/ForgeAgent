@@ -83,6 +83,17 @@ _MODEL_ENVIRONMENT_NAMES = (
     "FORGEAGENT_M22_PLANNER_MODEL",
     "FORGEAGENT_M22_EVALUATOR_MODEL",
 )
+_CONTEXT_CONFIG_ENVIRONMENT = "FORGEAGENT_INTERNAL_CONTEXT_CONFIG_JSON"
+_CONTEXT_CONFIG_JSON = json.dumps(
+    {
+        "context": {
+            "round_feedback_max_tokens": 4_000,
+            "tool_result_max_tokens": 2_000,
+        }
+    },
+    separators=(",", ":"),
+    sort_keys=True,
+)
 
 
 def _valid_model_id(value: str) -> bool:
@@ -332,10 +343,13 @@ def run_smoke(
     print(f"workdir: {config.workdir}")
     try:
         try:
+            environment = os.environ.copy()
+            environment[_CONTEXT_CONFIG_ENVIRONMENT] = _CONTEXT_CONFIG_JSON
             forgeagent_result = run(
                 build_forgeagent_command(config.forgeagent, config.models),
                 cwd=config.workdir,
                 check=False,
+                env=environment,
             )
         except (OSError, UnicodeError):
             _print_failure_summary(["ForgeAgent could not start"])

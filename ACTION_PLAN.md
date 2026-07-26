@@ -11,6 +11,7 @@
 > **P0/P1 收尾（2026-07-25）**：修复晚到取消覆盖终态 Collaboration report 的竞态，并完成 FileWrite 路径绑定、项目 Memory 跨进程更新和 Loop checkpoint revision CAS 加固；两个 change 均已归档。最终整合回归 `2093 passed, 11 skipped`、golden `20/20`、Ruff、build、OpenSpec strict `17/17`。
 > **M22 结构化提交门收尾（2026-07-25）**：Planner/Generator/Evaluator 统一为成功 Submit 即完成、缺失 Submit 一次恢复后稳定失败；新增零载荷 `SubmitCandidate`、attempt/verdict 原子边界、恢复去重和 per-collaboration `flock`，并更新真实模型提示协议。合并前复核又修复了首次并发 Store 初始化竞态，以及并发 Runner 误认领其他实例 Submit 的共享终态污染。最终回归 `2155 passed, 10 skipped`、OpenSpec 主规格 `17/17`；两次真实模型 Triad 均 completed，第二次覆盖一次 reject→修正→pass。
 > **M22 人类冒烟入口（2026-07-26）**：新增 `scripts/m22-triad-human-smoke.py` 一键真实模型 Triad 测试，保留 Planner 原生人工确认，自动验收协作终态、生成文件、pytest 与 CLI JSON；生成代码通过受限 `check_runner` 一次性副本执行。最终全量 `2219 passed, 10 skipped`、OpenSpec 主规格 `18/18`，change 已归档。
+> **M22 人类冒烟 feedback 隔离热修复（2026-07-26）**：真实运行发现用户全局 `tool_result_max_tokens=40`、`round_feedback_max_tokens=120` 会把 Evaluator 的短文件 `FileRead` 截断为约 147 字符，导致正确产物连续假拒绝。脚本现仅对子进程使用 2000/4000 feedback 预算，不修改用户配置、credential、模型路由或 Planner/FileWrite 人工确认；回归验证为 `2223 passed, 10 skipped`。
 > 调研基础：已通读 agent 核心执行链路（taskmgr → task/step → response 解析 → toolcalls → executor → runtime）、LLM 客户端层、提示词模板、配置与测试。
 
 ## 一、结论
