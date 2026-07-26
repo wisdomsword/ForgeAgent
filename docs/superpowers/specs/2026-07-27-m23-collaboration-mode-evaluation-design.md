@@ -29,7 +29,7 @@ M23 交付一个只存在于仓库评估层的可复现 harness。它在相同�
 - 外部检查的参数数组；
 - 被检查产物列表。
 
-检查器不接受任意 shell 字符串。v1 只支持参数数组形式的 `command`，以工作区为 `cwd`，固定超时，`shell=False`。协议解析拒绝绝对路径、`..`、控制字符、未知键、重复任务 ID、少于三次重复、非三模式排列和不完整 schedule。
+检查器不接受任意 shell 字符串。v1 只支持以 `{python}` 开头的参数数组，harness 将占位符转换为当前解释器并构造现有 `CheckDefinition`，通过 `check_runner.run_check` 在一次性副本和受限 worker 中执行。协议解析拒绝绝对路径、`..`、控制字符、未知键、重复任务 ID、少于三次重复、非三模式排列和不完整 schedule。
 
 ### `scripts/m23_mode_evaluation.py`
 
@@ -41,7 +41,7 @@ M23 交付一个只存在于仓库评估层的可复现 harness。它在相同�
 4. `prepare_workspace`：创建新的临时目录并写入协议夹具；拒绝任何逃逸路径。
 5. `run_single` / `run_collaboration`：仅负责组装公开对象和返回模式投影。
 6. `project_audit_metrics`：从内存 audit 事件计算调用和 usage。
-7. `run_checks` / `hash_artifacts`：执行同一模式外检查并记录有界输出和 SHA-256。
+7. `run_checks` / `hash_artifacts`：通过现有安全 check runner 执行同一模式外检查，仅记录状态、长度和 SHA-256。
 8. `write_raw_record`：同目录临时文件 + `os.replace` 原子写入。
 9. `aggregate_records` / `render_report`：只从 raw JSON 复算汇总，不读取运行时状态或模型输出。
 
@@ -116,9 +116,9 @@ repeat 3: triad, single, duo
 - 四类 token 总计、logical model calls、provider attempts、usage present/missing calls 和 missing rate；
 - end-to-end latency；
 - 被检查产物的相对路径、大小和 SHA-256；
-- 有界、脱敏的错误分类。
+- 稳定错误分类，以及检查 stdout/stderr 的长度和 SHA-256。
 
-禁止字段：goal/prompt/messages/reply/body/text/api_key/base_url/environment。检查 stdout/stderr 仅保留最多 2 KiB，并再次通过现有 secret masker；成功检查默认只存退出码和 SHA-256，不保存正文。
+禁止字段：goal/prompt/messages/reply/body/text/api_key/base_url/environment。检查 stdout/stderr 不保存正文，只记录字节数和 SHA-256。
 
 `CollectingAuditSink` 只在内存保留 `AuditEvent` 对象。Provider attempt 只统计 `llm.provider_attempt` 的 `started` 事件，避免把同一次 attempt 的开始与终态重复计数。投影后不会把原始 audit 流写入证据目录。
 
@@ -141,7 +141,7 @@ repeat 3: triad, single, duo
 - preflight 在首个模型调用前验证协议、输出目录、model capability、credential 可解析和环境清单；不打印 credential 或 base URL。
 - 单次运行异常转成稳定错误类别并仍写 raw record，然后继续后续 RunSpec；KeyboardInterrupt 保留已完成记录并退出。
 - 外部检查超时或非零退出只使该检查失败，不改变运行时原始状态。
-- aggregate 拒绝重复 RunSpec、协议/环境哈希混用、schema 错误或不完整 27 记录；可用 `--allow-incomplete` 生成带醒目标记的诊断报告，但正式 M23 报告禁止该标记。
+- aggregate 拒绝重复 RunSpec、协议/环境哈希混用、schema 错误或不完整 27 记录；中断后必须先通过幂等 `run` 补齐记录。
 
 ## 8. 测试与验收
 
