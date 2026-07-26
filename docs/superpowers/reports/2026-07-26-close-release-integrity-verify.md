@@ -29,7 +29,7 @@ PASS。T1-T4 已完成：sdist 使用显式最小 allowlist，真实发布物不
 
 | 检查 | 结果 |
 | --- | --- |
-| 完整 pytest | `2251 passed, 10 skipped in 85.74s` |
+| 完整 pytest | 分支上 `2251 passed, 10 skipped in 85.74s`；合并后复跑 `2251 passed, 10 skipped in 85.22s` |
 | 包装专项 | `3 passed` |
 | 文档合同专项 | `8 passed` |
 | 离线 golden | `20/20 passed (100.0%)` |
@@ -47,6 +47,8 @@ PASS。T1-T4 已完成：sdist 使用显式最小 allowlist，真实发布物不
 2. 反向一致性审查：确认测试不是只查少数禁止项，而是同时锁定精确根集合；确认 README 合同校验章节唯一、四个数字字段和 pass/total 一致，但不固定值；确认 delta 不新增第 19 个主规格。
 
 审查过程中曾为验证 OpenSpec 官方 `--skip-specs` 路径误执行一次提前归档；该命令未同步主规格，随后立即把目录恢复到 active change。恢复后 `comet status`、`openspec status`、git 状态与所有最终门禁均重新验证，未留下代码、主规格或状态损失。最终采用正常 Comet spec 同步路径。
+
+合并后第一次完整测试曾得到 `2250 passed, 11 skipped`；随即使用同一 cache 加 `-rs` 复跑得到 `2251 passed, 10 skipped`，10 项均为 Docker daemon/image 不可用。代码搜索确认其余动态 skip 只依赖平台能力或 loopback 瞬态，因此 README 采用可重复的最新 `2251/10`，不把一次环境瞬态改写为产品基线。
 
 ## 审查与剩余风险
 
