@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -52,6 +53,15 @@ def _write_state(workdir: Path, **overrides: object) -> Path:
     state_file = directory / f"{'a' * 32}.json"
     state_file.write_text(json.dumps(state), encoding="utf-8")
     return state_file
+
+
+def _config(smoke, workdir: Path):
+    return smoke.SmokeConfig(
+        workdir=workdir,
+        forgeagent=workdir / "forgeagent",
+        python=workdir / ".venv" / "bin" / "python",
+        models=smoke.SmokeModels("generator", "planner", "evaluator"),
+    )
 
 
 def test_build_command_preserves_triad_and_manual_stdio_contract(tmp_path):
@@ -244,3 +254,213 @@ def test_plan_ids_must_be_unique_nonempty_strings(tmp_path):
     )
     failures = smoke.collaboration_failures(smoke.load_collaboration_state(tmp_path))
     assert any("plan" in item for item in failures)
+
+
+@pytest.mark.parametrize("missing", ["calc.py", "test_calc.py"])
+def test_artifact_check_requires_each_regular_source_file(tmp_path, missing):
+    smoke = _load_smoke_module()
+    for name in {"calc.py", "test_calc.py"} - {missing}:
+        (tmp_path / name).write_text("pass\n", encoding="utf-8")
+
+    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+
+    def run(*args, **kwargs):
+        calls.append((args, kwargs))
+        return subprocess.CompletedProcess([], 0)
+
+    failures = smoke.artifact_failures(tmp_path, Path("/venv/python"), run)
+
+    assert any(missing in item for item in failures)
+    assert calls == []
+
+
+def test_artifact_check_stops_after_pytest_failure_without_reading_inherited_stdio(tmp_path):
+    smoke = _load_smoke_module()
+    (tmp_path / "calc.py").write_text("pass\n", encoding="utf-8")
+    (tmp_path / "test_calc.py").write_text("pass\n", encoding="utf-8")
+    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+
+    def run(*args, **kwargs):
+        calls.append((args, kwargs))
+        return subprocess.CompletedProcess([], 4)
+
+    failures = smoke.artifact_failures(tmp_path, Path("/venv/python"), run)
+
+    assert failures == ["pytest failed with exit code 4"]
+    assert calls == [
+        (
+            (["/venv/python", "-m", "pytest", "-q"],),
+            {"cwd": tmp_path, "check": False},
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    ("stdout", "stderr", "expected"),
+    [
+        ("[1.5, 2.5, 3.5]", "unexpected", "CLI wrote to stderr"),
+        ("not json", "", "CLI stdout is not valid JSON"),
+        ("[1.5, 2.5]", "", "[1.5, 2.5, 3.5]"),
+    ],
+)
+def test_artifact_check_rejects_invalid_cli_output(tmp_path, stdout, stderr, expected):
+    smoke = _load_smoke_module()
+    (tmp_path / "calc.py").write_text("pass\n", encoding="utf-8")
+    (tmp_path / "test_calc.py").write_text("pass\n", encoding="utf-8")
+    results = iter(
+        [
+            subprocess.CompletedProcess([], 0),
+            subprocess.CompletedProcess([], 0, stdout, stderr),
+        ]
+    )
+
+    def run(*args, **kwargs):
+        return next(results)
+
+    failures = smoke.artifact_failures(tmp_path, Path("/venv/python"), run)
+
+    assert any(expected in item for item in failures)
+
+
+def test_artifact_check_captures_only_cli_text_and_truncates_diagnostics(tmp_path):
+    smoke = _load_smoke_module()
+    (tmp_path / "calc.py").write_text("pass\n", encoding="utf-8")
+    (tmp_path / "test_calc.py").write_text("pass\n", encoding="utf-8")
+    oversized = "x" * 201
+    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+    results = iter(
+        [
+            subprocess.CompletedProcess([], 0),
+            subprocess.CompletedProcess([], 0, "[]", oversized),
+        ]
+    )
+
+    def run(*args, **kwargs):
+        calls.append((args, kwargs))
+        return next(results)
+
+    failures = smoke.artifact_failures(tmp_path, Path("/venv/python"), run)
+
+    assert any("x" * 200 in item for item in failures)
+    assert all("x" * 201 not in item for item in failures)
+    assert calls[0][1] == {"cwd": tmp_path, "check": False}
+    assert calls[1][1] == {
+        "cwd": tmp_path,
+        "check": False,
+        "capture_output": True,
+        "text": True,
+    }
+
+
+def test_run_smoke_prints_stable_success_summary_and_inherits_forgeagent_stdio(tmp_path, capsys):
+    smoke = _load_smoke_module()
+    config = _config(smoke, tmp_path)
+    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+
+    def fake_run(*args, **kwargs):
+        calls.append((args, kwargs))
+        if len(calls) == 1:
+            _write_state(tmp_path)
+            (tmp_path / "calc.py").write_text("pass\n", encoding="utf-8")
+            (tmp_path / "test_calc.py").write_text("pass\n", encoding="utf-8")
+            return subprocess.CompletedProcess(args[0], 0)
+        if len(calls) == 2:
+            return subprocess.CompletedProcess(args[0], 0)
+        return subprocess.CompletedProcess(args[0], 0, "[1.5, 2.5, 3.5]\n", "")
+
+    assert smoke.run_smoke(config, run=fake_run) == 0
+
+    output = capsys.readouterr().out
+    assert "M22 TRIAD HUMAN SMOKE: PASS" in output
+    assert f"workdir: {config.workdir}" in output
+    assert "collaboration: " + "a" * 32 in output
+    assert "generator_attempts: 1" in output
+    assert "evaluator_attempts: 1" in output
+    assert calls[0][1] == {"cwd": config.workdir, "check": False}
+
+
+@pytest.mark.parametrize(
+    "state_overrides",
+    [
+        {"status": "stopped", "phase": "stopped", "stop_reason": "needs_confirmation"},
+        {"status": "failed", "phase": "failed", "stop_reason": "invalid_role_submission"},
+    ],
+)
+def test_run_smoke_rejects_unsuccessful_state_and_always_prints_workdir(
+    tmp_path, capsys, state_overrides
+):
+    smoke = _load_smoke_module()
+    config = _config(smoke, tmp_path)
+
+    def failed_state(*args, **kwargs):
+        _write_state(tmp_path, **state_overrides)
+        return subprocess.CompletedProcess(args[0], 0)
+
+    assert smoke.run_smoke(config, run=failed_state) == 1
+    output = capsys.readouterr().out
+    assert "M22 TRIAD HUMAN SMOKE: FAIL" in output
+    assert f"workdir: {config.workdir}" in output
+    assert state_overrides["stop_reason"] in output
+
+
+def test_run_smoke_rejects_forgeagent_nonzero_and_state_discovery_errors(tmp_path, capsys):
+    smoke = _load_smoke_module()
+    config = _config(smoke, tmp_path)
+
+    def failed_forgeagent(*args, **kwargs):
+        return subprocess.CompletedProcess(args[0], 9)
+
+    assert smoke.run_smoke(config, run=failed_forgeagent) == 1
+    output = capsys.readouterr().out
+    assert "ForgeAgent failed with exit code 9" in output
+    assert "expected exactly one collaboration state" in output
+    assert f"workdir: {config.workdir}" in output
+
+
+def test_failure_summary_does_not_echo_untrusted_state_fields(tmp_path, capsys):
+    smoke = _load_smoke_module()
+    secret = "synthetic-state-secret"
+    config = _config(smoke, tmp_path)
+
+    def failed_forgeagent(*args, **kwargs):
+        _write_state(
+            tmp_path,
+            status="failed",
+            phase="failed",
+            stop_reason="invalid_role_submission",
+            plan=[
+                {
+                    "id": "moving_average",
+                    "behavior": secret,
+                    "acceptance": "Files pass.",
+                }
+            ],
+            last_evaluation=[
+                {
+                    "id": "moving_average",
+                    "passed": False,
+                    "observed": secret,
+                    "expected": "Submit through the role tool.",
+                    "location": "calc.py",
+                }
+            ],
+            api_key=secret,
+        )
+        return subprocess.CompletedProcess(args[0], 1)
+
+    assert smoke.run_smoke(config, run=failed_forgeagent) == 1
+    captured = capsys.readouterr()
+    assert secret not in captured.out
+    assert secret not in captured.err
+    assert "invalid_role_submission" in captured.out + captured.err
+
+
+def test_run_smoke_returns_130_for_keyboard_interrupt(tmp_path, capsys):
+    smoke = _load_smoke_module()
+    config = _config(smoke, tmp_path)
+
+    def interrupted(*args, **kwargs):
+        raise KeyboardInterrupt
+
+    assert smoke.run_smoke(config, run=interrupted) == 130
+    assert f"workdir: {config.workdir}" in capsys.readouterr().out

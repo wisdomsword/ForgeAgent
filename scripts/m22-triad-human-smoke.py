@@ -188,3 +188,99 @@ def _evaluation_ids(value: object, plan_ids: list[str], failures: list[str]) -> 
             failures.append("last_evaluation passed must be true")
     if evaluation_ids != plan_ids:
         failures.append("last_evaluation ids must match plan ids in order")
+
+
+def artifact_failures(workdir: Path, python: Path, run: RunCommand) -> list[str]:
+    """Validate the two generated files and their required CLI behavior."""
+    failures = [
+        f"missing regular file: {name}"
+        for name in ("calc.py", "test_calc.py")
+        if not _is_regular_file(workdir / name)
+    ]
+    if failures:
+        return failures
+
+    pytest_result = run(
+        [str(python), "-m", "pytest", "-q"],
+        cwd=workdir,
+        check=False,
+    )
+    if pytest_result.returncode != 0:
+        return [f"pytest failed with exit code {pytest_result.returncode}"]
+
+    cli_result = run(
+        [str(python), "calc.py", "[1,2,3,4]", "2"],
+        cwd=workdir,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if cli_result.returncode != 0:
+        return [f"calc.py CLI failed with exit code {cli_result.returncode}"]
+    if not isinstance(cli_result.stderr, str):
+        return ["calc.py CLI stderr was not text"]
+    if cli_result.stderr.strip():
+        return [f"CLI wrote to stderr: {_truncate(cli_result.stderr)}"]
+    if not isinstance(cli_result.stdout, str):
+        return ["calc.py CLI stdout was not text"]
+    try:
+        value = json.loads(cli_result.stdout)
+    except json.JSONDecodeError:
+        return [f"CLI stdout is not valid JSON: {_truncate(cli_result.stdout)}"]
+    if value != [1.5, 2.5, 3.5]:
+        return ["CLI JSON result is not [1.5, 2.5, 3.5]"]
+    return []
+
+
+def run_smoke(config: SmokeConfig, run: RunCommand = subprocess.run) -> int:
+    """Run the manual Triad smoke test and print a stable, safe summary."""
+    print(f"workdir: {config.workdir}")
+    try:
+        forgeagent_result = run(
+            build_forgeagent_command(config.forgeagent, config.models),
+            cwd=config.workdir,
+            check=False,
+        )
+        failures: list[str] = []
+        try:
+            state = load_collaboration_state(config.workdir)
+        except ValueError as error:
+            state = None
+            failures.append(f"state: {error}")
+
+        if forgeagent_result.returncode != 0:
+            failures.append(f"ForgeAgent failed with exit code {forgeagent_result.returncode}")
+        if state is not None:
+            failures.extend(collaboration_failures(state))
+        if not failures:
+            failures.extend(artifact_failures(config.workdir, config.python, run))
+        if failures:
+            _print_failure_summary(failures)
+            return 1
+
+        _print_success_summary(state)
+        return 0
+    except KeyboardInterrupt:
+        print("M22 TRIAD HUMAN SMOKE: INTERRUPTED")
+        return 130
+
+
+def _is_regular_file(path: Path) -> bool:
+    return not path.is_symlink() and path.is_file()
+
+
+def _truncate(value: str) -> str:
+    return value[:200]
+
+
+def _print_failure_summary(failures: list[str]) -> None:
+    print("M22 TRIAD HUMAN SMOKE: FAIL")
+    for failure in failures:
+        print(f"failure: {failure}")
+
+
+def _print_success_summary(state: dict[str, object]) -> None:
+    print("M22 TRIAD HUMAN SMOKE: PASS")
+    print(f"collaboration: {state['collaboration_id']}")
+    print(f"generator_attempts: {state['generator_attempts']}")
+    print(f"evaluator_attempts: {state['evaluator_attempts']}")
