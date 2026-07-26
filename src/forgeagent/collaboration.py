@@ -1270,6 +1270,9 @@ _GENERATOR_PROMPT = (
     'completion tool exactly as <!-- ToolCall: {"name":"SubmitCandidate","arguments":{}} -->. '
     "SubmitCandidate does not create or validate artifacts. For file tasks, use FileWrite "
     "before SubmitCandidate and submit only after every required write reports success. "
+    "If a required file is not yet present, do not submit; successfully "
+    "create it with FileWrite first. For a file-creation task, SubmitCandidate cannot be the "
+    "first or only tool call. "
     "If any required FileWrite or Exec call fails, do not call SubmitCandidate in that response; "
     "use the tool feedback to correct the work in the next round. When verification needs Exec, "
     "prefer its inline code argument instead of an unmarked fenced block. Match literal output "
@@ -1282,6 +1285,13 @@ _GENERATOR_PROMPT = (
     "Do not substitute prose or task_status. A successful SubmitCandidate ends this role "
     "immediately. Under restricted execution, do not repeatedly retry merely because Exec "
     "cannot observe a file written by FileWrite."
+)
+_GENERATOR_REJECTION_PROMPT = (
+    " This is a rejection-correction attempt. Treat every failed evaluation item in the task "
+    "data as mandatory correction input. Do not resubmit an unchanged candidate. Perform a "
+    "substantive artifact correction before SubmitCandidate; SubmitCandidate must not be your "
+    "first or only tool call. If the evaluation reports that a "
+    "required file is missing, successfully call FileWrite for that file before submitting."
 )
 _EVALUATOR_PROMPT = (
     "You are the Evaluator. Inspect only externally observable artifacts, do not modify them, "
@@ -1666,7 +1676,7 @@ class CollaborationRunner:
                         "generator",
                         generator_state.generator_attempts + 1,
                         registry,
-                        _GENERATOR_PROMPT,
+                        _GENERATOR_PROMPT + (_GENERATOR_REJECTION_PROMPT if rejection else ""),
                         _role_task_data(generator_state, rejection, self._task_data_suffix),
                         cancel_event,
                     )

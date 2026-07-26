@@ -334,6 +334,9 @@ def test_collaboration_role_prompts_explain_their_text_protocol(tmp_path: Path):
     assert "Do not substitute prose or task_status" in prompts["generator"]
     assert "SubmitCandidate does not create or validate artifacts" in prompts["generator"]
     assert "use FileWrite before SubmitCandidate" in prompts["generator"]
+    assert "required file is not yet present" in prompts["generator"]
+    assert "successfully create it with FileWrite first" in prompts["generator"]
+    assert "SubmitCandidate cannot be the first or only tool call" in prompts["generator"]
     assert "do not call SubmitCandidate in that response" in prompts["generator"]
     assert (
         "Optional verification failure does not invalidate successful writes"

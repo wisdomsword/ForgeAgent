@@ -188,6 +188,13 @@ def test_duo_rejects_then_uses_fresh_generator_and_passes(tmp_path: Path):
     assert retry_data["goal"] == "write PRIVATE_GOAL artifact"
     assert retry_data["rejection"][0]["observed"] == "observed"
     assert retry_data["plan_digest"]
+    generator_prompts = [prompt for role, _attempt, prompt in builder.calls if role == "generator"]
+    assert "rejection-correction attempt" not in generator_prompts[0]
+    assert "rejection-correction attempt" in generator_prompts[1]
+    assert "Do not resubmit an unchanged candidate" in generator_prompts[1]
+    assert "SubmitCandidate must not be your first or only tool call" in generator_prompts[1]
+    assert "reports that a required file is missing" in generator_prompts[1]
+    assert "successfully call FileWrite for that file" in generator_prompts[1]
 
 
 @pytest.mark.parametrize("target_role", ["generator", "evaluator"])
