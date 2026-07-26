@@ -51,8 +51,9 @@ def test_readme_documents_m22_candidate_readiness_without_weakening_confirmation
 
     action_plan = _text("ACTION_PLAN.md")
     assert "M22 Candidate 文件就绪门" in action_plan
-    assert "仍需用户在真实 TTY" in action_plan
-    assert "uv run --offline python scripts/m22-triad-human-smoke.py" in action_plan
+    assert "M22 TRIAD HUMAN SMOKE: PASS" in action_plan
+    assert "8/8 验收项通过" in action_plan
+    assert "0 rejection" in action_plan
 
 
 def test_protocol_documents_collaboration_schema_authority_and_safe_report() -> None:
