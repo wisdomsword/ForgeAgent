@@ -1,0 +1,14 @@
+{
+  "change": "add-m22-triad-human-smoke",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "4aeb28d1db1f2260cd102c2dc4975f76715a31bae57022d3baad7f654d4512a1",
+  "files": [
+    { "path": "openspec/changes/add-m22-triad-human-smoke/proposal.md", "sha256": "cb5486d8e5572c15c2655b9e824875fe3ab38dae62025e78515ab4ce75d0b32d" },
+    { "path": "openspec/changes/add-m22-triad-human-smoke/design.md", "sha256": "d6fee17704fd7cac9c35a573494f5468d15a42ce803be8827fbc4d8dde65f7e4" },
+    { "path": "openspec/changes/add-m22-triad-human-smoke/tasks.md", "sha256": "62396233ac6511cd03b4d61e73be3f699a3219747b532b93cd29d29cef626bcf" },
+    { "path": "openspec/changes/add-m22-triad-human-smoke/specs/triad-human-smoke/spec.md", "sha256": "af92b696ce6daf50f6e89b86dbc4aa5bc8f5c397153f931f4dbb53d84d3d752f" }
+  ]
+}
