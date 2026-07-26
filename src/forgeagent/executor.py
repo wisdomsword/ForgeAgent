@@ -181,8 +181,9 @@ def _result_from_frame(frame: dict, state_store: dict, runtime: Runtime) -> Exec
 class RestrictedBackend(ExecutorBackend):
     """Per-block subprocess backend with app-layer limits (restricted tier).
 
-    Each execute() spawns a fresh `python -m forgeagent._sandbox_worker`, which installs
-    an audit hook (path whitelist + network deny) and rlimits before running the code.
+    Each execute() spawns a fresh `python -I -m forgeagent._sandbox_worker`, which uses
+    isolated module resolution, then installs an audit hook (path whitelist + network
+    deny) and rlimits before running the code.
     A hard timeout kills a runaway block (SIGKILL) without losing the main process's
     accumulated cross-block state. State crosses as JSON only.
     """
@@ -224,7 +225,7 @@ class RestrictedBackend(ExecutorBackend):
         )
         try:
             proc = subprocess.run(
-                [sys.executable, "-m", "forgeagent._sandbox_worker"],
+                [sys.executable, "-I", "-m", "forgeagent._sandbox_worker"],
                 input=payload,
                 capture_output=True,
                 text=True,

@@ -1,6 +1,6 @@
 """Unit tests for RestrictedBackend (M4-2).
 
-These spawn REAL subprocesses (python -m forgeagent._sandbox_worker) against a temp
+These spawn REAL subprocesses (python -I -m forgeagent._sandbox_worker) against a temp
 allowed_root. No network, no real secrets — the "outside" file is a temp file the test
 creates outside allowed_root. Slower than in-process tests but this is the security
 boundary, so it must be exercised for real.
@@ -27,6 +27,34 @@ def test_normal_code_runs_in_subprocess(tmp_path):
     result = _backend(tmp_path).execute("print('hello from subprocess')", Runtime())
     assert result.success is True
     assert result.stdout.strip() == "hello from subprocess"
+
+
+def test_worker_bootstrap_ignores_shadow_forgeagent_package(tmp_path, monkeypatch):
+    shadow_package = tmp_path / "forgeagent"
+    shadow_package.mkdir()
+    (shadow_package / "__init__.py").write_text("")
+    worker_marker = tmp_path / "shadow-worker-ran"
+    runtime_marker = tmp_path / "shadow-runtime-ran"
+    (shadow_package / "runtime.py").write_text(
+        f"from pathlib import Path\nPath({str(runtime_marker)!r}).write_text('ran')\n"
+    )
+    (shadow_package / "_sandbox_worker.py").write_text(
+        "import json\n"
+        "from pathlib import Path\n"
+        "from forgeagent import runtime\n"
+        f"Path({str(worker_marker)!r}).write_text('ran')\n"
+        "print(json.dumps({'success': True, 'stdout': 'shadow worker', 'stderr': '', "
+        "'error': None, 'state': {}, 'dropped_state_keys': []}))\n"
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PYTHONPATH", str(tmp_path))
+
+    result = _backend(tmp_path).execute("print('installed worker')", Runtime())
+
+    assert result.success is True
+    assert result.stdout.strip() == "installed worker"
+    assert not worker_marker.exists()
+    assert not runtime_marker.exists()
 
 
 def test_cross_block_state_json_roundtrip(tmp_path):
