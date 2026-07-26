@@ -2,5 +2,6 @@
   "openspec_proposal": "openspec/changes/close-release-integrity/proposal.md",
   "openspec_design": "openspec/changes/close-release-integrity/design.md",
   "openspec_tasks": "openspec/changes/close-release-integrity/tasks.md",
-  "openspec_delta_spec": "openspec/changes/close-release-integrity/specs/release-integrity/spec.md"
+  "openspec_delta_spec": "openspec/changes/close-release-integrity/specs/release-integrity/spec.md",
+  "archive_directory": "openspec/changes/archive/2026-07-26-close-release-integrity"
 }
