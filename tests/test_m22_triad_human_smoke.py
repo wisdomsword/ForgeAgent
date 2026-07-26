@@ -108,6 +108,25 @@ def test_invalid_role_submission_is_reported_explicitly(tmp_path):
     assert any("invalid_role_submission" in item for item in failures)
 
 
+@pytest.mark.parametrize(
+    ("overrides", "expected"),
+    [
+        ({"status": "synthetic-status-secret"}, "status is not completed: invalid"),
+        ({"phase": "synthetic-phase-secret"}, "phase is not completed: invalid"),
+        (
+            {"stop_reason": "synthetic-stop-reason-secret"},
+            "stop_reason is not completed: invalid",
+        ),
+    ],
+)
+def test_unknown_lifecycle_values_are_not_echoed_in_failures(tmp_path, overrides, expected):
+    smoke = _load_smoke_module()
+    _write_state(tmp_path, **overrides)
+    failures = smoke.collaboration_failures(smoke.load_collaboration_state(tmp_path))
+    assert expected in failures
+    assert "synthetic-" not in "\n".join(failures)
+
+
 def test_boolean_attempt_is_not_accepted_as_integer(tmp_path):
     smoke = _load_smoke_module()
     _write_state(tmp_path, generator_attempts=True)
@@ -144,6 +163,44 @@ def test_state_discovery_requires_exactly_one_regular_json(tmp_path):
         smoke.load_collaboration_state(tmp_path)
 
 
+def test_state_discovery_ignores_symlink_candidate(tmp_path):
+    smoke = _load_smoke_module()
+    state_file = _write_state(tmp_path)
+    target = tmp_path / "state-target.json"
+    state_file.replace(target)
+    state_file.symlink_to(target)
+    with pytest.raises(ValueError, match="exactly one collaboration state"):
+        smoke.load_collaboration_state(tmp_path)
+
+
+def test_state_loader_hides_discovery_error(monkeypatch, tmp_path):
+    smoke = _load_smoke_module()
+
+    def fail_glob(self, pattern):
+        raise OSError("synthetic-discovery-secret")
+
+    monkeypatch.setattr(Path, "glob", fail_glob)
+    with pytest.raises(ValueError, match="could not discover collaboration state") as error:
+        smoke.load_collaboration_state(tmp_path)
+    assert error.value.__cause__ is None
+
+
+def test_state_loader_hides_read_error(monkeypatch, tmp_path):
+    smoke = _load_smoke_module()
+    state_file = _write_state(tmp_path)
+    original_read_text = Path.read_text
+
+    def fail_state_read(self, *args, **kwargs):
+        if self == state_file:
+            raise OSError("synthetic-read-secret")
+        return original_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", fail_state_read)
+    with pytest.raises(ValueError, match="invalid collaboration state JSON") as error:
+        smoke.load_collaboration_state(tmp_path)
+    assert error.value.__cause__ is None
+
+
 def test_state_loader_rejects_invalid_json_without_echoing_content(tmp_path):
     smoke = _load_smoke_module()
     secret = "synthetic-state-secret"
@@ -152,14 +209,16 @@ def test_state_loader_rejects_invalid_json_without_echoing_content(tmp_path):
     with pytest.raises(ValueError, match="invalid collaboration state JSON") as error:
         smoke.load_collaboration_state(tmp_path)
     assert secret not in str(error.value)
+    assert error.value.__cause__ is None
 
 
 def test_state_loader_rejects_non_object_json(tmp_path):
     smoke = _load_smoke_module()
     state_file = _write_state(tmp_path)
     state_file.write_text("[]", encoding="utf-8")
-    with pytest.raises(ValueError, match="invalid collaboration state JSON"):
+    with pytest.raises(ValueError, match="invalid collaboration state JSON") as error:
         smoke.load_collaboration_state(tmp_path)
+    assert error.value.__cause__ is None
 
 
 def test_plan_and_evaluation_ids_must_match_in_order(tmp_path):

@@ -36,6 +36,31 @@ RunCommand = Callable[..., subprocess.CompletedProcess[str]]
 
 _COLLABORATION_ID = re.compile(r"^[0-9a-f]{32}$")
 _PLAN_DIGEST = re.compile(r"^[0-9a-f]{64}$")
+_STATUSES = frozenset({"active", "completed", "stopped", "cancelled", "failed"})
+_PHASES = frozenset(
+    {
+        "planning",
+        "needs_confirmation",
+        "generator",
+        "evaluator",
+        "completed",
+        "stopped",
+        "cancelled",
+        "failed",
+    }
+)
+_STOP_REASONS = frozenset(
+    {
+        "completed",
+        "needs_confirmation",
+        "rejection_limit",
+        "cancelled",
+        "state_failure",
+        "unrecoverable_failure",
+        "invalid_role_submission",
+        "role_failed",
+    }
+)
 
 
 def build_forgeagent_command(forgeagent: Path, models: SmokeModels) -> list[str]:
@@ -68,17 +93,17 @@ def load_collaboration_state(workdir: Path) -> dict[str, object]:
         candidates = [
             path for path in directory.glob("*.json") if not path.is_symlink() and path.is_file()
         ]
-    except OSError as error:
-        raise ValueError("could not discover collaboration state") from error
+    except OSError:
+        raise ValueError("could not discover collaboration state") from None
     if len(candidates) != 1:
         raise ValueError("expected exactly one collaboration state")
 
     try:
         value = json.loads(candidates[0].read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as error:
-        raise ValueError("invalid collaboration state JSON") from error
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        raise ValueError("invalid collaboration state JSON") from None
     if not isinstance(value, dict):
-        raise ValueError("invalid collaboration state JSON")
+        raise ValueError("invalid collaboration state JSON") from None
     return value
 
 
@@ -90,11 +115,14 @@ def collaboration_failures(state: dict[str, object]) -> list[str]:
     if state.get("mode") != "triad":
         failures.append("mode is not triad")
     if state.get("status") != "completed":
-        failures.append(f"status is not completed: {_stable_value(state.get('status'))}")
+        failures.append(f"status is not completed: {_stable_value(state.get('status'), _STATUSES)}")
     if state.get("phase") != "completed":
-        failures.append(f"phase is not completed: {_stable_value(state.get('phase'))}")
+        failures.append(f"phase is not completed: {_stable_value(state.get('phase'), _PHASES)}")
     if state.get("stop_reason") != "completed":
-        failures.append(f"stop_reason is not completed: {_stable_value(state.get('stop_reason'))}")
+        failures.append(
+            "stop_reason is not completed: "
+            f"{_stable_value(state.get('stop_reason'), _STOP_REASONS)}"
+        )
 
     plan_ids = _plan_ids(state.get("plan"), failures)
     if not _is_string_matching(state.get("plan_digest"), _PLAN_DIGEST):
@@ -110,8 +138,8 @@ def _is_string_matching(value: object, pattern: re.Pattern[str]) -> bool:
     return type(value) is str and pattern.fullmatch(value) is not None
 
 
-def _stable_value(value: object) -> str:
-    return value if type(value) is str else "invalid"
+def _stable_value(value: object, allowed: frozenset[str]) -> str:
+    return value if type(value) is str and value in allowed else "invalid"
 
 
 def _plan_ids(value: object, failures: list[str]) -> list[str]:
