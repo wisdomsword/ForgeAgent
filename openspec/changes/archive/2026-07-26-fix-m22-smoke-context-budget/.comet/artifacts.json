@@ -2,5 +2,6 @@
   "openspec_proposal": "openspec/changes/fix-m22-smoke-context-budget/proposal.md",
   "openspec_design": "openspec/changes/fix-m22-smoke-context-budget/design.md",
   "openspec_tasks": "openspec/changes/fix-m22-smoke-context-budget/tasks.md",
-  "openspec_delta_spec": "openspec/changes/fix-m22-smoke-context-budget/specs/triad-human-smoke/spec.md"
+  "openspec_delta_spec": "openspec/changes/fix-m22-smoke-context-budget/specs/triad-human-smoke/spec.md",
+  "archive_directory": "openspec/changes/archive/2026-07-26-fix-m22-smoke-context-budget"
 }
