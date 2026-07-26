@@ -2,6 +2,8 @@
 comet_change: enforce-candidate-artifact-readiness
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-07-26-enforce-candidate-artifact-readiness
+status: final
 ---
 
 # Candidate Artifact Readiness 技术设计

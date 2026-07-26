@@ -2,6 +2,7 @@
 change: enforce-candidate-artifact-readiness
 design-doc: docs/superpowers/specs/2026-07-26-candidate-artifact-readiness-design.md
 base-ref: c41cfa03b162b05c344f6cda7109dcc9a16e6b57
+archived-with: 2026-07-26-enforce-candidate-artifact-readiness
 ---
 
 # Candidate Artifact Readiness Implementation Plan
@@ -36,8 +37,6 @@ base-ref: c41cfa03b162b05c344f6cda7109dcc9a16e6b57
 | `tests/test_cli.py` | 私有环境缺省、合法、非法和 CLI 接线合同 |
 | `tests/test_m22_triad_human_smoke.py` | M22 子进程环境与人工 stdio 继承合同 |
 | `README.md`, `ACTION_PLAN.md`, `tests/test_collaboration_docs.py` | 用户边界、复测方式和静态文档合同 |
-
----
 
 ### Task 1: Candidate 文件名合同与安全就绪门
 
