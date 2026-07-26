@@ -3,15 +3,15 @@
 - Change: `add-m22-triad-human-smoke`
 - Review mode: `standard`
 - TDD mode: `tdd`
-- Current task: `Task 1：以 TDD 建立命令与协作状态验收`
-- OpenSpec mapping: `1.1 以 TDD 增加脚本导入、命令组装、成功状态解析、人工计划拒绝和 ForgeAgent 失败回归`
+- Current task: `Task 2：以 TDD 增加产物验收与完整运行摘要`
+- OpenSpec mapping: `2.1 以 TDD 增加缺文件、pytest 失败和 CLI JSON 不匹配回归`; `2.2 实现文件、pytest 与 moving-average CLI 输出验收，并打印最终摘要`
 - Stage: `done`
-- Base commit: `0a08050b60844d77aa664f2d613f47fc90bf3627`
-- Implementer: `/root/m22_task1_impl` (`DONE`)
-- Implementation commit: `e6c7da6 feat: add M22 Triad smoke state checks`
+- Base commit: `550b260e11e708e58658be5a0463e8e881d4d37d`
+- Implementer: `/root/m22_task2_impl` (`DONE`)
+- Implementation commit: `e2c0aac test: validate M22 Triad smoke artifacts`
 - Changed files: `scripts/m22-triad-human-smoke.py`, `tests/test_m22_triad_human_smoke.py`
-- RED evidence: `uv run pytest tests/test_m22_triad_human_smoke.py -v` -> 16 failed because the script did not exist
-- GREEN evidence: focused pytest -> 16 passed; Ruff check and format check passed
-- Risk review: required (`外部输入状态 JSON`)
+- RED evidence: 13 new tests failed because `artifact_failures` and `run_smoke` were undefined
+- GREEN evidence: focused pytest 35 passed; Ruff check and format check passed
+- Risk review: required (`生成代码执行`, `外部 CLI/状态输出处理`)
 - Review/fix round: `1/1`
 - Open findings: none; task review approved after one fix round.

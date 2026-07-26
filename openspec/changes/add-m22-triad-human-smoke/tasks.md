@@ -5,8 +5,8 @@
 
 ## 2. 产物验收
 
-- [ ] 2.1 以 TDD 增加缺文件、pytest 失败和 CLI JSON 不匹配回归
-- [ ] 2.2 实现文件、pytest 与 moving-average CLI 输出验收，并打印最终摘要
+- [x] 2.1 以 TDD 增加缺文件、pytest 失败和 CLI JSON 不匹配回归
+- [x] 2.2 实现文件、pytest 与 moving-average CLI 输出验收，并打印最终摘要
 
 ## 3. 文档与验证
 

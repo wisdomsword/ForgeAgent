@@ -249,7 +249,7 @@ git commit -m "feat: add M22 Triad smoke state checks"
 - 消费：Task 1 的 `SmokeConfig`、状态加载和失败列表。
 - 产出：`artifact_failures()`、`run_smoke()` 和稳定 PASS/FAIL 摘要。
 
-- [ ] **Step 1：写入 fake runner 与产物失败测试**
+- [x] **Step 1：写入 fake runner 与产物失败测试**
 
 测试 runner 必须记录 `args`、`cwd` 以及可选的 `capture_output`、`text`，并返回 `subprocess.CompletedProcess`。pytest 调用继承终端输出，所以其 CompletedProcess 的 stdout/stderr 可以是 `None`；只有 CLI 调用要求捕获文本。至少加入：缺 `calc.py`、缺 `test_calc.py`、pytest 非零、CLI stderr 非空、CLI stdout 非 JSON、JSON 值错误。示例：
 
@@ -270,13 +270,13 @@ def test_artifact_check_rejects_wrong_cli_json(tmp_path):
     assert any("[1.5, 2.5, 3.5]" in item for item in failures)
 ```
 
-- [ ] **Step 2：运行新增测试确认 RED**
+- [x] **Step 2：运行新增测试确认 RED**
 
 运行：`uv run pytest tests/test_m22_triad_human_smoke.py -v`
 
 预期：FAIL，原因是 `artifact_failures()` 尚未定义。
 
-- [ ] **Step 3：实现普通文件、pytest 与 CLI JSON 验收**
+- [x] **Step 3：实现普通文件、pytest 与 CLI JSON 验收**
 
 `artifact_failures(workdir, python, run)` 按顺序：
 
@@ -293,7 +293,7 @@ cli_result = run(
 
 只有两个文件均为非 symlink 普通文件时运行命令；pytest 失败后不运行 CLI。pytest 失败诊断只引用 exit code，不读取或截断其 `stdout`/`stderr`，因此继承 stdio 产生的 `None` 不会触发字符串操作。CLI 要求 `returncode == 0`、`isinstance(stderr, str)`、`stderr.strip() == ""`、`isinstance(stdout, str)` 且 `json.loads(stdout) == [1.5, 2.5, 3.5]`；只有 CLI 的字符串 stdout/stderr 才会在诊断中截断到 200 个字符。
 
-- [ ] **Step 4：写入 `run_smoke()` 成功、人工计划拒绝和 ForgeAgent 非零测试**
+- [x] **Step 4：写入 `run_smoke()` 成功、人工计划拒绝和 ForgeAgent 非零测试**
 
 成功 fake runner 的第一次调用在 `cwd` 下写入单份成功状态、`calc.py` 和 `test_calc.py`；后两次分别模拟 pytest 与 CLI。断言：
 
@@ -346,7 +346,7 @@ def test_failure_summary_does_not_echo_untrusted_state_fields(tmp_path, capsys):
 
 ForgeAgent 调用必须使用继承 stdio：调用 kwargs 只能包含 `cwd=config.workdir` 和 `check=False`，不得含 `input`、`capture_output`、`stdin`、`stdout` 或 `stderr`。
 
-- [ ] **Step 5：实现 `run_smoke()` 最小控制流并确认 GREEN**
+- [x] **Step 5：实现 `run_smoke()` 最小控制流并确认 GREEN**
 
 实现顺序固定为：打印 workdir → 运行 ForgeAgent → 尝试加载状态 → 若进程非零或状态失败则打印有界失败 → 状态成功才验收产物 → 打印摘要。捕获 `KeyboardInterrupt` 并返回 130；不捕获 `BaseException`，不删除工作目录。
 
@@ -360,7 +360,7 @@ uv run ruff format --check scripts/m22-triad-human-smoke.py tests/test_m22_triad
 
 预期：全部 PASS。
 
-- [ ] **Step 6：勾选 OpenSpec 2.1 和 2.2 并提交**
+- [x] **Step 6：勾选 OpenSpec 2.1 和 2.2 并提交**
 
 ```bash
 rtk node .agents/skills/comet/scripts/comet-state.mjs task-checkoff openspec/changes/add-m22-triad-human-smoke/tasks.md "2.1 以 TDD 增加缺文件、pytest 失败和 CLI JSON 不匹配回归"
