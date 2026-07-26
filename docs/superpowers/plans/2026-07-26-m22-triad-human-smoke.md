@@ -379,7 +379,7 @@ git commit -m "test: validate M22 Triad smoke artifacts"
 - 消费：Task 1/2 的 `SmokeModels`、`SmokeConfig` 和 `run_smoke()`。
 - 产出：`models_from_environment()`、`main() -> int` 与脚本 `__main__` 入口。
 
-- [ ] **Step 1：写入非 TTY、非法模型和缺可执行文件的失败测试**
+- [x] **Step 1：写入非 TTY、非法模型和缺可执行文件的失败测试**
 
 `test_main_rejects_non_tty_before_creating_workdir` 同时 monkeypatch `tempfile.mkdtemp` 为一旦调用就抛错，证明非 TTY 在目录创建前结束。另加环境变量值 `""`、包含 `\n`、长度 501，以及缺 `.venv/bin/forgeagent`/`.venv/bin/python` 测试。非 TTY 断言：
 
@@ -391,13 +391,13 @@ assert smoke.main() == 2
 assert "interactive terminal" in capsys.readouterr().err
 ```
 
-- [ ] **Step 2：运行入口测试确认 RED**
+- [x] **Step 2：运行入口测试确认 RED**
 
 运行：`uv run pytest tests/test_m22_triad_human_smoke.py -v`
 
 预期：FAIL，原因是 `main()` 或环境预检尚未实现。
 
-- [ ] **Step 3：实现模型读取和入口预检**
+- [x] **Step 3：实现模型读取和入口预检**
 
 默认值固定为设计值。`_valid_model_id(value)` 要求 `0 < len(value) <= 500` 且 `unicodedata.category(character)` 不以 `C` 开头；环境变量已存在但为空时不得回退默认值。`main()` 顺序必须是：TTY → 模型 → 两个 executable 的 `is_file()` 与 `os.access(path, os.X_OK)` → `mkdtemp(prefix="forgeagent-m22-human-", dir="/tmp")` → `SmokeConfig` → `run_smoke()`。虚拟环境 executable 允许是 symlink；状态 JSON 和生成产物仍拒绝 symlink。
 
@@ -410,7 +410,7 @@ if __name__ == "__main__":
 
 不增加 argparse 或命令行选项。
 
-- [ ] **Step 4：写入交互成功入口测试并确认 GREEN**
+- [x] **Step 4：写入交互成功入口测试并确认 GREEN**
 
 monkeypatch 两个 TTY 为真、三个模型环境变量、`Path` 检查与 `mkdtemp`，将 `run_smoke` 替换为记录 config 的 stub。断言 env 覆盖准确传入、workdir 前缀为 `forgeagent-m22-human-`、返回值透传。
 
@@ -424,7 +424,7 @@ uv run ruff format --check scripts/m22-triad-human-smoke.py tests/test_m22_triad
 
 预期：全部 PASS；测试调用记录中没有真实 `.venv/bin/forgeagent` 进程。
 
-- [ ] **Step 5：勾选跨任务 OpenSpec 1.2 并提交完整交互入口**
+- [x] **Step 5：勾选跨任务 OpenSpec 1.2 并提交完整交互入口**
 
 ```bash
 rtk node .agents/skills/comet/scripts/comet-state.mjs task-checkoff openspec/changes/add-m22-triad-human-smoke/tasks.md "1.2 实现隔离目录、真实 Triad 子进程、状态读取与稳定诊断"

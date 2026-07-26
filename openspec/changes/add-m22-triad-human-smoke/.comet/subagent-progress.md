@@ -3,15 +3,15 @@
 - Change: `add-m22-triad-human-smoke`
 - Review mode: `standard`
 - TDD mode: `tdd`
-- Current task: `Task 2：以 TDD 增加产物验收与完整运行摘要`
-- OpenSpec mapping: `2.1 以 TDD 增加缺文件、pytest 失败和 CLI JSON 不匹配回归`; `2.2 实现文件、pytest 与 moving-average CLI 输出验收，并打印最终摘要`
+- Current task: `Task 3：以 TDD 完成交互预检、模型覆盖和一键入口`
+- OpenSpec mapping: `1.2 实现隔离目录、真实 Triad 子进程、状态读取与稳定诊断`
 - Stage: `done`
-- Base commit: `550b260e11e708e58658be5a0463e8e881d4d37d`
-- Implementer: `/root/m22_task2_impl` (`DONE`)
-- Implementation commit: `e2c0aac test: validate M22 Triad smoke artifacts`
+- Base commit: `d66c1ef6f9023111f51adf1ce47d1944bfb918e6`
+- Implementer: `/root/m22_task3_impl` (`DONE`)
+- Implementation commit: `10df3a7 feat: add interactive M22 Triad smoke entry`
 - Changed files: `scripts/m22-triad-human-smoke.py`, `tests/test_m22_triad_human_smoke.py`
-- RED evidence: 13 new tests failed because `artifact_failures` and `run_smoke` were undefined
-- GREEN evidence: focused pytest 35 passed; Ruff check and format check passed
-- Risk review: required (`生成代码执行`, `外部 CLI/状态输出处理`)
-- Review/fix round: `1/1`
-- Open findings: none; task review approved after one fix round.
+- RED evidence: 8 new entry/preflight tests failed because entry APIs were absent
+- GREEN evidence: focused pytest 48 passed; Ruff check, format check and diff check passed
+- Risk review: required (`环境配置/凭证继承`, `真实模型子进程启动`)
+- Review/fix round: `0/1`
+- Open findings: none. Accepted residual test gaps: shared model-validation loop makes per-variable duplication low value; real venv symlink is covered by final environment/human execution boundary.
