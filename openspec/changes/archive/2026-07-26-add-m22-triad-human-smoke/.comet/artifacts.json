@@ -4,5 +4,6 @@
   "openspec_tasks": "openspec/changes/add-m22-triad-human-smoke/tasks.md",
   "openspec_delta_spec": "openspec/changes/add-m22-triad-human-smoke/specs/triad-human-smoke/spec.md",
   "handoff_context": "openspec/changes/add-m22-triad-human-smoke/.comet/handoff/design-context.json",
-  "handoff_markdown": "openspec/changes/add-m22-triad-human-smoke/.comet/handoff/design-context.md"
+  "handoff_markdown": "openspec/changes/add-m22-triad-human-smoke/.comet/handoff/design-context.md",
+  "archive_directory": "openspec/changes/archive/2026-07-26-add-m22-triad-human-smoke"
 }

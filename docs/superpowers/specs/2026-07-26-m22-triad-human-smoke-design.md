@@ -2,6 +2,8 @@
 comet_change: add-m22-triad-human-smoke
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-07-26-add-m22-triad-human-smoke
+status: final
 ---
 
 # M22 Triad 人类冒烟测试技术设计
@@ -127,3 +129,4 @@ README 在 M22 Duo/Triad 说明附近记录一键命令，并明确：
 - 状态发现仅限脚本新建的隔离目录，并沿用运行时的 256 KiB 状态大小上限。
 - 状态详情只投影稳定计数器，不打印不可信的计划或证据文本。
 - 模型生成的 pytest 与 CLI 只在 `check_runner` 的一次性副本和受限 worker 中执行，不继承 credential，也不能访问宿主路径、网络或创建子进程。
+

@@ -2,6 +2,7 @@
 change: add-m22-triad-human-smoke
 design-doc: docs/superpowers/specs/2026-07-26-m22-triad-human-smoke-design.md
 base-ref: 5e08c89ea70a9de83be8de0a4026ecf8f2ccbc39
+archived-with: 2026-07-26-add-m22-triad-human-smoke
 ---
 
 # M22 Triad 人类冒烟测试实施计划
@@ -34,6 +35,7 @@ base-ref: 5e08c89ea70a9de83be8de0a4026ecf8f2ccbc39
 | `README.md` | 真实模型一键命令、人工确认、费用、模型覆盖和现场保留说明。 |
 | `openspec/changes/add-m22-triad-human-smoke/tasks.md` | 每个任务通过后定向勾选 OpenSpec 实施项。 |
 
+archived-with: 2026-07-26-add-m22-triad-human-smoke
 ---
 
 ### Task 1：以 TDD 建立命令与协作状态验收
@@ -513,3 +515,4 @@ git commit -m "docs: add M22 Triad human smoke guide"
 ```
 
 提交后再次运行 `git status --short`，确认仅保留实施前已有的无关未跟踪文件。
+
