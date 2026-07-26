@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import errno
+import os
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -9,6 +11,7 @@ from types import SimpleNamespace
 import pytest
 from pydantic import ValidationError
 
+import forgeagent.collaboration as collaboration_module
 from forgeagent.check_runner import CheckDefinition, CheckResult
 from forgeagent.collaboration import (
     AcceptanceItem,
@@ -25,9 +28,217 @@ from forgeagent.collaboration import (
     build_evaluator_registry,
     build_generator_registry,
     build_planner_registry,
+    normalize_required_candidate_files,
     plan_digest,
 )
-from forgeagent.tools import default_registry
+from forgeagent.executor import TrustedBackend
+from forgeagent.policy import CodeAnalyzer
+from forgeagent.runtime import Runtime
+from forgeagent.tools import CodeBlockStore, ToolContext, default_registry
+
+
+def _tool_context(root: Path) -> ToolContext:
+    return ToolContext(
+        blocks=CodeBlockStore(),
+        backend=TrustedBackend(),
+        runtime=Runtime(),
+        analyzer=CodeAnalyzer(),
+        tier="trusted",
+        allowed_root=str(root),
+    )
+
+
+def test_required_candidate_files_are_bounded_safe_top_level_names():
+    assert normalize_required_candidate_files(["calc.py", "test_calc.py"]) == (
+        "calc.py",
+        "test_calc.py",
+    )
+    assert normalize_required_candidate_files(()) == ()
+
+    invalid = (
+        "not-a-sequence",
+        [""],
+        ["a", "a"],
+        ["a"] * 17,
+        ["a" * 129],
+        ["."],
+        [".."],
+        ["a/b"],
+        ["a\\b"],
+        ["/tmp/a"],
+        ["control\n.py"],
+        ["calc-测试.py"],
+        [1],
+    )
+    for value in invalid:
+        with pytest.raises(ValueError, match="required candidate files are invalid"):
+            normalize_required_candidate_files(value)
+
+
+def test_submit_candidate_requires_configured_regular_files(tmp_path: Path):
+    store = CollaborationStore(str(tmp_path))
+    state = store.create("Build artifacts", "duo", collaboration_id="8" * 32)
+    tool = SubmitCandidateTool(
+        store,
+        state,
+        required_candidate_files=("calc.py", "test_calc.py"),
+    )
+    before = store.load(state.collaboration_id)
+
+    missing = tool.run(SubmitCandidateArgs(), _tool_context(tmp_path))
+
+    assert missing.success is False
+    assert missing.detail.endswith("calc.py, test_calc.py")
+    assert store.load(state.collaboration_id) == before
+
+    (tmp_path / "calc.py").write_text("pass\n", encoding="utf-8")
+    partial = tool.run(SubmitCandidateArgs(), _tool_context(tmp_path))
+    assert partial.success is False
+    assert partial.detail.endswith("test_calc.py")
+    assert store.load(state.collaboration_id) == before
+
+    (tmp_path / "test_calc.py").write_text("pass\n", encoding="utf-8")
+    submitted = tool.run(SubmitCandidateArgs(), _tool_context(tmp_path))
+    persisted = store.load(state.collaboration_id)
+    assert submitted.success is True
+    assert submitted.completes_task is True
+    assert persisted.phase == "evaluator"
+    assert persisted.generator_attempts == 1
+
+
+@pytest.mark.parametrize("unsafe_kind", ["directory", "symlink", "fifo"])
+def test_submit_candidate_rejects_non_regular_required_file(tmp_path: Path, unsafe_kind: str):
+    store = CollaborationStore(str(tmp_path))
+    state = store.create("Build artifact", "duo", collaboration_id="7" * 32)
+    target = tmp_path / "calc.py"
+    if unsafe_kind == "directory":
+        target.mkdir()
+    elif unsafe_kind == "symlink":
+        real = tmp_path / "real.py"
+        real.write_text("pass\n", encoding="utf-8")
+        target.symlink_to(real)
+    else:
+        os.mkfifo(target)
+    before = store.load(state.collaboration_id)
+
+    outcome = SubmitCandidateTool(
+        store,
+        state,
+        required_candidate_files=("calc.py",),
+    ).run(SubmitCandidateArgs(), _tool_context(tmp_path))
+
+    assert outcome.success is False
+    assert outcome.detail.endswith("calc.py")
+    assert store.load(state.collaboration_id) == before
+
+
+def test_candidate_file_check_fails_closed_for_invalid_root(tmp_path: Path):
+    store = CollaborationStore(str(tmp_path))
+    state = store.create("Build artifact", "duo", collaboration_id="4" * 32)
+    before = store.load(state.collaboration_id)
+
+    outcome = SubmitCandidateTool(
+        store,
+        state,
+        required_candidate_files=("calc.py",),
+    ).run(SubmitCandidateArgs(), SimpleNamespace(allowed_root="\0"))
+
+    assert outcome.success is False
+    assert outcome.detail.endswith("calc.py")
+    assert store.load(state.collaboration_id) == before
+
+
+def test_candidate_file_check_uses_nonblocking_open(tmp_path: Path, monkeypatch):
+    store = CollaborationStore(str(tmp_path))
+    state = store.create("Build artifact", "duo", collaboration_id="6" * 32)
+    original_open = os.open
+    candidate_flags = []
+    root_flags = []
+
+    def recording_open(path, flags, *args, **kwargs):
+        if path == "calc.py":
+            candidate_flags.append(flags)
+            raise OSError(errno.ENOENT, "missing")
+        if Path(path) == tmp_path:
+            root_flags.append(flags)
+        return original_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(os, "open", recording_open)
+
+    outcome = SubmitCandidateTool(
+        store,
+        state,
+        required_candidate_files=("calc.py",),
+    ).run(SubmitCandidateArgs(), _tool_context(tmp_path))
+
+    assert outcome.success is False
+    assert candidate_flags[0] & os.O_NONBLOCK
+    assert candidate_flags[0] & os.O_NOFOLLOW
+    assert root_flags[0] & os.O_DIRECTORY
+    assert root_flags[0] & os.O_NOFOLLOW
+
+
+def test_candidate_file_check_fails_closed_when_root_close_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    store = CollaborationStore(str(tmp_path))
+    state = store.create("Build artifact", "duo", collaboration_id="5" * 32)
+    (tmp_path / "calc.py").write_text("pass\n", encoding="utf-8")
+    before = store.load(state.collaboration_id)
+    original_open = os.open
+    original_close = os.close
+    root_fd = None
+
+    def recording_open(path, flags, *args, **kwargs):
+        nonlocal root_fd
+        descriptor = original_open(path, flags, *args, **kwargs)
+        if Path(path) == tmp_path:
+            root_fd = descriptor
+        return descriptor
+
+    def failing_close(descriptor):
+        if descriptor == root_fd:
+            original_close(descriptor)
+            raise OSError(errno.EIO, "close failed")
+        original_close(descriptor)
+
+    monkeypatch.setattr(os, "open", recording_open)
+    monkeypatch.setattr(os, "close", failing_close)
+
+    outcome = SubmitCandidateTool(
+        store,
+        state,
+        required_candidate_files=("calc.py",),
+    ).run(SubmitCandidateArgs(), _tool_context(tmp_path))
+
+    assert outcome.success is False
+    assert outcome.detail.endswith("calc.py")
+    assert store.load(state.collaboration_id) == before
+
+
+def test_candidate_file_check_fails_closed_when_root_binding_changes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    store = CollaborationStore(str(tmp_path))
+    state = store.create("Build artifact", "duo", collaboration_id="3" * 32)
+    (tmp_path / "calc.py").write_text("pass\n", encoding="utf-8")
+    before = store.load(state.collaboration_id)
+    binding_checks = iter((True, False))
+    monkeypatch.setattr(
+        collaboration_module,
+        "_root_binding_matches",
+        lambda *_args: next(binding_checks),
+    )
+
+    outcome = SubmitCandidateTool(
+        store,
+        state,
+        required_candidate_files=("calc.py",),
+    ).run(SubmitCandidateArgs(), _tool_context(tmp_path))
+
+    assert outcome.success is False
+    assert outcome.detail.endswith("calc.py")
+    assert store.load(state.collaboration_id) == before
 
 
 def test_submit_plan_commits_before_success_and_rejects_duplicate_and_how_only(tmp_path: Path):

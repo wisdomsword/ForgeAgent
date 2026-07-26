@@ -49,9 +49,11 @@ MAX_PUBLIC_EVIDENCE_ITEMS = 8
 DEFAULT_MAX_REJECTIONS = 2
 MAX_REJECTIONS = 10
 MAX_GOAL_CHARS = 4000
+MAX_REQUIRED_CANDIDATE_FILES = 16
 
 _ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,63}$")
 _COLLABORATION_ID_RE = re.compile(r"^[0-9a-f]{32}$")
+_REQUIRED_CANDIDATE_FILE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _HOW_ONLY_RE = re.compile(
     r"^\s*(?:use|import|install|call\s+(?:a\s+)?(?:library|api)|implement\s+with|"
     r"使用\s*(?:某库|.*库)|调用\s*(?:某\s*)?api|按.*算法实现)",
@@ -113,6 +115,23 @@ _WINDOWS_ABSOLUTE_PATH = re.compile(
 
 CollaborationMode = Literal["single", "duo", "triad"]
 CollaborationRole = Literal["planner", "generator", "evaluator"]
+
+
+def normalize_required_candidate_files(value: object) -> tuple[str, ...]:
+    """Return bounded top-level file names for an optional host readiness gate."""
+    if not isinstance(value, (list, tuple)) or len(value) > MAX_REQUIRED_CANDIDATE_FILES:
+        raise ValueError("required candidate files are invalid")
+    names = tuple(value)
+    if any(
+        type(name) is not str
+        or not name.isascii()
+        or _REQUIRED_CANDIDATE_FILE_RE.fullmatch(name) is None
+        for name in names
+    ) or len(set(names)) != len(names):
+        raise ValueError("required candidate files are invalid")
+    return names
+
+
 CollaborationStatus = Literal["active", "completed", "stopped", "cancelled", "failed"]
 CollaborationPhase = Literal[
     "planning",
@@ -1075,17 +1094,103 @@ class SubmitPlanTool(Tool):
             )
 
 
+def _root_binding_matches(root: Path, root_stat: os.stat_result) -> bool:
+    try:
+        current = os.stat(root, follow_symlinks=False)
+    except OSError:
+        return False
+    return (
+        stat.S_ISDIR(current.st_mode)
+        and current.st_dev == root_stat.st_dev
+        and current.st_ino == root_stat.st_ino
+    )
+
+
+def _unready_candidate_files(
+    allowed_root: str,
+    names: tuple[str, ...],
+) -> tuple[str, ...]:
+    if not names:
+        return ()
+    root_fd = -1
+    result = names
+    close_failed = False
+    try:
+        root = Path(os.path.realpath(allowed_root))
+        no_follow = getattr(os, "O_NOFOLLOW", None)
+        directory_flag = getattr(os, "O_DIRECTORY", None)
+        if no_follow is None or directory_flag is None:
+            return names
+        root_fd = os.open(
+            root,
+            os.O_RDONLY | directory_flag | no_follow | getattr(os, "O_CLOEXEC", 0),
+        )
+        root_stat = os.fstat(root_fd)
+        if _root_binding_matches(root, root_stat):
+            unready: list[str] = []
+            for name in names:
+                file_fd = -1
+                try:
+                    file_fd = os.open(
+                        name,
+                        os.O_RDONLY | os.O_NONBLOCK | no_follow | getattr(os, "O_CLOEXEC", 0),
+                        dir_fd=root_fd,
+                    )
+                    if not stat.S_ISREG(os.fstat(file_fd).st_mode):
+                        unready.append(name)
+                except OSError:
+                    unready.append(name)
+                finally:
+                    if file_fd >= 0:
+                        os.close(file_fd)
+            if _root_binding_matches(root, root_stat):
+                result = tuple(unready)
+    except (OSError, ValueError):
+        pass
+    finally:
+        if root_fd >= 0:
+            try:
+                os.close(root_fd)
+            except OSError:
+                close_failed = True
+    return names if close_failed else result
+
+
 class SubmitCandidateTool(Tool):
     name, args_model, risk_level = "SubmitCandidate", SubmitCandidateArgs, "low"
 
-    def __init__(self, store: CollaborationStore, state: CollaborationState) -> None:
+    def __init__(
+        self,
+        store: CollaborationStore,
+        state: CollaborationState,
+        required_candidate_files: tuple[str, ...] = (),
+    ) -> None:
         self._store, self._state = store, state
+        self._required_candidate_files = normalize_required_candidate_files(
+            required_candidate_files
+        )
 
     def run(self, args: BaseModel, ctx: ToolContext | None) -> ToolOutcome:
         try:
             SubmitCandidateArgs.model_validate(args.model_dump(mode="python"))
             if self._state.phase != "generator":
                 raise CollaborationError("candidate submission requires generator phase")
+            if self._required_candidate_files:
+                if ctx is None:
+                    unready = self._required_candidate_files
+                else:
+                    unready = _unready_candidate_files(
+                        ctx.allowed_root,
+                        self._required_candidate_files,
+                    )
+                if unready:
+                    return ToolOutcome(
+                        tool=self.name,
+                        success=False,
+                        detail=(
+                            "required candidate files are missing or unsafe: " + ", ".join(unready)
+                        ),
+                    )
             candidate = self._state.model_copy(
                 update={
                     "phase": "evaluator",
@@ -1201,9 +1306,13 @@ def build_planner_registry(*, store: CollaborationStore, state: CollaborationSta
 
 
 def build_generator_registry(
-    *, registry: ToolRegistry, store: CollaborationStore, state: CollaborationState
+    *,
+    registry: ToolRegistry,
+    store: CollaborationStore,
+    state: CollaborationState,
+    required_candidate_files: tuple[str, ...] = (),
 ) -> ToolRegistry:
-    registry.register(SubmitCandidateTool(store, state))
+    registry.register(SubmitCandidateTool(store, state, required_candidate_files))
     registry.require_completion("SubmitCandidate")
     return registry
 
@@ -1422,6 +1531,7 @@ class CollaborationRunner:
         plan_confirmer: PlanConfirmer | None = None,
         generator_registry: ToolRegistry | None = None,
         evaluator_checks: Mapping[str, CheckDefinition] | None = None,
+        required_candidate_files: tuple[str, ...] = (),
         task_data_suffix: str = "",
         recover_role_failures: bool = False,
         execution_tier: Literal["trusted", "restricted", "container"] = "restricted",
@@ -1443,6 +1553,9 @@ class CollaborationRunner:
         self._plan_confirmer = plan_confirmer
         self._generator_registry = generator_registry
         self._evaluator_checks = dict(evaluator_checks or {})
+        self._required_candidate_files = normalize_required_candidate_files(
+            required_candidate_files
+        )
         self._task_data_suffix = task_data_suffix
         self._recover_role_failures = recover_role_failures
         self._execution_tier = execution_tier
@@ -1463,6 +1576,7 @@ class CollaborationRunner:
         plan_confirmer: PlanConfirmer | None = None,
         generator_registry: ToolRegistry | None = None,
         evaluator_checks: Mapping[str, CheckDefinition] | None = None,
+        required_candidate_files: tuple[str, ...] = (),
         task_data_suffix: str = "",
         recover_role_failures: bool = False,
         execution_tier: Literal["trusted", "restricted", "container"] = "restricted",
@@ -1482,6 +1596,7 @@ class CollaborationRunner:
             raise ValueError("execution_tier is invalid")
         if loop_id is not None and _COLLABORATION_ID_RE.fullmatch(loop_id) is None:
             raise ValueError("invalid loop id")
+        normalized_required_files = normalize_required_candidate_files(required_candidate_files)
         store = CollaborationStore(
             allowed_root,
             audit_sink=audit_sink,
@@ -1509,6 +1624,7 @@ class CollaborationRunner:
             plan_confirmer=plan_confirmer,
             generator_registry=generator_registry,
             evaluator_checks=evaluator_checks,
+            required_candidate_files=normalized_required_files,
             task_data_suffix=task_data_suffix,
             recover_role_failures=recover_role_failures,
             execution_tier=execution_tier,
@@ -1670,6 +1786,7 @@ class CollaborationRunner:
                     registry=self._generator_registry or default_registry(),
                     store=self._store,
                     state=generator_state,
+                    required_candidate_files=self._required_candidate_files,
                 )
                 try:
                     generator = self._run_role(

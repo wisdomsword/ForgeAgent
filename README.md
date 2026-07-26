@@ -95,6 +95,12 @@ Evaluator 只能看到截断文件，脚本仅在 ForgeAgent 子进程中固定�
 2000-token 单工具反馈预算；不会修改用户配置，也不会改变模型路由或人工确认。无论成功或失败，现场目录都会
 保留在 `/tmp/forgeagent-m22-human-*`。这是人工验收冒烟测试，不是 benchmark 或 CI gate。
 
+针对真实 Generator 在未创建目标文件时直接提交空 Candidate 的行为，脚本还会仅在本次
+ForgeAgent 子进程中冻结 `calc.py` 和 `test_calc.py` 的最小就绪要求。`SubmitCandidate` 成功前，
+两者必须已是 allowed root 下的非符号链接普通文件；该门禁不读取文件内容、不检查实现正确性，
+也不替代 Evaluator 的逐项验收。Planner 和 restricted `FileWrite` 仍由人类在终端批准。
+该私有要求不会写入用户配置，普通 CLI、Loop 和 HTTP 默认不启用。
+
 REPL 提供 `/duo <goal>` 和 `/triad <goal>`，并复用 `/help`、completion 与历史路径。
 缺少 goal 时只显示 usage，不启动任务。
 

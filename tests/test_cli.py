@@ -3174,6 +3174,103 @@ def test_cli_context_config_converts_json_recursion_error(monkeypatch):
     assert "synthetic secret" not in str(error.value)
 
 
+def test_cli_candidate_file_configuration_defaults_to_empty(monkeypatch):
+    monkeypatch.delenv(cli_module._CANDIDATE_FILES_ENVIRONMENT, raising=False)
+
+    assert cli_module._load_required_candidate_files_from_environment() == ()
+
+
+def test_cli_candidate_file_configuration_accepts_internal_json(monkeypatch):
+    monkeypatch.setenv(
+        cli_module._CANDIDATE_FILES_ENVIRONMENT,
+        '["calc.py","test_calc.py"]',
+    )
+
+    assert cli_module._load_required_candidate_files_from_environment() == (
+        "calc.py",
+        "test_calc.py",
+    )
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["{", "{}", '"calc.py"', '["calc.py","calc.py"]', '["../secret"]'],
+)
+def test_cli_candidate_file_configuration_rejects_invalid_values(monkeypatch, value):
+    monkeypatch.setenv(cli_module._CANDIDATE_FILES_ENVIRONMENT, value)
+
+    with pytest.raises(RegistryError, match="Invalid candidate file configuration") as error:
+        cli_module._load_required_candidate_files_from_environment()
+
+    assert value not in str(error.value)
+
+
+def test_cli_candidate_file_configuration_converts_json_recursion_error(monkeypatch):
+    monkeypatch.setenv(cli_module._CANDIDATE_FILES_ENVIRONMENT, "[]")
+    monkeypatch.setattr(
+        cli_module.json,
+        "loads",
+        lambda value: (_ for _ in ()).throw(RecursionError("synthetic secret")),
+    )
+
+    with pytest.raises(RegistryError, match="Invalid candidate file configuration") as error:
+        cli_module._load_required_candidate_files_from_environment()
+
+    assert "synthetic secret" not in str(error.value)
+
+
+def test_main_threads_candidate_file_configuration_only_to_collaboration(monkeypatch):
+    captured = {}
+    monkeypatch.setenv(
+        cli_module._CANDIDATE_FILES_ENVIRONMENT,
+        '["calc.py","test_calc.py"]',
+    )
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: None)
+
+    def fake_collaboration(*args, **kwargs):
+        captured.update(kwargs)
+        return CollaborationReport(
+            collaboration_id="c" * 32,
+            mode="duo",
+            status="completed",
+            stop_reason="completed",
+            phase="completed",
+            plan_item_count=1,
+            passed_item_count=1,
+            failed_item_count=0,
+            generator_attempts=1,
+            evaluator_attempts=1,
+            rejections=0,
+            rounds=2,
+            usage=CollaborationUsage(),
+            usage_available=False,
+            evidence=(),
+        )
+
+    monkeypatch.setattr(cli_module, "run_collaboration_once", fake_collaboration)
+
+    assert (
+        cli_module.main(
+            ["--tier", "trusted", "run", "--mode", "duo", "explain a concept"],
+            client_factory=_factory([]),
+        )
+        == 0
+    )
+    assert captured["required_candidate_files"] == ("calc.py", "test_calc.py")
+
+
+def test_main_single_ignores_private_candidate_file_configuration(monkeypatch):
+    monkeypatch.setenv(cli_module._CANDIDATE_FILES_ENVIRONMENT, "not-json")
+
+    assert (
+        cli_module.main(
+            ["--tier", "trusted", "run", "--mode", "single", "explain a concept"],
+            client_factory=_factory([_reply(_done())]),
+        )
+        == 0
+    )
+
+
 def test_main_custom_injected_model_uses_factory_without_registry_lookup():
     custom_capability = ModelCapability(
         model_id="custom-model",

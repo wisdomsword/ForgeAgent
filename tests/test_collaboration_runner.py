@@ -40,6 +40,21 @@ def _candidate() -> AssistantMessage:
     return _reply(f"<!-- ToolCall: {json.dumps(marker)} -->")
 
 
+def _write_candidate_files() -> AssistantMessage:
+    markers = [
+        {
+            "name": "FileWrite",
+            "arguments": {"path": "calc.py", "content": "def moving_average():\n    pass\n"},
+        },
+        {
+            "name": "FileWrite",
+            "arguments": {"path": "test_calc.py", "content": "def test_placeholder():\n    pass\n"},
+        },
+        {"name": "SubmitCandidate", "arguments": {}},
+    ]
+    return _reply("\n".join(f"<!-- ToolCall: {json.dumps(marker)} -->" for marker in markers))
+
+
 def _evaluation(*, passed: bool, observed: str = "observed", expected: str = "expected"):
     marker = {
         "name": "SubmitEvaluation",
@@ -85,6 +100,26 @@ class _RoleBuilder:
     def __call__(self, role, attempt, registry, system_prompt):
         client = _RecordingClient(self.scripts[(role, attempt)])
         task = Task(client, tool_registry=registry, system_prompt=system_prompt)
+        self.calls.append((role, attempt, system_prompt))
+        self.clients.append(client)
+        self.registries.append(registry)
+        return task
+
+
+class _ArtifactRoleBuilder(_RoleBuilder):
+    def __init__(self, scripts, root: Path):
+        super().__init__(scripts)
+        self.root = root
+
+    def __call__(self, role, attempt, registry, system_prompt):
+        client = _RecordingClient(self.scripts[(role, attempt)])
+        task = Task(
+            client,
+            tool_registry=registry,
+            system_prompt=system_prompt,
+            tier="trusted",
+            allowed_root=str(self.root),
+        )
         self.calls.append((role, attempt, system_prompt))
         self.clients.append(client)
         self.registries.append(registry)
@@ -195,6 +230,42 @@ def test_duo_rejects_then_uses_fresh_generator_and_passes(tmp_path: Path):
     assert "SubmitCandidate must not be your first or only tool call" in generator_prompts[1]
     assert "reports that a required file is missing" in generator_prompts[1]
     assert "successfully call FileWrite for that file" in generator_prompts[1]
+
+
+def test_candidate_readiness_recovers_within_one_generator_task(tmp_path: Path):
+    builder = _ArtifactRoleBuilder(
+        {
+            ("generator", 1): [_candidate(), _write_candidate_files()],
+            ("evaluator", 1): [_evaluation(passed=True)],
+        },
+        tmp_path,
+    )
+    runner = _runner(
+        tmp_path,
+        builder,
+        required_candidate_files=("calc.py", "test_calc.py"),
+    )
+
+    report = runner.run("write PRIVATE_GOAL artifact")
+
+    assert report.status == "completed"
+    assert [role for role, _attempt, _prompt in builder.calls] == ["generator", "evaluator"]
+    assert report.generator_attempts == 1
+    assert (tmp_path / "calc.py").is_file()
+    assert (tmp_path / "test_calc.py").is_file()
+    first_feedback = builder.clients[0].requests[1][-1].content
+    assert "required candidate files are missing or unsafe: calc.py, test_calc.py" in str(
+        first_feedback
+    )
+
+
+def test_runner_rejects_invalid_required_candidate_files_before_state_creation(tmp_path: Path):
+    builder = _RoleBuilder({})
+
+    with pytest.raises(ValueError, match="required candidate files are invalid"):
+        _runner(tmp_path, builder, required_candidate_files=("../calc.py",))
+
+    assert not (tmp_path / ".forgeagent").exists()
 
 
 @pytest.mark.parametrize("target_role", ["generator", "evaluator"])

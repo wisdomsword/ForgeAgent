@@ -1,0 +1,15 @@
+{
+  "change": "enforce-candidate-artifact-readiness",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "a5d5a44a0f812a96fcd801606c9e6920edbcb93c0ddb67f5ca178912d2c78d6c",
+  "files": [
+    { "path": "openspec/changes/enforce-candidate-artifact-readiness/proposal.md", "sha256": "81682cbfb13d5381fed9dfcf7f581815803f54ae2220f8f43ea94a032290f762" },
+    { "path": "openspec/changes/enforce-candidate-artifact-readiness/design.md", "sha256": "d74e060a8207d27f6c2be223ec801d4c95057640a2d6ffdbbfe9133a1ced46aa" },
+    { "path": "openspec/changes/enforce-candidate-artifact-readiness/tasks.md", "sha256": "1ed140a4aa54142f548ccc1528b8ff1dfd1f5176173e0eaefa2a0e75f96b6786" },
+    { "path": "openspec/changes/enforce-candidate-artifact-readiness/specs/runtime-collaboration/spec.md", "sha256": "68e1adac747c7e0d9625786aa2bf5771f4cb090675b82f8856ffc46b3459add6" },
+    { "path": "openspec/changes/enforce-candidate-artifact-readiness/specs/triad-human-smoke/spec.md", "sha256": "62cb8d71bac7c68e6d4153a49862b57bc6a4f338c25ac4178d9ba444ddb8a526" }
+  ]
+}

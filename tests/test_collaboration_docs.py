@@ -36,6 +36,25 @@ def test_readme_documents_collaboration_entry_points_routing_and_cost() -> None:
     assert "不需要额外 standalone `task_status`" in text
 
 
+def test_readme_documents_m22_candidate_readiness_without_weakening_confirmation() -> None:
+    readme = _text("README.md")
+
+    for fragment in (
+        "`calc.py` 和 `test_calc.py`",
+        "非符号链接普通文件",
+        "不读取文件内容",
+        "不替代 Evaluator",
+        "Planner 和 restricted `FileWrite`",
+        "普通 CLI、Loop 和 HTTP",
+    ):
+        assert fragment in readme
+
+    action_plan = _text("ACTION_PLAN.md")
+    assert "M22 Candidate 文件就绪门" in action_plan
+    assert "仍需用户在真实 TTY" in action_plan
+    assert "uv run --offline python scripts/m22-triad-human-smoke.py" in action_plan
+
+
 def test_protocol_documents_collaboration_schema_authority_and_safe_report() -> None:
     text = _text("docs/text-protocol-spec.md")
 

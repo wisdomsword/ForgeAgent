@@ -56,6 +56,7 @@ from .collaboration import (
     ModeDecision,
     emit_collaboration_route,
     headless_plan_confirmer,
+    normalize_required_candidate_files,
     resolve_collaboration_mode,
 )
 from .context import ContextConfig, SlidingWindowContextPolicy, load_context_config
@@ -110,6 +111,7 @@ if TYPE_CHECKING:
 
 DEFAULT_MODEL = "claude-sonnet-5"
 _CONTEXT_CONFIG_ENVIRONMENT = "FORGEAGENT_INTERNAL_CONTEXT_CONFIG_JSON"
+_CANDIDATE_FILES_ENVIRONMENT = "FORGEAGENT_INTERNAL_CANDIDATE_REQUIRED_FILES_JSON"
 
 logger = logging.getLogger(__name__)
 
@@ -727,6 +729,7 @@ def run_collaboration_once(
     audit_sink: AuditSink | None = None,
     task_id: str | None = None,
     route_decision: ModeDecision | None = None,
+    required_candidate_files: tuple[str, ...] = (),
 ) -> CollaborationReport:
     if mode not in {"duo", "triad"}:
         raise ValueError("collaboration mode must be duo or triad")
@@ -835,6 +838,7 @@ def run_collaboration_once(
         execution_tier=tier,
         audit_sink=audit_sink,
         task_id=task_id,
+        required_candidate_files=required_candidate_files,
     )
     try:
         report = runner.run(goal)
@@ -2032,6 +2036,16 @@ def _load_cli_context_config() -> ContextConfig:
         raise RegistryError(f"Invalid context configuration: {exc}") from exc
 
 
+def _load_required_candidate_files_from_environment() -> tuple[str, ...]:
+    raw = os.environ.get(_CANDIDATE_FILES_ENVIRONMENT)
+    if raw is None:
+        return ()
+    try:
+        return normalize_required_candidate_files(json.loads(raw))
+    except (json.JSONDecodeError, RecursionError, TypeError, ValueError):
+        raise RegistryError("Invalid candidate file configuration") from None
+
+
 def _load_http_runtime_settings(path: str | Path) -> _HttpRuntimeSettings:
     config_path = Path(path).expanduser()
     try:
@@ -2970,6 +2984,7 @@ def main(
                 else:
                     if images:
                         raise ValueError("images are unavailable in collaboration mode")
+                    required_candidate_files = _load_required_candidate_files_from_environment()
                     outcome = run_collaboration_once(
                         args.goal,
                         mode=decision.mode,
@@ -2995,6 +3010,7 @@ def main(
                         context_config=context_config,
                         memory_manager=memory_manager,
                         skills=skills,
+                        required_candidate_files=required_candidate_files,
                     )
             finally:
                 if mcp is not None:

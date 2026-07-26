@@ -657,6 +657,7 @@ def test_run_smoke_prints_stable_success_summary_and_inherits_forgeagent_stdio(
     calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
     monkeypatch.setenv("FORGEAGENT_M22_TEST_MARKER", "preserved")
     assert smoke._CONTEXT_CONFIG_ENVIRONMENT == cli_module._CONTEXT_CONFIG_ENVIRONMENT
+    assert smoke._CANDIDATE_FILES_ENVIRONMENT == cli_module._CANDIDATE_FILES_ENVIRONMENT
 
     def fake_run(*args, **kwargs):
         calls.append((args, kwargs))
@@ -688,6 +689,10 @@ def test_run_smoke_prints_stable_success_summary_and_inherits_forgeagent_stdio(
             "tool_result_max_tokens": 2_000,
         }
     }
+    assert json.loads(environment[smoke._CANDIDATE_FILES_ENVIRONMENT]) == [
+        "calc.py",
+        "test_calc.py",
+    ]
 
 
 def test_success_summary_reports_nonnegative_rejection_count(tmp_path, capsys):

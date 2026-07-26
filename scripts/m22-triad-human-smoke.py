@@ -84,6 +84,8 @@ _MODEL_ENVIRONMENT_NAMES = (
     "FORGEAGENT_M22_EVALUATOR_MODEL",
 )
 _CONTEXT_CONFIG_ENVIRONMENT = "FORGEAGENT_INTERNAL_CONTEXT_CONFIG_JSON"
+_CANDIDATE_FILES_ENVIRONMENT = "FORGEAGENT_INTERNAL_CANDIDATE_REQUIRED_FILES_JSON"
+_CANDIDATE_FILES_JSON = '["calc.py","test_calc.py"]'
 _CONTEXT_CONFIG_JSON = json.dumps(
     {
         "context": {
@@ -344,6 +346,7 @@ def run_smoke(
         try:
             environment = os.environ.copy()
             environment[_CONTEXT_CONFIG_ENVIRONMENT] = _CONTEXT_CONFIG_JSON
+            environment[_CANDIDATE_FILES_ENVIRONMENT] = _CANDIDATE_FILES_JSON
             forgeagent_result = run(
                 build_forgeagent_command(config.forgeagent, config.models),
                 cwd=config.workdir,
