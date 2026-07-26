@@ -10,6 +10,7 @@
 > **P2/P3 韧性与证据收尾（2026-07-25）**：合并为单一 change，交付可信宿主冻结的 Evaluator `RunCheck`（当前 Python 固定入口、临时副本、restricted audit hook 禁止副本外文件内容访问/目录枚举/路径变更、网络、派生进程和进程信号控制，timeout/cancel 进程组终止，有界脱敏输出）、可执行 MCP hung-call deadline 回归与 `/search` 固定 Bing/DuckDuckGo 单次 fallback；native tool-call 流式聚合专项通过。Docker CLI 存在但 daemon 未就绪，Linux/Podman 未验证；真实模型外发命令因未获具体 payload/destination 授权而未执行，不能声明真实 golden、single/Triad 或 credentialed Evaluator 通过。持久 REPL 历史、语义摘要、音视频与响应侧多模态继续延期，重启触发条件见本 change 验证报告。
 > **P0/P1 收尾（2026-07-25）**：修复晚到取消覆盖终态 Collaboration report 的竞态，并完成 FileWrite 路径绑定、项目 Memory 跨进程更新和 Loop checkpoint revision CAS 加固；两个 change 均已归档。最终整合回归 `2093 passed, 11 skipped`、golden `20/20`、Ruff、build、OpenSpec strict `17/17`。
 > **M22 结构化提交门收尾（2026-07-25）**：Planner/Generator/Evaluator 统一为成功 Submit 即完成、缺失 Submit 一次恢复后稳定失败；新增零载荷 `SubmitCandidate`、attempt/verdict 原子边界、恢复去重和 per-collaboration `flock`，并更新真实模型提示协议。合并前复核又修复了首次并发 Store 初始化竞态，以及并发 Runner 误认领其他实例 Submit 的共享终态污染。最终回归 `2155 passed, 10 skipped`、OpenSpec 主规格 `17/17`；两次真实模型 Triad 均 completed，第二次覆盖一次 reject→修正→pass。
+> **M22 人类冒烟入口（2026-07-26）**：新增 `scripts/m22-triad-human-smoke.py` 一键真实模型 Triad 测试，保留 Planner 原生人工确认，自动验收协作终态、生成文件、pytest 与 CLI JSON；生成代码通过受限 `check_runner` 一次性副本执行。最终全量 `2219 passed, 10 skipped`、OpenSpec 主规格 `18/18`，change 已归档。
 > 调研基础：已通读 agent 核心执行链路（taskmgr → task/step → response 解析 → toolcalls → executor → runtime）、LLM 客户端层、提示词模板、配置与测试。
 
 ## 一、结论
