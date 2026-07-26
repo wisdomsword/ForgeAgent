@@ -2,5 +2,6 @@
   "openspec_proposal": "openspec/changes/fix-generator-rejection-correction/proposal.md",
   "openspec_design": "openspec/changes/fix-generator-rejection-correction/design.md",
   "openspec_tasks": "openspec/changes/fix-generator-rejection-correction/tasks.md",
-  "openspec_delta_spec": "openspec/changes/fix-generator-rejection-correction/specs/runtime-collaboration/spec.md"
+  "openspec_delta_spec": "openspec/changes/fix-generator-rejection-correction/specs/runtime-collaboration/spec.md",
+  "archive_directory": "openspec/changes/archive/2026-07-26-fix-generator-rejection-correction"
 }
