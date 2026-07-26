@@ -78,6 +78,20 @@ uv run forgeagent run --mode triad \
   "实现 CSV 汇总程序并添加测试"
 ```
 
+### M22 真实模型 Triad 人类冒烟
+
+以下命令会调用真实模型并可能产生费用；必须在交互式终端运行。请在 Planner
+显示计划后人工选择是否批准，restricted tier 的其他确认也会保持原样：
+
+```bash
+uv run --offline python scripts/m22-triad-human-smoke.py
+```
+
+可通过 `FORGEAGENT_M22_MODEL`、`FORGEAGENT_M22_PLANNER_MODEL` 和
+`FORGEAGENT_M22_EVALUATOR_MODEL` 覆盖 Generator、Planner 和 Evaluator 模型。
+脚本会自动检查协作终态、生成文件、pytest 与 CLI JSON；无论成功或失败，现场目录都会
+保留在 `/tmp/forgeagent-m22-human-*`。这是人工验收冒烟测试，不是 benchmark 或 CI gate。
+
 REPL 提供 `/duo <goal>` 和 `/triad <goal>`，并复用 `/help`、completion 与历史路径。
 缺少 goal 时只显示 usage，不启动任务。
 
