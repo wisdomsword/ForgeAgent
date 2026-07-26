@@ -1,4 +1,4 @@
-"""Static contracts for the M22 collaboration documentation."""
+"""Static contracts for collaboration and current project documentation."""
 
 from __future__ import annotations
 
@@ -121,12 +121,10 @@ def test_threat_model_covers_collaboration_role_and_state_boundaries() -> None:
         assert fragment.lower() in text.lower()
 
 
-def test_m22_closeout_artifacts_record_final_gates() -> None:
+def test_readme_current_verification_section_is_unique_and_structured() -> None:
     readme = _text("README.md")
-    assert "M22 Duo/Triad 协作运行时已完成并归档" in readme
-    assert "最终全量验证与归档仍在进行" not in readme
-    assert "milestone_022.md" in readme
-    assert "两次真实模型 Triad" in readme
+    headings = re.findall(r"^##[ \t]+当前验证[ \t]*$", readme, flags=re.MULTILINE)
+    assert len(headings) == 1
 
     current_verification = re.findall(
         r"^## 当前验证\n\n"
@@ -140,6 +138,14 @@ def test_m22_closeout_artifacts_record_final_gates() -> None:
     assert passed > 0
     assert skipped >= 0
     assert spec_passed == spec_total > 0
+
+
+def test_m22_closeout_artifacts_record_final_gates() -> None:
+    readme = _text("README.md")
+    assert "M22 Duo/Triad 协作运行时已完成并归档" in readme
+    assert "最终全量验证与归档仍在进行" not in readme
+    assert "milestone_022.md" in readme
+    assert "两次真实模型 Triad" in readme
 
     action_plan = _text("ACTION_PLAN.md")
     m22_row = next(line for line in action_plan.splitlines() if line.startswith("| **M22**"))

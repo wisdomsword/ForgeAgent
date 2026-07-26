@@ -6,7 +6,15 @@
 
 ## 当前验证
 
-pytest: `2251 passed, 10 skipped`；OpenSpec strict: `18/18`.
+pytest: `2252 passed, 10 skipped`；OpenSpec strict: `18/18`.
+
+2026-07-26 已完成 restricted worker bootstrap 加固与发布完整性收尾。sdist 采用显式输入
+allowlist，只包含包源码、`pyproject.toml`、`README.md`、`uv.lock`，另保留 Hatchling
+必需或生成的 `.gitignore`、`PKG-INFO`；agent/workflow/OpenSpec 开发目录和用户本地文件均由
+真实构建负向测试禁止进入。验证证据见
+[`2026-07-26-close-release-integrity-verify.md`](docs/superpowers/reports/2026-07-26-close-release-integrity-verify.md)
+和
+[`2026-07-26-review-release-integrity-closeout-verify.md`](docs/superpowers/reports/2026-07-26-review-release-integrity-closeout-verify.md)。
 
 当前主线已完成 M17 Runtime Context Engineering、M18 Memory Runtime（含归档后两次
 人工复测 hotfix）、M19 Skills Runtime（程序性知识从 Memory 分流到可验证、快照化、渐进

@@ -1,4 +1,4 @@
-"""Packaging regression for runtime identity prompt resources."""
+"""Packaging contracts for release contents and runtime prompt resources."""
 
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ def test_clean_python_environment_removes_import_overrides():
     assert cleaned == {"PATH": "/usr/bin"}
 
 
-def test_wheel_and_sdist_contain_prompt_resources(tmp_path):
+def test_wheel_and_sdist_release_contents(tmp_path):
     repo_root = Path(__file__).resolve().parents[1]
     dist_dir = tmp_path / "dist"
     uv_env = os.environ.copy()
@@ -54,7 +54,9 @@ def test_wheel_and_sdist_contain_prompt_resources(tmp_path):
 
     with tarfile.open(sdists[0]) as tar:
         names = tar.getnames()
-    archive_root = names[0].split("/", 1)[0]
+    archive_roots = {name.split("/", 1)[0] for name in names}
+    assert len(archive_roots) == 1
+    archive_root = archive_roots.pop()
     relative_names = {
         name.removeprefix(f"{archive_root}/") for name in names if name != archive_root
     }
@@ -67,6 +69,13 @@ def test_wheel_and_sdist_contain_prompt_resources(tmp_path):
         "PKG-INFO",
     }
     assert {name.split("/", 1)[0] for name in relative_names} == allowed_roots
+    assert {
+        ".gitignore",
+        "pyproject.toml",
+        "README.md",
+        "uv.lock",
+        "PKG-INFO",
+    } <= relative_names
     forbidden_prefixes = (
         ".agent/",
         ".agents/",

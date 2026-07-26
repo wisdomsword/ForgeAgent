@@ -1,0 +1,6 @@
+{
+  "openspec_proposal": "openspec/changes/review-release-integrity-closeout/proposal.md",
+  "openspec_design": "openspec/changes/review-release-integrity-closeout/design.md",
+  "openspec_tasks": "openspec/changes/review-release-integrity-closeout/tasks.md",
+  "openspec_delta_spec": "openspec/changes/review-release-integrity-closeout/specs/golden-validation-core/spec.md"
+}
