@@ -100,7 +100,7 @@ def load_collaboration_state(workdir: Path) -> dict[str, object]:
 
     try:
         value = json.loads(candidates[0].read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError):
+    except (OSError, UnicodeError, json.JSONDecodeError, RecursionError):
         raise ValueError("invalid collaboration state JSON") from None
     if not isinstance(value, dict):
         raise ValueError("invalid collaboration state JSON") from None
@@ -217,18 +217,16 @@ def artifact_failures(workdir: Path, python: Path, run: RunCommand) -> list[str]
     )
     if cli_result.returncode != 0:
         return [f"calc.py CLI failed with exit code {cli_result.returncode}"]
-    if not isinstance(cli_result.stderr, str):
-        return ["calc.py CLI stderr was not text"]
-    if cli_result.stderr.strip():
-        return [f"CLI wrote to stderr: {_truncate(cli_result.stderr)}"]
+    if not isinstance(cli_result.stderr, str) or cli_result.stderr.strip():
+        return ["calc.py CLI output validation failed"]
     if not isinstance(cli_result.stdout, str):
-        return ["calc.py CLI stdout was not text"]
+        return ["calc.py CLI output validation failed"]
     try:
         value = json.loads(cli_result.stdout)
-    except json.JSONDecodeError:
-        return [f"CLI stdout is not valid JSON: {_truncate(cli_result.stdout)}"]
+    except (json.JSONDecodeError, RecursionError):
+        return ["calc.py CLI output validation failed"]
     if value != [1.5, 2.5, 3.5]:
-        return ["CLI JSON result is not [1.5, 2.5, 3.5]"]
+        return ["calc.py CLI output validation failed"]
     return []
 
 
@@ -269,10 +267,6 @@ def _is_regular_file(path: Path) -> bool:
     return not path.is_symlink() and path.is_file()
 
 
-def _truncate(value: str) -> str:
-    return value[:200]
-
-
 def _print_failure_summary(failures: list[str]) -> None:
     print("M22 TRIAD HUMAN SMOKE: FAIL")
     for failure in failures:
@@ -284,3 +278,4 @@ def _print_success_summary(state: dict[str, object]) -> None:
     print(f"collaboration: {state['collaboration_id']}")
     print(f"generator_attempts: {state['generator_attempts']}")
     print(f"evaluator_attempts: {state['evaluator_attempts']}")
+    print(f"rejections: {state['rejections']}")
