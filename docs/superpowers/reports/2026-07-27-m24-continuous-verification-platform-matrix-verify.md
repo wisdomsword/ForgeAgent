@@ -70,6 +70,25 @@ Two Minor findings were also fixed: the marker contract now matches the exact te
 `docker_required` tests, and the implementation plan records the real base commit SHA.
 The final serial offline suite was rerun after all review fixes.
 
+## OpenSpec Full Verification
+
+| Dimension | Status |
+| --- | --- |
+| Completeness | 8/8 tasks complete; 4/4 requirements implemented |
+| Correctness | 10/10 scenarios mapped to CI, tests, build evidence, or platform-state rules |
+| Coherence | OpenSpec design, technical design, implementation plan, CI, tests, and public docs agree |
+
+- Mandatory offline pipeline: `.gitlab-ci.yml` plus the structured CI contract cover all
+  required commands, failure behavior, and Golden/dist artifacts.
+- Release boundary: the offline job runs the existing real packaging contract and then
+  emits fresh wheel/sdist artifacts; the final build and packaging tests passed.
+- Linux Docker gate: the exact ten `docker_required` tests carry the integration marker;
+  daemon/image preflight and JUnit tests/failures/errors/skips are fatal.
+- Platform matrix: all four platform tuples have priority, state, prerequisites, evidence,
+  limitations, and an explicit next Comet trigger; no unsupported tuple is `verified`.
+
+No Critical, Warning, or Suggestion issue remains from the OpenSpec verification.
+
 ## Limitations
 
 The GitLab pipeline itself was not executed because no target GitLab runner is available
