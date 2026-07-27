@@ -2,6 +2,7 @@
 change: m24-continuous-verification-platform-matrix
 design-doc: docs/superpowers/specs/2026-07-27-m24-continuous-verification-platform-matrix-design.md
 base-ref: 2aaeec33ec797be73f1f91b2a8bf0ea9a7c61906
+archived-with: 2026-07-27-m24-continuous-verification-platform-matrix
 ---
 
 # M24 持续验证与平台矩阵 Implementation Plan
@@ -26,6 +27,7 @@ base-ref: 2aaeec33ec797be73f1f91b2a8bf0ea9a7c61906
 - Podman 与 Windows 本期只排期，不实现兼容代码或声明支持。
 - 保留用户未跟踪文件和 M23 未纳入证据的本地尝试目录，不得暂存或修改。
 
+archived-with: 2026-07-27-m24-continuous-verification-platform-matrix
 ---
 
 ### Task 1: CI 与 marker 失败合同

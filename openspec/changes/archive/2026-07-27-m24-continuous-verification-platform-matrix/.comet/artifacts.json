@@ -4,5 +4,6 @@
   "openspec_tasks": "openspec/changes/m24-continuous-verification-platform-matrix/tasks.md",
   "openspec_delta_spec": "openspec/changes/m24-continuous-verification-platform-matrix/specs/continuous-verification/spec.md",
   "handoff_context": "openspec/changes/m24-continuous-verification-platform-matrix/.comet/handoff/design-context.json",
-  "handoff_markdown": "openspec/changes/m24-continuous-verification-platform-matrix/.comet/handoff/design-context.md"
+  "handoff_markdown": "openspec/changes/m24-continuous-verification-platform-matrix/.comet/handoff/design-context.md",
+  "archive_directory": "openspec/changes/archive/2026-07-27-m24-continuous-verification-platform-matrix"
 }

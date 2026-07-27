@@ -11,7 +11,8 @@ pytest: `2309 passed, 10 skipped`；OpenSpec strict: `20/20`.
 该 pytest 基线为 Docker CLI 不可见的完整离线套件。本机 Docker Desktop 专项为
 `10 passed`、零 skip；Golden: `20/20`。
 
-M24 持续验证入口见 [`.gitlab-ci.yml`](.gitlab-ci.yml)，平台证据和排期见
+M24 已完成并归档，change 见
+[`2026-07-27-m24-continuous-verification-platform-matrix`](openspec/changes/archive/2026-07-27-m24-continuous-verification-platform-matrix/)；持续验证入口见 [`.gitlab-ci.yml`](.gitlab-ci.yml)，平台证据和排期见
 [`docs/platform-support.md`](docs/platform-support.md)。Linux Docker 是必需 CI 门禁；本机
 macOS Docker Desktop 结果只作为 supplemental 证据，不外推为 Linux、Podman 或 Windows 支持。
 

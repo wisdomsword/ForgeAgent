@@ -2,6 +2,8 @@
 comet_change: m24-continuous-verification-platform-matrix
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-07-27-m24-continuous-verification-platform-matrix
+status: final
 ---
 
 # M24 持续验证与平台矩阵技术设计

@@ -1,12 +1,12 @@
 # 里程碑 M24: 持续验证与平台矩阵
 
-- 状态: 进行中
+- 状态: 已完成并归档
 - 起止: 2026-07-27 ~ 2026-07-27
 - 对应 ACTION_PLAN 行: M24（见该文件 §四 里程碑表）
 - 前置里程碑: [milestone_023](milestone_023.md)
 - 技术设计: [2026-07-27-m24-continuous-verification-platform-matrix-design](../docs/superpowers/specs/2026-07-27-m24-continuous-verification-platform-matrix-design.md)
 - 实施计划: [2026-07-27-m24-continuous-verification-platform-matrix](../docs/superpowers/plans/2026-07-27-m24-continuous-verification-platform-matrix.md)
-- OpenSpec change: [`m24-continuous-verification-platform-matrix`](../openspec/changes/m24-continuous-verification-platform-matrix/)
+- OpenSpec 归档: [`2026-07-27-m24-continuous-verification-platform-matrix`](../openspec/changes/archive/2026-07-27-m24-continuous-verification-platform-matrix/)
 - 验证报告: [2026-07-27-m24-continuous-verification-platform-matrix-verify](../docs/superpowers/reports/2026-07-27-m24-continuous-verification-platform-matrix-verify.md)
 
 ## 目标与范围
@@ -33,7 +33,7 @@
 - [x] 编写 Linux Docker job 与 JUnit 零 skip 合同
 - [x] 更新 README、ACTION_PLAN 与平台矩阵
 - [ ] 在 Linux Docker runner 上执行完整证据 — 待 CI runner 可用
-- [ ] 完成 Comet verify 与归档 — 依赖最终门禁
+- [x] 完成 Comet verify、main fast-forward 合并与 OpenSpec 归档
 
 ## 交付物清单
 
@@ -68,5 +68,6 @@
 
 ## 续接指引
 
-先在本机 Docker Desktop 运行十项测试并保存 supplemental 原始记录；随后运行所有离线门禁，
-检查 CI YAML/JUnit 计数和发布边界，完成两轮自审，再执行 Comet verify、归档及主线合并。
+M24 已归档并合并 main。后续先为 `docker-privileged` GitLab runner 取得 Linux Docker JUnit
+证据；结果为 10/10 后才可把 Linux Docker 从 configured 升为 verified。Podman 升为发布目标时
+新建独立兼容性 change；Windows 仍 deferred，不在本里程碑扩展运行时。
