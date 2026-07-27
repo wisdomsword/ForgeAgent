@@ -19,6 +19,9 @@ HARNESS_PATH = ROOT / "scripts" / "m23_mode_evaluation.py"
 M23_PROTOCOL_PATH = ROOT / "docs" / "evaluation" / "m23" / "protocol.json"
 M23_FORMAL_ROOT = ROOT / "docs" / "evaluation" / "m23" / "runs" / "2026-07-27-haiku-4-5"
 M25_PROTOCOL_PATH = ROOT / "docs" / "evaluation" / "m25" / "protocol.json"
+M25_PLAN_PATH = (
+    ROOT / "docs" / "superpowers" / "plans" / "2026-07-27-m25-programming-mode-evaluation.md"
+)
 BASE_REF = "d7fa30526f829959102b5fb69b4778899d6b1f88"
 M25_SCHEMA = "forgeagent.m25.mode-evaluation/v1"
 
@@ -71,6 +74,14 @@ def test_tracked_m23_protocol_and_evidence_are_byte_identical_to_base_ref() -> N
     assert current == expected
     for relative_path in expected.decode().splitlines():
         assert (ROOT / relative_path).read_bytes() == _git("show", f"{BASE_REF}:{relative_path}")
+
+
+def test_m25_plan_registers_dynamic_preflight_module_before_execution() -> None:
+    plan = M25_PLAN_PATH.read_text(encoding="utf-8")
+    assert (
+        "module=importlib.util.module_from_spec(spec); "
+        "sys.modules[spec.name]=module; spec.loader.exec_module(module)"
+    ) in plan
 
 
 def test_formal_m23_raw_recomputes_to_checked_in_summary_and_report() -> None:
