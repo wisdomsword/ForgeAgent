@@ -1275,13 +1275,13 @@ rtk git commit -m "test(evaluation): independently verify M25 aggregates"
 - Consumes: all offline implementation from Tasks 1-7。
 - Produces: green offline gate and a committed, tracked-clean implementation SHA used by the real environment manifest。
 
-- [ ] **Step 1: Run focused M23/M25 RED-GREEN suite**
+- [x] **Step 1: Run focused M23/M25 RED-GREEN suite**
 
 Run: `rtk uv --cache-dir /tmp/forgeagent-m25-uv-cache run pytest -q tests/test_m23_mode_evaluation.py tests/test_m25_mode_evaluation.py tests/test_m25_independent_recompute.py`
 
 Expected: PASS; synthetic aggregation observes 270/270 and the M23 base-ref byte lock passes.
 
-- [ ] **Step 2: Run formatting and static quality gates**
+- [x] **Step 2: Run formatting and static quality gates**
 
 Run: `rtk uv --cache-dir /tmp/forgeagent-m25-uv-cache run ruff format --check scripts/m23_mode_evaluation.py scripts/m25_independent_recompute.py tests/test_m23_mode_evaluation.py tests/test_m25_mode_evaluation.py tests/test_m25_independent_recompute.py`
 
@@ -1291,7 +1291,7 @@ Run: `rtk uv --cache-dir /tmp/forgeagent-m25-uv-cache run ruff check scripts/m23
 
 Expected: `All checks passed!`
 
-- [ ] **Step 3: Run complete offline project gates**
+- [x] **Step 3: Run complete offline project gates**
 
 Run: `rtk uv --cache-dir /tmp/forgeagent-m25-uv-cache run pytest -q`
 
@@ -1313,7 +1313,7 @@ Run: `rtk git diff --check`
 
 Expected: no output, exit 0.
 
-- [ ] **Step 4: Confirm M23 history and implementation freeze**
+- [x] **Step 4: Confirm M23 history and implementation freeze**
 
 Run: `rtk git diff --exit-code d7fa30526f829959102b5fb69b4778899d6b1f88 -- docs/evaluation/m23`
 

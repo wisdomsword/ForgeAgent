@@ -14,6 +14,6 @@ Review mode: standard
 | 5 | complete | `0c3b377` | `a466209` | RED `9 failed`; GREEN `102 passed` | local double review APPROVED AFTER TEST EXPANSION |
 | 6 | complete | `cd3ba70` | `2bea127` | RED cross-model duplicate; GREEN `113 passed` | local double review APPROVED |
 | 7 | complete | `f937f73` | `817a49f` | RED missing script; GREEN `118 passed` | local double review APPROVED AFTER HASH-BINDING FIX |
-| 8 | pending | - | - | - | - |
-| 9 | pending | - | - | - | - |
+| 8 | complete | `817a49f` | `6aef585` | focused `118 passed`; full `2384 passed`; golden `20/20`; OpenSpec `20/20`; build passed | local double review APPROVED |
+| 9 | in progress | `6aef585` | - | preflight pending | pending |
 | 10 | pending | - | - | - | - |
