@@ -393,3 +393,307 @@ def test_checked_in_m25_protocol_fixes_models_tasks_families_and_baselines() -> 
         ("refactor-notification-routing", "refactor"),
         ("refactor-config-precedence", "refactor"),
     ]
+
+
+def _write_reference_solution(task_id: str, workspace: Path) -> None:
+    if task_id == "fix-ttl-expiration-boundary":
+        path = workspace / "cache.py"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                "self._clock() <= expires_at", "self._clock() < expires_at"
+            ),
+            encoding="utf-8",
+        )
+        return
+
+    if task_id == "fix-invoice-discount-composition":
+        (workspace / "invoice.py").write_text(
+            """from decimal import Decimal
+from discounts import apply_discounts
+
+
+def invoice_total(lines, adjustments):
+    subtotal = sum(Decimal(str(price)) * quantity for price, quantity in lines)
+    return apply_discounts(subtotal, adjustments)
+""",
+            encoding="utf-8",
+        )
+        (workspace / "discounts.py").write_text(
+            """from decimal import Decimal, ROUND_HALF_UP
+
+
+def apply_discounts(subtotal, adjustments):
+    total = Decimal(subtotal)
+    for kind, value in adjustments:
+        amount = Decimal(str(value))
+        if kind == "percent":
+            total -= total * amount
+        elif kind == "fixed":
+            total -= amount
+        else:
+            raise ValueError("unknown adjustment kind")
+    return max(total, Decimal("0")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+""",
+            encoding="utf-8",
+        )
+        return
+
+    if task_id == "add-topological-batches":
+        (workspace / "dependency_graph" / "graph.py").write_text(
+            """class CycleError(ValueError):
+    pass
+
+
+class DependencyGraph:
+    def __init__(self):
+        self._dependencies = {}
+
+    def add_node(self, node):
+        self._dependencies.setdefault(node, set())
+
+    def add_dependency(self, node, dependency):
+        self.add_node(node)
+        self.add_node(dependency)
+        self._dependencies[node].add(dependency)
+
+    def topological_batches(self):
+        remaining = {node: set(dependencies) for node, dependencies in self._dependencies.items()}
+        batches = []
+        while remaining:
+            ready = tuple(sorted(node for node, deps in remaining.items() if not deps))
+            if not ready:
+                raise CycleError("dependency cycle")
+            batches.append(ready)
+            for node in ready:
+                del remaining[node]
+            for dependencies in remaining.values():
+                dependencies.difference_update(ready)
+        return batches
+""",
+            encoding="utf-8",
+        )
+        (workspace / "dependency_graph" / "__init__.py").write_text(
+            "from .graph import CycleError, DependencyGraph\n\n"
+            '__all__ = ["CycleError", "DependencyGraph"]\n',
+            encoding="utf-8",
+        )
+        return
+
+    if task_id == "add-jsonl-dead-letter-output":
+        (workspace / "event_processor.py").write_text(
+            """import json
+
+
+def normalize_event(event):
+    return {"id": str(event["id"]), "kind": str(event["kind"]).lower()}
+
+
+def process_jsonl(lines):
+    accepted = []
+    rejected = []
+    for line_number, line in enumerate(lines, start=1):
+        if not line.strip():
+            continue
+        try:
+            accepted.append(normalize_event(json.loads(line)))
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+            rejected.append({"line": line_number, "error": type(error).__name__})
+    return accepted, rejected
+""",
+            encoding="utf-8",
+        )
+        (workspace / "cli.py").write_text(
+            """import argparse
+import json
+from pathlib import Path
+
+from event_processor import process_jsonl
+
+
+def _write_jsonl(path, rows):
+    Path(path).write_text(
+        "".join(json.dumps(row, sort_keys=True) + "\\n" for row in rows),
+        encoding="utf-8",
+    )
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("input")
+    parser.add_argument("output")
+    parser.add_argument("--dead-letter", required=True)
+    args = parser.parse_args(argv)
+    accepted, rejected = process_jsonl(
+        Path(args.input).read_text(encoding="utf-8").splitlines()
+    )
+    _write_jsonl(args.output, accepted)
+    _write_jsonl(args.dead_letter, rejected)
+    return 1 if rejected else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+""",
+            encoding="utf-8",
+        )
+        return
+
+    if task_id == "refactor-notification-routing":
+        (workspace / "routing.py").write_text(
+            """def route_notification(user, event):
+    preferred = user.get("preferred_channel", "email")
+    if event.get("urgent") and user.get("phone"):
+        return "sms", user["phone"]
+    if preferred == "push" and user.get("device"):
+        return "push", user["device"]
+    return "email", user["email"]
+""",
+            encoding="utf-8",
+        )
+        (workspace / "notifications.py").write_text(
+            """from routing import route_notification
+
+
+def send_notification(user, event):
+    channel, address = route_notification(user, event)
+    return {"channel": channel, "address": address, "message": event["message"]}
+""",
+            encoding="utf-8",
+        )
+        return
+
+    if task_id == "refactor-config-precedence":
+        (workspace / "config_sources.py").write_text(
+            """def environment_values(environment):
+    return {
+        key[4:].lower(): value
+        for key, value in environment.items()
+        if key.startswith("APP_") and value is not None
+    }
+
+
+def explicit_values(values):
+    return {key: value for key, value in values.items() if value is not None}
+""",
+            encoding="utf-8",
+        )
+        (workspace / "config_merge.py").write_text(
+            """def merge_layers(*layers):
+    result = {}
+    for layer in layers:
+        result.update(layer)
+    return result
+""",
+            encoding="utf-8",
+        )
+        (workspace / "config.py").write_text(
+            """from config_merge import merge_layers
+from config_sources import environment_values, explicit_values
+
+
+def load_config(defaults, file_values, environment, command_line):
+    return merge_layers(
+        dict(defaults),
+        explicit_values(file_values),
+        environment_values(environment),
+        explicit_values(command_line),
+    )
+""",
+            encoding="utf-8",
+        )
+        return
+
+    raise AssertionError(f"unknown task: {task_id}")
+
+
+PROGRAMMING_TASK_IDS = (
+    "fix-ttl-expiration-boundary",
+    "fix-invoice-discount-composition",
+    "add-topological-batches",
+    "add-jsonl-dead-letter-output",
+    "refactor-notification-routing",
+    "refactor-config-precedence",
+)
+
+
+@pytest.mark.parametrize("task_id", PROGRAMMING_TASK_IDS)
+def test_real_programming_fixture_fails_initially_and_reference_passes(
+    task_id, tmp_path
+) -> None:
+    harness = load_harness()
+    protocol, _ = harness.load_protocol(M25_PROTOCOL_PATH)
+    task = next(task for task in protocol.tasks if task.id == task_id)
+    initial = tmp_path / "initial"
+    initial.mkdir()
+    harness.prepare_workspace(task, initial)
+    assert any(check.status != "passed" for check in harness.run_checks(task, initial))
+    reference = tmp_path / "reference"
+    reference.mkdir()
+    harness.prepare_workspace(task, reference)
+    immutable_before = {
+        path: (reference / path).read_bytes() for path in task.immutable_files
+    }
+    _write_reference_solution(task_id, reference)
+    assert all(check.status == "passed" for check in harness.run_checks(task, reference))
+    assert immutable_before == {
+        path: (reference / path).read_bytes() for path in task.immutable_files
+    }
+
+
+WEAK_MUTATIONS = {
+    "fix-ttl-expiration-boundary": ("cache.py", "< expires_at", "<= expires_at"),
+    "fix-invoice-discount-composition": (
+        "discounts.py",
+        "for kind, value in adjustments:",
+        "for kind, value in sorted(adjustments):",
+    ),
+    "add-topological-batches": (
+        "dependency_graph/graph.py",
+        "tuple(sorted(",
+        "tuple(",
+    ),
+    "add-jsonl-dead-letter-output": (
+        "cli.py",
+        "return 1 if rejected else 0",
+        "return 0",
+    ),
+    "refactor-notification-routing": (
+        "notifications.py",
+        "from routing import route_notification",
+        "# route remains local",
+    ),
+    "refactor-config-precedence": (
+        "config.py",
+        "environment_values(environment)",
+        "explicit_values(file_values)",
+    ),
+}
+
+
+@pytest.mark.parametrize("task_id", PROGRAMMING_TASK_IDS)
+def test_programming_fixture_check_strength_and_fixture_integrity(
+    task_id, tmp_path
+) -> None:
+    harness = load_harness()
+    protocol, _ = harness.load_protocol(M25_PROTOCOL_PATH)
+    task = next(task for task in protocol.tasks if task.id == task_id)
+
+    weak = tmp_path / "weak"
+    weak.mkdir()
+    harness.prepare_workspace(task, weak)
+    _write_reference_solution(task_id, weak)
+    relative_path, original, replacement = WEAK_MUTATIONS[task_id]
+    target = weak / relative_path
+    source = target.read_text(encoding="utf-8")
+    assert original in source
+    target.write_text(source.replace(original, replacement, 1), encoding="utf-8")
+    assert any(check.status != "passed" for check in harness.run_checks(task, weak))
+
+    tampered = tmp_path / "tampered"
+    tampered.mkdir()
+    harness.prepare_workspace(task, tampered)
+    _write_reference_solution(task_id, tampered)
+    immutable = tampered / task.immutable_files[0]
+    immutable.write_bytes(immutable.read_bytes() + b"\n")
+    checks = {check.id: check for check in harness.run_checks(task, tampered)}
+    assert checks["fixture-integrity"].status == "failed"
