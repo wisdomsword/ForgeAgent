@@ -9,6 +9,7 @@ import importlib.resources
 import json
 import os
 import platform
+import re
 import stat
 import statistics
 import subprocess
@@ -171,10 +172,76 @@ class EvaluationProtocol(StrictModel):
         return self
 
 
+M25_PROTOCOL_SCHEMA = "forgeagent.m25.mode-evaluation/v1"
+TaskFamily = Literal["baseline", "bugfix", "feature", "refactor"]
+
+
+def _model_slug(model_id: str) -> str:
+    slug = "-".join(
+        part
+        for part in re.sub(r"[^a-z0-9]+", "-", model_id.lower()).split("-")
+        if part
+    )
+    if not slug:
+        raise ValueError("model id has no safe slug")
+    return slug
+
+
+class M25TaskSpec(TaskSpec):
+    family: TaskFamily
+
+
+class M25EvaluationProtocol(StrictModel):
+    schema_: Literal[M25_PROTOCOL_SCHEMA] = Field(alias="schema")
+    model_ids: tuple[
+        Literal["claude-haiku-4-5"], Literal["gpt-5.4-mini"]
+    ]
+    generation: GenerationSettings
+    execution: ExecutionSettings
+    modes: tuple[Mode, ...]
+    repetitions: Literal[5]
+    mode_orders: tuple[tuple[Mode, ...], ...]
+    tasks: tuple[M25TaskSpec, ...] = Field(min_length=9, max_length=9)
+
+    @model_validator(mode="after")
+    def validate_frozen_design(self) -> M25EvaluationProtocol:
+        expected_orders = (
+            ("single", "duo", "triad"),
+            ("duo", "triad", "single"),
+            ("triad", "single", "duo"),
+        )
+        if self.modes != MODES or self.mode_orders != expected_orders:
+            raise ValueError("M25 modes and mode_orders must use the fixed Latin rotation")
+        task_ids = [task.id for task in self.tasks]
+        if len(set(task_ids)) != 9:
+            raise ValueError("M25 task ids must be unique")
+        expected_families = {"baseline": 3, "bugfix": 2, "feature": 2, "refactor": 2}
+        observed = {
+            family: sum(task.family == family for task in self.tasks)
+            for family in expected_families
+        }
+        if observed != expected_families:
+            raise ValueError("M25 task families must be 3/2/2/2")
+        slugs = [_model_slug(model_id) for model_id in self.model_ids]
+        if len(set(slugs)) != len(slugs):
+            raise ValueError("M25 model slugs must be unique")
+        return self
+
+
 @dataclass(frozen=True)
 class RunSpec:
     sequence: int
     task_id: str
+    repeat: int
+    mode: Mode
+
+
+@dataclass(frozen=True)
+class M25RunSpec:
+    sequence: int
+    task_id: str
+    task_family: TaskFamily
+    model_id: str
     repeat: int
     mode: Mode
 
@@ -227,6 +294,31 @@ class EnvironmentManifest(StrictModel):
     package_version: str
     model_id: str
     provider_route_sha256: str = Field(pattern=SHA256_PATTERN)
+    builtin_models_sha256: str = Field(pattern=SHA256_PATTERN)
+    builtin_config_sha256: str = Field(pattern=SHA256_PATTERN)
+    protocol_sha256: str = Field(pattern=SHA256_PATTERN)
+    generation: GenerationSettings
+    execution: ExecutionSettings
+
+
+class M25ModelRoute(StrictModel):
+    model_id: str
+    client_kind: str
+    provider_route_sha256: str = Field(pattern=SHA256_PATTERN)
+
+
+class M25EnvironmentManifest(StrictModel):
+    schema_: Literal["forgeagent.m25.mode-evaluation.environment/v1"] = Field(
+        "forgeagent.m25.mode-evaluation.environment/v1", alias="schema"
+    )
+    generated_at: str
+    git_commit: str
+    tracked_dirty: Literal[False]
+    python_version: str
+    python_executable_name: str
+    platform: str
+    package_version: str
+    model_routes: tuple[M25ModelRoute, M25ModelRoute]
     builtin_models_sha256: str = Field(pattern=SHA256_PATTERN)
     builtin_config_sha256: str = Field(pattern=SHA256_PATTERN)
     protocol_sha256: str = Field(pattern=SHA256_PATTERN)
@@ -324,6 +416,22 @@ class RawRecord(StrictModel):
         return self
 
 
+class M25RawRecord(RawRecord):
+    schema_: Literal["forgeagent.m25.mode-evaluation.run/v1"] = Field(
+        "forgeagent.m25.mode-evaluation.run/v1", alias="schema"
+    )
+    terminal: Literal[True] = True
+    task_family: TaskFamily
+    model_id: str
+    provider_route_sha256: str = Field(pattern=SHA256_PATTERN)
+
+
+Protocol = EvaluationProtocol | M25EvaluationProtocol
+RunSpecification = RunSpec | M25RunSpec
+Environment = EnvironmentManifest | M25EnvironmentManifest
+RunRecord = RawRecord | M25RawRecord
+
+
 def canonical_json(value: Any) -> bytes:
     return json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode()
 
@@ -332,11 +440,49 @@ def canonical_sha256(value: Any) -> str:
     return hashlib.sha256(canonical_json(value)).hexdigest()
 
 
-def validate_protocol(value: object) -> EvaluationProtocol:
-    return EvaluationProtocol.model_validate(value)
+def validate_protocol(value: object) -> Protocol:
+    if not isinstance(value, dict) or not isinstance(value.get("schema"), str):
+        raise ValueError("protocol schema is required")
+    schema = value["schema"]
+    if schema == PROTOCOL_SCHEMA:
+        return EvaluationProtocol.model_validate(value)
+    if schema == M25_PROTOCOL_SCHEMA:
+        return M25EvaluationProtocol.model_validate(value)
+    raise ValueError(f"unsupported protocol schema: {schema}")
 
 
-def load_protocol(path: Path) -> tuple[EvaluationProtocol, str]:
+def protocol_model_ids(protocol: Protocol) -> tuple[str, ...]:
+    return (protocol.model_id,) if isinstance(protocol, EvaluationProtocol) else protocol.model_ids
+
+
+def run_model_id(protocol: Protocol, run_spec: RunSpecification) -> str:
+    return protocol.model_id if isinstance(run_spec, RunSpec) else run_spec.model_id
+
+
+def run_task_family(run_spec: RunSpecification) -> TaskFamily | None:
+    return None if isinstance(run_spec, RunSpec) else run_spec.task_family
+
+
+def protocol_namespace(protocol: Protocol) -> Literal["m23", "m25"]:
+    return "m23" if isinstance(protocol, EvaluationProtocol) else "m25"
+
+
+def route_hash_for_model(environment: Environment, model_id: str) -> str:
+    if isinstance(environment, EnvironmentManifest):
+        if model_id != environment.model_id:
+            raise ValueError("model route is not present in environment")
+        return environment.provider_route_sha256
+    matches = [
+        route.provider_route_sha256
+        for route in environment.model_routes
+        if route.model_id == model_id
+    ]
+    if len(matches) != 1:
+        raise ValueError("model route is not uniquely present in environment")
+    return matches[0]
+
+
+def load_protocol(path: Path) -> tuple[Protocol, str]:
     protocol = validate_protocol(json.loads(path.read_text(encoding="utf-8")))
     serialized = protocol.model_dump(mode="json", by_alias=True)
     return protocol, canonical_sha256(serialized)
