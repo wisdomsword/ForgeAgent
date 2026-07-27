@@ -502,6 +502,8 @@ def test_run_collaboration_uses_fresh_owned_role_tasks(
     )
 
     assert create_kwargs["mode"] == mode
+    assert len(create_kwargs["collaboration_id"]) == 32
+    assert set(create_kwargs["collaboration_id"]) <= set("0123456789abcdef")
     assert "evaluator_checks" not in create_kwargs
     assert create_kwargs["required_candidate_files"] == task_spec.required_candidate_files
     assert all(

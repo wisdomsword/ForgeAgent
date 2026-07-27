@@ -700,6 +700,15 @@ def run_collaboration(
             raise
         return _OwnedRoleTask(task, client)
 
+    collaboration_id = canonical_sha256(
+        {
+            "scope": "m23-collaboration",
+            "sequence": run_spec.sequence,
+            "task_id": run_spec.task_id,
+            "repeat": run_spec.repeat,
+            "mode": run_spec.mode,
+        }
+    )[:32]
     runner = CollaborationRunner.create(
         mode=run_spec.mode,
         goal=task_spec.goal,
@@ -710,7 +719,7 @@ def run_collaboration(
         ),
         required_candidate_files=task_spec.required_candidate_files,
         execution_tier="restricted",
-        collaboration_id=f"m23-{run_spec.sequence:02d}-{run_spec.mode}",
+        collaboration_id=collaboration_id,
         planner_model=protocol.model_id,
         generator_model=protocol.model_id,
         evaluator_model=protocol.model_id,
