@@ -1028,7 +1028,7 @@ rtk git commit -m "test(evaluation): audit M25 fixture solvability"
 - Consumes: `protocol_model_ids()`, `run_model_id()`, `protocol_namespace()`, `route_hash_for_model()`, union schedule/identity。
 - Produces: dual-route `environment_manifest()`, union-aware `PreflightContext`, `run_single()`, `run_collaboration()`, `execute_run()`, `preflight()`, `run_command()`。
 
-- [ ] **Step 1: Write RED model-routing and safe-environment tests**
+- [x] **Step 1: Write RED model-routing and safe-environment tests**
 
 Use fake clients with distinct `client_kind` and base URLs. After calling `preflight()` with `client_builder` and monkeypatched `resolve_model`, make these exact assertions:
 
@@ -1046,13 +1046,13 @@ Add tests that missing/ambiguous credential route, capability model mismatch, in
 
 For execution, parameterize Single/Duo/Triad and both models; capture every `build_real_client(model_id, registry=registry)` call and every Task/Collaboration model field. Assert all roles for one `M25RunSpec` use that run's model, IDs start with `m25-` and use three sequence digits, and M23 continues using `m23-` with two digits.
 
-- [ ] **Step 2: Run RED execution/preflight tests**
+- [x] **Step 2: Run RED execution/preflight tests**
 
 Run: `rtk uv --cache-dir /tmp/forgeagent-m25-uv-cache run pytest -q tests/test_m25_mode_evaluation.py -k 'preflight or run_single or run_collaboration or execute_run or output_root'`
 
 Expected: FAIL because execution and preflight still read only `protocol.model_id` and one route.
 
-- [ ] **Step 3: Implement safe dual-route environment construction**
+- [x] **Step 3: Implement safe dual-route environment construction**
 
 For each `protocol_model_ids(protocol)`, `preflight()` must:
 
@@ -1064,7 +1064,7 @@ For each `protocol_model_ids(protocol)`, `preflight()` must:
 
 For M25, reject non-empty tracked `git status --porcelain --untracked-files=no` before writing environment. Serialize two `M25ModelRoute` values in protocol model order. Existing environment reuse compares `environment_sha256()`, whose implementation removes only `generated_at`. For M23, keep the current dirty-field recording and one-route serialization behavior.
 
-- [ ] **Step 4: Route every mode through the RunSpec model**
+- [x] **Step 4: Route every mode through the RunSpec model**
 
 Replace each M23-only `protocol.model_id` execution lookup with:
 
@@ -1079,13 +1079,13 @@ Use `model_id` for planner/generator/evaluator model fields and include model ID
 
 In `run_command()` and `aggregate_command()`, derive the default allowed root as `docs/evaluation/{protocol_namespace(protocol)}/runs`. Pass the full environment to M25 pending/read validation. Prefix temporary workspaces `forgeagent-m23-` or `forgeagent-m25-` from the namespace.
 
-- [ ] **Step 5: Run GREEN, safety, and M23 tests**
+- [x] **Step 5: Run GREEN, safety, and M23 tests**
 
 Run: `rtk uv --cache-dir /tmp/forgeagent-m25-uv-cache run pytest -q tests/test_m25_mode_evaluation.py -k 'preflight or environment or run_single or run_collaboration or execute_run or output_root or sensitive' tests/test_m23_mode_evaluation.py`
 
 Expected: PASS; M23 route/ID/manifest tests remain unchanged.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 rtk git add scripts/m23_mode_evaluation.py tests/test_m25_mode_evaluation.py

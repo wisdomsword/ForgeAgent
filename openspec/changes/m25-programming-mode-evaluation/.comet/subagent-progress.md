@@ -11,7 +11,7 @@ Review mode: standard
 | 2 | complete | `4e9b2e9` | `8aa1e6e` | RED `9 failed`; GREEN `76 passed` | local double review APPROVED |
 | 3 | complete | `820a87e` | `a4d4b80` | RED missing protocol; GREEN `77 passed` | local double review APPROVED |
 | 4 | complete | `5958eb0` | `fa5c590` | RED missing references/artifacts; GREEN `89 passed` | local double review APPROVED AFTER FIX |
-| 5 | pending | - | - | - | - |
+| 5 | complete | `0c3b377` | `a466209` | RED `9 failed`; GREEN `102 passed` | local double review APPROVED AFTER TEST EXPANSION |
 | 6 | pending | - | - | - | - |
 | 7 | pending | - | - | - | - |
 | 8 | pending | - | - | - | - |
