@@ -536,6 +536,14 @@ if __name__ == "__main__":
 """,
             encoding="utf-8",
         )
+        (workspace / "output.jsonl").write_text(
+            '{"id": "1", "kind": "open"}\n', encoding="utf-8"
+        )
+        (workspace / "dead-letter.jsonl").write_text(
+            '{"error": "JSONDecodeError", "line": 2}\n'
+            '{"error": "KeyError", "line": 3}\n',
+            encoding="utf-8",
+        )
         return
 
     if task_id == "refactor-notification-routing":
@@ -635,6 +643,9 @@ def test_real_programming_fixture_fails_initially_and_reference_passes(
     }
     _write_reference_solution(task_id, reference)
     assert all(check.status == "passed" for check in harness.run_checks(task, reference))
+    assert all(
+        artifact.status == "ok" for artifact in harness.hash_artifacts(task, reference)
+    )
     assert immutable_before == {
         path: (reference / path).read_bytes() for path in task.immutable_files
     }
