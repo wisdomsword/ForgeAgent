@@ -60,7 +60,7 @@ base-ref: f6e0dda3c8a7f9c73400c240c0a999e20b12bbd6
 - Produces: `validate_protocol(value: object) -> EvaluationProtocol`、`load_protocol(path: Path) -> tuple[EvaluationProtocol, str]`、`build_schedule(protocol: EvaluationProtocol) -> tuple[RunSpec, ...]`、`run_spec_hash(spec: RunSpec, protocol_sha256: str) -> str`。
 - Consumes later: Task 2 receives only validated model instances and `RunSpec`; it must never re-read unvalidated JSON dictionaries.
 
-- [ ] **Step 1: 创建测试加载器并写协议/排程 RED 合同**
+- [x] **Step 1: 创建测试加载器并写协议/排程 RED 合同**
 
 在 `tests/test_m23_mode_evaluation.py` 先加入脚本模块加载器和以下测试骨架；测试必须直接读取正式 `protocol.json`，并用深拷贝变体覆盖失败分支：
 
@@ -143,13 +143,13 @@ def test_protocol_rejects_fixture_and_artifact_path_escape(bad_path: str) -> Non
         harness.validate_protocol(value)
 ```
 
-- [ ] **Step 2: 运行测试并确认 RED 原因准确**
+- [x] **Step 2: 运行测试并确认 RED 原因准确**
 
 Run: `rtk uv run pytest -q tests/test_m23_mode_evaluation.py -k 'protocol or schedule'`
 
 Expected: FAIL during module load because `scripts/m23_mode_evaluation.py` and/or `docs/evaluation/m23/protocol.json` does not exist；不得接受因语法错误、测试夹具错误或环境 credential 导致的失败。
 
-- [ ] **Step 3: 写入唯一正式协议**
+- [x] **Step 3: 写入唯一正式协议**
 
 创建 `docs/evaluation/m23/protocol.json`，顶层键固定为下列集合，禁止 CLI 覆盖：
 
@@ -234,7 +234,7 @@ Expected: FAIL during module load because `scripts/m23_mode_evaluation.py` and/o
 
 每个 task 的键只能是 `id`、`goal`、`initial_files`、`required_candidate_files`、`checks`、`artifacts`；每个 check 的键只能是 `id`、`command`、`timeout_seconds`。所有 goal/fixture/check 代码必须在 JSON 中完整写出，不引用仓库外脚本或网络资源。
 
-- [ ] **Step 4: 实现最小严格模型、canonical hash 和排程**
+- [x] **Step 4: 实现最小严格模型、canonical hash 和排程**
 
 在 `scripts/m23_mode_evaluation.py` 中实现以下结构，不先加入真实 client 代码：
 
@@ -311,7 +311,7 @@ def canonical_sha256(value: object) -> str:
 
 `validate_protocol` 必须额外检查：模式恰为三个且无重复；恰有三个 task 且 ID 唯一；`mode_orders` 数量等于 repetitions，且逐行精确等于上方三行固定轮换；所有路径均是非空 canonical relative POSIX path，禁止绝对路径、`.`、`..`、反斜杠、NUL/控制字符；同一列表内路径唯一；`required_candidate_files` 是 `artifacts` 的子集；check 首项必须为字面值 `{python}`，运行时只替换为 `sys.executable` 后构造 `CheckDefinition`；所有固定设置与上方 Global Constraints 完全相等。`load_protocol` 先 `json.loads`，再校验并对 validated model 的 alias JSON 计算摘要。`build_schedule` 按 task → repeat → 对应 mode order 生成 sequence 1..27。
 
-- [ ] **Step 5: 运行协议测试至 GREEN 并完成第一轮自审**
+- [x] **Step 5: 运行协议测试至 GREEN 并完成第一轮自审**
 
 Run: `rtk uv run pytest -q tests/test_m23_mode_evaluation.py -k 'protocol or schedule'`
 
@@ -319,7 +319,7 @@ Expected: PASS；确认 27 个 RunSpec 唯一、每模式 9 次、每 task/mode 
 
 自审检查：删除任意固定字段、加入未知键、把路径换成绝对/逃逸路径、把重复数降为 2、把 order 改成非排列时，都必须在模型调用前失败。
 
-- [ ] **Step 6: 勾选 1.1 并提交 Task 1**
+- [x] **Step 6: 勾选 1.1 并提交 Task 1**
 
 仅在上一步通过后勾选 OpenSpec task `1.1`，暂不勾选 `1.2`。
 
@@ -345,7 +345,7 @@ rtk git commit -m "feat: define M23 evaluation protocol"
 - Produces orchestration: `execute_run(protocol: EvaluationProtocol, protocol_sha256: str, environment_sha256: str, task: TaskSpec, run_spec: RunSpec, workspace: Path, registry: Registry) -> RawRecord`；测试通过 monkeypatch `run_single`/`run_collaboration` 隔离真实模型，真实命令使用 `build_real_client(model_id, registry=registry)`。
 - Consumes: Task 1 validated protocol and schedule；现有公开 `Task`、`CollaborationRunner.create`、`headless_plan_confirmer`、`ApprovedIdentity`、`GenerationParams`、`load_registry`、`build_real_client`、`CheckDefinition`、`run_check`。
 
-- [ ] **Step 1: 写安全投影、N/A、外部失败和原子写入 RED 测试**
+- [x] **Step 1: 写安全投影、N/A、外部失败和原子写入 RED 测试**
 
 追加以下测试（可把重复构造收敛到测试文件内普通 helper，不新增 fixture 文件）：
 
@@ -504,13 +504,13 @@ def make_raw_record(
 
 再增加参数化测试覆盖：usage 的 bool/负数/缺键/非 dict 都视为 missing；provider started/terminal 不重复；`prepare_workspace` 拒绝 symlink/路径逃逸；artifact 缺失、目录、symlink 各有稳定状态；所有检查 stdout/stderr 只投影 UTF-8 字节数和 SHA-256，成功/失败都不保存正文；raw 递归键名不得出现 `goal,prompt,messages,reply,body,text,api_key,base_url,environment`。
 
-- [ ] **Step 2: 运行 Task 2 测试并确认 RED**
+- [x] **Step 2: 运行 Task 2 测试并确认 RED**
 
 Run: `rtk uv run pytest -q tests/test_m23_mode_evaluation.py -k 'audit or usage or raw or workspace or artifact or external or acceptance'`
 
 Expected: FAIL because Task 2 data models/functions do not exist；不调用真实模型。
 
-- [ ] **Step 3: 实现安全数据模型和 audit 投影**
+- [x] **Step 3: 实现安全数据模型和 audit 投影**
 
 在同一脚本中加入 frozen `StrictModel` 子类：
 
@@ -554,7 +554,7 @@ class CollectingAuditSink:
 
 `project_audit_metrics` 只把 `event_type == "llm.outcome"` 计为 logical call；usage 必须是 dict 且四个字段均满足 `type(value) is int and value >= 0` 才 present。所有 present call 逐字段求和；有 call 但 present 为 0 时四项 token 都是 null；无 call 时四项为 0。provider attempts 只数 started 事件。
 
-- [ ] **Step 4: 实现环境清单、工作区、检查、artifact hash 与 raw 原子落盘**
+- [x] **Step 4: 实现环境清单、工作区、检查、artifact hash 与 raw 原子落盘**
 
 `environment_manifest` 只记录允许字段：`schema`、UTC 生成时间、git commit、tracked dirty bool、`sys.version`、`sys.executable` 的 basename、`platform.system/release/machine`、安装包版本、model ID、内置 `models.yaml`/`config.yaml` SHA-256、固定 generation/execution 设置、protocol SHA-256 和 `provider_route_sha256`；禁止复制 `os.environ`、user registry、api key 或 base URL。preflight 用现有 `resolve_model()` 在内存得到 client kind/base URL，以 canonical `[model_id, client_kind, base_url or "provider-default"]` 计算 route hash，随后丢弃原值。`environment_sha256` 对 manifest 去掉 `generated_at` 后的 canonical JSON 计算，保证同一提交/环境的合法续跑稳定；若已有 `environment.json`，重新计算稳定字段并精确比较，保留第一次的 generated_at。
 
@@ -575,7 +575,7 @@ result = run_check(definition, allowed_root=workspace)
 
 `write_raw_record` 在目标目录创建同目录 `.<name>.<uuid>.tmp`，以 UTF-8 canonical JSON 写入、flush、`os.fsync` 后 `os.replace`，finally 删除残留 temp；目标若已存在只允许内容完全相同，否则报错，支持安全续跑。
 
-- [ ] **Step 5: 实现 Single 与 Duo/Triad 的公开 API 组装**
+- [x] **Step 5: 实现 Single 与 Duo/Triad 的公开 API 组装**
 
 在脚本中保持下列调用合同：
 
@@ -625,13 +625,13 @@ report = runner.run(task_spec.goal)
 
 不得传 `evaluator_checks`。`first_acceptance_passed` 精确定义为 `report.status == "completed" and report.generator_attempts == 1 and report.evaluator_attempts == 1 and report.rejections == 0`；`rejection_count=report.rejections`；`correction_count=max(0, report.generator_attempts - 1)`。finally `runner.close()`；role task 已由 runner 逐次关闭。
 
-- [ ] **Step 6: 实现 execute_run 的错误收敛和 raw record**
+- [x] **Step 6: 实现 execute_run 的错误收敛和 raw record**
 
 计时从 workspace 完成后、调用 mode runner 之前开始，到外部 checks 与 artifact hash 完成后结束。任何普通异常映射为固定 `configuration_error/client_error/check_error/io_error/internal_error`，不得把 `str(exc)` 写入 raw；仍执行可以安全执行的 checks/hash 并写 terminal raw。`KeyboardInterrupt` 不吞掉，已完成 raw 保留。
 
 raw 的稳定字段必须包含：schema/run ID/sequence/task ID/mode/repeat、protocol/environment/RunSpec hash、开始结束 UTC、runtime status/completed/reason、checks/artifacts、solved、验收循环三字段、四类 token、logical calls/provider attempts/usage present/missing/rate、end-to-end latency 和固定 error category。
 
-- [ ] **Step 7: 跑 Task 2 测试至 GREEN，再加真实 API 装配的 fake client 测试**
+- [x] **Step 7: 跑 Task 2 测试至 GREEN，再加真实 API 装配的 fake client 测试**
 
 Run: `rtk uv run pytest -q tests/test_m23_mode_evaluation.py -k 'audit or usage or raw or workspace or artifact or external or acceptance or run_single or run_collaboration'`
 
@@ -639,7 +639,7 @@ Expected: PASS。
 
 再用现有 `MockClient` 或最小 fake client 验证：Single 只建一个 Task；Duo 至少构造 Generator/Evaluator fresh client；Triad 构造 Planner/Generator/Evaluator；所有 client/backend 关闭；所有模式收到同一 params/model/root；协作不传 evaluator check。
 
-- [ ] **Step 8: 勾选 2.1–2.3 和 1.2 并提交 Task 2**
+- [x] **Step 8: 勾选 2.1–2.3 和 1.2 并提交 Task 2**
 
 Run: `rtk uv run ruff format scripts/m23_mode_evaluation.py tests/test_m23_mode_evaluation.py && rtk uv run ruff check scripts/m23_mode_evaluation.py tests/test_m23_mode_evaluation.py`
 
@@ -664,7 +664,7 @@ rtk git commit -m "feat: record isolated M23 mode runs"
 - Produces: `render_report(protocol: EvaluationProtocol, environment: Mapping[str, object], summary: Mapping[str, object]) -> str`、`write_aggregate_outputs(output_dir: Path, summary: Mapping[str, object], report: str) -> None`。
 - Consumes: 只接受 Task 2 `RawRecord` schema；禁止读取 workspace、audit events、model outputs 或 collaboration state。
 
-- [ ] **Step 1: 写完整性、聚合分母、N/A 与中立性 RED 测试**
+- [x] **Step 1: 写完整性、聚合分母、N/A 与中立性 RED 测试**
 
 在唯一测试文件中加入 helper 生成 27 个最小有效 raw records，然后覆盖：
 
@@ -731,17 +731,17 @@ def make_complete_records(harness, schedule, protocol_sha256: str):
 
 再覆盖：task completion 以 `solved` 为准而非 runtime completed；usage missing 以 calls 为加权分母而非 run 平均；token 只汇总非 null 值且并列 missing calls；四类 token/model calls/provider attempts/latency/rejection/correction 均有 sum/mean/median/min/max；逐 task/mode 样本恰为 3；同一 raw 集两次聚合的 metrics 相等。
 
-- [ ] **Step 2: 运行聚合测试并确认 RED**
+- [x] **Step 2: 运行聚合测试并确认 RED**
 
 Run: `rtk uv run pytest -q tests/test_m23_mode_evaluation.py -k 'aggregate or report or denominator or ranking or complete'`
 
 Expected: FAIL because aggregate/report functions are absent。
 
-- [ ] **Step 3: 实现严格 raw 加载与完整性检查**
+- [x] **Step 3: 实现严格 raw 加载与完整性检查**
 
 `read_raw_records` 只读取 `raw/*.json` 普通非 symlink 文件，逐个 `RawRecord.model_validate`。必须证明：文件数 27；(task, repeat, mode) 与 schedule 一一对应；sequence/run_spec_hash/protocol hash/environment hash 一致；schema 唯一；没有缺失、多余或重复组合；不提供不完整聚合路径。
 
-- [ ] **Step 4: 实现指标聚合**
+- [x] **Step 4: 实现指标聚合**
 
 先计算：
 
@@ -793,7 +793,7 @@ def known_token_values(field: str) -> list[int]:
 
 `distribution([])` 返回五项 null，绝不伪造 0。summary 的 `schema` 固定为 `forgeagent.m23.mode-evaluation.summary/v1`，顶层只允许 `schema/protocol_sha256/environment_sha256/generated_at/completeness/modes/tasks/failures/usage_missing_runs/limitations`；不得加入比较、排行或推荐字段。
 
-- [ ] **Step 5: 实现中立 Markdown 与幂等输出**
+- [x] **Step 5: 实现中立 Markdown 与幂等输出**
 
 报告固定章节为：协议、环境、证据完整性、按模式指标、按任务指标、失败/usage 缺失清单、限制。每个 rate 同时显示 numerator/denominator；Single 验收循环显示 `N/A`。末尾逐字包含：
 
@@ -803,13 +803,13 @@ def known_token_values(field: str) -> list[int]:
 
 `write_aggregate_outputs` 使用与 raw 相同的同目录原子替换；重复执行内容的 metric 部分必须相同，只有明确的 `generated_at` 可以变化，测试比较时排除该字段。
 
-- [ ] **Step 6: 运行 Task 3 全部离线合同至 GREEN**
+- [x] **Step 6: 运行 Task 3 全部离线合同至 GREEN**
 
 Run: `rtk uv run pytest -q tests/test_m23_mode_evaluation.py`
 
 Expected: 全部 PASS，且不会访问网络或读取用户 credential。
 
-- [ ] **Step 7: 勾选 2.4 并提交 Task 3**
+- [x] **Step 7: 勾选 2.4 并提交 Task 3**
 
 ```bash
 rtk uv run ruff format scripts/m23_mode_evaluation.py tests/test_m23_mode_evaluation.py
@@ -838,7 +838,7 @@ Expected: format/check 退出 0，commit 只包含上列文件。
 - Produces: `run_command(protocol_path: Path, output_dir: Path, *, allowed_output_root: Path | None = None) -> int`、`aggregate_command(protocol_path: Path, output_dir: Path) -> int`、`main(argv: Sequence[str] | None = None) -> int`。
 - CLI exact forms: `run --protocol PATH --output DIR` and `aggregate --protocol PATH --output DIR`；无 model/param/task/repetition/incomplete override。
 
-- [ ] **Step 1: 写 CLI/preflight/resume RED 测试**
+- [x] **Step 1: 写 CLI/preflight/resume RED 测试**
 
 追加测试：
 
@@ -897,13 +897,13 @@ def test_resume_skips_only_exact_matching_raw_record(tmp_path) -> None:
 
 另覆盖：输出目录 symlink/协议 hash 混用失败；preflight 不把 key/base URL 写入 manifest/异常输出；单次执行异常仍写 raw 并继续；KeyboardInterrupt 不删除既有 raw；aggregate 缺 1 份退出 2；完整 run 结束自动 aggregate。
 
-- [ ] **Step 2: 运行 CLI 测试并确认 RED**
+- [x] **Step 2: 运行 CLI 测试并确认 RED**
 
 Run: `rtk uv run pytest -q tests/test_m23_mode_evaluation.py -k 'parser or preflight or resume or command'`
 
 Expected: FAIL because CLI/preflight orchestration is absent；不得发出网络请求。
 
-- [ ] **Step 3: 实现两子命令与安全 preflight**
+- [x] **Step 3: 实现两子命令与安全 preflight**
 
 `preflight` 的严格顺序：加载并校验协议 → 验证 output 不为 symlink 且位于仓库 `docs/evaluation/m23/runs/`（测试可显式注入临时允许根）→ `load_registry()` 获取一次 snapshot → 校验 model/capability/4096 上限/固定 settings → 调用一次 `build_real_client(model_id, registry=snapshot)` 仅验证 credential 可解析并立即 close → 建 environment manifest/hash → 在首个 model call 前原子写 `environment.json`。错误输出只使用固定类别和字段名，不打印 `ResolvedModel` 或 exception repr。
 
@@ -911,7 +911,7 @@ Expected: FAIL because CLI/preflight orchestration is absent；不得发出网�
 
 `main` 捕获预检/持久化/完整性错误并返回 2；完整证据生成返回 0。模式质量失败是评估数据，不改变 harness exit code；未生成 terminal raw 才是 harness 失败。
 
-- [ ] **Step 4: 运行全部离线测试至 GREEN**
+- [x] **Step 4: 运行全部离线测试至 GREEN**
 
 ```bash
 rtk uv run pytest -q tests/test_m23_mode_evaluation.py
@@ -921,7 +921,7 @@ rtk uv run ruff check scripts/m23_mode_evaluation.py tests/test_m23_mode_evaluat
 
 Expected: 全部退出 0。
 
-- [ ] **Step 5: 执行正式 27 次真实模型评估**
+- [x] **Step 5: 执行正式 27 次真实模型评估**
 
 先确认当前实现已提交，保证环境 manifest 的 commit 稳定。然后运行：
 
@@ -935,7 +935,7 @@ Expected: preflight 成功；按固定顺序串行产生 27 个 terminal raw；�
 
 若网络/credential 暂时失败且代码/提交/协议/环境指纹未变，保留已有一致 raw 后用原命令续跑；不得改协议、模型或减少重复次数来绕过失败。若失败来自 harness bug，先用离线 RED 回归复现、修复、跑全测试并提交；新提交会改变环境指纹，因此把旧 output 原子移动到同级 `2026-07-27-haiku-4-5-invalid-<old-commit-prefix>` 保留审计痕迹，再从空的正式 output 目录完整重跑 27 次，禁止混合新旧提交证据。
 
-- [ ] **Step 6: 独立复算并核对证据合同**
+- [x] **Step 6: 独立复算并核对证据合同**
 
 ```bash
 UV_CACHE_DIR=/tmp/forgeagent-m23-uv-cache rtk uv run python scripts/m23_mode_evaluation.py aggregate \
@@ -946,7 +946,7 @@ rtk uv run pytest -q tests/test_m23_mode_evaluation.py
 
 Expected: aggregate 退出 0；raw 恰为 27 份、每模式 9 份、每 task/mode 3 份；协议 hash 和环境 hash 各唯一；summary 可从 raw 重算；report 与 summary 分母一致；报告保留失败与 usage 缺失，不含 prompt/reply/credential/自动优劣结论。
 
-- [ ] **Step 7: 两轮证据自审并修复发现**
+- [x] **Step 7: 两轮证据自审并修复发现**
 
 第一轮从“公平性/统计口径”审查：同一模型、参数、任务、检查、重复数、轮换顺序是否真的适用于所有模式；Single N/A 是否保持 null；completion 是否使用 runtime+external 双条件；usage 缺失是否按 call 加权。
 
@@ -954,7 +954,7 @@ Expected: aggregate 退出 0；raw 恰为 27 份、每模式 9 份、每 task/mo
 
 任何发现必须先加入 `tests/test_m23_mode_evaluation.py` 的失败回归，再修复脚本、重跑 Task 4 Step 4 和 Step 6；如果修复改变协议 hash 或指标口径，删除/重跑证据前必须明确确认旧证据不可混用，不能静默覆盖。
 
-- [ ] **Step 8: 勾选 3.1–3.3 并提交真实证据**
+- [x] **Step 8: 勾选 3.1–3.3 并提交真实证据**
 
 仅在完整核对通过后勾选 OpenSpec `3.1`、`3.2`、`3.3`：
 
@@ -978,7 +978,7 @@ rtk git commit -m "test: record M23 mode evaluation evidence"
 - Documents only the already generated protocol/evidence；不新增运行时行为或易变测试数字长期合同。
 - 新增的 M23 测试文件拥有当前文档/latest 指针合同；既有 `tests/test_collaboration_docs.py` 只移除已失效的 M22 latest 断言，其他 M22 历史证据合同保持原样。
 
-- [ ] **Step 1: 写 M23 文档 RED 合同**
+- [x] **Step 1: 写 M23 文档 RED 合同**
 
 在 `tests/test_m23_mode_evaluation.py` 增加：
 
@@ -1030,13 +1030,13 @@ assert _text("milestones/latest").strip() == "milestone_022.md"
 
 该断言把 evolving current pointer 错误归入 M22 历史合同；M22 的 `2155 passed / 10 skipped`、结构化提交、报告和 milestone 内容断言全部保持不变，当前 latest 指针由上面的 M23 测试接管。
 
-- [ ] **Step 2: 更新 README 与 ACTION_PLAN**
+- [x] **Step 2: 更新 README 与 ACTION_PLAN**
 
 README 新增 M23 独立评估段，链接 protocol、summary、report，列出 7 类要求指标和 3×3×3 样本设计；填入 report 的真实描述性数字，不挑选只支持某模式的样本。逐字保留“不自动宣称 Triad 优于 Single”，并注明真实请求会产生成本、harness 不属于产品 CLI/CI。
 
 ACTION_PLAN 里程碑表新增 `**M23**` 行：交付物写固定协议/27 raw/机器汇总/中立报告；验证列引用实际文件和真实完整性计数；状态在全部门禁前写“进行中”，全部完成后改“已完成，待归档”，由后续 `comet-archive` 阶段再同步为“已完成并归档”。不要修改 M22 历史测试数字或证据。
 
-- [ ] **Step 3: 创建 M23 里程碑并更新 latest**
+- [x] **Step 3: 创建 M23 里程碑并更新 latest**
 
 严格按 `MILESTONE_GUIDE.md` 固定章节创建 `milestones/milestone_023.md`，至少包含：
 
@@ -1049,7 +1049,7 @@ ACTION_PLAN 里程碑表新增 `**M23**` 行：交付物写固定协议/27 raw/�
 
 把 `milestones/latest` 改成唯一一行 `milestone_023.md`。
 
-- [ ] **Step 4: 文档测试 GREEN 并完成全部质量门禁**
+- [x] **Step 4: 文档测试 GREEN 并完成全部质量门禁**
 
 按顺序执行并记录精确输出：
 
@@ -1067,7 +1067,7 @@ rtk git diff --check
 
 Expected: 所有命令退出 0；全量 pytest/golden/OpenSpec 的实际计数写入 milestone/ACTION_PLAN 时只作为本次证据，不改写历史 M22 数字，也不把易变 pytest 数定义为 README 长期产品合同。
 
-- [ ] **Step 5: 完成最终两轮自我评审并修复复验**
+- [x] **Step 5: 完成最终两轮自我评审并修复复验**
 
 先按仓库完成门使用 `requesting-code-review` 对 `base-ref..HEAD` 全 diff 做独立代码评审，重点检查 raw 安全边界、统计分母、资源关闭和 runtime/credential 零改动；Critical/Important finding 必须先加 RED 回归再修复。
 
@@ -1077,7 +1077,7 @@ Expected: 所有命令退出 0；全量 pytest/golden/OpenSpec 的实际计数�
 
 发现问题时立即加入 RED 回归、最小修复、重跑 focused test 和 Step 4 全门禁；在所有发现关闭后才更新 OpenSpec tasks `4.1`、`4.2`、`4.3` 和未勾选项。
 
-- [ ] **Step 6: 提交收尾文档**
+- [x] **Step 6: 提交收尾文档**
 
 ```bash
 rtk git add README.md ACTION_PLAN.md milestones/milestone_023.md milestones/latest tests/test_m23_mode_evaluation.py tests/test_collaboration_docs.py openspec/changes/m23-collaboration-mode-evaluation/tasks.md
@@ -1086,7 +1086,7 @@ rtk git commit -m "docs: complete M23 mode evaluation"
 
 Expected: commit 不包含受保护 runtime/CLI/credential 文件或用户未跟踪文件。
 
-- [ ] **Step 7: Comet verify 与归档前最终状态核对**
+- [x] **Step 7: Comet verify 与归档前最终状态核对**
 
 Run: `rtk comet status --json`
 
