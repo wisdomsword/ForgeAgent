@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import copy
+import dataclasses
 import importlib.util
 import json
 import subprocess
 import sys
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -165,3 +167,203 @@ def test_m25_protocol_rejects_colliding_file_safe_model_slugs(monkeypatch) -> No
     monkeypatch.setattr(harness, "_model_slug", lambda _model_id: "same")
     with pytest.raises(ValueError, match="slugs"):
         harness.validate_protocol(m25_protocol_dict())
+
+
+def test_m25_schedule_has_fixed_270_run_order_and_global_position_balance() -> None:
+    harness = load_harness()
+    protocol = harness.validate_protocol(m25_protocol_dict())
+    schedule = harness.build_schedule(protocol)
+    assert len(schedule) == 270
+    assert len({(s.task_id, s.model_id, s.repeat, s.mode) for s in schedule}) == 270
+    assert Counter(s.model_id for s in schedule) == {
+        "claude-haiku-4-5": 135,
+        "gpt-5.4-mini": 135,
+    }
+    assert Counter(s.mode for s in schedule) == {
+        "single": 90,
+        "duo": 90,
+        "triad": 90,
+    }
+    assert all(
+        sum(
+            s.task_id == task.id and s.model_id == model and s.mode == mode
+            for s in schedule
+        )
+        == 5
+        for task in protocol.tasks
+        for model in protocol.model_ids
+        for mode in protocol.modes
+    )
+    positions = Counter((s.mode, (s.sequence - 1) % 3) for s in schedule)
+    assert positions == Counter(
+        {(mode, position): 30 for mode in protocol.modes for position in range(3)}
+    )
+    assert [(s.sequence, s.model_id, s.repeat, s.mode) for s in schedule[:6]] == [
+        (1, "claude-haiku-4-5", 1, "single"),
+        (2, "claude-haiku-4-5", 1, "duo"),
+        (3, "claude-haiku-4-5", 1, "triad"),
+        (4, "gpt-5.4-mini", 1, "duo"),
+        (5, "gpt-5.4-mini", 1, "triad"),
+        (6, "gpt-5.4-mini", 1, "single"),
+    ]
+    assert [(s.sequence, s.model_id, s.repeat, s.mode) for s in schedule[-6:]] == [
+        (265, "claude-haiku-4-5", 5, "triad"),
+        (266, "claude-haiku-4-5", 5, "single"),
+        (267, "claude-haiku-4-5", 5, "duo"),
+        (268, "gpt-5.4-mini", 5, "single"),
+        (269, "gpt-5.4-mini", 5, "duo"),
+        (270, "gpt-5.4-mini", 5, "triad"),
+    ]
+
+
+def test_m25_run_identity_binds_model_family_sequence_and_protocol() -> None:
+    harness = load_harness()
+    protocol = harness.validate_protocol(m25_protocol_dict())
+    first = harness.build_schedule(protocol)[0]
+    digest = "a" * 64
+    assert harness.run_id_for(protocol, first) == (
+        "001-csv-region-summary-claude-haiku-4-5-r1-single"
+    )
+    changed = dataclasses.replace(first, model_id="gpt-5.4-mini")
+    assert harness.run_spec_hash(first, digest) != harness.run_spec_hash(changed, digest)
+
+
+def _m25_environment(harness, protocol):
+    return harness.M25EnvironmentManifest(
+        generated_at="2026-07-27T00:00:00.000Z",
+        git_commit="a" * 40,
+        tracked_dirty=False,
+        python_version="3.13.0",
+        python_executable_name="python",
+        platform="test",
+        package_version="0.1.0",
+        model_routes=(
+            harness.M25ModelRoute(
+                model_id="claude-haiku-4-5",
+                client_kind="anthropic",
+                provider_route_sha256="b" * 64,
+            ),
+            harness.M25ModelRoute(
+                model_id="gpt-5.4-mini",
+                client_kind="openai",
+                provider_route_sha256="c" * 64,
+            ),
+        ),
+        builtin_models_sha256="d" * 64,
+        builtin_config_sha256="e" * 64,
+        protocol_sha256="f" * 64,
+        generation=protocol.generation,
+        execution=protocol.execution,
+    )
+
+
+def _m25_record_dict(harness, protocol, spec, environment, environment_sha256):
+    protocol_sha256 = "f" * 64
+    return {
+        "schema": "forgeagent.m25.mode-evaluation.run/v1",
+        "run_id": harness.run_id_for(protocol, spec),
+        "sequence": spec.sequence,
+        "task_id": spec.task_id,
+        "task_family": spec.task_family,
+        "model_id": spec.model_id,
+        "provider_route_sha256": harness.route_hash_for_model(
+            environment, spec.model_id
+        ),
+        "mode": spec.mode,
+        "repeat": spec.repeat,
+        "protocol_sha256": protocol_sha256,
+        "environment_sha256": environment_sha256,
+        "run_spec_sha256": harness.run_spec_hash(spec, protocol_sha256),
+        "terminal": True,
+        "started_at": "2026-07-27T00:00:00.000Z",
+        "finished_at": "2026-07-27T00:00:01.000Z",
+        "runtime_completed": False,
+        "runtime_status": "failed",
+        "runtime_reason": "test",
+        "checks": [],
+        "artifacts": [],
+        "solved": False,
+        "first_acceptance_passed": None,
+        "rejection_count": None,
+        "correction_count": None,
+        "tokens": {
+            "input_tokens": None,
+            "output_tokens": None,
+            "cached_tokens": None,
+            "reasoning_tokens": None,
+        },
+        "logical_model_calls": 0,
+        "provider_attempts": 0,
+        "usage_present_calls": 0,
+        "usage_missing_calls": 0,
+        "usage_missing_rate": None,
+        "end_to_end_latency_seconds": 1.0,
+        "error_category": None,
+    }
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda value: value.__setitem__("task_family", "feature"),
+        lambda value: value.__setitem__("model_id", "gpt-5.4-mini"),
+        lambda value: value.__setitem__("provider_route_sha256", "0" * 64),
+        lambda value: value.__setitem__("run_id", "wrong-run"),
+        lambda value: value.__setitem__("run_spec_sha256", "0" * 64),
+        lambda value: value.__setitem__("schema", "forgeagent.m23.mode-evaluation.run/v1"),
+    ],
+)
+def test_m25_resume_rejects_conflicting_terminal_records(tmp_path, mutation) -> None:
+    harness = load_harness()
+    protocol = harness.validate_protocol(m25_protocol_dict())
+    schedule = harness.build_schedule(protocol)
+    environment = _m25_environment(harness, protocol)
+    environment_sha256 = "9" * 64
+    record = _m25_record_dict(
+        harness, protocol, schedule[0], environment, environment_sha256
+    )
+    mutation(record)
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir()
+    filename = harness.run_id_for(protocol, schedule[0]) + ".json"
+    (raw_dir / filename).write_text(json.dumps(record), encoding="utf-8")
+    with pytest.raises(ValueError, match="existing raw record"):
+        harness.pending_run_specs(
+            tmp_path,
+            schedule,
+            "f" * 64,
+            environment_sha256,
+            environment=environment,
+        )
+
+
+def test_m25_resume_skips_exact_terminal_and_rejects_unexpected_filename(tmp_path) -> None:
+    harness = load_harness()
+    protocol = harness.validate_protocol(m25_protocol_dict())
+    schedule = harness.build_schedule(protocol)
+    environment = _m25_environment(harness, protocol)
+    environment_sha256 = "9" * 64
+    record = _m25_record_dict(
+        harness, protocol, schedule[0], environment, environment_sha256
+    )
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir()
+    filename = harness.run_id_for(protocol, schedule[0]) + ".json"
+    (raw_dir / filename).write_text(json.dumps(record), encoding="utf-8")
+    pending = harness.pending_run_specs(
+        tmp_path,
+        schedule,
+        "f" * 64,
+        environment_sha256,
+        environment=environment,
+    )
+    assert pending == schedule[1:]
+    (raw_dir / "unexpected.json").write_text("{}", encoding="utf-8")
+    with pytest.raises(ValueError, match="unexpected run record"):
+        harness.pending_run_specs(
+            tmp_path,
+            schedule,
+            "f" * 64,
+            environment_sha256,
+            environment=environment,
+        )

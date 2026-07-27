@@ -488,34 +488,80 @@ def load_protocol(path: Path) -> tuple[Protocol, str]:
     return protocol, canonical_sha256(serialized)
 
 
-def build_schedule(protocol: EvaluationProtocol) -> tuple[RunSpec, ...]:
-    schedule: list[RunSpec] = []
-    for task in protocol.tasks:
-        for repetition, order in enumerate(protocol.mode_orders, start=1):
-            for mode in order:
-                schedule.append(
-                    RunSpec(
-                        sequence=len(schedule) + 1,
-                        task_id=task.id,
-                        repeat=repetition,
-                        mode=mode,
+def build_schedule(protocol: Protocol) -> tuple[RunSpecification, ...]:
+    if isinstance(protocol, EvaluationProtocol):
+        schedule: list[RunSpecification] = []
+        for task in protocol.tasks:
+            for repetition, order in enumerate(protocol.mode_orders, start=1):
+                for mode in order:
+                    schedule.append(
+                        RunSpec(
+                            sequence=len(schedule) + 1,
+                            task_id=task.id,
+                            repeat=repetition,
+                            mode=mode,
+                        )
                     )
-                )
+        return tuple(schedule)
+
+    schedule = []
+    for task_index, task in enumerate(protocol.tasks):
+        for repeat_index in range(protocol.repetitions):
+            stable_models = list(enumerate(protocol.model_ids))
+            if (task_index + repeat_index) % 2:
+                stable_models.reverse()
+            for model_index, model_id in stable_models:
+                order = protocol.mode_orders[
+                    (2 * task_index + model_index + repeat_index) % 3
+                ]
+                for mode in order:
+                    schedule.append(
+                        M25RunSpec(
+                            sequence=len(schedule) + 1,
+                            task_id=task.id,
+                            task_family=task.family,
+                            model_id=model_id,
+                            repeat=repeat_index + 1,
+                            mode=mode,
+                        )
+                    )
     return tuple(schedule)
 
 
-def run_spec_hash(run_spec: RunSpec, protocol_sha256: str) -> str:
-    return canonical_sha256(
-        {
-            "protocol_sha256": protocol_sha256,
-            "run": {
-                "sequence": run_spec.sequence,
-                "task_id": run_spec.task_id,
-                "repeat": run_spec.repeat,
-                "mode": run_spec.mode,
-            },
-        }
+def _run_id_for_spec(run_spec: RunSpecification) -> str:
+    if isinstance(run_spec, RunSpec):
+        return (
+            f"{run_spec.sequence:02d}-{run_spec.task_id}-"
+            f"r{run_spec.repeat}-{run_spec.mode}"
+        )
+    return (
+        f"{run_spec.sequence:03d}-{run_spec.task_id}-{_model_slug(run_spec.model_id)}-"
+        f"r{run_spec.repeat}-{run_spec.mode}"
     )
+
+
+def run_id_for(protocol: Protocol, run_spec: RunSpecification) -> str:
+    return _run_id_for_spec(run_spec)
+
+
+def run_spec_hash(run_spec: RunSpecification, protocol_sha256: str) -> str:
+    if isinstance(run_spec, RunSpec):
+        run = {
+            "sequence": run_spec.sequence,
+            "task_id": run_spec.task_id,
+            "repeat": run_spec.repeat,
+            "mode": run_spec.mode,
+        }
+    else:
+        run = {
+            "sequence": run_spec.sequence,
+            "task_id": run_spec.task_id,
+            "task_family": run_spec.task_family,
+            "model_id": run_spec.model_id,
+            "repeat": run_spec.repeat,
+            "mode": run_spec.mode,
+        }
+    return canonical_sha256({"protocol_sha256": protocol_sha256, "run": run})
 
 
 def project_audit_metrics(events: Sequence[AuditEvent]) -> AuditMetrics:
@@ -1353,23 +1399,25 @@ def preflight(
 
 def pending_run_specs(
     output_dir: Path,
-    schedule: Sequence[RunSpec],
+    schedule: Sequence[RunSpecification],
     protocol_sha256: str,
     environment_sha256_value: str,
-) -> tuple[RunSpec, ...]:
+    *,
+    environment: Environment | None = None,
+) -> tuple[RunSpecification, ...]:
     raw_dir = output_dir / "raw"
     if raw_dir.is_symlink():
         raise ValueError("raw directory must not be a symlink")
     raw_dir.mkdir(parents=True, exist_ok=True)
-    expected_paths = {
-        f"{spec.sequence:02d}-{spec.task_id}-r{spec.repeat}-{spec.mode}.json": spec
-        for spec in schedule
-    }
+    is_m25 = bool(schedule) and isinstance(schedule[0], M25RunSpec)
+    if is_m25 and not isinstance(environment, M25EnvironmentManifest):
+        raise ValueError("M25 resume requires its environment manifest")
+    expected_paths = {_run_id_for_spec(spec) + ".json": spec for spec in schedule}
     existing_paths = {path.name: path for path in raw_dir.glob("*.json")}
     if existing_paths.keys() - expected_paths.keys():
         raise ValueError("raw directory contains an unexpected run record")
 
-    pending: list[RunSpec] = []
+    pending: list[RunSpecification] = []
     for filename, spec in expected_paths.items():
         path = existing_paths.get(filename)
         if path is None:
@@ -1378,7 +1426,8 @@ def pending_run_specs(
         if path.is_symlink() or not path.is_file():
             raise ValueError("raw record must be a regular file")
         try:
-            record = RawRecord.model_validate_json(path.read_bytes())
+            record_type = M25RawRecord if isinstance(spec, M25RunSpec) else RawRecord
+            record = record_type.model_validate_json(path.read_bytes())
         except Exception as error:
             raise ValueError("existing raw record is invalid") from error
         if (
@@ -1390,6 +1439,16 @@ def pending_run_specs(
             or record.run_spec_sha256 != run_spec_hash(spec, protocol_sha256)
         ):
             raise ValueError("existing raw record run id or run spec mismatch")
+        if isinstance(spec, M25RunSpec):
+            assert isinstance(record, M25RawRecord)
+            assert isinstance(environment, M25EnvironmentManifest)
+            if (
+                record.task_family != spec.task_family
+                or record.model_id != spec.model_id
+                or record.provider_route_sha256
+                != route_hash_for_model(environment, spec.model_id)
+            ):
+                raise ValueError("existing raw record M25 identity mismatch")
         if record.protocol_sha256 != protocol_sha256:
             raise ValueError("existing raw record protocol mismatch")
         if record.environment_sha256 != environment_sha256_value:
