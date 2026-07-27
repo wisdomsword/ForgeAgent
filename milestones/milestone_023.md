@@ -1,12 +1,13 @@
 # 里程碑 M23: Single/Duo/Triad 质量—成本评估
 
-- 状态: 进行中（v2 harness 已修复，等待重新执行正式评估）
+- 状态: 进行中（v2 正式证据与仓库门禁完成，等待 Comet verify 与归档）
 - 起止: 2026-07-27 ~ 2026-07-27
 - 对应 ACTION_PLAN 行: M23（见该文件 §四 里程碑表）
 - 前置里程碑: [milestone_022](milestone_022.md)
 - 技术设计: [2026-07-27-m23-collaboration-mode-evaluation-design](../docs/superpowers/specs/2026-07-27-m23-collaboration-mode-evaluation-design.md)
 - 实施计划: [2026-07-27-m23-collaboration-mode-evaluation](../docs/superpowers/plans/2026-07-27-m23-collaboration-mode-evaluation.md)
 - 固定协议: [`docs/evaluation/m23/protocol.json`](../docs/evaluation/m23/protocol.json)
+- 中立报告: [`2026-07-27-haiku-4-5/report.md`](../docs/evaluation/m23/runs/2026-07-27-haiku-4-5/report.md)
 - 无效批次审计: [`INVALID.md`](../docs/evaluation/m23/runs/2026-07-27-haiku-4-5-invalid-8dbebff/INVALID.md)
 
 ## 目标与范围
@@ -37,16 +38,17 @@
 - [x] 固定协议、严格 schema、路径边界和 27 次平衡排程
 - [x] 实现隔离工作区、公开运行 API 组装、audit 投影、外部检查与原子 raw
 - [x] 实现严格完整性校验、按调用加权 usage 和中立 summary/report
-- [ ] 使用 v2 协议执行 27 次真实模型评估并独立复算
-- [ ] 完成 v2 公平性/统计口径与安全性/可复现性两轮证据自审
-- [ ] 完成最终仓库门禁、Comet verify 与归档 — 本文件收尾后执行
+- [x] 使用 v2 协议执行 27 次真实模型评估并独立复算
+- [x] 完成 v2 公平性/统计口径与安全性/可复现性两轮证据自审
+- [x] 完成最终仓库门禁
+- [ ] 完成 Comet verify 与归档 — 本文件收尾提交后执行
 
 ## 交付物清单
 
 - [x] `scripts/m23_mode_evaluation.py` — 独立 run/aggregate harness
 - [x] `tests/test_m23_mode_evaluation.py` — 53 项协议、运行、聚合、CLI、安全和文档合同
 - [x] `docs/evaluation/m23/protocol.json` — 唯一固定评估协议
-- [ ] v2 `environment.json`、27 份 raw、`summary.json` 和中立 `report.md`
+- [x] v2 `environment.json`、27 份 raw、`summary.json` 和中立 `report.md`
 - [x] `2026-07-27-haiku-4-5-invalid-8dbebff/` — v1 无效批次与失效说明，仅供审计
 - [x] `openspec/changes/m23-collaboration-mode-evaluation/` — proposal/design/spec/tasks
 
@@ -54,7 +56,7 @@
 
 ### 技术方案评审
 
-- [x] 7 项 OpenSpec requirement 均有 v2 实现和离线合同；真实 v2 证据待运行
+- [x] 7 项 OpenSpec requirement 均有 v2 实现、离线合同和正式 raw/summary/report 证据
 - [x] 固定协议、相同检查、3×3×3 重复与轮换顺序未在执行中修改
 - [x] 不包含 credential 功能，受保护 runtime/CLI/model registry/dependency 文件与基线一致
 
@@ -72,8 +74,17 @@
 
 - [x] v1 批次经 reviewer 判定无效并移出正式目录：CSV/events 检查必然触发 process-spawn denial，
   且 fixture 不变性无法事后证明；旧完成率不得引用
-- [ ] v2 27/27 terminal raw、完整性/安全性复算和最终模式指标
-- [ ] 全量 pytest、golden、build、OpenSpec strict、Comet verify 与归档 — v2 证据完成后重跑
+- [x] v2 环境绑定 commit `14576d9a23d202daacb28dbfbeefda631078b21c`，tracked dirty 为 false
+- [x] 27/27 terminal raw；每模式 9 份、每 task/mode 3 份；协议和环境 hash 各唯一；27 个
+  fixture integrity check 全部通过
+- [x] Single/Duo/Triad solved 分别为 5/9、8/9、9/9；首次验收为 N/A、8/9、9/9；
+  rejection/correction 总数为 N/A、1/1、0/0
+- [x] 逻辑模型调用分别为 76、91、112，总计 279；usage 缺失 0/279；所有正式 raw 的
+  `error_category` 为 null
+- [x] 独立复算与正式 summary/report 一致；未发现 prompt/reply/credential、绝对路径或排名字段
+- [x] 全量 pytest `2305 passed, 10 skipped`；golden `20/20`；wheel/sdist build 成功；
+  OpenSpec strict `19/19`；Ruff format/check 通过
+- [ ] Comet verify 与归档 — 文档收尾提交后执行
 
 ## 遗留问题
 
@@ -83,11 +94,10 @@
   — 计划：M24 候选补平台矩阵；模型扩展必须建立独立协议
 - [ ] provider 侧权重版本无法由本地独立固定 — 影响：同一 model ID 的长期复测可能受服务端变化影响
   — 计划：保留时间、commit、路由 hash 和原始记录，报告中持续声明限制
-- [x] 本次 usage 缺失率为 0/304 — 该结果只描述本次 provider 响应，不承诺后续调用始终提供 usage
+- [x] 本次 usage 缺失率为 0/279 — 该结果只描述本次 provider 响应，不承诺后续调用始终提供 usage
 
 ## 续接指引
 
-M23 v2 harness 修复已完成，但尚无有效正式证据。下一步需要重新授权并执行完整 27 次 v2 评估，
-随后复算、完成仓库门禁、Comet verify、归档并合并 main。M24 候选是持续验证 CI 与
-container/platform 矩阵。credential 多来源功能保持独立，
+M23 v2 正式证据、两轮自审和仓库门禁已完成。下一步完成 Comet verify 和 change 归档，再合并
+main。M24 候选是持续验证 CI 与 container/platform 矩阵。credential 多来源功能保持独立，
 不得塞回 M23；任何新质量对照都必须新建固定协议，不修改或混入本次 27 份证据。

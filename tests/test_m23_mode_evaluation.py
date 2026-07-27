@@ -1004,17 +1004,19 @@ def test_main_returns_two_for_incomplete_aggregate(tmp_path: Path, monkeypatch) 
     )
 
 
-def test_m23_public_docs_disclose_invalid_batch_and_pending_v2_evidence() -> None:
+def test_m23_public_docs_link_valid_v2_and_disclose_invalid_batch() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     action_plan = (ROOT / "ACTION_PLAN.md").read_text(encoding="utf-8")
     milestone = (ROOT / "milestones" / "milestone_023.md").read_text(encoding="utf-8")
 
     for text in (readme, action_plan, milestone):
+        normalized = " ".join(text.split())
         assert "docs/evaluation/m23/protocol.json" in text
         assert "2026-07-27-haiku-4-5-invalid-8dbebff/INVALID.md" in text
-        assert "不自动宣称 Triad 优于 Single" in text
+        assert "不自动宣称 Triad 优于 Single" in normalized
+        assert "2026-07-27-haiku-4-5/report.md" in text
     assert "| **M23**" in action_plan
-    assert "进行中" in next(
+    assert "已完成" in next(
         line for line in action_plan.splitlines() if line.startswith("| **M23**")
     )
     assert "旧完成率不得引用" in milestone

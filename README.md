@@ -18,18 +18,25 @@ allowlist，只包含包源码、`pyproject.toml`、`README.md`、`uv.lock`，�
 
 ## M23 Single / Duo / Triad 质量—成本评估
 
-M23 正在以独立评估里程碑执行，不修改协作运行时、产品 CLI、模型注册或 credential 加载。
-当前 v2 固定协议见 [`protocol.json`](docs/evaluation/m23/protocol.json)：3 个任务、3 种模式、每种
-组合重复 3 次；固定 `claude-haiku-4-5`、生成参数、restricted 环境、immutable fixture、外部
-产物检查和轮换顺序。指标包括任务完成率、首次验收通过率、rejection/correction 次数、四类
-token、模型调用次数、端到端延迟和 usage 缺失率；Single 的协作验收字段为 `N/A`。
+M23 已完成独立评估，不修改协作运行时、产品 CLI、模型注册或 credential 加载。v2 固定协议见
+[`protocol.json`](docs/evaluation/m23/protocol.json)，机器汇总见
+[`summary.json`](docs/evaluation/m23/runs/2026-07-27-haiku-4-5/summary.json)，中立报告见
+[`report.md`](docs/evaluation/m23/runs/2026-07-27-haiku-4-5/report.md)。评估固定 3 个任务、3 种
+模式、每种组合重复 3 次，共 27 份 terminal raw；所有模式使用 `claude-haiku-4-5`、相同生成
+参数、restricted 环境、immutable fixture、外部产物检查和轮换顺序。Single 的协作验收字段为
+`N/A`。
 
-首批 27 次 v1 运行因检查器缺陷失效：两个检查在 restricted worker 内嵌套创建进程，并且没有
-独立证明 immutable fixture 未被修改。该批次只保留为
+本次描述性结果为 Single `5/9`、Duo `8/9`、Triad `9/9`；Duo 和 Triad 的首次内部验收分别为
+`8/9`、`9/9`，rejection/correction 总数分别为 `1/1`、`0/0`。三种模式分别产生 76、91、112
+次逻辑模型调用，总计 279 次，usage 缺失为 `0/279`；input token 分别为 227727、129869、
+193441，output token 分别为 36713、41860、66560，cached/reasoning token 均为 0。平均端到端
+延迟分别为 48.93、63.54、79.30 秒。样本仅覆盖 3 个任务、一个模型路由和本机环境；本报告
+不自动宣称 Triad 优于 Single，也不据此作产品决策。
+
+首批 v1 运行因检查器缺陷失效，只保留为
 [`INVALID.md`](docs/evaluation/m23/runs/2026-07-27-haiku-4-5-invalid-8dbebff/INVALID.md)
-审计记录，其完成率不得引用。v2 harness 已修复这两个问题并加固 run/aggregate 输出边界；在新的
-27 次正式运行完成前，M23 没有有效模式对照结论，也不自动宣称 Triad 优于 Single。真实请求会
-产生费用；该 harness 不属于 ForgeAgent 产品 CLI 或离线 CI 门禁。
+审计记录，其完成率不得引用。真实请求会产生费用；该 harness 不属于 ForgeAgent 产品 CLI 或
+离线 CI 门禁。
 
 当前主线已完成 M17 Runtime Context Engineering、M18 Memory Runtime（含归档后两次
 人工复测 hotfix）、M19 Skills Runtime（程序性知识从 Memory 分流到可验证、快照化、渐进
