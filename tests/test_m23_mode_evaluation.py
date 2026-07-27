@@ -5,6 +5,7 @@ import importlib.util
 import json
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -1022,18 +1023,16 @@ def test_m23_public_docs_link_valid_v2_and_disclose_invalid_batch() -> None:
     assert "状态: 已完成并归档" in milestone
     assert "[x] 完成 Comet verify 与归档" in milestone
     assert "旧完成率不得引用" in milestone
-    assert (ROOT / "milestones" / "latest").read_text().strip() == "milestone_023.md"
 
 
 def test_m23_does_not_modify_product_runtime_or_dependencies() -> None:
-    protected = (
+    protected_runtime = (
         "src/forgeagent/collaboration.py",
         "src/forgeagent/cli.py",
         "src/forgeagent/model_registry.py",
-        "pyproject.toml",
         "uv.lock",
     )
-    for path in protected:
+    for path in protected_runtime:
         before = subprocess.run(
             [
                 "git",
@@ -1044,3 +1043,14 @@ def test_m23_does_not_modify_product_runtime_or_dependencies() -> None:
             capture_output=True,
         ).stdout
         assert (ROOT / path).read_bytes() == before
+
+    before_pyproject = subprocess.run(
+        ["git", "show", "f6e0dda3c8a7f9c73400c240c0a999e20b12bbd6:pyproject.toml"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    before_config = tomllib.loads(before_pyproject)
+    current_config = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    current_config["tool"]["pytest"]["ini_options"].pop("markers")
+    assert current_config == before_config

@@ -45,6 +45,7 @@ def _docker_ready() -> bool:
 docker_required = pytest.mark.skipif(
     not _docker_ready(), reason=f"docker daemon or {IMAGE} image unavailable"
 )
+container_integration = pytest.mark.container_integration
 
 
 # --- no-docker unit tests ------------------------------------------------------
@@ -104,6 +105,7 @@ def test_run_command_hardening_flags(tmp_path, monkeypatch):
 
 
 @docker_required
+@container_integration
 def test_normal_code_runs_in_container(tmp_path):
     backend = ContainerBackend(allowed_root=str(tmp_path), timeout_seconds=60.0)
     try:
@@ -116,6 +118,7 @@ def test_normal_code_runs_in_container(tmp_path):
 
 
 @docker_required
+@container_integration
 def test_cross_block_state_roundtrip_through_containers(tmp_path):
     backend = ContainerBackend(allowed_root=str(tmp_path), timeout_seconds=60.0)
     rt = Runtime()
@@ -130,6 +133,7 @@ def test_cross_block_state_roundtrip_through_containers(tmp_path):
 
 
 @docker_required
+@container_integration
 def test_same_path_mount_read_write(tmp_path):
     (tmp_path / "in.txt").write_text("host-data")
     backend = ContainerBackend(allowed_root=str(tmp_path), timeout_seconds=60.0)
@@ -147,6 +151,7 @@ def test_same_path_mount_read_write(tmp_path):
 
 
 @docker_required
+@container_integration
 def test_timeout_kills_container_and_next_block_runs(tmp_path):
     backend = ContainerBackend(allowed_root=str(tmp_path), timeout_seconds=8.0)
     rt = Runtime()
@@ -177,6 +182,7 @@ def test_timeout_kills_container_and_next_block_runs(tmp_path):
 
 
 @docker_required
+@container_integration
 def test_exception_in_container_captured(tmp_path):
     backend = ContainerBackend(allowed_root=str(tmp_path), timeout_seconds=60.0)
     try:
@@ -191,6 +197,7 @@ def test_exception_in_container_captured(tmp_path):
 
 
 @docker_required
+@container_integration
 def test_t1_host_filesystem_not_visible(tmp_path):
     # Stronger than restricted's "access denied": outside paths DO NOT EXIST inside
     # the mount namespace.
@@ -213,6 +220,7 @@ def test_t1_host_filesystem_not_visible(tmp_path):
 
 
 @docker_required
+@container_integration
 def test_t3_no_network_device(tmp_path):
     backend = ContainerBackend(allowed_root=str(tmp_path), timeout_seconds=60.0)
     try:
@@ -234,6 +242,7 @@ def test_t3_no_network_device(tmp_path):
 
 
 @docker_required
+@container_integration
 def test_t6_pids_limit_stops_fork_bomb(tmp_path):
     backend = ContainerBackend(allowed_root=str(tmp_path), timeout_seconds=60.0, pids_limit=16)
     try:
@@ -256,6 +265,7 @@ def test_t6_pids_limit_stops_fork_bomb(tmp_path):
 
 
 @docker_required
+@container_integration
 def test_t9_non_root_and_sys_masked(tmp_path):
     backend = ContainerBackend(allowed_root=str(tmp_path), timeout_seconds=60.0)
     try:
@@ -269,6 +279,7 @@ def test_t9_non_root_and_sys_masked(tmp_path):
 
 
 @docker_required
+@container_integration
 def test_t9_no_secret_env_inside_container(tmp_path, monkeypatch):
     monkeypatch.setenv("FORGE_TEST_API_KEY", "sk-super-secret-value-123")
     backend = ContainerBackend(allowed_root=str(tmp_path), timeout_seconds=60.0)

@@ -1,0 +1,14 @@
+{
+  "change": "m24-continuous-verification-platform-matrix",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "4296cfaf6c5a1ffea6dea05698a9fbc84505a4fd78bed274f9d953d5e28ebda3",
+  "files": [
+    { "path": "openspec/changes/m24-continuous-verification-platform-matrix/proposal.md", "sha256": "3dd4d49c3a3ff0c140f30aac8af4c3252082e1c82020b53b04df4aad14bf8125" },
+    { "path": "openspec/changes/m24-continuous-verification-platform-matrix/design.md", "sha256": "d8c7b6bae8d1c565f3a04953994ae1b298c922bda742c39666af3fc09503e5a0" },
+    { "path": "openspec/changes/m24-continuous-verification-platform-matrix/tasks.md", "sha256": "d6dfce20a15a3e1e7645047f8e1af03713b57ad8e4659a4c497cfb886b7f14c1" },
+    { "path": "openspec/changes/m24-continuous-verification-platform-matrix/specs/continuous-verification/spec.md", "sha256": "e87f520e5761b1f0cfeb78440bb74622b0d54c00de52bc9963d2ed38443f916f" }
+  ]
+}

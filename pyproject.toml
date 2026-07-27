@@ -53,3 +53,6 @@ select = ["E", "F", "I", "UP", "B"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = [
+    "container_integration: requires a real container daemon and worker image",
+]
