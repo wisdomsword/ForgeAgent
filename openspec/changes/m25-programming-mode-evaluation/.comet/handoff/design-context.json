@@ -1,0 +1,14 @@
+{
+  "change": "m25-programming-mode-evaluation",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "15490125223768741d07f47b32c01de1f13b0a379587a39af19d4a95ccfdb51d",
+  "files": [
+    { "path": "openspec/changes/m25-programming-mode-evaluation/proposal.md", "sha256": "fbda2cf0ede57261d01a61cbc980a915639e033331082ddbb9e8008dd6ed8148" },
+    { "path": "openspec/changes/m25-programming-mode-evaluation/design.md", "sha256": "3d0c7e13a519e70afdcf954d243f2e5a24e426e14255f89bfbd071f0b4a085fc" },
+    { "path": "openspec/changes/m25-programming-mode-evaluation/tasks.md", "sha256": "3805183da65496807062cc3e5a7d8458a5a8594da41e1ce42f90fd38f8ffd937" },
+    { "path": "openspec/changes/m25-programming-mode-evaluation/specs/collaboration-mode-evaluation/spec.md", "sha256": "23cce73e350cc18fe5dd56e8c1cf5a0f86396775b42c4e33e1cb5db9f67517ec" }
+  ]
+}
