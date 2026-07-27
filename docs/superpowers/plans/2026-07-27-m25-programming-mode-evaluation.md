@@ -1301,7 +1301,7 @@ Run: `rtk uv --cache-dir /tmp/forgeagent-m25-uv-cache run python -m tests.golden
 
 Expected: 20/20 offline golden cases pass.
 
-Run: `npx @fission-ai/openspec@1.4.1 validate --all --strict`
+Run: `rtk npx @fission-ai/openspec@1.4.1 validate --all --strict`
 
 Expected: every specification reports valid and the command exits 0.
 
@@ -1309,21 +1309,21 @@ Run: `rtk uv --cache-dir /tmp/forgeagent-m25-uv-cache build --out-dir /tmp/forge
 
 Expected: one wheel and one sdist are built successfully.
 
-Run: `git diff --check`
+Run: `rtk git diff --check`
 
 Expected: no output, exit 0.
 
 - [ ] **Step 4: Confirm M23 history and implementation freeze**
 
-Run: `git diff --exit-code d7fa30526f829959102b5fb69b4778899d6b1f88 -- docs/evaluation/m23`
+Run: `rtk git diff --exit-code d7fa30526f829959102b5fb69b4778899d6b1f88 -- docs/evaluation/m23`
 
 Expected: no output, exit 0.
 
-Run: `git status --short --untracked-files=no`
+Run: `rtk git status --short --untracked-files=no`
 
 Expected: no tracked modifications. If the preceding task commit omitted an implementation file, stage only the M25 implementation/protocol/tests and commit it before continuing; do not include real evidence or unrelated untracked paths.
 
-Run: `git rev-parse HEAD`
+Run: `rtk git rev-parse HEAD`
 
 Expected: a committed implementation SHA different from base-ref; record this exact SHA for comparison with M25 `environment.json.git_commit`.
 
@@ -1342,7 +1342,7 @@ Expected: a committed implementation SHA different from base-ref; record this ex
 
 - [ ] **Step 1: Create only the fixed M25 evidence root**
 
-Run: `mkdir -p docs/evaluation/m25/runs`
+Run: `rtk mkdir -p docs/evaluation/m25/runs`
 
 Expected: directory exists; no M23 path is created, removed, or modified.
 
@@ -1489,15 +1489,15 @@ Run: `rtk uv --cache-dir /tmp/forgeagent-m25-uv-cache build --out-dir /tmp/forge
 
 Expected: wheel and sdist build successfully without M25 raw evidence entering package artifacts.
 
-Run: `npx @fission-ai/openspec@1.4.1 validate --all --strict`
+Run: `rtk npx @fission-ai/openspec@1.4.1 validate --all --strict`
 
 Expected: every spec is valid, exit 0.
 
-Run: `git diff --exit-code d7fa30526f829959102b5fb69b4778899d6b1f88 -- docs/evaluation/m23`
+Run: `rtk git diff --exit-code d7fa30526f829959102b5fb69b4778899d6b1f88 -- docs/evaluation/m23`
 
 Expected: no output, exit 0.
 
-Run: `git diff --check`
+Run: `rtk git diff --check`
 
 Expected: no output, exit 0.
 
