@@ -1,6 +1,6 @@
 # 里程碑 M23: Single/Duo/Triad 质量—成本评估
 
-- 状态: 进行中（v2 正式证据与仓库门禁完成，等待 Comet verify 与归档）
+- 状态: 已完成并归档
 - 起止: 2026-07-27 ~ 2026-07-27
 - 对应 ACTION_PLAN 行: M23（见该文件 §四 里程碑表）
 - 前置里程碑: [milestone_022](milestone_022.md)
@@ -9,6 +9,8 @@
 - 固定协议: [`docs/evaluation/m23/protocol.json`](../docs/evaluation/m23/protocol.json)
 - 中立报告: [`2026-07-27-haiku-4-5/report.md`](../docs/evaluation/m23/runs/2026-07-27-haiku-4-5/report.md)
 - 无效批次审计: [`INVALID.md`](../docs/evaluation/m23/runs/2026-07-27-haiku-4-5-invalid-8dbebff/INVALID.md)
+- 验证报告: [2026-07-27-m23-collaboration-mode-evaluation-verify](../docs/superpowers/reports/2026-07-27-m23-collaboration-mode-evaluation-verify.md)
+- OpenSpec 归档: [2026-07-27-m23-collaboration-mode-evaluation](../openspec/changes/archive/2026-07-27-m23-collaboration-mode-evaluation/)
 
 ## 目标与范围
 
@@ -41,7 +43,7 @@
 - [x] 使用 v2 协议执行 27 次真实模型评估并独立复算
 - [x] 完成 v2 公平性/统计口径与安全性/可复现性两轮证据自审
 - [x] 完成最终仓库门禁
-- [ ] 完成 Comet verify 与归档 — 本文件收尾提交后执行
+- [x] 完成 Comet verify 与归档
 
 ## 交付物清单
 
@@ -50,7 +52,7 @@
 - [x] `docs/evaluation/m23/protocol.json` — 唯一固定评估协议
 - [x] v2 `environment.json`、27 份 raw、`summary.json` 和中立 `report.md`
 - [x] `2026-07-27-haiku-4-5-invalid-8dbebff/` — v1 无效批次与失效说明，仅供审计
-- [x] `openspec/changes/m23-collaboration-mode-evaluation/` — proposal/design/spec/tasks
+- [x] `openspec/changes/archive/2026-07-27-m23-collaboration-mode-evaluation/` — 已归档的 proposal/design/spec/tasks
 
 ## 三次评审
 
@@ -84,7 +86,7 @@
 - [x] 独立复算与正式 summary/report 一致；未发现 prompt/reply/credential、绝对路径或排名字段
 - [x] 全量 pytest `2305 passed, 10 skipped`；golden `20/20`；wheel/sdist build 成功；
   OpenSpec strict `19/19`；Ruff format/check 通过
-- [ ] Comet verify 与归档 — 文档收尾提交后执行
+- [x] Comet verify 与归档 — guard 通过，归档脚本 7/7 步成功
 
 ## 遗留问题
 
@@ -98,6 +100,6 @@
 
 ## 续接指引
 
-M23 v2 正式证据、两轮自审和仓库门禁已完成。下一步完成 Comet verify 和 change 归档，再合并
-main。M24 候选是持续验证 CI 与 container/platform 矩阵。credential 多来源功能保持独立，
-不得塞回 M23；任何新质量对照都必须新建固定协议，不修改或混入本次 27 份证据。
+M23 v2 正式证据、两轮自审、仓库门禁、Comet verify、main 合并和 change 归档均已完成。M24
+候选是持续验证 CI 与 container/platform 矩阵。credential 多来源功能保持独立，不得塞回 M23；
+任何新质量对照都必须新建固定协议，不修改或混入本次 27 份证据。

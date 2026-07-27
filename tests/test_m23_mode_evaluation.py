@@ -1016,9 +1016,11 @@ def test_m23_public_docs_link_valid_v2_and_disclose_invalid_batch() -> None:
         assert "不自动宣称 Triad 优于 Single" in normalized
         assert "2026-07-27-haiku-4-5/report.md" in text
     assert "| **M23**" in action_plan
-    assert "已完成" in next(
-        line for line in action_plan.splitlines() if line.startswith("| **M23**")
-    )
+    m23_row = next(line for line in action_plan.splitlines() if line.startswith("| **M23**"))
+    assert "已完成并归档" in m23_row
+    assert "openspec/changes/archive/2026-07-27-m23-collaboration-mode-evaluation/" in m23_row
+    assert "状态: 已完成并归档" in milestone
+    assert "[x] 完成 Comet verify 与归档" in milestone
     assert "旧完成率不得引用" in milestone
     assert (ROOT / "milestones" / "latest").read_text().strip() == "milestone_023.md"
 

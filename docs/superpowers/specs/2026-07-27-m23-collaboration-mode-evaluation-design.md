@@ -2,6 +2,8 @@
 comet_change: m23-collaboration-mode-evaluation
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-07-27-m23-collaboration-mode-evaluation
+status: final
 ---
 
 # M23 Single/Duo/Triad 质量—成本评估技术设计

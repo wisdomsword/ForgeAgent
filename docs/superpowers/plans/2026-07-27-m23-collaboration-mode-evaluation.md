@@ -2,6 +2,7 @@
 change: m23-collaboration-mode-evaluation
 design-doc: docs/superpowers/specs/2026-07-27-m23-collaboration-mode-evaluation-design.md
 base-ref: f6e0dda3c8a7f9c73400c240c0a999e20b12bbd6
+archived-with: 2026-07-27-m23-collaboration-mode-evaluation
 ---
 
 # M23 Single/Duo/Triad 质量—成本评估 Implementation Plan

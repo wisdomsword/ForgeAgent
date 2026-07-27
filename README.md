@@ -6,7 +6,7 @@
 
 ## 当前验证
 
-pytest: `2252 passed, 10 skipped`；OpenSpec strict: `18/18`.
+pytest: `2305 passed, 10 skipped`；OpenSpec strict: `19/19`.
 
 2026-07-26 已完成 restricted worker bootstrap 加固与发布完整性收尾。sdist 采用显式输入
 allowlist，只包含包源码、`pyproject.toml`、`README.md`、`uv.lock`，另保留 Hatchling
@@ -18,7 +18,9 @@ allowlist，只包含包源码、`pyproject.toml`、`README.md`、`uv.lock`，�
 
 ## M23 Single / Duo / Triad 质量—成本评估
 
-M23 已完成独立评估，不修改协作运行时、产品 CLI、模型注册或 credential 加载。v2 固定协议见
+M23 已完成并归档，不修改协作运行时、产品 CLI、模型注册或 credential 加载。归档 change 见
+[`2026-07-27-m23-collaboration-mode-evaluation`](openspec/changes/archive/2026-07-27-m23-collaboration-mode-evaluation/)，
+v2 固定协议见
 [`protocol.json`](docs/evaluation/m23/protocol.json)，机器汇总见
 [`summary.json`](docs/evaluation/m23/runs/2026-07-27-haiku-4-5/summary.json)，中立报告见
 [`report.md`](docs/evaluation/m23/runs/2026-07-27-haiku-4-5/report.md)。评估固定 3 个任务、3 种
@@ -37,6 +39,11 @@ M23 已完成独立评估，不修改协作运行时、产品 CLI、模型注册
 [`INVALID.md`](docs/evaluation/m23/runs/2026-07-27-haiku-4-5-invalid-8dbebff/INVALID.md)
 审计记录，其完成率不得引用。真实请求会产生费用；该 harness 不属于 ForgeAgent 产品 CLI 或
 离线 CI 门禁。
+
+完整验证结论见
+[`2026-07-27-m23-collaboration-mode-evaluation-verify.md`](docs/superpowers/reports/2026-07-27-m23-collaboration-mode-evaluation-verify.md)，
+里程碑收尾见
+[`milestone_023.md`](milestones/milestone_023.md)。
 
 当前主线已完成 M17 Runtime Context Engineering、M18 Memory Runtime（含归档后两次
 人工复测 hotfix）、M19 Skills Runtime（程序性知识从 Memory 分流到可验证、快照化、渐进
