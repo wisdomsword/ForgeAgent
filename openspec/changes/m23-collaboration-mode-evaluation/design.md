@@ -34,13 +34,16 @@
 - `max_output_tokens=4096`、`temperature=0`、`thinking=off`、`effort=null`、`timeout_seconds=120`、`max_rounds=10`、`max_rejections=2`。
 - `restricted` tier、关闭 memory/identity/skills/MCP、临时工作区、自动同意受工作区边界保护的文件操作和 Triad 计划。
 - 3 个只依赖标准库/仓库测试依赖的确定性任务，每个模式重复 3 次。
+- 每个任务显式冻结 immutable fixture；候选检查在受限 worker 同一进程内执行，随后独立比较 fixture 字节。
 - 每个任务按 Latin-square 风格轮换 `single/duo/triad` 首后顺序，降低时间漂移对单一模式的系统偏置。
 
-协议以 SHA-256 标识。每个运行记录协议哈希、git commit、Python/平台信息、模型注册表哈希和固定参数；协议或环境不匹配时 harness 在模型调用前失败。
+协议以 SHA-256 标识。每个运行记录协议哈希、git commit、Python/平台信息、模型注册表哈希和固定参数；协议或环境不匹配时 harness 在模型调用前失败。`run` 和 `aggregate` 都只允许写入规范化的固定输出根，并拒绝 `..` 或符号链接祖先。
 
 ### 模式外完成判定与适用性
 
 每个任务在独立临时工作区执行。运行结束后，无论模式内部状态如何，都执行同一个版本化外部检查。`solved` 只有在运行状态完成且全部外部检查通过时为真。
+
+外部检查不得在 restricted check worker 内再次创建进程。需要执行候选 CLI 脚本时使用同进程 `runpy`，并在检查结束后把协议声明的 immutable fixture 与初始字节逐一比较；fixture 缺失、替换为符号链接或内容变化均使运行失败。
 
 - `first_acceptance_passed`：仅 Duo/Triad 适用，表示第一次 Generator 候选被内部 Evaluator 接受；Single 为 `null`。
 - `rejection_count` 和 `correction_count`：仅 Duo/Triad 适用；correction 是拒绝后新增的 Generator 尝试，Single 为 `null`。

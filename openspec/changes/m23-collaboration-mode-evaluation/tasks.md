@@ -9,12 +9,13 @@
 - [x] 2.2 复用公开 Task/CollaborationRunner 运行 Single/Duo/Triad，不修改协作运行时或 credential 路径
 - [x] 2.3 实现安全 audit 采集、外部产物检查、指标口径和单次原始 JSON 原子写入
 - [x] 2.4 实现从原始记录复算 `summary.json` 和中立 `report.md` 的聚合器
+- [x] 2.5 修复受限检查嵌套进程、immutable fixture 验收和 run/aggregate 输出根边界
 
 ## 3. M23 真实评估证据
 
-- [x] 3.1 执行模型/环境 preflight，并运行完整 3×3×3 固定调度
-- [x] 3.2 保存 27 份原始机器记录、协议/环境清单、聚合 JSON 和人工报告
-- [x] 3.3 核对聚合分母、失败/缺失语义、敏感信息排除和“不自动宣称 Triad 优于 Single”约束
+- [ ] 3.1 使用 v2 协议执行模型/环境 preflight，并运行完整 3×3×3 固定调度
+- [ ] 3.2 保存 27 份有效原始机器记录、协议/环境清单、聚合 JSON 和人工报告
+- [ ] 3.3 核对聚合分母、失败/缺失语义、敏感信息排除和“不自动宣称 Triad 优于 Single”约束
 
 ## 4. 文档与验证
 

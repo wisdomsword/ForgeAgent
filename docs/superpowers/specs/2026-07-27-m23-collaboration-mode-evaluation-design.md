@@ -21,15 +21,16 @@ M23 交付一个只存在于仓库评估层的可复现 harness。它在相同�
 
 ### `docs/evaluation/m23/protocol.json`
 
-唯一的运行协议，使用 `schema: forgeagent.m23.mode-evaluation/v1`。它固定模型、生成参数、运行限制、重复次数、轮换顺序和任务。任务项包括：
+唯一的运行协议，使用 `schema: forgeagent.m23.mode-evaluation/v2`。它固定模型、生成参数、运行限制、重复次数、轮换顺序和任务。任务项包括：
 
 - 稳定 `id` 和英文 `goal`；
 - 初始文件映射；
+- 必须保持逐字节不变的 `immutable_files`；
 - `required_candidate_files`；
 - 外部检查的参数数组；
 - 被检查产物列表。
 
-检查器不接受任意 shell 字符串。v1 只支持以 `{python}` 开头的参数数组，harness 将占位符转换为当前解释器并构造现有 `CheckDefinition`，通过 `check_runner.run_check` 在一次性副本和受限 worker 中执行。协议解析拒绝绝对路径、`..`、控制字符、未知键、重复任务 ID、少于三次重复、非三模式排列和不完整 schedule。
+检查器不接受任意 shell 字符串。v2 只支持以 `{python}` 开头的参数数组，harness 将占位符转换为当前解释器并构造现有 `CheckDefinition`，通过 `check_runner.run_check` 在一次性副本和受限 worker 中执行。需要运行候选脚本的检查在同一 worker 内使用 `runpy`，不嵌套创建进程；检查结束后，harness 直接对原工作区中的 immutable fixture 做逐字节比较。协议解析拒绝绝对路径、`..`、控制字符、未知键、重复任务 ID、无效 immutable 引用、少于三次重复、非三模式排列和不完整 schedule。
 
 ### `scripts/m23_mode_evaluation.py`
 
@@ -41,7 +42,7 @@ M23 交付一个只存在于仓库评估层的可复现 harness。它在相同�
 4. `prepare_workspace`：创建新的临时目录并写入协议夹具；拒绝任何逃逸路径。
 5. `run_single` / `run_collaboration`：仅负责组装公开对象和返回模式投影。
 6. `project_audit_metrics`：从内存 audit 事件计算调用和 usage。
-7. `run_checks` / `hash_artifacts`：通过现有安全 check runner 执行同一模式外检查，仅记录状态、长度和 SHA-256。
+7. `run_checks` / `hash_artifacts`：通过现有安全 check runner 执行同一模式外检查，追加 fixture integrity 结果，仅记录状态、长度和 SHA-256。
 8. `write_raw_record`：同目录临时文件 + `os.replace` 原子写入。
 9. `aggregate_records` / `render_report`：只从 raw JSON 复算汇总，不读取运行时状态或模型输出。
 
@@ -139,6 +140,7 @@ repeat 3: triad, single, duo
 ## 7. 错误与恢复
 
 - preflight 在首个模型调用前验证协议、输出目录、model capability、credential 可解析和环境清单；不打印 credential 或 base URL。
+- `run` 与 `aggregate` 共用规范化输出根校验，拒绝 `..` 逃逸和任何符号链接祖先。
 - 单次运行异常转成稳定错误类别并仍写 raw record，然后继续后续 RunSpec；KeyboardInterrupt 保留已完成记录并退出。
 - 外部检查超时或非零退出只使该检查失败，不改变运行时原始状态。
 - aggregate 拒绝重复 RunSpec、协议/环境哈希混用、schema 错误或不完整 27 记录；中断后必须先通过幂等 `run` 补齐记录。
@@ -148,6 +150,7 @@ repeat 3: triad, single, duo
 离线测试使用临时协议、fake audit events 和 fake mode results，至少覆盖：
 
 - 严格协议校验和路径逃逸拒绝；
+- immutable fixture 篡改拒绝、无嵌套进程的真实候选检查和 run/aggregate 输出根边界；
 - 27 项顺序与每种模式 9 个样本；
 - Single 验收循环字段为 null；
 - 内部 completed 但外部失败时 `solved=false`；

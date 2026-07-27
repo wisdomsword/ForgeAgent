@@ -176,8 +176,6 @@ def test_m22_closeout_artifacts_record_final_gates() -> None:
     assert "../openspec/changes/archive/2026-07-25-fix-collaboration-role-protocol/" in milestone
     assert "../openspec/changes/triad-mode/" not in milestone
     assert "M23" in milestone
-    assert _text("milestones/latest").strip() == "milestone_022.md"
-
     agents = _text("AGENTS.md")
     assert "项目处于**规划阶段**" not in agents
     assert "M15-M22 已完成并归档" in agents

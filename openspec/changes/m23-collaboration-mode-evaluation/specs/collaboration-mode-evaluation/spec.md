@@ -29,6 +29,10 @@ The evaluation system SHALL define task completion as a completed runtime outcom
 - **WHEN** a mode reports completion and every external artifact check passes
 - **THEN** the raw record marks the task as solved
 
+#### Scenario: Immutable fixture is modified
+- **WHEN** a candidate changes, removes, or replaces a protocol-declared immutable fixture
+- **THEN** an independent fixture-integrity check fails and the raw record marks the task as not solved
+
 ### Requirement: Applicable acceptance-loop metrics
 The evaluation system SHALL record first acceptance, rejection count, and correction count for Duo and Triad, and SHALL encode those fields as not applicable for Single.
 
@@ -69,6 +73,10 @@ The evaluation system SHALL atomically save one safe machine-readable record per
 #### Scenario: Aggregation is repeated
 - **WHEN** the aggregator reads the same complete raw record set more than once
 - **THEN** it produces equivalent metric values and denominators
+
+#### Scenario: Evidence output escapes its fixed root
+- **WHEN** run or aggregate receives an output path containing `..` or a symbolic-link ancestor that resolves outside the allowed root
+- **THEN** the system rejects the path before reading or writing evidence
 
 ### Requirement: Neutral descriptive report
 The evaluation system SHALL report per-mode sample sizes, denominators, rates, counts, token totals, call counts, latency distributions, and usage missingness without automatically ranking modes or asserting that Triad is superior to Single.

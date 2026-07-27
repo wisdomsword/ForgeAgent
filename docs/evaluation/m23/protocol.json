@@ -1,5 +1,5 @@
 {
-  "schema": "forgeagent.m23.mode-evaluation/v1",
+  "schema": "forgeagent.m23.mode-evaluation/v2",
   "model_id": "claude-haiku-4-5",
   "generation": {
     "max_output_tokens": 4096,
@@ -33,6 +33,7 @@
       "initial_files": {
         "sales.csv": "region,amount\nNorth,10\nSouth,7\nNorth,5\nSouth,3\nWest,8\n"
       },
+      "immutable_files": ["sales.csv"],
       "required_candidate_files": ["summarize.py", "summary.json"],
       "artifacts": ["summarize.py", "summary.json"],
       "checks": [
@@ -41,7 +42,7 @@
           "command": [
             "{python}",
             "-c",
-            "import json, subprocess, sys; from pathlib import Path; expected = {'North': 15, 'South': 10, 'West': 8}; subprocess.run([sys.executable, 'summarize.py', 'sales.csv', '.m23-check-summary.json'], check=True); assert json.loads(Path('summary.json').read_text(encoding='utf-8')) == expected; assert json.loads(Path('.m23-check-summary.json').read_text(encoding='utf-8')) == expected"
+            "import json, runpy, sys; from pathlib import Path; expected = {'North': 15, 'South': 10, 'West': 8}; sys.argv = ['summarize.py', 'sales.csv', '.m23-check-summary.json']; exit_code = None;\ntry:\n runpy.run_path('summarize.py', run_name='__main__')\nexcept SystemExit as error:\n exit_code = error.code\nassert exit_code in (None, 0); assert json.loads(Path('summary.json').read_text(encoding='utf-8')) == expected; assert json.loads(Path('.m23-check-summary.json').read_text(encoding='utf-8')) == expected"
           ],
           "timeout_seconds": 30
         }
@@ -54,6 +55,7 @@
         "range_compression.py": "def compress_ranges(values):\n    ordered = sorted(set(values))\n    if not ordered:\n        return []\n    result = []\n    start = end = ordered[0]\n    for value in ordered[1:]:\n        if value == end:\n            end = value\n            continue\n        result.append(str(start) if start == end else f'{start}-{end}')\n        start = end = value\n    result.append(str(start) if start == end else f'{start}-{end}')\n    return result\n",
         "test_range_compression.py": "from range_compression import compress_ranges\n\n\ndef test_mixed_ranges():\n    assert compress_ranges([1, 2, 3, 5, 7, 8]) == ['1-3', '5', '7-8']\n\n\ndef test_empty_and_duplicates():\n    assert compress_ranges([]) == []\n    assert compress_ranges([4, 4, 4]) == ['4']\n\n\ndef test_negative_values():\n    assert compress_ranges([-3, -2, 0]) == ['-3--2', '0']\n"
       },
+      "immutable_files": ["test_range_compression.py"],
       "required_candidate_files": ["range_compression.py"],
       "artifacts": ["range_compression.py"],
       "checks": [
@@ -76,6 +78,7 @@
       "initial_files": {
         "events.json": "[\n  {\"id\": \"a\", \"timestamp\": \"2026-01-02T10:00:00Z\", \"kind\": \"open\"},\n  {\"id\": \"b\", \"timestamp\": \"2026-01-01T12:00:00Z\", \"kind\": \"create\"},\n  {\"id\": \"a\", \"timestamp\": \"2026-01-03T09:00:00Z\", \"kind\": \"close\"},\n  {\"id\": \"c\", \"timestamp\": \"2026-01-01T12:00:00Z\", \"kind\": \"create\"}\n]\n"
       },
+      "immutable_files": ["events.json"],
       "required_candidate_files": ["normalize_events.py", "normalized.json"],
       "artifacts": ["normalize_events.py", "normalized.json"],
       "checks": [
@@ -84,7 +87,7 @@
           "command": [
             "{python}",
             "-c",
-            "import json, subprocess, sys; from pathlib import Path; expected = [{'id': 'b', 'timestamp': '2026-01-01T12:00:00Z', 'kind': 'create'}, {'id': 'c', 'timestamp': '2026-01-01T12:00:00Z', 'kind': 'create'}, {'id': 'a', 'timestamp': '2026-01-03T09:00:00Z', 'kind': 'close'}]; subprocess.run([sys.executable, 'normalize_events.py', 'events.json', '.m23-check-events.json'], check=True); assert json.loads(Path('normalized.json').read_text(encoding='utf-8')) == expected; assert json.loads(Path('.m23-check-events.json').read_text(encoding='utf-8')) == expected"
+            "import json, runpy, sys; from pathlib import Path; expected = [{'id': 'b', 'timestamp': '2026-01-01T12:00:00Z', 'kind': 'create'}, {'id': 'c', 'timestamp': '2026-01-01T12:00:00Z', 'kind': 'create'}, {'id': 'a', 'timestamp': '2026-01-03T09:00:00Z', 'kind': 'close'}]; sys.argv = ['normalize_events.py', 'events.json', '.m23-check-events.json']; exit_code = None;\ntry:\n runpy.run_path('normalize_events.py', run_name='__main__')\nexcept SystemExit as error:\n exit_code = error.code\nassert exit_code in (None, 0); assert json.loads(Path('normalized.json').read_text(encoding='utf-8')) == expected; assert json.loads(Path('.m23-check-events.json').read_text(encoding='utf-8')) == expected"
           ],
           "timeout_seconds": 30
         }

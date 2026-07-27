@@ -35,7 +35,7 @@ from forgeagent.model_registry import RegistryError, load_registry, resolve_mode
 from forgeagent.models import GenerationParams
 from forgeagent.task import Task
 
-PROTOCOL_SCHEMA = "forgeagent.m23.mode-evaluation/v1"
+PROTOCOL_SCHEMA = "forgeagent.m23.mode-evaluation/v2"
 MODES = ("single", "duo", "triad")
 Mode = Literal["single", "duo", "triad"]
 SHA256_PATTERN = r"^[0-9a-f]{64}$"
@@ -103,6 +103,7 @@ class TaskSpec(StrictModel):
     id: str = Field(pattern=r"^[a-z][a-z0-9-]{0,63}$")
     goal: str = Field(min_length=1, max_length=4000)
     initial_files: dict[str, str]
+    immutable_files: tuple[str, ...] = Field(min_length=1)
     required_candidate_files: tuple[str, ...] = Field(min_length=1)
     artifacts: tuple[str, ...] = Field(min_length=1)
     checks: tuple[CheckSpec, ...] = Field(min_length=1)
@@ -111,8 +112,13 @@ class TaskSpec(StrictModel):
     def validate_paths_and_ids(self) -> TaskSpec:
         for path in self.initial_files:
             _validate_relative_path(path)
+        immutable_paths = {_validate_relative_path(path) for path in self.immutable_files}
         candidate_paths = {_validate_relative_path(path) for path in self.required_candidate_files}
         artifact_paths = {_validate_relative_path(path) for path in self.artifacts}
+        if len(immutable_paths) != len(self.immutable_files):
+            raise ValueError("immutable file paths must be unique")
+        if not immutable_paths <= set(self.initial_files):
+            raise ValueError("immutable files must reference initial files")
         if len(candidate_paths) != len(self.required_candidate_files):
             raise ValueError("required candidate paths must be unique")
         if len(artifact_paths) != len(self.artifacts):
@@ -505,6 +511,31 @@ def run_checks(task: TaskSpec, workspace: Path) -> tuple[CheckRecord, ...]:
                 stderr_sha256=stderr_sha256,
             )
         )
+    empty_bytes, empty_sha256 = _text_projection("")
+    fixtures_unchanged = True
+    for relative_path in task.immutable_files:
+        path = workspace / relative_path
+        try:
+            metadata = path.lstat()
+            fixtures_unchanged = (
+                fixtures_unchanged
+                and stat.S_ISREG(metadata.st_mode)
+                and not stat.S_ISLNK(metadata.st_mode)
+                and path.read_bytes() == task.initial_files[relative_path].encode("utf-8")
+            )
+        except OSError:
+            fixtures_unchanged = False
+    records.append(
+        CheckRecord(
+            id="fixture-integrity",
+            status="passed" if fixtures_unchanged else "failed",
+            exit_code=0 if fixtures_unchanged else 1,
+            stdout_bytes=empty_bytes,
+            stderr_bytes=empty_bytes,
+            stdout_sha256=empty_sha256,
+            stderr_sha256=empty_sha256,
+        )
+    )
     return tuple(records)
 
 
@@ -996,7 +1027,7 @@ def aggregate_records(
         "limitations": [
             "Three fixed tasks and three repetitions per mode form a small sample.",
             "Provider-side model weights cannot be independently pinned or verified.",
-            "Results are descriptive and do not establish mode superiority.",
+            "Results are descriptive and do not establish comparative product conclusions.",
         ],
     }
 
@@ -1100,10 +1131,10 @@ def write_aggregate_outputs(output_dir: Path, summary: Mapping[str, object], rep
 
 
 def _validate_output_path(output_dir: Path, allowed_output_root: Path) -> Path:
-    if output_dir.is_symlink():
-        raise ValueError("output directory must not be a symlink")
-    allowed_root = allowed_output_root.resolve()
-    output = output_dir.absolute()
+    allowed_root = allowed_output_root.resolve(strict=True)
+    if not allowed_root.is_dir():
+        raise ValueError("allowed output root must be an existing directory")
+    output = Path(os.path.abspath(output_dir))
     if not output.is_relative_to(allowed_root):
         raise ValueError("output directory is outside the allowed root")
     current = output
@@ -1111,6 +1142,9 @@ def _validate_output_path(output_dir: Path, allowed_output_root: Path) -> Path:
         if current.exists() and current.is_symlink():
             raise ValueError("output path must not contain a symlink")
         current = current.parent
+    resolved_output = output.resolve(strict=False)
+    if not resolved_output.is_relative_to(allowed_root):
+        raise ValueError("output directory resolves outside the allowed root")
     output.mkdir(parents=True, exist_ok=True)
     return output
 
@@ -1217,9 +1251,16 @@ def pending_run_specs(
     return tuple(pending)
 
 
-def aggregate_command(protocol_path: Path, output_dir: Path) -> int:
+def aggregate_command(
+    protocol_path: Path,
+    output_dir: Path,
+    *,
+    allowed_output_root: Path | None = None,
+) -> int:
     protocol, protocol_sha256 = load_protocol(protocol_path)
-    environment_path = output_dir / "environment.json"
+    default_root = Path(__file__).parents[1] / "docs/evaluation/m23/runs"
+    output = _validate_output_path(output_dir, allowed_output_root or default_root)
+    environment_path = output / "environment.json"
     if environment_path.is_symlink() or not environment_path.is_file():
         raise ValueError("environment manifest is missing or invalid")
     environment = EnvironmentManifest.model_validate_json(environment_path.read_bytes())
@@ -1232,7 +1273,7 @@ def aggregate_command(protocol_path: Path, output_dir: Path) -> int:
         raise ValueError("environment manifest does not match protocol")
     environment_sha256_value = environment_sha256(environment)
     records = read_raw_records(
-        output_dir / "raw",
+        output / "raw",
         protocol,
         protocol_sha256,
         environment_sha256_value,
@@ -1243,7 +1284,7 @@ def aggregate_command(protocol_path: Path, output_dir: Path) -> int:
         environment.model_dump(mode="json", by_alias=True),
         summary,
     )
-    write_aggregate_outputs(output_dir, summary, report)
+    write_aggregate_outputs(output, summary, report)
     return 0
 
 
@@ -1290,7 +1331,11 @@ def run_command(
             )
             write_raw_record(output_dir / "raw" / f"{record.run_id}.json", record)
         print(f"DONE sequence={spec.sequence} solved={str(record.solved).lower()}")
-    return aggregate_command(protocol_path, output_dir)
+    return aggregate_command(
+        protocol_path,
+        output_dir,
+        allowed_output_root=allowed_output_root or default_root,
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:

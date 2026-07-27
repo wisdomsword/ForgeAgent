@@ -16,6 +16,21 @@ allowlist，只包含包源码、`pyproject.toml`、`README.md`、`uv.lock`，�
 和
 [`2026-07-26-review-release-integrity-closeout-verify.md`](docs/superpowers/reports/2026-07-26-review-release-integrity-closeout-verify.md)。
 
+## M23 Single / Duo / Triad 质量—成本评估
+
+M23 正在以独立评估里程碑执行，不修改协作运行时、产品 CLI、模型注册或 credential 加载。
+当前 v2 固定协议见 [`protocol.json`](docs/evaluation/m23/protocol.json)：3 个任务、3 种模式、每种
+组合重复 3 次；固定 `claude-haiku-4-5`、生成参数、restricted 环境、immutable fixture、外部
+产物检查和轮换顺序。指标包括任务完成率、首次验收通过率、rejection/correction 次数、四类
+token、模型调用次数、端到端延迟和 usage 缺失率；Single 的协作验收字段为 `N/A`。
+
+首批 27 次 v1 运行因检查器缺陷失效：两个检查在 restricted worker 内嵌套创建进程，并且没有
+独立证明 immutable fixture 未被修改。该批次只保留为
+[`INVALID.md`](docs/evaluation/m23/runs/2026-07-27-haiku-4-5-invalid-8dbebff/INVALID.md)
+审计记录，其完成率不得引用。v2 harness 已修复这两个问题并加固 run/aggregate 输出边界；在新的
+27 次正式运行完成前，M23 没有有效模式对照结论，也不自动宣称 Triad 优于 Single。真实请求会
+产生费用；该 harness 不属于 ForgeAgent 产品 CLI 或离线 CI 门禁。
+
 当前主线已完成 M17 Runtime Context Engineering、M18 Memory Runtime（含归档后两次
 人工复测 hotfix）、M19 Skills Runtime（程序性知识从 Memory 分流到可验证、快照化、渐进
 加载的 Skill）、M20 Eval（离线评估记录、趋势与显式 opt-in 独立 Evaluator）与 M21 Loop

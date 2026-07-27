@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import importlib.util
 import json
+import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -88,6 +89,14 @@ def test_protocol_rejects_fixture_and_artifact_path_escape(bad_path: str) -> Non
     value = protocol_dict()
     value["tasks"][0]["initial_files"] = {bad_path: "x"}
     with pytest.raises((ValidationError, ValueError), match="relative path"):
+        harness.validate_protocol(value)
+
+
+def test_protocol_requires_immutable_files_to_reference_initial_fixtures() -> None:
+    harness = load_harness()
+    value = protocol_dict()
+    value["tasks"][0]["immutable_files"] = ["missing.csv"]
+    with pytest.raises((ValidationError, ValueError), match="immutable"):
         harness.validate_protocol(value)
 
 
@@ -303,7 +312,8 @@ def test_external_check_projects_only_output_size_and_hash(tmp_path: Path) -> No
     task = harness.TaskSpec(
         id="local-check",
         goal="Run a local check.",
-        initial_files={},
+        initial_files={"fixture.txt": "fixed\n"},
+        immutable_files=("fixture.txt",),
         required_candidate_files=("result.txt",),
         artifacts=("result.txt",),
         checks=(
@@ -324,6 +334,86 @@ def test_external_check_projects_only_output_size_and_hash(tmp_path: Path) -> No
     assert records[0].stdout_bytes == len(b"visible-output\n")
     assert records[0].stderr_bytes == len(b"visible-error\n")
     assert "stdout" not in dumped and "stderr" not in dumped
+
+
+def test_checked_in_csv_check_runs_candidate_without_nested_process_spawn(tmp_path: Path) -> None:
+    harness = load_harness()
+    protocol, _ = harness.load_protocol(PROTOCOL_PATH)
+    task = protocol.tasks[0]
+    harness.prepare_workspace(task, tmp_path)
+    (tmp_path / "summarize.py").write_text(
+        """import csv
+import json
+import sys
+
+totals = {}
+with open(sys.argv[1], newline='', encoding='utf-8') as source:
+    for row in csv.DictReader(source):
+        totals[row['region']] = totals.get(row['region'], 0) + int(row['amount'])
+with open(sys.argv[2], 'w', encoding='utf-8') as destination:
+    json.dump(dict(sorted(totals.items())), destination)
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "summary.json").write_text(
+        json.dumps({"North": 15, "South": 10, "West": 8}), encoding="utf-8"
+    )
+
+    checks = harness.run_checks(task, tmp_path)
+
+    assert [check.id for check in checks] == ["csv-summary", "fixture-integrity"]
+    assert all(check.status == "passed" for check in checks)
+
+
+def test_checked_in_event_check_runs_candidate_without_nested_process_spawn(
+    tmp_path: Path,
+) -> None:
+    harness = load_harness()
+    protocol, _ = harness.load_protocol(PROTOCOL_PATH)
+    task = protocol.tasks[2]
+    harness.prepare_workspace(task, tmp_path)
+    (tmp_path / "normalize_events.py").write_text(
+        """import json
+import sys
+
+with open(sys.argv[1], encoding='utf-8') as source:
+    events = json.load(source)
+latest = {}
+for event in events:
+    if event['id'] not in latest or event['timestamp'] > latest[event['id']]['timestamp']:
+        latest[event['id']] = event
+result = sorted(latest.values(), key=lambda event: (event['timestamp'], event['id']))
+with open(sys.argv[2], 'w', encoding='utf-8') as destination:
+    json.dump(result, destination)
+""",
+        encoding="utf-8",
+    )
+    expected = [
+        {"id": "b", "timestamp": "2026-01-01T12:00:00Z", "kind": "create"},
+        {"id": "c", "timestamp": "2026-01-01T12:00:00Z", "kind": "create"},
+        {"id": "a", "timestamp": "2026-01-03T09:00:00Z", "kind": "close"},
+    ]
+    (tmp_path / "normalized.json").write_text(json.dumps(expected), encoding="utf-8")
+
+    checks = harness.run_checks(task, tmp_path)
+
+    assert [check.id for check in checks] == ["normalized-events", "fixture-integrity"]
+    assert all(check.status == "passed" for check in checks)
+
+
+def test_fixture_integrity_fails_even_when_modified_test_file_passes(tmp_path: Path) -> None:
+    harness = load_harness()
+    protocol, _ = harness.load_protocol(PROTOCOL_PATH)
+    task = protocol.tasks[1]
+    harness.prepare_workspace(task, tmp_path)
+    (tmp_path / "test_range_compression.py").write_text(
+        "def test_fabricated_pass():\n    assert True\n", encoding="utf-8"
+    )
+
+    checks = {check.id: check for check in harness.run_checks(task, tmp_path)}
+
+    assert checks["range-pytest"].status == "passed"
+    assert checks["fixture-integrity"].status == "failed"
 
 
 def test_write_raw_record_is_atomic_and_never_leaves_temp_file(tmp_path: Path) -> None:
@@ -641,6 +731,7 @@ def test_report_is_descriptive_and_contains_no_ranking_contract() -> None:
     assert "N/A" in report
     for forbidden in ("winner", "rank", "recommendation", "superiority"):
         assert forbidden not in lowered
+        assert forbidden not in json.dumps(summary).lower()
 
 
 def test_parser_exposes_only_fixed_run_and_aggregate_inputs() -> None:
@@ -710,6 +801,37 @@ def test_preflight_rejects_output_symlink_before_client_build(tmp_path: Path) ->
     assert calls == []
 
 
+def test_output_path_rejects_dotdot_escape_and_symlink_ancestor(tmp_path: Path) -> None:
+    harness = load_harness()
+    allowed = tmp_path / "allowed"
+    allowed.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+
+    with pytest.raises(ValueError, match="outside"):
+        harness._validate_output_path(allowed / ".." / "escaped", allowed)
+
+    (allowed / "linked").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(ValueError, match="symlink|outside"):
+        harness._validate_output_path(allowed / "linked" / "run", allowed)
+
+
+def test_aggregate_rejects_symlink_ancestor_before_reading_evidence(tmp_path: Path) -> None:
+    harness = load_harness()
+    allowed = tmp_path / "allowed"
+    allowed.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (allowed / "linked").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="symlink|outside"):
+        harness.aggregate_command(
+            PROTOCOL_PATH,
+            allowed / "linked" / "run",
+            allowed_output_root=allowed,
+        )
+
+
 def test_resume_skips_only_exact_matching_raw_record(tmp_path: Path) -> None:
     harness = load_harness()
     protocol, digest = harness.load_protocol(PROTOCOL_PATH)
@@ -759,7 +881,7 @@ def test_aggregate_rejects_environment_manifest_bound_to_another_protocol(
         bound = record.model_copy(update={"environment_sha256": environment_digest})
         harness.write_raw_record(tmp_path / "raw" / f"{bound.run_id}.json", bound)
     with pytest.raises(ValueError, match="environment.*protocol"):
-        harness.aggregate_command(PROTOCOL_PATH, tmp_path)
+        harness.aggregate_command(PROTOCOL_PATH, tmp_path, allowed_output_root=tmp_path)
 
 
 def test_successful_preflight_closes_probe_and_writes_only_safe_manifest(
@@ -848,7 +970,7 @@ def test_run_command_writes_all_terminal_records_then_aggregates(
 
     monkeypatch.setattr(harness, "execute_run", fake_execute)
 
-    def fake_aggregate(protocol_path: Path, output_dir: Path) -> int:
+    def fake_aggregate(protocol_path: Path, output_dir: Path, *, allowed_output_root: Path) -> int:
         aggregate_calls.append((protocol_path, output_dir))
         return 0
 
@@ -880,3 +1002,41 @@ def test_main_returns_two_for_incomplete_aggregate(tmp_path: Path, monkeypatch) 
         )
         == 2
     )
+
+
+def test_m23_public_docs_disclose_invalid_batch_and_pending_v2_evidence() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    action_plan = (ROOT / "ACTION_PLAN.md").read_text(encoding="utf-8")
+    milestone = (ROOT / "milestones" / "milestone_023.md").read_text(encoding="utf-8")
+
+    for text in (readme, action_plan, milestone):
+        assert "docs/evaluation/m23/protocol.json" in text
+        assert "2026-07-27-haiku-4-5-invalid-8dbebff/INVALID.md" in text
+        assert "不自动宣称 Triad 优于 Single" in text
+    assert "| **M23**" in action_plan
+    assert "进行中" in next(
+        line for line in action_plan.splitlines() if line.startswith("| **M23**")
+    )
+    assert "旧完成率不得引用" in milestone
+    assert (ROOT / "milestones" / "latest").read_text().strip() == "milestone_023.md"
+
+
+def test_m23_does_not_modify_product_runtime_or_dependencies() -> None:
+    protected = (
+        "src/forgeagent/collaboration.py",
+        "src/forgeagent/cli.py",
+        "src/forgeagent/model_registry.py",
+        "pyproject.toml",
+        "uv.lock",
+    )
+    for path in protected:
+        before = subprocess.run(
+            [
+                "git",
+                "show",
+                f"f6e0dda3c8a7f9c73400c240c0a999e20b12bbd6:{path}",
+            ],
+            check=True,
+            capture_output=True,
+        ).stdout
+        assert (ROOT / path).read_bytes() == before
