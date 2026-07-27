@@ -639,3 +639,146 @@ def test_report_is_descriptive_and_contains_no_ranking_contract() -> None:
     assert "N/A" in report
     for forbidden in ("winner", "rank", "recommendation", "superiority"):
         assert forbidden not in lowered
+
+
+def test_parser_exposes_only_fixed_run_and_aggregate_inputs() -> None:
+    harness = load_harness()
+    parser = harness.build_parser()
+    run_args = parser.parse_args(["run", "--protocol", str(PROTOCOL_PATH), "--output", "/tmp/m23"])
+    assert run_args.command == "run"
+    aggregate_args = parser.parse_args(
+        ["aggregate", "--protocol", str(PROTOCOL_PATH), "--output", "/tmp/m23"]
+    )
+    assert aggregate_args.command == "aggregate"
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            [
+                "run",
+                "--model",
+                "other",
+                "--protocol",
+                str(PROTOCOL_PATH),
+                "--output",
+                "/tmp/m23",
+            ]
+        )
+
+
+def test_preflight_fails_before_schedule_when_model_or_output_mismatches(
+    tmp_path: Path,
+) -> None:
+    harness = load_harness()
+    calls: list[str] = []
+    protocol, digest = harness.load_protocol(PROTOCOL_PATH)
+
+    def failing_builder(model_id: str, *, registry):
+        calls.append(model_id)
+        raise ValueError("model capability mismatch")
+
+    with pytest.raises(ValueError, match="model capability"):
+        harness.preflight(
+            protocol,
+            digest,
+            tmp_path / "output",
+            allowed_output_root=tmp_path,
+            registry_loader=harness.load_registry,
+            client_builder=failing_builder,
+        )
+    assert calls == ["claude-haiku-4-5"]
+
+
+def test_preflight_rejects_output_symlink_before_client_build(tmp_path: Path) -> None:
+    harness = load_harness()
+    protocol, digest = harness.load_protocol(PROTOCOL_PATH)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    output = tmp_path / "output"
+    output.symlink_to(outside, target_is_directory=True)
+    calls: list[str] = []
+
+    with pytest.raises(ValueError, match="symlink"):
+        harness.preflight(
+            protocol,
+            digest,
+            output,
+            allowed_output_root=tmp_path,
+            registry_loader=harness.load_registry,
+            client_builder=lambda model_id, registry: calls.append(model_id),
+        )
+    assert calls == []
+
+
+def test_resume_skips_only_exact_matching_raw_record(tmp_path: Path) -> None:
+    harness = load_harness()
+    protocol, digest = harness.load_protocol(PROTOCOL_PATH)
+    schedule = harness.build_schedule(protocol)
+    first = make_raw_record(harness, schedule[0], digest)
+    target = tmp_path / "raw" / f"{first.run_id}.json"
+    harness.write_raw_record(target, first)
+
+    pending = harness.pending_run_specs(tmp_path, schedule, digest, "b" * 64)
+    assert [spec.sequence for spec in pending] == list(range(2, 28))
+
+    value = json.loads(target.read_text(encoding="utf-8"))
+    value["run_spec_sha256"] = "f" * 64
+    target.write_text(json.dumps(value), encoding="utf-8")
+    with pytest.raises(ValueError, match="run spec"):
+        harness.pending_run_specs(tmp_path, schedule, digest, "b" * 64)
+
+
+def test_run_command_writes_all_terminal_records_then_aggregates(
+    tmp_path: Path, monkeypatch
+) -> None:
+    harness = load_harness()
+    protocol, digest = harness.load_protocol(PROTOCOL_PATH)
+    aggregate_calls: list[tuple[Path, Path]] = []
+
+    monkeypatch.setattr(
+        harness,
+        "preflight",
+        lambda *_args, **_kwargs: SimpleNamespace(registry=object(), environment_sha256="b" * 64),
+    )
+
+    def fake_execute(
+        _protocol,
+        _protocol_sha256,
+        _environment_sha256,
+        _task,
+        run_spec,
+        _workspace,
+        _registry,
+    ):
+        return make_raw_record(harness, run_spec, digest)
+
+    monkeypatch.setattr(harness, "execute_run", fake_execute)
+
+    def fake_aggregate(protocol_path: Path, output_dir: Path) -> int:
+        aggregate_calls.append((protocol_path, output_dir))
+        return 0
+
+    monkeypatch.setattr(harness, "aggregate_command", fake_aggregate)
+    output = tmp_path / "runs"
+    assert harness.run_command(PROTOCOL_PATH, output, allowed_output_root=tmp_path) == 0
+    assert len(list((output / "raw").glob("*.json"))) == 27
+    assert aggregate_calls == [(PROTOCOL_PATH, output)]
+
+
+def test_main_returns_two_for_incomplete_aggregate(tmp_path: Path, monkeypatch) -> None:
+    harness = load_harness()
+    monkeypatch.setattr(
+        harness,
+        "aggregate_command",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError("incomplete")),
+    )
+    assert (
+        harness.main(
+            [
+                "aggregate",
+                "--protocol",
+                str(PROTOCOL_PATH),
+                "--output",
+                str(tmp_path),
+            ]
+        )
+        == 2
+    )

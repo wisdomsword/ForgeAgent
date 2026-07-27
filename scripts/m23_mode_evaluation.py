@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import importlib.resources
 import json
@@ -12,6 +13,7 @@ import stat
 import statistics
 import subprocess
 import sys
+import tempfile
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -29,7 +31,7 @@ from forgeagent.cli import build_real_client
 from forgeagent.client import ClientError
 from forgeagent.collaboration import CollaborationRunner, headless_plan_confirmer
 from forgeagent.identity import ApprovedIdentity
-from forgeagent.model_registry import RegistryError
+from forgeagent.model_registry import RegistryError, load_registry, resolve_model
 from forgeagent.models import GenerationParams
 from forgeagent.task import Task
 
@@ -224,6 +226,13 @@ class EnvironmentManifest(StrictModel):
     protocol_sha256: str = Field(pattern=SHA256_PATTERN)
     generation: GenerationSettings
     execution: ExecutionSettings
+
+
+@dataclass(frozen=True)
+class PreflightContext:
+    registry: object
+    environment: EnvironmentManifest
+    environment_sha256: str
 
 
 class CheckRecord(StrictModel):
@@ -1078,17 +1087,214 @@ def write_aggregate_outputs(output_dir: Path, summary: Mapping[str, object], rep
     _atomic_replace(output_dir / "report.md", report.encode("utf-8"))
 
 
-def main() -> int:
-    protocol, digest = load_protocol(
-        Path(__file__).parents[1] / "docs/evaluation/m23/protocol.json"
-    )
-    print(
-        json.dumps(
-            {"protocol_digest": digest, "runs": len(build_schedule(protocol))},
-            sort_keys=True,
+def _validate_output_path(output_dir: Path, allowed_output_root: Path) -> Path:
+    if output_dir.is_symlink():
+        raise ValueError("output directory must not be a symlink")
+    allowed_root = allowed_output_root.resolve()
+    output = output_dir.absolute()
+    if not output.is_relative_to(allowed_root):
+        raise ValueError("output directory is outside the allowed root")
+    current = output
+    while current != allowed_root:
+        if current.exists() and current.is_symlink():
+            raise ValueError("output path must not contain a symlink")
+        current = current.parent
+    output.mkdir(parents=True, exist_ok=True)
+    return output
+
+
+def preflight(
+    protocol: EvaluationProtocol,
+    protocol_sha256: str,
+    output_dir: Path,
+    *,
+    allowed_output_root: Path,
+    registry_loader=load_registry,
+    client_builder=build_real_client,
+) -> PreflightContext:
+    output = _validate_output_path(output_dir, allowed_output_root)
+    registry = registry_loader()
+    client = client_builder(protocol.model_id, registry=registry)
+    try:
+        capability = client.capability
+        if capability.model_id != protocol.model_id:
+            raise ValueError("model capability id mismatch")
+        if capability.max_output_tokens < protocol.generation.max_output_tokens:
+            raise ValueError("model capability output limit mismatch")
+        resolved = resolve_model(protocol.model_id, registry)
+        provider_route_sha256 = canonical_sha256(
+            [
+                protocol.model_id,
+                resolved.capability.client_kind,
+                resolved.base_url or "provider-default",
+            ]
         )
+    finally:
+        _close_client(client)
+
+    manifest = environment_manifest(
+        protocol,
+        protocol_sha256,
+        repo_root=Path(__file__).parents[1],
+        provider_route_sha256=provider_route_sha256,
     )
+    digest = environment_sha256(manifest)
+    environment_path = output / "environment.json"
+    if environment_path.exists():
+        if environment_path.is_symlink() or not environment_path.is_file():
+            raise ValueError("environment manifest must be a regular file")
+        existing = EnvironmentManifest.model_validate_json(environment_path.read_bytes())
+        if environment_sha256(existing) != digest:
+            raise ValueError("existing environment manifest does not match preflight")
+        manifest = existing
+    else:
+        _atomic_replace(
+            environment_path,
+            canonical_json(manifest.model_dump(mode="json", by_alias=True)),
+        )
+    return PreflightContext(
+        registry=registry,
+        environment=manifest,
+        environment_sha256=digest,
+    )
+
+
+def pending_run_specs(
+    output_dir: Path,
+    schedule: Sequence[RunSpec],
+    protocol_sha256: str,
+    environment_sha256_value: str,
+) -> tuple[RunSpec, ...]:
+    raw_dir = output_dir / "raw"
+    if raw_dir.is_symlink():
+        raise ValueError("raw directory must not be a symlink")
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    expected_paths = {
+        f"{spec.sequence:02d}-{spec.task_id}-r{spec.repeat}-{spec.mode}.json": spec
+        for spec in schedule
+    }
+    existing_paths = {path.name: path for path in raw_dir.glob("*.json")}
+    if existing_paths.keys() - expected_paths.keys():
+        raise ValueError("raw directory contains an unexpected run record")
+
+    pending: list[RunSpec] = []
+    for filename, spec in expected_paths.items():
+        path = existing_paths.get(filename)
+        if path is None:
+            pending.append(spec)
+            continue
+        if path.is_symlink() or not path.is_file():
+            raise ValueError("raw record must be a regular file")
+        try:
+            record = RawRecord.model_validate_json(path.read_bytes())
+        except Exception as error:
+            raise ValueError("existing raw record is invalid") from error
+        if (
+            record.sequence != spec.sequence
+            or record.task_id != spec.task_id
+            or record.repeat != spec.repeat
+            or record.mode != spec.mode
+            or record.run_spec_sha256 != run_spec_hash(spec, protocol_sha256)
+        ):
+            raise ValueError("existing raw record run spec mismatch")
+        if record.protocol_sha256 != protocol_sha256:
+            raise ValueError("existing raw record protocol mismatch")
+        if record.environment_sha256 != environment_sha256_value:
+            raise ValueError("existing raw record environment mismatch")
+    return tuple(pending)
+
+
+def aggregate_command(protocol_path: Path, output_dir: Path) -> int:
+    protocol, protocol_sha256 = load_protocol(protocol_path)
+    environment_path = output_dir / "environment.json"
+    if environment_path.is_symlink() or not environment_path.is_file():
+        raise ValueError("environment manifest is missing or invalid")
+    environment = EnvironmentManifest.model_validate_json(environment_path.read_bytes())
+    environment_sha256_value = environment_sha256(environment)
+    records = read_raw_records(
+        output_dir / "raw",
+        protocol,
+        protocol_sha256,
+        environment_sha256_value,
+    )
+    summary = aggregate_records(protocol, build_schedule(protocol), records)
+    report = render_report(
+        protocol,
+        environment.model_dump(mode="json", by_alias=True),
+        summary,
+    )
+    write_aggregate_outputs(output_dir, summary, report)
     return 0
+
+
+def run_command(
+    protocol_path: Path,
+    output_dir: Path,
+    *,
+    allowed_output_root: Path | None = None,
+) -> int:
+    protocol, protocol_sha256 = load_protocol(protocol_path)
+    default_root = Path(__file__).parents[1] / "docs/evaluation/m23/runs"
+    context = preflight(
+        protocol,
+        protocol_sha256,
+        output_dir,
+        allowed_output_root=allowed_output_root or default_root,
+    )
+    schedule = build_schedule(protocol)
+    pending = pending_run_specs(
+        output_dir,
+        schedule,
+        protocol_sha256,
+        context.environment_sha256,
+    )
+    task_by_id = {task.id: task for task in protocol.tasks}
+    pending_sequences = {spec.sequence for spec in pending}
+    for spec in schedule:
+        if spec.sequence not in pending_sequences:
+            print(f"SKIP sequence={spec.sequence}")
+            continue
+        print(f"RUN sequence={spec.sequence} task={spec.task_id} mode={spec.mode}")
+        with tempfile.TemporaryDirectory(prefix="forgeagent-m23-", dir="/tmp") as root:
+            workspace = Path(root)
+            task_spec = task_by_id[spec.task_id]
+            prepare_workspace(task_spec, workspace)
+            record = execute_run(
+                protocol,
+                protocol_sha256,
+                context.environment_sha256,
+                task_spec,
+                spec,
+                workspace,
+                context.registry,
+            )
+            write_raw_record(output_dir / "raw" / f"{record.run_id}.json", record)
+        print(f"DONE sequence={spec.sequence} solved={str(record.solved).lower()}")
+    return aggregate_command(protocol_path, output_dir)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__)
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    for command in ("run", "aggregate"):
+        subparser = subparsers.add_parser(command)
+        subparser.add_argument("--protocol", type=Path, required=True)
+        subparser.add_argument("--output", type=Path, required=True)
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    arguments = build_parser().parse_args(argv)
+    try:
+        if arguments.command == "run":
+            return run_command(arguments.protocol, arguments.output)
+        return aggregate_command(arguments.protocol, arguments.output)
+    except KeyboardInterrupt:
+        print("ERROR category=interrupted", file=sys.stderr)
+        return 130
+    except Exception:
+        print("ERROR category=harness_failure", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":
