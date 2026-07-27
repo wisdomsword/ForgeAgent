@@ -419,7 +419,7 @@ rtk git commit -m "feat(evaluation): add strict M25 protocol schema"
 - Consumes: `M25EvaluationProtocol`, `M25RunSpec`, `_model_slug()`, `protocol_namespace()`, `route_hash_for_model()`。
 - Produces: union-aware `build_schedule()`, `run_spec_hash()`, `run_id_for()` and keyword-only `pending_run_specs(..., environment=None)`。
 
-- [ ] **Step 1: Write the failing deterministic schedule tests**
+- [x] **Step 1: Write the failing deterministic schedule tests**
 
 ```python
 from collections import Counter
@@ -477,13 +477,13 @@ def test_m25_run_identity_binds_model_family_sequence_and_protocol() -> None:
     assert harness.run_spec_hash(first, digest) != harness.run_spec_hash(changed, digest)
 ```
 
-- [ ] **Step 2: Run RED schedule tests**
+- [x] **Step 2: Run RED schedule tests**
 
 Run: `rtk uv --cache-dir /tmp/forgeagent-m25-uv-cache run pytest -q tests/test_m25_mode_evaluation.py::test_m25_schedule_has_fixed_270_run_order_and_global_position_balance tests/test_m25_mode_evaluation.py::test_m25_run_identity_binds_model_family_sequence_and_protocol`
 
 Expected: FAIL because the current schedule is M23-only and `run_id_for()` is absent.
 
-- [ ] **Step 3: Implement the exact schedule formula and identity branches**
+- [x] **Step 3: Implement the exact schedule formula and identity branches**
 
 ```python
 def build_schedule(protocol: Protocol) -> tuple[RunSpecification, ...]:
@@ -528,7 +528,7 @@ def run_id_for(protocol: Protocol, run_spec: RunSpecification) -> str:
 
 In `run_spec_hash()`, preserve the existing M23 dict exactly; the M25 branch hashes all six M25 fields plus `protocol_sha256`.
 
-- [ ] **Step 4: Write RED resume conflict tests**
+- [x] **Step 4: Write RED resume conflict tests**
 
 Construct one `M25RawRecord` bound to an `M25EnvironmentManifest`. Assert an exact terminal record is skipped, then independently mutate `task_family`, `model_id`, `provider_route_sha256`, `run_id`, `run_spec_sha256`, and filename; every mutation must raise before any model call. Assert an extra JSON filename and an M23 raw schema in the M25 raw directory are rejected.
 
@@ -536,11 +536,11 @@ Run: `rtk uv --cache-dir /tmp/forgeagent-m25-uv-cache run pytest -q tests/test_m
 
 Expected: FAIL until `pending_run_specs()` parses the protocol-specific raw model and binds route/family/filename.
 
-- [ ] **Step 5: Implement protocol-specific pending validation**
+- [x] **Step 5: Implement protocol-specific pending validation**
 
 Build expected filenames with `run_id_for(protocol, spec) + ".json"`. For M25, require `environment` to be `M25EnvironmentManifest`, parse only `M25RawRecord`, and compare terminal, schema, run ID, sequence, task, family, model, repeat, mode, protocol/environment/RunSpec hashes, and `route_hash_for_model(environment, spec.model_id)`. Keep the existing M23 branch byte-for-byte equivalent.
 
-- [ ] **Step 6: Run GREEN and commit**
+- [x] **Step 6: Run GREEN and commit**
 
 Run: `rtk uv --cache-dir /tmp/forgeagent-m25-uv-cache run pytest -q tests/test_m25_mode_evaluation.py -k 'schedule or resume or identity' tests/test_m23_mode_evaluation.py`
 
