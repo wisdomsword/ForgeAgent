@@ -8,6 +8,7 @@ import subprocess
 import sys
 from collections import Counter
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from pydantic import ValidationError
@@ -708,3 +709,223 @@ def test_programming_fixture_check_strength_and_fixture_integrity(
     immutable.write_bytes(immutable.read_bytes() + b"\n")
     checks = {check.id: check for check in harness.run_checks(task, tampered)}
     assert checks["fixture-integrity"].status == "failed"
+
+
+def test_m25_preflight_probes_two_routes_and_persists_only_safe_hashes(
+    tmp_path, monkeypatch
+) -> None:
+    harness = load_harness()
+    protocol, digest = harness.load_protocol(M25_PROTOCOL_PATH)
+    built_model_ids = []
+    clients = []
+
+    def client_builder(model_id, *, registry):
+        built_model_ids.append(model_id)
+        client = SimpleNamespace(
+            capability=SimpleNamespace(model_id=model_id, max_output_tokens=8192),
+            closed=False,
+        )
+        client.close = lambda: setattr(client, "closed", True)
+        clients.append(client)
+        return client
+
+    client_kinds = {
+        "claude-haiku-4-5": "anthropic",
+        "gpt-5.4-mini": "openai",
+    }
+    monkeypatch.setattr(
+        harness,
+        "resolve_model",
+        lambda model_id, _registry: SimpleNamespace(
+            capability=SimpleNamespace(client_kind=client_kinds[model_id]),
+            api_key="SECRET_MUST_NOT_PERSIST",
+            base_url=f"https://provider.invalid/{model_id}",
+        ),
+    )
+    monkeypatch.setattr(
+        harness,
+        "_git_value",
+        lambda _root, *arguments: "a" * 40 if arguments[0] == "rev-parse" else "",
+    )
+    context = harness.preflight(
+        protocol,
+        digest,
+        tmp_path / "output",
+        allowed_output_root=tmp_path,
+        registry_loader=lambda: object(),
+        client_builder=client_builder,
+    )
+    assert built_model_ids == ["claude-haiku-4-5", "gpt-5.4-mini"]
+    assert [route.model_id for route in context.environment.model_routes] == built_model_ids
+    assert all(client.closed for client in clients)
+    persisted = (tmp_path / "output" / "environment.json").read_text(encoding="utf-8")
+    assert "SECRET" not in persisted
+    assert "https://" not in persisted
+    assert context.environment.tracked_dirty is False
+
+
+def test_m25_preflight_rejects_tracked_dirty_before_writing_environment(
+    tmp_path, monkeypatch
+) -> None:
+    harness = load_harness()
+    protocol, digest = harness.load_protocol(M25_PROTOCOL_PATH)
+
+    class FakeClient:
+        capability = SimpleNamespace(max_output_tokens=8192)
+
+        def __init__(self, model_id):
+            self.capability = SimpleNamespace(
+                model_id=model_id, max_output_tokens=8192
+            )
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(
+        harness,
+        "resolve_model",
+        lambda model_id, _registry: SimpleNamespace(
+            capability=SimpleNamespace(client_kind="fake"), base_url=None
+        ),
+    )
+    monkeypatch.setattr(
+        harness,
+        "_git_value",
+        lambda _root, *arguments: (
+            "a" * 40 if arguments[0] == "rev-parse" else " M tracked.py"
+        ),
+    )
+    with pytest.raises(ValueError, match="tracked.*clean"):
+        harness.preflight(
+            protocol,
+            digest,
+            tmp_path / "output",
+            allowed_output_root=tmp_path,
+            registry_loader=lambda: object(),
+            client_builder=lambda model_id, registry: FakeClient(model_id),
+        )
+    assert not (tmp_path / "output" / "environment.json").exists()
+
+
+@pytest.mark.parametrize("mode", ["single", "duo", "triad"])
+@pytest.mark.parametrize("model_id", ["claude-haiku-4-5", "gpt-5.4-mini"])
+def test_m25_execution_routes_every_role_through_run_model(
+    tmp_path, monkeypatch, mode, model_id
+) -> None:
+    harness = load_harness()
+    protocol, _ = harness.load_protocol(M25_PROTOCOL_PATH)
+    task_spec = protocol.tasks[0]
+    run_spec = next(
+        spec
+        for spec in harness.build_schedule(protocol)
+        if spec.mode == mode and spec.model_id == model_id
+    )
+    clients = []
+    tasks = []
+    create_kwargs = {}
+
+    def build_client(requested_model, *, registry):
+        client = SimpleNamespace(model=requested_model, closed=False)
+        client.close = lambda: setattr(client, "closed", True)
+        clients.append(client)
+        return client
+
+    class FakeTask:
+        def __init__(self, client, **kwargs):
+            self.client = client
+            self.kwargs = kwargs
+            self.closed = False
+            tasks.append(self)
+
+        def run(self, goal, *, cancel_event=None):
+            return SimpleNamespace(status=SimpleNamespace(completed=True, reason="completed"))
+
+        def close(self):
+            self.closed = True
+
+    class FakeRunner:
+        @classmethod
+        def create(cls, **kwargs):
+            create_kwargs.update(kwargs)
+            return cls()
+
+        def run(self, goal):
+            roles = ("generator", "evaluator") if mode == "duo" else (
+                "planner",
+                "generator",
+                "evaluator",
+            )
+            for role in roles:
+                owned = create_kwargs["role_task_builder"](role, 1, object(), role)
+                owned.run(goal)
+                owned.close()
+            return SimpleNamespace(
+                status="completed",
+                stop_reason="completed",
+                generator_attempts=1,
+                evaluator_attempts=1,
+                rejections=0,
+            )
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(harness, "build_real_client", build_client)
+    monkeypatch.setattr(harness, "Task", FakeTask)
+    monkeypatch.setattr(harness, "CollaborationRunner", FakeRunner)
+    if mode == "single":
+        harness.run_single(
+            protocol,
+            task_spec,
+            run_spec,
+            tmp_path,
+            object(),
+            harness.CollectingAuditSink(),
+        )
+    else:
+        harness.run_collaboration(
+            protocol,
+            task_spec,
+            run_spec,
+            tmp_path,
+            object(),
+            harness.CollectingAuditSink(),
+        )
+        assert create_kwargs["planner_model"] == model_id
+        assert create_kwargs["generator_model"] == model_id
+        assert create_kwargs["evaluator_model"] == model_id
+    assert clients and all(client.model == model_id for client in clients)
+    assert all(task.kwargs["task_id"].startswith("m25-") for task in tasks)
+    assert all(task.closed for task in tasks)
+    assert all(client.closed for client in clients)
+
+
+def test_m25_raw_record_binds_model_family_and_route_hash() -> None:
+    harness = load_harness()
+    protocol, _ = harness.load_protocol(M25_PROTOCOL_PATH)
+    spec = harness.build_schedule(protocol)[0]
+    record = harness.build_raw_record(
+        run_spec=spec,
+        mode_result=harness.ModeResult(
+            runtime_completed=False,
+            runtime_status="failed",
+            runtime_reason="test",
+            first_acceptance_passed=None,
+            rejection_count=None,
+            correction_count=None,
+        ),
+        checks=(),
+        artifacts=(),
+        audit_metrics=harness.project_audit_metrics([]),
+        protocol_sha256="a" * 64,
+        environment_sha256="b" * 64,
+        provider_route_sha256="c" * 64,
+        started_at="2026-07-27T00:00:00.000Z",
+        finished_at="2026-07-27T00:00:01.000Z",
+        end_to_end_latency_seconds=1.0,
+    )
+    assert type(record) is harness.M25RawRecord
+    assert record.run_id.startswith("001-")
+    assert record.task_family == spec.task_family
+    assert record.model_id == spec.model_id
+    assert record.provider_route_sha256 == "c" * 64

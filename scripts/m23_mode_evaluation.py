@@ -329,7 +329,7 @@ class M25EnvironmentManifest(StrictModel):
 @dataclass(frozen=True)
 class PreflightContext:
     registry: object
-    environment: EnvironmentManifest
+    environment: Environment
     environment_sha256: str
 
 
@@ -624,31 +624,59 @@ def _git_value(repo_root: Path, *arguments: str) -> str:
 
 
 def environment_manifest(
-    protocol: EvaluationProtocol,
+    protocol: Protocol,
     protocol_sha256: str,
     *,
     repo_root: Path,
-    provider_route_sha256: str,
-) -> EnvironmentManifest:
-    return EnvironmentManifest(
+    model_routes: Mapping[str, tuple[str, str]] | None = None,
+    provider_route_sha256: str | None = None,
+) -> Environment:
+    git_commit = _git_value(repo_root, "rev-parse", "HEAD")
+    tracked_dirty = bool(
+        _git_value(repo_root, "status", "--porcelain", "--untracked-files=no")
+    )
+    common = dict(
         generated_at=_utc_now(),
-        git_commit=_git_value(repo_root, "rev-parse", "HEAD"),
-        tracked_dirty=bool(_git_value(repo_root, "status", "--porcelain", "--untracked-files=no")),
+        git_commit=git_commit,
         python_version=sys.version,
         python_executable_name=Path(sys.executable).name,
         platform="/".join((platform.system(), platform.release(), platform.machine())),
         package_version=forgeagent.__version__,
-        model_id=protocol.model_id,
-        provider_route_sha256=provider_route_sha256,
         builtin_models_sha256=_resource_sha256("models.yaml"),
         builtin_config_sha256=_resource_sha256("config.yaml"),
         protocol_sha256=protocol_sha256,
         generation=protocol.generation,
         execution=protocol.execution,
     )
+    if isinstance(protocol, EvaluationProtocol):
+        if provider_route_sha256 is None:
+            raise ValueError("M23 provider route hash is required")
+        return EnvironmentManifest(
+            **common,
+            tracked_dirty=tracked_dirty,
+            model_id=protocol.model_id,
+            provider_route_sha256=provider_route_sha256,
+        )
+
+    if tracked_dirty:
+        raise ValueError("M25 requires tracked source to be clean")
+    if model_routes is None or set(model_routes) != set(protocol.model_ids):
+        raise ValueError("M25 model routes must match the fixed models")
+    return M25EnvironmentManifest(
+        **common,
+        tracked_dirty=False,
+        model_routes=tuple(
+            M25ModelRoute(
+                model_id=model_id,
+                client_kind=model_routes[model_id][0],
+                provider_route_sha256=model_routes[model_id][1],
+            )
+            for model_id in protocol.model_ids
+        ),
+    )
 
 
-def environment_sha256(manifest: EnvironmentManifest) -> str:
+def environment_sha256(manifest: Environment) -> str:
     value = manifest.model_dump(mode="json", by_alias=True)
     del value["generated_at"]
     return canonical_sha256(value)
@@ -760,20 +788,21 @@ def hash_artifacts(task: TaskSpec, workspace: Path) -> tuple[ArtifactResult, ...
 
 def build_raw_record(
     *,
-    run_spec: RunSpec,
+    run_spec: RunSpecification,
     mode_result: ModeResult,
     checks: tuple[CheckRecord, ...],
     artifacts: tuple[ArtifactResult, ...],
     audit_metrics: AuditMetrics,
     protocol_sha256: str,
     environment_sha256: str,
+    provider_route_sha256: str | None = None,
     started_at: str,
     finished_at: str,
     end_to_end_latency_seconds: float,
     error_category: str | None = None,
-) -> RawRecord:
-    return RawRecord(
-        run_id=(f"{run_spec.sequence:02d}-{run_spec.task_id}-r{run_spec.repeat}-{run_spec.mode}"),
+) -> RunRecord:
+    values = dict(
+        run_id=_run_id_for_spec(run_spec),
         sequence=run_spec.sequence,
         task_id=run_spec.task_id,
         mode=run_spec.mode,
@@ -803,9 +832,20 @@ def build_raw_record(
         end_to_end_latency_seconds=end_to_end_latency_seconds,
         error_category=error_category,
     )
+    if isinstance(run_spec, RunSpec):
+        return RawRecord(**values)
+    if provider_route_sha256 is None:
+        raise ValueError("M25 raw record requires a provider route hash")
+    return M25RawRecord(
+        **values,
+        terminal=True,
+        task_family=run_spec.task_family,
+        model_id=run_spec.model_id,
+        provider_route_sha256=provider_route_sha256,
+    )
 
 
-def write_raw_record(path: Path, record: RawRecord) -> None:
+def write_raw_record(path: Path, record: RunRecord) -> None:
     content = canonical_json(record.model_dump(mode="json", by_alias=True))
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists():
@@ -823,7 +863,7 @@ def write_raw_record(path: Path, record: RawRecord) -> None:
         temporary.unlink(missing_ok=True)
 
 
-def _generation_params(protocol: EvaluationProtocol) -> GenerationParams:
+def _generation_params(protocol: Protocol) -> GenerationParams:
     return GenerationParams(**protocol.generation.model_dump(mode="python"))
 
 
@@ -834,14 +874,17 @@ def _close_client(client: object) -> None:
 
 
 def run_single(
-    protocol: EvaluationProtocol,
+    protocol: Protocol,
     task_spec: TaskSpec,
-    run_spec: RunSpec,
+    run_spec: RunSpecification,
     workspace: Path,
     registry: object,
     audit_sink: CollectingAuditSink,
 ) -> ModeResult:
-    client = build_real_client(protocol.model_id, registry=registry)
+    model_id = run_model_id(protocol, run_spec)
+    namespace = protocol_namespace(protocol)
+    sequence = f"{run_spec.sequence:02d}" if namespace == "m23" else f"{run_spec.sequence:03d}"
+    client = build_real_client(model_id, registry=registry)
     task: Task | None = None
     try:
         task = Task(
@@ -853,7 +896,7 @@ def run_single(
             params=_generation_params(protocol),
             confirmer=lambda _request: True,
             audit_sink=audit_sink,
-            task_id=f"m23-{run_spec.sequence:02d}-single",
+            task_id=f"{namespace}-{sequence}-single",
         )
         outcome = task.run(task_spec.goal)
         return ModeResult(
@@ -892,9 +935,9 @@ class _OwnedRoleTask:
 
 
 def run_collaboration(
-    protocol: EvaluationProtocol,
+    protocol: Protocol,
     task_spec: TaskSpec,
-    run_spec: RunSpec,
+    run_spec: RunSpecification,
     workspace: Path,
     registry: object,
     audit_sink: CollectingAuditSink,
@@ -902,8 +945,12 @@ def run_collaboration(
     if run_spec.mode not in {"duo", "triad"}:
         raise ValueError("collaboration run requires duo or triad mode")
 
+    model_id = run_model_id(protocol, run_spec)
+    namespace = protocol_namespace(protocol)
+    sequence = f"{run_spec.sequence:02d}" if namespace == "m23" else f"{run_spec.sequence:03d}"
+
     def role_task_builder(role, attempt, tool_registry, system_prompt):
-        client = build_real_client(protocol.model_id, registry=registry)
+        client = build_real_client(model_id, registry=registry)
         try:
             task = Task(
                 client,
@@ -915,7 +962,7 @@ def run_collaboration(
                 params=_generation_params(protocol),
                 confirmer=lambda _request: True,
                 audit_sink=audit_sink,
-                task_id=(f"m23-{run_spec.sequence:02d}-{run_spec.mode}-{role}-{attempt}"),
+                task_id=(f"{namespace}-{sequence}-{run_spec.mode}-{role}-{attempt}"),
                 tool_registry=tool_registry,
             )
         except BaseException:
@@ -923,15 +970,17 @@ def run_collaboration(
             raise
         return _OwnedRoleTask(task, client)
 
-    collaboration_id = canonical_sha256(
-        {
+    collaboration_identity = {
             "scope": "m23-collaboration",
             "sequence": run_spec.sequence,
             "task_id": run_spec.task_id,
             "repeat": run_spec.repeat,
             "mode": run_spec.mode,
-        }
-    )[:32]
+    }
+    if namespace == "m25":
+        collaboration_identity["scope"] = "m25-collaboration"
+        collaboration_identity["model_id"] = model_id
+    collaboration_id = canonical_sha256(collaboration_identity)[:32]
     runner = CollaborationRunner.create(
         mode=run_spec.mode,
         goal=task_spec.goal,
@@ -943,13 +992,13 @@ def run_collaboration(
         required_candidate_files=task_spec.required_candidate_files,
         execution_tier="restricted",
         collaboration_id=collaboration_id,
-        planner_model=protocol.model_id,
-        generator_model=protocol.model_id,
-        evaluator_model=protocol.model_id,
+        planner_model=model_id,
+        generator_model=model_id,
+        evaluator_model=model_id,
         evaluator_tier="restricted",
         max_rejections=protocol.execution.max_rejections,
         audit_sink=audit_sink,
-        task_id=f"m23-{run_spec.sequence:02d}-{run_spec.mode}",
+        task_id=f"{namespace}-{sequence}-{run_spec.mode}",
         loop_id=None,
     )
     try:
@@ -982,14 +1031,15 @@ def _error_category(error: Exception) -> str:
 
 
 def execute_run(
-    protocol: EvaluationProtocol,
+    protocol: Protocol,
     protocol_sha256: str,
     environment_sha256_value: str,
     task_spec: TaskSpec,
-    run_spec: RunSpec,
+    run_spec: RunSpecification,
     workspace: Path,
     registry: object,
-) -> RawRecord:
+    environment: Environment | None = None,
+) -> RunRecord:
     started_at = _utc_now()
     started = time.monotonic()
     audit_sink = CollectingAuditSink()
@@ -1033,6 +1083,11 @@ def execute_run(
             error_category = "io_error"
 
     finished_at = _utc_now()
+    provider_route_sha256 = None
+    if isinstance(run_spec, M25RunSpec):
+        if not isinstance(environment, M25EnvironmentManifest):
+            raise ValueError("M25 execution requires its environment manifest")
+        provider_route_sha256 = route_hash_for_model(environment, run_spec.model_id)
     return build_raw_record(
         run_spec=run_spec,
         mode_result=mode_result,
@@ -1041,6 +1096,7 @@ def execute_run(
         audit_metrics=project_audit_metrics(audit_sink.events),
         protocol_sha256=protocol_sha256,
         environment_sha256=environment_sha256_value,
+        provider_route_sha256=provider_route_sha256,
         started_at=started_at,
         finished_at=finished_at,
         end_to_end_latency_seconds=max(0.0, time.monotonic() - started),
@@ -1342,7 +1398,7 @@ def _validate_output_path(output_dir: Path, allowed_output_root: Path) -> Path:
 
 
 def preflight(
-    protocol: EvaluationProtocol,
+    protocol: Protocol,
     protocol_sha256: str,
     output_dir: Path,
     *,
@@ -1352,36 +1408,50 @@ def preflight(
 ) -> PreflightContext:
     output = _validate_output_path(output_dir, allowed_output_root)
     registry = registry_loader()
-    client = client_builder(protocol.model_id, registry=registry)
-    try:
-        capability = client.capability
-        if capability.model_id != protocol.model_id:
-            raise ValueError("model capability id mismatch")
-        if capability.max_output_tokens < protocol.generation.max_output_tokens:
-            raise ValueError("model capability output limit mismatch")
-        resolved = resolve_model(protocol.model_id, registry)
-        provider_route_sha256 = canonical_sha256(
-            [
-                protocol.model_id,
-                resolved.capability.client_kind,
-                resolved.base_url or "provider-default",
-            ]
-        )
-    finally:
-        _close_client(client)
+    model_routes: dict[str, tuple[str, str]] = {}
+    for model_id in protocol_model_ids(protocol):
+        client = client_builder(model_id, registry=registry)
+        try:
+            capability = client.capability
+            if capability.model_id != model_id:
+                raise ValueError("model capability id mismatch")
+            if capability.max_output_tokens < protocol.generation.max_output_tokens:
+                raise ValueError("model capability output limit mismatch")
+            resolved = resolve_model(model_id, registry)
+            client_kind = resolved.capability.client_kind
+            route_sha256 = canonical_sha256(
+                [
+                    model_id,
+                    client_kind,
+                    resolved.base_url or "provider-default",
+                ]
+            )
+            model_routes[model_id] = (client_kind, route_sha256)
+        finally:
+            _close_client(client)
 
     manifest = environment_manifest(
         protocol,
         protocol_sha256,
         repo_root=Path(__file__).parents[1],
-        provider_route_sha256=provider_route_sha256,
+        model_routes=model_routes if isinstance(protocol, M25EvaluationProtocol) else None,
+        provider_route_sha256=(
+            model_routes[protocol.model_id][1]
+            if isinstance(protocol, EvaluationProtocol)
+            else None
+        ),
     )
     digest = environment_sha256(manifest)
     environment_path = output / "environment.json"
     if environment_path.exists():
         if environment_path.is_symlink() or not environment_path.is_file():
             raise ValueError("environment manifest must be a regular file")
-        existing = EnvironmentManifest.model_validate_json(environment_path.read_bytes())
+        environment_type = (
+            EnvironmentManifest
+            if isinstance(protocol, EvaluationProtocol)
+            else M25EnvironmentManifest
+        )
+        existing = environment_type.model_validate_json(environment_path.read_bytes())
         if environment_sha256(existing) != digest:
             raise ValueError("existing environment manifest does not match preflight")
         manifest = existing
@@ -1463,18 +1533,28 @@ def aggregate_command(
     allowed_output_root: Path | None = None,
 ) -> int:
     protocol, protocol_sha256 = load_protocol(protocol_path)
-    default_root = Path(__file__).parents[1] / "docs/evaluation/m23/runs"
+    namespace = protocol_namespace(protocol)
+    default_root = Path(__file__).parents[1] / f"docs/evaluation/{namespace}/runs"
     output = _validate_output_path(output_dir, allowed_output_root or default_root)
     environment_path = output / "environment.json"
     if environment_path.is_symlink() or not environment_path.is_file():
         raise ValueError("environment manifest is missing or invalid")
-    environment = EnvironmentManifest.model_validate_json(environment_path.read_bytes())
-    if (
-        environment.protocol_sha256 != protocol_sha256
-        or environment.model_id != protocol.model_id
-        or environment.generation != protocol.generation
-        or environment.execution != protocol.execution
-    ):
+    environment_type = (
+        EnvironmentManifest if isinstance(protocol, EvaluationProtocol) else M25EnvironmentManifest
+    )
+    environment = environment_type.model_validate_json(environment_path.read_bytes())
+    environment_matches = (
+        environment.protocol_sha256 == protocol_sha256
+        and environment.generation == protocol.generation
+        and environment.execution == protocol.execution
+    )
+    if isinstance(protocol, EvaluationProtocol):
+        environment_matches = environment_matches and environment.model_id == protocol.model_id
+    else:
+        environment_matches = environment_matches and tuple(
+            route.model_id for route in environment.model_routes
+        ) == protocol.model_ids
+    if not environment_matches:
         raise ValueError("environment manifest does not match protocol")
     environment_sha256_value = environment_sha256(environment)
     records = read_raw_records(
@@ -1500,7 +1580,8 @@ def run_command(
     allowed_output_root: Path | None = None,
 ) -> int:
     protocol, protocol_sha256 = load_protocol(protocol_path)
-    default_root = Path(__file__).parents[1] / "docs/evaluation/m23/runs"
+    namespace = protocol_namespace(protocol)
+    default_root = Path(__file__).parents[1] / f"docs/evaluation/{namespace}/runs"
     context = preflight(
         protocol,
         protocol_sha256,
@@ -1508,12 +1589,21 @@ def run_command(
         allowed_output_root=allowed_output_root or default_root,
     )
     schedule = build_schedule(protocol)
-    pending = pending_run_specs(
-        output_dir,
-        schedule,
-        protocol_sha256,
-        context.environment_sha256,
-    )
+    if isinstance(protocol, EvaluationProtocol):
+        pending = pending_run_specs(
+            output_dir,
+            schedule,
+            protocol_sha256,
+            context.environment_sha256,
+        )
+    else:
+        pending = pending_run_specs(
+            output_dir,
+            schedule,
+            protocol_sha256,
+            context.environment_sha256,
+            environment=context.environment,
+        )
     task_by_id = {task.id: task for task in protocol.tasks}
     pending_sequences = {spec.sequence for spec in pending}
     for spec in schedule:
@@ -1521,11 +1611,11 @@ def run_command(
             print(f"SKIP sequence={spec.sequence}")
             continue
         print(f"RUN sequence={spec.sequence} task={spec.task_id} mode={spec.mode}")
-        with tempfile.TemporaryDirectory(prefix="forgeagent-m23-", dir="/tmp") as root:
+        with tempfile.TemporaryDirectory(prefix=f"forgeagent-{namespace}-", dir="/tmp") as root:
             workspace = Path(root)
             task_spec = task_by_id[spec.task_id]
             prepare_workspace(task_spec, workspace)
-            record = execute_run(
+            execution_arguments = (
                 protocol,
                 protocol_sha256,
                 context.environment_sha256,
@@ -1533,6 +1623,11 @@ def run_command(
                 spec,
                 workspace,
                 context.registry,
+            )
+            record = (
+                execute_run(*execution_arguments)
+                if isinstance(protocol, EvaluationProtocol)
+                else execute_run(*execution_arguments, context.environment)
             )
             write_raw_record(output_dir / "raw" / f"{record.run_id}.json", record)
         print(f"DONE sequence={spec.sequence} solved={str(record.solved).lower()}")
