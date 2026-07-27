@@ -1106,18 +1106,37 @@ def execute_run(
 
 def read_raw_records(
     raw_dir: Path,
-    protocol: EvaluationProtocol,
+    protocol: Protocol,
     protocol_sha256: str,
     environment_sha256_value: str,
-) -> tuple[RawRecord, ...]:
+    *,
+    environment: Environment | None = None,
+) -> tuple[RunRecord, ...]:
     files = sorted(raw_dir.glob("*.json"))
-    records: list[RawRecord] = []
+    records: list[RunRecord] = []
     for path in files:
         if path.is_symlink() or not path.is_file():
             raise ValueError("raw records must be regular non-symlink files")
-        records.append(RawRecord.model_validate_json(path.read_bytes()))
+        record_type = (
+            RawRecord if isinstance(protocol, EvaluationProtocol) else M25RawRecord
+        )
+        records.append(record_type.model_validate_json(path.read_bytes()))
     schedule = build_schedule(protocol)
-    validated = _validate_complete_records(protocol, schedule, records)
+    if isinstance(protocol, EvaluationProtocol):
+        validated = _validate_complete_records(protocol, schedule, records)
+    else:
+        if not isinstance(environment, M25EnvironmentManifest):
+            raise ValueError("M25 raw validation requires its environment manifest")
+        validated = _validate_complete_m25_records(protocol, schedule, records)
+        expected_filenames = {_run_id_for_spec(spec) + ".json" for spec in schedule}
+        if {path.name for path in files} != expected_filenames:
+            raise ValueError("M25 raw filenames do not match the fixed schedule")
+        if any(
+            record.provider_route_sha256
+            != route_hash_for_model(environment, record.model_id)
+            for record in validated
+        ):
+            raise ValueError("M25 raw record route does not match environment")
     if any(record.protocol_sha256 != protocol_sha256 for record in validated):
         raise ValueError("raw record protocol hash mismatch")
     if any(record.environment_sha256 != environment_sha256_value for record in validated):
@@ -1160,6 +1179,62 @@ def _validate_complete_records(
         if record.run_spec_sha256 != run_spec_hash(spec, protocol_sha256):
             raise ValueError("raw record run-spec hash mismatch")
     return tuple(sorted(records, key=lambda record: record.sequence))
+
+
+def _validate_complete_m25_records(
+    protocol: M25EvaluationProtocol,
+    schedule: Sequence[M25RunSpec],
+    records: Sequence[RunRecord],
+) -> tuple[M25RawRecord, ...]:
+    if any(not isinstance(record, M25RawRecord) for record in records):
+        raise ValueError("M25 aggregation requires only M25 raw records")
+    typed_records = tuple(record for record in records if isinstance(record, M25RawRecord))
+    combinations = [
+        (record.task_id, record.model_id, record.repeat, record.mode)
+        for record in typed_records
+    ]
+    if len(set(combinations)) != len(combinations):
+        raise ValueError("duplicate M25 raw record combination")
+    if len(typed_records) != len(schedule):
+        raise ValueError(f"complete {len(schedule)} M25 raw records are required")
+
+    protocol_sha256 = canonical_sha256(protocol.model_dump(mode="json", by_alias=True))
+    if any(record.protocol_sha256 != protocol_sha256 for record in typed_records):
+        raise ValueError("M25 protocol hash mismatch across raw records")
+    if len({record.environment_sha256 for record in typed_records}) != 1:
+        raise ValueError("M25 environment hash mismatch across raw records")
+    for model_id in protocol.model_ids:
+        if len(
+            {
+                record.provider_route_sha256
+                for record in typed_records
+                if record.model_id == model_id
+            }
+        ) != 1:
+            raise ValueError("M25 route hash mismatch within model records")
+
+    expected = {
+        (spec.task_id, spec.model_id, spec.repeat, spec.mode): spec for spec in schedule
+    }
+    observed = {
+        (record.task_id, record.model_id, record.repeat, record.mode): record
+        for record in typed_records
+    }
+    if observed.keys() != expected.keys():
+        raise ValueError("complete M25 schedule does not match raw records")
+    for combination, spec in expected.items():
+        record = observed[combination]
+        if not record.terminal:
+            raise ValueError("M25 raw record must be terminal")
+        if record.run_id != _run_id_for_spec(spec):
+            raise ValueError("M25 raw record run id does not match schedule")
+        if record.sequence != spec.sequence:
+            raise ValueError("M25 raw record sequence does not match schedule")
+        if record.task_family != spec.task_family:
+            raise ValueError("M25 raw record family does not match schedule")
+        if record.run_spec_sha256 != run_spec_hash(spec, protocol_sha256):
+            raise ValueError("M25 raw record run-spec hash mismatch")
+    return tuple(sorted(typed_records, key=lambda record: record.sequence))
 
 
 def distribution(values: Sequence[int | float]) -> dict[str, int | float | None]:
@@ -1230,11 +1305,93 @@ def _aggregate_group(records: Sequence[RawRecord], mode: Mode) -> dict[str, obje
     }
 
 
-def aggregate_records(
-    protocol: EvaluationProtocol,
-    schedule: Sequence[RunSpec],
-    records: Sequence[RawRecord],
+def _aggregate_m25_records(
+    protocol: M25EvaluationProtocol,
+    schedule: Sequence[M25RunSpec],
+    records: Sequence[RunRecord],
 ) -> dict[str, object]:
+    validated = _validate_complete_m25_records(protocol, schedule, records)
+
+    def model_modes(selected: Sequence[M25RawRecord]) -> dict[str, object]:
+        return {
+            "modes": {
+                mode: _aggregate_group(
+                    [record for record in selected if record.mode == mode], mode
+                )
+                for mode in MODES
+            }
+        }
+
+    models = {
+        model_id: model_modes(
+            [record for record in validated if record.model_id == model_id]
+        )
+        for model_id in protocol.model_ids
+    }
+    families = {
+        family: {
+            "models": {
+                model_id: model_modes(
+                    [
+                        record
+                        for record in validated
+                        if record.task_family == family and record.model_id == model_id
+                    ]
+                )
+                for model_id in protocol.model_ids
+            }
+        }
+        for family in ("baseline", "bugfix", "feature", "refactor")
+    }
+    tasks = {
+        task.id: {
+            "family": task.family,
+            "models": {
+                model_id: model_modes(
+                    [
+                        record
+                        for record in validated
+                        if record.task_id == task.id and record.model_id == model_id
+                    ]
+                )
+                for model_id in protocol.model_ids
+            },
+        }
+        for task in protocol.tasks
+    }
+    return {
+        "schema": "forgeagent.m25.mode-evaluation.summary/v1",
+        "protocol_sha256": validated[0].protocol_sha256,
+        "environment_sha256": validated[0].environment_sha256,
+        "generated_at": _utc_now(),
+        "completeness": {
+            "expected_runs": len(schedule),
+            "observed_runs": len(validated),
+            "complete": True,
+        },
+        "models": models,
+        "families": families,
+        "tasks": tasks,
+        "failures": [record.run_id for record in validated if not record.solved],
+        "usage_missing_runs": [
+            record.run_id for record in validated if record.usage_missing_calls > 0
+        ],
+        "limitations": [
+            "Nine fixed tasks and five repetitions per model and mode remain descriptive evidence.",
+            "Provider-side model weights cannot be independently pinned or verified.",
+            "Local platform, date, and provider routes limit generalization.",
+            "Results do not establish a cross-model ranking or product recommendation.",
+        ],
+    }
+
+
+def aggregate_records(
+    protocol: Protocol,
+    schedule: Sequence[RunSpecification],
+    records: Sequence[RunRecord],
+) -> dict[str, object]:
+    if isinstance(protocol, M25EvaluationProtocol):
+        return _aggregate_m25_records(protocol, schedule, records)
     validated = _validate_complete_records(protocol, schedule, records)
     protocol_sha256 = validated[0].protocol_sha256
     environment_sha256_value = validated[0].environment_sha256
@@ -1289,11 +1446,112 @@ def _format_rate(value: object) -> str:
     return f"{value['numerator']}/{value['denominator']} ({rendered})"
 
 
-def render_report(
-    protocol: EvaluationProtocol,
+def _render_m25_report(
+    protocol: M25EvaluationProtocol,
     environment: Mapping[str, object],
     summary: Mapping[str, object],
 ) -> str:
+    lines = [
+        "# M25 Programming Mode Quality-Cost Evaluation",
+        "",
+        "## Protocol",
+        f"- Models: {json.dumps(protocol.model_ids)}",
+        f"- Tasks: {len(protocol.tasks)}",
+        f"- Repetitions per model and mode: {protocol.repetitions}",
+        f"- Protocol SHA-256: `{summary['protocol_sha256']}`",
+        "",
+        "## Environment",
+        f"- Environment schema: `{environment.get('schema', 'unknown')}`",
+        f"- Environment SHA-256: `{summary['environment_sha256']}`",
+        "",
+        "## Evidence Completeness",
+        "- Runs: "
+        f"{summary['completeness']['observed_runs']}/"
+        f"{summary['completeness']['expected_runs']}",
+        "",
+    ]
+    models = summary["models"]
+    for model_id in protocol.model_ids:
+        lines.extend((f"## Model: {model_id}", ""))
+        for mode in MODES:
+            metrics = models[model_id]["modes"][mode]
+            lines.extend(
+                (
+                    f"### Mode: {mode}",
+                    f"- Scheduled runs: {metrics['scheduled_runs']}",
+                    f"- Task completion: {_format_rate(metrics['task_completion_rate'])}",
+                    f"- First acceptance: {_format_rate(metrics['first_acceptance_rate'])}",
+                    (
+                        f"- Rejections: {json.dumps(metrics['rejections'], sort_keys=True)}"
+                        if metrics["rejections"] is not None
+                        else "- Rejections: N/A"
+                    ),
+                    (
+                        f"- Corrections: {json.dumps(metrics['corrections'], sort_keys=True)}"
+                        if metrics["corrections"] is not None
+                        else "- Corrections: N/A"
+                    ),
+                    "- Tokens: " + json.dumps(metrics["tokens"], sort_keys=True),
+                    "- Model calls: "
+                    + json.dumps(metrics["logical_model_calls"], sort_keys=True),
+                    "- Provider attempts: "
+                    + json.dumps(metrics["provider_attempts"], sort_keys=True),
+                    "- End-to-end latency: "
+                    + json.dumps(metrics["end_to_end_latency_seconds"], sort_keys=True),
+                    f"- Usage missing rate: {_format_rate(metrics['usage_missing_rate'])}",
+                    "",
+                )
+            )
+
+    lines.extend(("## Task Families", "", "| Family | Model | Mode | Runs | Completion |"))
+    lines.append("| --- | --- | --- | ---: | --- |")
+    families = summary["families"]
+    for family in ("baseline", "bugfix", "feature", "refactor"):
+        for model_id in protocol.model_ids:
+            for mode in MODES:
+                metrics = families[family]["models"][model_id]["modes"][mode]
+                lines.append(
+                    f"| {family} | {model_id} | {mode} | {metrics['scheduled_runs']} | "
+                    f"{_format_rate(metrics['task_completion_rate'])} |"
+                )
+
+    lines.extend(("", "## Tasks", "", "| Task | Family | Model | Mode | Runs | Completion |"))
+    lines.append("| --- | --- | --- | --- | ---: | --- |")
+    tasks = summary["tasks"]
+    for task in protocol.tasks:
+        for model_id in protocol.model_ids:
+            for mode in MODES:
+                metrics = tasks[task.id]["models"][model_id]["modes"][mode]
+                lines.append(
+                    f"| {task.id} | {task.family} | {model_id} | {mode} | "
+                    f"{metrics['scheduled_runs']} | "
+                    f"{_format_rate(metrics['task_completion_rate'])} |"
+                )
+
+    lines.extend(
+        (
+            "",
+            "## Failures And Usage Gaps",
+            f"- Failed runs: {json.dumps(summary['failures'])}",
+            f"- Usage-missing runs: {json.dumps(summary['usage_missing_runs'])}",
+            "",
+            "## Limitations",
+            *(f"- {limitation}" for limitation in summary["limitations"]),
+            "",
+            "这些结果是固定协议下的描述性证据；本报告不生成模式排序或产品推荐。",
+            "",
+        )
+    )
+    return "\n".join(lines)
+
+
+def render_report(
+    protocol: Protocol,
+    environment: Mapping[str, object],
+    summary: Mapping[str, object],
+) -> str:
+    if isinstance(protocol, M25EvaluationProtocol):
+        return _render_m25_report(protocol, environment, summary)
     mode_lines = []
     modes = summary["modes"]
     assert isinstance(modes, dict)
@@ -1557,12 +1815,21 @@ def aggregate_command(
     if not environment_matches:
         raise ValueError("environment manifest does not match protocol")
     environment_sha256_value = environment_sha256(environment)
-    records = read_raw_records(
-        output / "raw",
-        protocol,
-        protocol_sha256,
-        environment_sha256_value,
-    )
+    if isinstance(protocol, EvaluationProtocol):
+        records = read_raw_records(
+            output / "raw",
+            protocol,
+            protocol_sha256,
+            environment_sha256_value,
+        )
+    else:
+        records = read_raw_records(
+            output / "raw",
+            protocol,
+            protocol_sha256,
+            environment_sha256_value,
+            environment=environment,
+        )
     summary = aggregate_records(protocol, build_schedule(protocol), records)
     report = render_report(
         protocol,
