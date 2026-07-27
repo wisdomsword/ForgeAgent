@@ -1,11 +1,11 @@
 ## 1. 历史证据保护与测试基线
 
-- [ ] 1.1 为 M23 protocol、正式 environment/raw/summary/report 建立不可变性回归检查，并确认现有 M23 专项测试通过
+- [x] 1.1 为 M23 protocol、正式 environment/raw/summary/report 建立不可变性回归检查，并确认现有 M23 专项测试通过
 - [ ] 1.2 为 M25 独立 schema、证据根和拒绝混入 M23 记录编写失败优先的离线合同
 
 ## 2. 多模型协议与固定排程
 
-- [ ] 2.1 扩展评估协议、RunSpec、raw 和 environment 模型，支持模型列表、provider route hash 和任务族，同时保持 M23 v2 向后兼容
+- [x] 2.1 扩展评估协议、RunSpec、raw 和 environment 模型，支持模型列表、provider route hash 和任务族，同时保持 M23 v2 向后兼容
 - [ ] 2.2 实现并测试 9 × 2 × 3 × 5 的 270-run 确定性排程、全局模式位置平衡、唯一 identity 和安全续跑
 
 ## 3. 真实编程任务族

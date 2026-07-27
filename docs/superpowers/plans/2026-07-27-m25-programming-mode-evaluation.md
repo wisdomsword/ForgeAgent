@@ -117,7 +117,7 @@ M23 调用 `environment_manifest()` 保留现有 `provider_route_sha256=` keywor
 - Consumes: 现有 M23 `StrictModel`, `TaskSpec`, `EvaluationProtocol`, `RunSpec`, `EnvironmentManifest`, `RawRecord`, `canonical_sha256()`。
 - Produces: `M25TaskSpec`, `M25EvaluationProtocol`, `M25RunSpec`, `M25ModelRoute`, `M25EnvironmentManifest`, `M25RawRecord` 和 Fixed Interfaces 中五个 protocol/run/environment helper。
 
-- [ ] **Step 1: Write the failing schema and immutability tests**
+- [x] **Step 1: Write the failing schema and immutability tests**
 
 Create the test module header and M23 byte lock:
 
@@ -235,13 +235,13 @@ def test_unknown_schema_fails_before_model_parsing(schema: str | None) -> None:
         harness.validate_protocol(value)
 ```
 
-- [ ] **Step 2: Run RED tests**
+- [x] **Step 2: Run RED tests**
 
 Run: `rtk uv --cache-dir /tmp/forgeagent-m25-uv-cache run pytest -q tests/test_m25_mode_evaluation.py::test_validate_protocol_dispatches_m23_and_m25_without_changing_m23_dump tests/test_m25_mode_evaluation.py::test_unknown_schema_fails_before_model_parsing`
 
 Expected: FAIL because `M25EvaluationProtocol` and schema dispatch do not exist.
 
-- [ ] **Step 3: Add independent M25 types without changing M23 models**
+- [x] **Step 3: Add independent M25 types without changing M23 models**
 
 Keep `PROTOCOL_SCHEMA` and every existing M23 class body unchanged. Add these strict M25 types after their M23 counterparts:
 
@@ -351,7 +351,7 @@ def _model_slug(model_id: str) -> str:
 
 Add `import re`; do not add a package dependency.
 
-- [ ] **Step 4: Implement schema-first dispatch and fixed helpers**
+- [x] **Step 4: Implement schema-first dispatch and fixed helpers**
 
 ```python
 def validate_protocol(value: object) -> Protocol:
@@ -394,13 +394,13 @@ def route_hash_for_model(environment: Environment, model_id: str) -> str:
 
 `load_protocol()` keeps hashing the complete aliased model dump. Add tests that M25 rejects an extra field, reversed/duplicate model IDs, duplicate task IDs, wrong family counts, wrong repetitions, wrong Latin orders, and slug collisions (monkeypatch `_model_slug` to a constant for that test).
 
-- [ ] **Step 5: Run GREEN and M23 regression tests**
+- [x] **Step 5: Run GREEN and M23 regression tests**
 
 Run: `rtk uv --cache-dir /tmp/forgeagent-m25-uv-cache run pytest -q tests/test_m25_mode_evaluation.py tests/test_m23_mode_evaluation.py`
 
 Expected: PASS; existing M23 tests remain green, and the base-ref byte lock passes.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 rtk git add scripts/m23_mode_evaluation.py tests/test_m25_mode_evaluation.py
@@ -1197,18 +1197,16 @@ rtk git commit -m "feat(evaluation): aggregate complete M25 evidence"
 Create a complete synthetic evidence directory with the Task 6 helpers, write protocol/environment/raw/summary, and load the script via `importlib`. Assert:
 
 ```python
-def test_independent_recompute_matches_complete_synthetic_summary(...):
-    projection = recompute.recompute(M25_PROTOCOL_PATH, output)
-    assert projection["runs"] == 270
-    assert projection["models"]["claude-haiku-4-5"]["single"]["scheduled_runs"] == 45
+projection = recompute.recompute(M25_PROTOCOL_PATH, output)
+assert projection["runs"] == 270
+assert projection["models"]["claude-haiku-4-5"]["single"]["scheduled_runs"] == 45
+recompute.verify_summary(M25_PROTOCOL_PATH, output)
+
+summary = json.loads((output / "summary.json").read_text(encoding="utf-8"))
+summary["models"]["gpt-5.4-mini"]["modes"]["duo"]["scheduled_runs"] = 44
+(output / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
+with pytest.raises(ValueError, match="independent recompute mismatch"):
     recompute.verify_summary(M25_PROTOCOL_PATH, output)
-
-
-def test_independent_recompute_detects_changed_denominator_or_token_total(...):
-    ...
-    summary["models"]["gpt-5.4-mini"]["modes"]["duo"]["scheduled_runs"] = 44
-    with pytest.raises(ValueError, match="independent recompute mismatch"):
-        recompute.verify_summary(M25_PROTOCOL_PATH, output)
 
 
 def test_recompute_script_does_not_import_harness_aggregation():
@@ -1245,7 +1243,7 @@ Use only `argparse`, `json`, `pathlib`, `collections`, `math`, and `typing`. Val
 }
 ```
 
-Token totals add only non-null raw values. `verify_summary()` compares each projection value to the corresponding aggregate distribution `sum` or rate numerator/denominator; compare counts with exact integer equality and rates with `math.isclose(..., rel_tol=0.0, abs_tol=1e-12)`.
+Token totals add only non-null raw values. `verify_summary()` compares each projection value to the corresponding aggregate distribution `sum` or rate numerator/denominator; compare counts with exact integer equality and rates with `math.isclose(actual, expected, rel_tol=0.0, abs_tol=1e-12)`.
 
 - [ ] **Step 4: Add recursive secret/path/key scans**
 
