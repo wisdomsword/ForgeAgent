@@ -9,7 +9,7 @@ Review mode: standard
 | --- | --- | --- | --- | --- | --- |
 | 1 | complete | `b224be3` | `9e6607d` | RED `1 failed, 3 passed`; GREEN `67 passed` | APPROVED |
 | 2 | complete | `4e9b2e9` | `8aa1e6e` | RED `9 failed`; GREEN `76 passed` | local double review APPROVED |
-| 3 | in progress | `8aa1e6e` | - | RED pending | pending |
+| 3 | complete | `820a87e` | `a4d4b80` | RED missing protocol; GREEN `77 passed` | local double review APPROVED |
 | 4 | pending | - | - | - | - |
 | 5 | pending | - | - | - | - |
 | 6 | pending | - | - | - | - |

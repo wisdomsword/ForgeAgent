@@ -562,7 +562,7 @@ rtk git commit -m "feat(evaluation): schedule fixed M25 run matrix"
 - Consumes: `M25TaskSpec`, `prepare_workspace()`, `run_checks()`, `hash_artifacts()` and M23 protocol task objects。
 - Produces: checked-in `forgeagent.m25.mode-evaluation/v1` protocol with exact task IDs/families/files/checks。
 
-- [ ] **Step 1: Write the failing checked-in protocol contract**
+- [x] **Step 1: Write the failing checked-in protocol contract**
 
 ```python
 def test_checked_in_m25_protocol_fixes_models_tasks_families_and_baselines() -> None:
@@ -588,13 +588,13 @@ def test_checked_in_m25_protocol_fixes_models_tasks_families_and_baselines() -> 
     ]
 ```
 
-- [ ] **Step 2: Run RED checked-in protocol test**
+- [x] **Step 2: Run RED checked-in protocol test**
 
 Run: `rtk uv --cache-dir /tmp/forgeagent-m25-uv-cache run pytest -q tests/test_m25_mode_evaluation.py::test_checked_in_m25_protocol_fixes_models_tasks_families_and_baselines`
 
 Expected: FAIL because `docs/evaluation/m25/protocol.json` does not exist.
 
-- [ ] **Step 3: Create the protocol header and exact baseline tasks**
+- [x] **Step 3: Create the protocol header and exact baseline tasks**
 
 Create `docs/evaluation/m25/protocol.json` with this fixed header:
 
@@ -613,7 +613,7 @@ Create `docs/evaluation/m25/protocol.json` with this fixed header:
 
 Copy the three complete task objects from `docs/evaluation/m23/protocol.json` into `tasks` without changing key order, goal, file content, paths, commands, or timeouts; add only `"family": "baseline"` immediately after each `id`.
 
-- [ ] **Step 4: Add the two exact bugfix fixtures**
+- [x] **Step 4: Add the two exact bugfix fixtures**
 
 `fix-ttl-expiration-boundary` uses candidate `cache.py`, immutable `test_cache.py`, artifact `cache.py`, and check `[{python}, -m, pytest, -q, test_cache.py]`. Encode these exact source files as JSON strings:
 
@@ -714,7 +714,7 @@ def test_total_is_capped_at_zero_and_rounded_only_after_composition():
 
 Its goal states: only `invoice.py` and `discounts.py` may change; preserve `invoice_total(lines, adjustments)`; process `fixed`/`percent` in supplied order against running total; cap at zero; `ROUND_HALF_UP` only once at the end.
 
-- [ ] **Step 5: Add the two exact feature fixtures**
+- [x] **Step 5: Add the two exact feature fixtures**
 
 `add-topological-batches` is a package with candidates `dependency_graph/graph.py`, `dependency_graph/__init__.py`, immutable `test_dependency_graph.py`, both candidates as artifacts, and pytest check:
 
@@ -859,7 +859,7 @@ def test_all_valid_lines_return_zero_and_empty_dead_letter(tmp_path):
 
 The goal requires `event_processor.process_jsonl(lines) -> tuple[list[dict[str, str]], list[dict[str, object]]]`, one dead-letter object per bad non-empty line with 1-based `line` and exception class `error`, deterministic JSONL, exit 1 when any rejection exists, and exit 0 otherwise.
 
-- [ ] **Step 6: Add the two exact refactor fixtures**
+- [x] **Step 6: Add the two exact refactor fixtures**
 
 `refactor-notification-routing` uses initial candidate `notifications.py`, new required candidate `routing.py`, immutable `test_notifications.py`, both candidates as artifacts, a pytest behavior check, and a structure check using `{python} -c` that imports `routing.route_notification` and asserts `from routing import route_notification` occurs in `notifications.py`:
 
@@ -922,7 +922,7 @@ def test_none_values_do_not_erase_lower_precedence_values():
 
 The goal requires `config_sources.environment_values(environment)`, `config_sources.explicit_values(values)`, `config_merge.merge_layers(*layers)`, and the unchanged `config.load_config(defaults, file_values, environment, command_line)` precedence defaults < file < env < CLI.
 
-- [ ] **Step 7: Run protocol GREEN tests and commit**
+- [x] **Step 7: Run protocol GREEN tests and commit**
 
 Run: `rtk uv --cache-dir /tmp/forgeagent-m25-uv-cache run pytest -q tests/test_m25_mode_evaluation.py -k 'checked_in_m25_protocol or protocol_rejects'`
 

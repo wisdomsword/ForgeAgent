@@ -1,7 +1,7 @@
 ## 1. 历史证据保护与测试基线
 
 - [x] 1.1 为 M23 protocol、正式 environment/raw/summary/report 建立不可变性回归检查，并确认现有 M23 专项测试通过
-- [ ] 1.2 为 M25 独立 schema、证据根和拒绝混入 M23 记录编写失败优先的离线合同
+- [x] 1.2 为 M25 独立 schema、证据根和拒绝混入 M23 记录编写失败优先的离线合同
 
 ## 2. 多模型协议与固定排程
 
@@ -10,9 +10,9 @@
 
 ## 3. 真实编程任务族
 
-- [ ] 3.1 定义两个 bugfix、两个 feature 和两个 refactor 自包含 Python 项目 fixture，覆盖单文件与多文件修改
+- [x] 3.1 定义两个 bugfix、两个 feature 和两个 refactor 自包含 Python 项目 fixture，覆盖单文件与多文件修改
 - [ ] 3.2 为六个任务固定不可变文件、候选文件和模式无关外部检查，并完成可解性、歧义与检查强度两轮审计
-- [ ] 3.3 创建 `docs/evaluation/m25/protocol.json`，保留三个 M23 基线任务并固定两个模型、五次重复和九个任务
+- [x] 3.3 创建 `docs/evaluation/m25/protocol.json`，保留三个 M23 基线任务并固定两个模型、五次重复和九个任务
 
 ## 4. 分层聚合与中立报告
 
