@@ -716,10 +716,10 @@ Its goal states: only `invoice.py` and `discounts.py` may change; preserve `invo
 
 - [x] **Step 5: Add the two exact feature fixtures**
 
-`add-topological-batches` is a package with candidates `dependency_graph/graph.py`, `dependency_graph/__init__.py`, immutable `test_dependency_graph.py`, both candidates as artifacts, and pytest check:
+`add-topological-batches` uses candidate and artifact `dependency_graph.py` with immutable `test_dependency_graph.py` and a pytest check. The top-level file is required because the collaboration readiness contract accepts top-level candidate names:
 
 ```python
-# dependency_graph/graph.py (initially lacks CycleError and topological_batches)
+# dependency_graph.py (initially lacks CycleError and topological_batches)
 class DependencyGraph:
     def __init__(self):
         self._dependencies = {}
@@ -734,13 +734,6 @@ class DependencyGraph:
 ```
 
 ```python
-# dependency_graph/__init__.py
-from .graph import DependencyGraph
-
-__all__ = ["DependencyGraph"]
-```
-
-```python
 # test_dependency_graph.py
 import pytest
 from dependency_graph import CycleError, DependencyGraph
@@ -751,7 +744,8 @@ def test_batches_are_stable_and_include_isolated_nodes():
     graph.add_dependency("deploy", "test")
     graph.add_dependency("test", "build")
     graph.add_node("docs")
-    assert graph.topological_batches() == [("build", "docs"), ("test",), ("deploy",)]
+    graph.add_node("archive")
+    assert graph.topological_batches() == [("archive", "build", "docs"), ("test",), ("deploy",)]
 
 
 def test_cycle_raises_public_cycle_error():
@@ -762,7 +756,7 @@ def test_cycle_raises_public_cycle_error():
         graph.topological_batches()
 ```
 
-The goal requires `DependencyGraph.topological_batches() -> list[tuple[str, ...]]`, lexicographically sorted nodes within each ready batch, isolated nodes, `CycleError(ValueError)`, and exports from `dependency_graph` while preserving `add_node/add_dependency`.
+The goal requires `DependencyGraph.topological_batches() -> list[tuple[str, ...]]`, lexicographically sorted nodes within each ready batch, isolated nodes, and public `CycleError(ValueError)` alongside `DependencyGraph` while preserving `add_node/add_dependency`.
 
 `add-jsonl-dead-letter-output` uses candidates `event_processor.py`, `cli.py`, immutable `test_cli.py` and `events.jsonl`, and artifacts `event_processor.py`, `cli.py`, `output.jsonl`, `dead-letter.jsonl`. Fix `events.jsonl` to these bytes:
 
@@ -996,7 +990,7 @@ Add one plausible incomplete candidate per task and assert its checks fail:
 WEAK_MUTATIONS = {
     "fix-ttl-expiration-boundary": ("cache.py", "< expires_at", "<= expires_at"),
     "fix-invoice-discount-composition": ("discounts.py", "for kind, value in adjustments:", "for kind, value in sorted(adjustments):"),
-    "add-topological-batches": ("dependency_graph/graph.py", "tuple(sorted(", "tuple("),
+    "add-topological-batches": ("dependency_graph.py", "tuple(sorted(", "tuple("),
     "add-jsonl-dead-letter-output": ("cli.py", "return 1 if rejected else 0", "return 0"),
     "refactor-notification-routing": ("notifications.py", "from routing import route_notification", "# route remains local"),
     "refactor-config-precedence": ("config.py", "environment_values(environment)", "explicit_values(file_values)"),

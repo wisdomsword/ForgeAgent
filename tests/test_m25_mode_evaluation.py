@@ -175,6 +175,17 @@ def test_m25_protocol_rejects_colliding_file_safe_model_slugs(monkeypatch) -> No
         harness.validate_protocol(m25_protocol_dict())
 
 
+def test_m25_fixture_candidate_files_fit_collaboration_contract() -> None:
+    from forgeagent.collaboration import normalize_required_candidate_files
+
+    harness = load_harness()
+    protocol, _ = harness.load_protocol(M25_PROTOCOL_PATH)
+    for task in protocol.tasks:
+        assert normalize_required_candidate_files(
+            task.required_candidate_files
+        ) == task.required_candidate_files
+
+
 def test_m25_schedule_has_fixed_270_run_order_and_global_position_balance() -> None:
     harness = load_harness()
     protocol = harness.validate_protocol(m25_protocol_dict())
@@ -432,7 +443,7 @@ def apply_discounts(subtotal, adjustments):
         return
 
     if task_id == "add-topological-batches":
-        (workspace / "dependency_graph" / "graph.py").write_text(
+        (workspace / "dependency_graph.py").write_text(
             """class CycleError(ValueError):
     pass
 
@@ -463,11 +474,6 @@ class DependencyGraph:
                 dependencies.difference_update(ready)
         return batches
 """,
-            encoding="utf-8",
-        )
-        (workspace / "dependency_graph" / "__init__.py").write_text(
-            "from .graph import CycleError, DependencyGraph\n\n"
-            '__all__ = ["CycleError", "DependencyGraph"]\n',
             encoding="utf-8",
         )
         return
@@ -643,7 +649,7 @@ WEAK_MUTATIONS = {
         "for kind, value in sorted(adjustments):",
     ),
     "add-topological-batches": (
-        "dependency_graph/graph.py",
+        "dependency_graph.py",
         "tuple(sorted(",
         "tuple(",
     ),

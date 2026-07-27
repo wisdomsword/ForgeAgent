@@ -101,7 +101,7 @@ M23 完全不动，但会复制约千行安全、执行和聚合代码，后续�
 |---|---|---|---|
 | `fix-ttl-expiration-boundary` | bugfix | 修复 cache 到期边界，单模块 | 精确时钟边界、命中与淘汰 |
 | `fix-invoice-discount-composition` | bugfix | 修复跨模块折扣组合，多文件 | 顺序、上限、舍入与原 API |
-| `add-topological-batches` | feature | 为依赖图增加批次 API，多文件 | 稳定顺序、孤立节点、环检测 |
+| `add-topological-batches` | feature | 为依赖图增加批次 API，单模块 | 稳定顺序、孤立节点、环检测 |
 | `add-jsonl-dead-letter-output` | feature | 扩展事件处理 CLI，多文件 | 正常输出、坏行收集、退出码 |
 | `refactor-notification-routing` | refactor | 重组路由规则，多文件 | 公开 API 与全部行为不变 |
 | `refactor-config-precedence` | refactor | 拆分配置合并实现，多文件 | defaults/file/env/CLI 优先级不变 |

@@ -132,15 +132,14 @@
     {
       "id": "add-topological-batches",
       "family": "feature",
-      "goal": "Add DependencyGraph.topological_batches() returning list[tuple[str, ...]] with lexicographically sorted nodes in each ready batch and isolated nodes included. Add public CycleError(ValueError) and export it with DependencyGraph while preserving add_node/add_dependency.",
+      "goal": "Add DependencyGraph.topological_batches() in dependency_graph.py, returning list[tuple[str, ...]] with lexicographically sorted nodes in each ready batch and isolated nodes included. Add public CycleError(ValueError) alongside DependencyGraph while preserving add_node/add_dependency.",
       "initial_files": {
-        "dependency_graph/graph.py": "class DependencyGraph:\n    def __init__(self):\n        self._dependencies = {}\n\n    def add_node(self, node):\n        self._dependencies.setdefault(node, set())\n\n    def add_dependency(self, node, dependency):\n        self.add_node(node)\n        self.add_node(dependency)\n        self._dependencies[node].add(dependency)\n",
-        "dependency_graph/__init__.py": "from .graph import DependencyGraph\n\n__all__ = [\"DependencyGraph\"]\n",
+        "dependency_graph.py": "class DependencyGraph:\n    def __init__(self):\n        self._dependencies = {}\n\n    def add_node(self, node):\n        self._dependencies.setdefault(node, set())\n\n    def add_dependency(self, node, dependency):\n        self.add_node(node)\n        self.add_node(dependency)\n        self._dependencies[node].add(dependency)\n",
         "test_dependency_graph.py": "import pytest\nfrom dependency_graph import CycleError, DependencyGraph\n\n\ndef test_batches_are_stable_and_include_isolated_nodes():\n    graph = DependencyGraph()\n    graph.add_dependency(\"deploy\", \"test\")\n    graph.add_dependency(\"test\", \"build\")\n    graph.add_node(\"docs\")\n    graph.add_node(\"archive\")\n    assert graph.topological_batches() == [(\"archive\", \"build\", \"docs\"), (\"test\",), (\"deploy\",)]\n\n\ndef test_cycle_raises_public_cycle_error():\n    graph = DependencyGraph()\n    graph.add_dependency(\"a\", \"b\")\n    graph.add_dependency(\"b\", \"a\")\n    with pytest.raises(CycleError, match=\"cycle\"):\n        graph.topological_batches()\n"
       },
       "immutable_files": ["test_dependency_graph.py"],
-      "required_candidate_files": ["dependency_graph/graph.py", "dependency_graph/__init__.py"],
-      "artifacts": ["dependency_graph/graph.py", "dependency_graph/__init__.py"],
+      "required_candidate_files": ["dependency_graph.py"],
+      "artifacts": ["dependency_graph.py"],
       "checks": [
         {
           "id": "dependency-pytest",
