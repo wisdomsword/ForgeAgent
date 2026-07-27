@@ -807,6 +807,105 @@ def test_m25_preflight_rejects_tracked_dirty_before_writing_environment(
     assert not (tmp_path / "output" / "environment.json").exists()
 
 
+@pytest.mark.parametrize("failure", ["model_id", "output_limit", "route"])
+def test_m25_preflight_closes_all_probes_when_second_route_is_invalid(
+    tmp_path, monkeypatch, failure
+) -> None:
+    harness = load_harness()
+    protocol, digest = harness.load_protocol(M25_PROTOCOL_PATH)
+    clients = []
+
+    def client_builder(model_id, *, registry):
+        capability = SimpleNamespace(
+            model_id=("wrong-model" if failure == "model_id" and clients else model_id),
+            max_output_tokens=(1024 if failure == "output_limit" and clients else 8192),
+        )
+        client = SimpleNamespace(capability=capability, closed=False)
+        client.close = lambda: setattr(client, "closed", True)
+        clients.append(client)
+        return client
+
+    def resolve(model_id, registry):
+        if failure == "route" and model_id == "gpt-5.4-mini":
+            raise ValueError("model route is ambiguous")
+        return SimpleNamespace(
+            capability=SimpleNamespace(client_kind="fake"), base_url=None
+        )
+
+    monkeypatch.setattr(harness, "resolve_model", resolve)
+    monkeypatch.setattr(
+        harness,
+        "_git_value",
+        lambda _root, *arguments: "a" * 40 if arguments[0] == "rev-parse" else "",
+    )
+    with pytest.raises(ValueError):
+        harness.preflight(
+            protocol,
+            digest,
+            tmp_path / "output",
+            allowed_output_root=tmp_path,
+            registry_loader=lambda: object(),
+            client_builder=client_builder,
+        )
+    assert len(clients) == 2
+    assert all(client.closed for client in clients)
+    assert not (tmp_path / "output" / "environment.json").exists()
+
+
+def test_m25_preflight_rejects_mismatched_existing_environment(
+    tmp_path, monkeypatch
+) -> None:
+    harness = load_harness()
+    protocol, digest = harness.load_protocol(M25_PROTOCOL_PATH)
+    routes = {
+        model_id: ("fake", character * 64)
+        for model_id, character in zip(protocol.model_ids, ("b", "c"), strict=True)
+    }
+    monkeypatch.setattr(
+        harness,
+        "_git_value",
+        lambda _root, *arguments: "a" * 40 if arguments[0] == "rev-parse" else "",
+    )
+    manifest = harness.environment_manifest(
+        protocol,
+        digest,
+        repo_root=ROOT,
+        model_routes=routes,
+    )
+    output = tmp_path / "output"
+    output.mkdir()
+    changed = manifest.model_copy(
+        update={"protocol_sha256": "0" * 64, "generated_at": "unchanged-by-hash"}
+    )
+    (output / "environment.json").write_text(
+        json.dumps(changed.model_dump(mode="json", by_alias=True)), encoding="utf-8"
+    )
+
+    def client_builder(model_id, *, registry):
+        client = SimpleNamespace(
+            capability=SimpleNamespace(model_id=model_id, max_output_tokens=8192)
+        )
+        client.close = lambda: None
+        return client
+
+    monkeypatch.setattr(
+        harness,
+        "resolve_model",
+        lambda model_id, registry: SimpleNamespace(
+            capability=SimpleNamespace(client_kind="fake"), base_url=None
+        ),
+    )
+    with pytest.raises(ValueError, match="existing environment"):
+        harness.preflight(
+            protocol,
+            digest,
+            output,
+            allowed_output_root=tmp_path,
+            registry_loader=lambda: object(),
+            client_builder=client_builder,
+        )
+
+
 @pytest.mark.parametrize("mode", ["single", "duo", "triad"])
 @pytest.mark.parametrize("model_id", ["claude-haiku-4-5", "gpt-5.4-mini"])
 def test_m25_execution_routes_every_role_through_run_model(
