@@ -1192,7 +1192,7 @@ rtk git commit -m "feat(evaluation): aggregate complete M25 evidence"
 - Consumes: M25 protocol/environment/raw/summary JSON files only。
 - Produces: `recompute(protocol_path: Path, output_dir: Path) -> dict[str, object]`, `verify_summary(protocol_path: Path, output_dir: Path) -> None`, CLI `--protocol/--output` with exit 0 and `INDEPENDENT_RECOMPUTE_OK runs=270`。
 
-- [ ] **Step 1: Write failing independent recompute tests**
+- [x] **Step 1: Write failing independent recompute tests**
 
 Create a complete synthetic evidence directory with the Task 6 helpers, write protocol/environment/raw/summary, and load the script via `importlib`. Assert:
 
@@ -1216,13 +1216,13 @@ def test_recompute_script_does_not_import_harness_aggregation():
     assert "render_report" not in source
 ```
 
-- [ ] **Step 2: Run RED recompute tests**
+- [x] **Step 2: Run RED recompute tests**
 
 Run: `rtk uv --cache-dir /tmp/forgeagent-m25-uv-cache run pytest -q tests/test_m25_independent_recompute.py`
 
 Expected: FAIL because the independent script is absent.
 
-- [ ] **Step 3: Implement the independent stdlib projection**
+- [x] **Step 3: Implement the independent stdlib projection**
 
 Use only `argparse`, `json`, `pathlib`, `collections`, `math`, and `typing`. Validate protocol schema/model/task/family/repetition constants, environment schema and two route hashes, exactly 270 regular non-symlink raw files, unique `(task_id, model_id, repeat, mode)`, all terminal, and all protocol/environment/model/family bindings. Recompute these exact values per model/mode, family/model/mode, and task/model/mode:
 
@@ -1245,7 +1245,7 @@ Use only `argparse`, `json`, `pathlib`, `collections`, `math`, and `typing`. Val
 
 Token totals add only non-null raw values. `verify_summary()` compares each projection value to the corresponding aggregate distribution `sum` or rate numerator/denominator; compare counts with exact integer equality and rates with `math.isclose(actual, expected, rel_tol=0.0, abs_tol=1e-12)`.
 
-- [ ] **Step 4: Add recursive secret/path/key scans**
+- [x] **Step 4: Add recursive secret/path/key scans**
 
 In `tests/test_m25_mode_evaluation.py`, recursively walk `M25EnvironmentManifest`, `M25RawRecord`, and summary dumps. Reject keys matching case-insensitive `goal|prompt|messages|reply|body|text|api_key|credential|base_url|absolute_path`; reject sentinel secret/base URL/absolute workspace values anywhere in strings. Separately assert check records contain only `id,status,exit_code,duration_ms,stdout_bytes,stderr_bytes,stdout_sha256,stderr_sha256`.
 
@@ -1253,7 +1253,7 @@ Run: `rtk uv --cache-dir /tmp/forgeagent-m25-uv-cache run pytest -q tests/test_m
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 rtk git add scripts/m25_independent_recompute.py tests/test_m25_independent_recompute.py tests/test_m25_mode_evaluation.py
