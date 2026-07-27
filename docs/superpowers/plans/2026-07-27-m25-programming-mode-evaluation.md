@@ -1104,7 +1104,7 @@ rtk git commit -m "feat(evaluation): execute M25 across fixed model routes"
 - Consumes: `M25RawRecord`, complete M25 schedule, `route_hash_for_model()`, existing `_aggregate_group()` metrics。
 - Produces: strict M25 `read_raw_records()`, `_validate_complete_m25_records()`, `_aggregate_m25_records()`, `_render_m25_report()` and dispatching `aggregate_records()/render_report()`。
 
-- [ ] **Step 1: Write RED synthetic 270-record aggregation tests**
+- [x] **Step 1: Write RED synthetic 270-record aggregation tests**
 
 Add `make_m25_raw_record()` and `make_complete_m25_records()` using the fixed schedule. Give every record one known usage call, and every tenth record one additional missing-usage logical call. Assert:
 
@@ -1121,7 +1121,7 @@ assert summary["models"]["claude-haiku-4-5"]["modes"]["single"]["first_acceptanc
 
 For a selected group, independently sum `logical_model_calls` and `usage_missing_calls` from records and assert the summary rate is `{numerator, denominator, value}` with those call totals; independently sum only non-null token values and assert each summary token `sum` matches.
 
-- [ ] **Step 2: Write RED completeness and mixed-batch rejection tests**
+- [x] **Step 2: Write RED completeness and mixed-batch rejection tests**
 
 Starting from 270 valid records, independently test missing, extra, duplicate combination, M23 schema, wrong protocol/environment/RunSpec hash, wrong model/route/family/run ID/sequence/filename, and `terminal != true`. Assert `aggregate_command()` leaves pre-existing `summary.json` and `report.md` bytes unchanged on every invalid set.
 
@@ -1129,7 +1129,7 @@ Run: `rtk uv --cache-dir /tmp/forgeagent-m25-uv-cache run pytest -q tests/test_m
 
 Expected: FAIL because current aggregation only understands 27 M23 records and cross-model slices do not exist.
 
-- [ ] **Step 3: Implement exact M25 completeness and grouping**
+- [x] **Step 3: Implement exact M25 completeness and grouping**
 
 `_validate_complete_m25_records()` maps records by `(task_id, model_id, repeat, mode)`, requires 270 unique combinations, and compares every field plus exact `run_id_for()` and route hash to its scheduled spec/environment. Return sequence-sorted records only after all checks pass.
 
@@ -1158,7 +1158,7 @@ Return this summary shape; do not add cross-model combined scores:
 
 Reuse `_aggregate_group()` so token/null/call/attempt/latency semantics remain identical. Keep the existing M23 summary dict and validation error text unchanged.
 
-- [ ] **Step 4: Write RED report neutrality tests, then render per model/family/task**
+- [x] **Step 4: Write RED report neutrality tests, then render per model/family/task**
 
 Assert the report includes two separately labeled model sections, each mode sample size, family/task tables, provider/model-weight/time/local-platform limitations, explicit `N/A` for Single acceptance metrics, failures and usage gaps. Recursively scan summary keys and the report conclusion template for the forbidden decision terms; task IDs are values and are not substring-scanned.
 
@@ -1168,7 +1168,7 @@ Expected: FAIL until `_render_m25_report()` exists.
 
 Implement `_render_m25_report()` with headings `## Model: <id>`, `### Mode: <mode>`, `## Task Families`, `## Tasks`, `## Failures And Usage Gaps`, and `## Limitations`. Show rate numerator/denominator/value, token/call/attempt/latency distributions, and usage missing rate for every model/mode; show family/task scheduled and completion denominators without collapsing models.
 
-- [ ] **Step 5: Run GREEN and commit**
+- [x] **Step 5: Run GREEN and commit**
 
 Run: `rtk uv --cache-dir /tmp/forgeagent-m25-uv-cache run pytest -q tests/test_m25_mode_evaluation.py -k 'aggregate or complete or mixed or denominator or report or neutral' tests/test_m23_mode_evaluation.py`
 
