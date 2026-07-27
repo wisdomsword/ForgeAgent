@@ -31,7 +31,7 @@ M24 只增加仓库验证基础设施：两个必需的 GitLab job、精确的�
 
 补充容器测试环境为 macOS 26.5.1 arm64、Docker client/server 29.2.1、Linux arm64
 daemon，以及 `python:3.11-slim` 镜像
-`sha256:e031123e3d85762b141ad1cbc56452ba69c6e722ebf2f042cc0dc86c47c0d8b3`。
+`sha256:db3ff2e1800a8581e2c48a27c3995339d47bdf046da21c7627accd3d51053a93`。
 
 ## 自审一：合同与历史证据
 

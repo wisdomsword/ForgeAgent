@@ -34,8 +34,8 @@ On 2026-07-27, macOS 26.5.1 arm64 with Docker Desktop client/server 29.2.1 ran:
   -m container_integration --junitxml=/tmp/forgeagent-m24-evidence/container-junit.xml
 ```
 
-The JUnit record reported `tests=10`, `failures=0`, `errors=0`, `skipped=0` in 12.076s.
+The JUnit record reported `tests=10`, `failures=0`, `errors=0`, `skipped=0` in 11.79s.
 The daemon was Linux arm64 and `python:3.11-slim` resolved to
-`sha256:e031123e3d85762b141ad1cbc56452ba69c6e722ebf2f042cc0dc86c47c0d8b3`.
+`sha256:db3ff2e1800a8581e2c48a27c3995339d47bdf046da21c7627accd3d51053a93`.
 This is supplemental macOS Docker Desktop evidence only; the Linux runner remains
 `configured` until its required GitLab job publishes equivalent evidence.

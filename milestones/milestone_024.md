@@ -59,7 +59,8 @@
 
 - [x] 完整离线 pytest `2309 passed, 10 skipped`；本机 Docker 全量 `2319 passed`
 - [x] Golden `20/20`、OpenSpec strict `20/20`、Ruff、wheel/sdist 与发布边界通过
-- [x] macOS Docker Desktop supplemental JUnit：tests=10、failures/errors/skipped=0
+- [x] macOS Docker Desktop supplemental JUnit：tests=10、failures/errors/skipped=0；镜像 digest
+  `sha256:db3ff2e1800a8581e2c48a27c3995339d47bdf046da21c7627accd3d51053a93`
 - [ ] Linux Docker 十项 tests=10 且零 skip — 依赖目标 GitLab runner，状态保持 configured
 
 ## 遗留问题
