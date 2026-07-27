@@ -1,0 +1,231 @@
+{
+  "schema": "forgeagent.m25.mode-evaluation/v1",
+  "model_ids": ["claude-haiku-4-5", "gpt-5.4-mini"],
+  "generation": {
+    "max_output_tokens": 4096,
+    "temperature": 0.0,
+    "thinking": "off",
+    "effort": null,
+    "timeout_seconds": 120
+  },
+  "execution": {
+    "tier": "restricted",
+    "max_rounds": 10,
+    "max_rejections": 2,
+    "identity": false,
+    "memory": false,
+    "skills": false,
+    "mcp": false,
+    "plan_policy": "preauthorize",
+    "check_timeout_seconds": 30
+  },
+  "modes": ["single", "duo", "triad"],
+  "repetitions": 5,
+  "mode_orders": [
+    ["single", "duo", "triad"],
+    ["duo", "triad", "single"],
+    ["triad", "single", "duo"]
+  ],
+  "tasks": [
+    {
+      "id": "csv-region-summary",
+      "family": "baseline",
+      "goal": "Read sales.csv. Create summarize.py using only the Python standard library. The script must accept INPUT_CSV OUTPUT_JSON arguments, sum integer amount values by region, and write a JSON object with region keys in sorted order. Also run it to create summary.json for the provided input. Do not change sales.csv.",
+      "initial_files": {
+        "sales.csv": "region,amount\nNorth,10\nSouth,7\nNorth,5\nSouth,3\nWest,8\n"
+      },
+      "immutable_files": ["sales.csv"],
+      "required_candidate_files": ["summarize.py", "summary.json"],
+      "artifacts": ["summarize.py", "summary.json"],
+      "checks": [
+        {
+          "id": "csv-summary",
+          "command": [
+            "{python}",
+            "-c",
+            "import json, runpy, sys; from pathlib import Path; expected = {'North': 15, 'South': 10, 'West': 8}; sys.argv = ['summarize.py', 'sales.csv', '.m23-check-summary.json']; exit_code = None;\ntry:\n runpy.run_path('summarize.py', run_name='__main__')\nexcept SystemExit as error:\n exit_code = error.code\nassert exit_code in (None, 0); assert json.loads(Path('summary.json').read_text(encoding='utf-8')) == expected; assert json.loads(Path('.m23-check-summary.json').read_text(encoding='utf-8')) == expected"
+          ],
+          "timeout_seconds": 30
+        }
+      ]
+    },
+    {
+      "id": "fix-range-compression",
+      "family": "baseline",
+      "goal": "Fix range_compression.py without changing the public compress_ranges(values) signature. It must sort and deduplicate integers, combine consecutive values into inclusive 'start-end' strings, keep single values as strings, and return an empty list for empty input. Make the existing test_range_compression.py pass. Do not edit the test file.",
+      "initial_files": {
+        "range_compression.py": "def compress_ranges(values):\n    ordered = sorted(set(values))\n    if not ordered:\n        return []\n    result = []\n    start = end = ordered[0]\n    for value in ordered[1:]:\n        if value == end:\n            end = value\n            continue\n        result.append(str(start) if start == end else f'{start}-{end}')\n        start = end = value\n    result.append(str(start) if start == end else f'{start}-{end}')\n    return result\n",
+        "test_range_compression.py": "from range_compression import compress_ranges\n\n\ndef test_mixed_ranges():\n    assert compress_ranges([1, 2, 3, 5, 7, 8]) == ['1-3', '5', '7-8']\n\n\ndef test_empty_and_duplicates():\n    assert compress_ranges([]) == []\n    assert compress_ranges([4, 4, 4]) == ['4']\n\n\ndef test_negative_values():\n    assert compress_ranges([-3, -2, 0]) == ['-3--2', '0']\n"
+      },
+      "immutable_files": ["test_range_compression.py"],
+      "required_candidate_files": ["range_compression.py"],
+      "artifacts": ["range_compression.py"],
+      "checks": [
+        {
+          "id": "range-pytest",
+          "command": ["{python}", "-m", "pytest", "-q", "test_range_compression.py"],
+          "timeout_seconds": 30
+        }
+      ]
+    },
+    {
+      "id": "normalize-events",
+      "family": "baseline",
+      "goal": "Read events.json. Create normalize_events.py using only the Python standard library. The script must accept INPUT_JSON OUTPUT_JSON arguments, keep the event with the lexicographically latest ISO-8601 timestamp for each id, then sort retained events by timestamp and id, preserving every event field. Also run it to create normalized.json. Do not change events.json.",
+      "initial_files": {
+        "events.json": "[\n  {\"id\": \"a\", \"timestamp\": \"2026-01-02T10:00:00Z\", \"kind\": \"open\"},\n  {\"id\": \"b\", \"timestamp\": \"2026-01-01T12:00:00Z\", \"kind\": \"create\"},\n  {\"id\": \"a\", \"timestamp\": \"2026-01-03T09:00:00Z\", \"kind\": \"close\"},\n  {\"id\": \"c\", \"timestamp\": \"2026-01-01T12:00:00Z\", \"kind\": \"create\"}\n]\n"
+      },
+      "immutable_files": ["events.json"],
+      "required_candidate_files": ["normalize_events.py", "normalized.json"],
+      "artifacts": ["normalize_events.py", "normalized.json"],
+      "checks": [
+        {
+          "id": "normalized-events",
+          "command": [
+            "{python}",
+            "-c",
+            "import json, runpy, sys; from pathlib import Path; expected = [{'id': 'b', 'timestamp': '2026-01-01T12:00:00Z', 'kind': 'create'}, {'id': 'c', 'timestamp': '2026-01-01T12:00:00Z', 'kind': 'create'}, {'id': 'a', 'timestamp': '2026-01-03T09:00:00Z', 'kind': 'close'}]; sys.argv = ['normalize_events.py', 'events.json', '.m23-check-events.json']; exit_code = None;\ntry:\n runpy.run_path('normalize_events.py', run_name='__main__')\nexcept SystemExit as error:\n exit_code = error.code\nassert exit_code in (None, 0); assert json.loads(Path('normalized.json').read_text(encoding='utf-8')) == expected; assert json.loads(Path('.m23-check-events.json').read_text(encoding='utf-8')) == expected"
+          ],
+          "timeout_seconds": 30
+        }
+      ]
+    },
+    {
+      "id": "fix-ttl-expiration-boundary",
+      "family": "bugfix",
+      "goal": "Only cache.py may change. Fix TtlCache so expiry is exclusive (now < expires_at); boundary and after-boundary calls evict and miss. Preserve the public TtlCache(clock).set/get API.",
+      "initial_files": {
+        "cache.py": "class TtlCache:\n    def __init__(self, clock):\n        self._clock = clock\n        self._entries = {}\n\n    def set(self, key, value, ttl_seconds):\n        self._entries[key] = (value, self._clock() + ttl_seconds)\n\n    def get(self, key):\n        entry = self._entries.get(key)\n        if entry is None:\n            return None\n        value, expires_at = entry\n        if self._clock() <= expires_at:\n            return value\n        del self._entries[key]\n        return None\n",
+        "test_cache.py": "from cache import TtlCache\n\n\ndef test_hit_before_expiration_and_miss_at_boundary():\n    now = [10.0]\n    cache = TtlCache(lambda: now[0])\n    cache.set(\"session\", \"value\", 5.0)\n    now[0] = 14.999\n    assert cache.get(\"session\") == \"value\"\n    now[0] = 15.0\n    assert cache.get(\"session\") is None\n    assert \"session\" not in cache._entries\n\n\ndef test_missing_and_expired_entries_are_misses():\n    now = [2.0]\n    cache = TtlCache(lambda: now[0])\n    assert cache.get(\"missing\") is None\n    cache.set(\"key\", 3, 1.0)\n    now[0] = 4.0\n    assert cache.get(\"key\") is None\n"
+      },
+      "immutable_files": ["test_cache.py"],
+      "required_candidate_files": ["cache.py"],
+      "artifacts": ["cache.py"],
+      "checks": [
+        {
+          "id": "ttl-pytest",
+          "command": ["{python}", "-m", "pytest", "-q", "test_cache.py"],
+          "timeout_seconds": 30
+        }
+      ]
+    },
+    {
+      "id": "fix-invoice-discount-composition",
+      "family": "bugfix",
+      "goal": "Only invoice.py and discounts.py may change. Preserve invoice_total(lines, adjustments). Process fixed and percent adjustments in supplied order against the running total, cap at zero, and apply ROUND_HALF_UP only once at the end.",
+      "initial_files": {
+        "invoice.py": "from decimal import Decimal, ROUND_HALF_UP\nfrom discounts import apply_discounts\n\n\ndef invoice_total(lines, adjustments):\n    subtotal = sum(Decimal(str(price)) * quantity for price, quantity in lines)\n    rounded = subtotal.quantize(Decimal(\"0.01\"), rounding=ROUND_HALF_UP)\n    return apply_discounts(rounded, adjustments)\n",
+        "discounts.py": "from decimal import Decimal, ROUND_HALF_UP\n\n\ndef apply_discounts(subtotal, adjustments):\n    total = Decimal(subtotal)\n    for kind, value in sorted(adjustments):\n        amount = Decimal(str(value))\n        if kind == \"percent\":\n            total -= Decimal(subtotal) * amount\n        elif kind == \"fixed\":\n            total -= amount\n    return max(total, Decimal(\"0\")).quantize(Decimal(\"0.01\"), rounding=ROUND_HALF_UP)\n",
+        "test_invoice.py": "from decimal import Decimal\nfrom invoice import invoice_total\n\n\ndef test_adjustments_apply_in_declared_order_to_running_total():\n    lines = [(\"19.995\", 2)]\n    assert invoice_total(lines, [(\"fixed\", \"5\"), (\"percent\", \"0.10\")]) == Decimal(\"31.49\")\n    assert invoice_total(lines, [(\"percent\", \"0.10\"), (\"fixed\", \"5\")]) == Decimal(\"30.99\")\n\n\ndef test_total_is_capped_at_zero_and_rounded_only_after_composition():\n    assert invoice_total([(\"1\", 1)], [(\"fixed\", \"5\")]) == Decimal(\"0.00\")\n    assert invoice_total([(\"0.335\", 3)], [(\"percent\", \"0.10\")]) == Decimal(\"0.90\")\n"
+      },
+      "immutable_files": ["test_invoice.py"],
+      "required_candidate_files": ["invoice.py", "discounts.py"],
+      "artifacts": ["invoice.py", "discounts.py"],
+      "checks": [
+        {
+          "id": "invoice-pytest",
+          "command": ["{python}", "-m", "pytest", "-q", "test_invoice.py"],
+          "timeout_seconds": 30
+        }
+      ]
+    },
+    {
+      "id": "add-topological-batches",
+      "family": "feature",
+      "goal": "Add DependencyGraph.topological_batches() returning list[tuple[str, ...]] with lexicographically sorted nodes in each ready batch and isolated nodes included. Add public CycleError(ValueError) and export it with DependencyGraph while preserving add_node/add_dependency.",
+      "initial_files": {
+        "dependency_graph/graph.py": "class DependencyGraph:\n    def __init__(self):\n        self._dependencies = {}\n\n    def add_node(self, node):\n        self._dependencies.setdefault(node, set())\n\n    def add_dependency(self, node, dependency):\n        self.add_node(node)\n        self.add_node(dependency)\n        self._dependencies[node].add(dependency)\n",
+        "dependency_graph/__init__.py": "from .graph import DependencyGraph\n\n__all__ = [\"DependencyGraph\"]\n",
+        "test_dependency_graph.py": "import pytest\nfrom dependency_graph import CycleError, DependencyGraph\n\n\ndef test_batches_are_stable_and_include_isolated_nodes():\n    graph = DependencyGraph()\n    graph.add_dependency(\"deploy\", \"test\")\n    graph.add_dependency(\"test\", \"build\")\n    graph.add_node(\"docs\")\n    assert graph.topological_batches() == [(\"build\", \"docs\"), (\"test\",), (\"deploy\",)]\n\n\ndef test_cycle_raises_public_cycle_error():\n    graph = DependencyGraph()\n    graph.add_dependency(\"a\", \"b\")\n    graph.add_dependency(\"b\", \"a\")\n    with pytest.raises(CycleError, match=\"cycle\"):\n        graph.topological_batches()\n"
+      },
+      "immutable_files": ["test_dependency_graph.py"],
+      "required_candidate_files": ["dependency_graph/graph.py", "dependency_graph/__init__.py"],
+      "artifacts": ["dependency_graph/graph.py", "dependency_graph/__init__.py"],
+      "checks": [
+        {
+          "id": "dependency-pytest",
+          "command": ["{python}", "-m", "pytest", "-q", "test_dependency_graph.py"],
+          "timeout_seconds": 30
+        }
+      ]
+    },
+    {
+      "id": "add-jsonl-dead-letter-output",
+      "family": "feature",
+      "goal": "Add event_processor.process_jsonl(lines) returning accepted rows and one dead-letter object per bad non-empty line with 1-based line and exception class error. Add deterministic JSONL --dead-letter output; return 1 when any line is rejected and 0 otherwise.",
+      "initial_files": {
+        "event_processor.py": "def normalize_event(event):\n    return {\"id\": str(event[\"id\"]), \"kind\": str(event[\"kind\"]).lower()}\n",
+        "cli.py": "import argparse\nimport json\nfrom pathlib import Path\n\nfrom event_processor import normalize_event\n\n\ndef main(argv=None):\n    parser = argparse.ArgumentParser()\n    parser.add_argument(\"input\")\n    parser.add_argument(\"output\")\n    args = parser.parse_args(argv)\n    rows = []\n    for line in Path(args.input).read_text(encoding=\"utf-8\").splitlines():\n        try:\n            rows.append(normalize_event(json.loads(line)))\n        except (KeyError, TypeError, ValueError, json.JSONDecodeError):\n            continue\n    Path(args.output).write_text(\"\".join(json.dumps(row, sort_keys=True) + \"\\n\" for row in rows), encoding=\"utf-8\")\n    return 0\n\n\nif __name__ == \"__main__\":\n    raise SystemExit(main())\n",
+        "test_cli.py": "import json\nfrom pathlib import Path\n\nimport cli\n\n\ndef _rows(path):\n    return [json.loads(line) for line in Path(path).read_text(encoding=\"utf-8\").splitlines()]\n\n\ndef test_bad_lines_are_collected_and_return_nonzero(tmp_path):\n    source = tmp_path / \"events.jsonl\"\n    output = tmp_path / \"output.jsonl\"\n    dead = tmp_path / \"dead.jsonl\"\n    source.write_text('{\"id\": 1, \"kind\": \"OPEN\"}\\nnot-json\\n{\"id\": 2}\\n', encoding=\"utf-8\")\n    assert cli.main([str(source), str(output), \"--dead-letter\", str(dead)]) == 1\n    assert _rows(output) == [{\"id\": \"1\", \"kind\": \"open\"}]\n    assert _rows(dead) == [\n        {\"error\": \"JSONDecodeError\", \"line\": 2},\n        {\"error\": \"KeyError\", \"line\": 3},\n    ]\n\n\ndef test_all_valid_lines_return_zero_and_empty_dead_letter(tmp_path):\n    source = tmp_path / \"events.jsonl\"\n    output = tmp_path / \"output.jsonl\"\n    dead = tmp_path / \"dead.jsonl\"\n    source.write_text('{\"id\": \"a\", \"kind\": \"CLOSE\"}\\n', encoding=\"utf-8\")\n    assert cli.main([str(source), str(output), \"--dead-letter\", str(dead)]) == 0\n    assert _rows(output) == [{\"id\": \"a\", \"kind\": \"close\"}]\n    assert dead.read_text(encoding=\"utf-8\") == \"\"\n",
+        "events.jsonl": "{\"id\": 1, \"kind\": \"OPEN\"}\nnot-json\n{\"id\": 2}\n"
+      },
+      "immutable_files": ["test_cli.py", "events.jsonl"],
+      "required_candidate_files": ["event_processor.py", "cli.py", "output.jsonl", "dead-letter.jsonl"],
+      "artifacts": ["event_processor.py", "cli.py", "output.jsonl", "dead-letter.jsonl"],
+      "checks": [
+        {
+          "id": "jsonl-pytest",
+          "command": ["{python}", "-m", "pytest", "-q", "test_cli.py"],
+          "timeout_seconds": 30
+        },
+        {
+          "id": "jsonl-artifacts",
+          "command": [
+            "{python}",
+            "-c",
+            "import json; from pathlib import Path; import cli; code = cli.main(['events.jsonl', 'output.jsonl', '--dead-letter', 'dead-letter.jsonl']); rows = [json.loads(line) for line in Path('output.jsonl').read_text(encoding='utf-8').splitlines()]; dead = [json.loads(line) for line in Path('dead-letter.jsonl').read_text(encoding='utf-8').splitlines()]; assert code == 1; assert rows == [{'id': '1', 'kind': 'open'}]; assert dead == [{'error': 'JSONDecodeError', 'line': 2}, {'error': 'KeyError', 'line': 3}]"
+          ],
+          "timeout_seconds": 30
+        }
+      ]
+    },
+    {
+      "id": "refactor-notification-routing",
+      "family": "refactor",
+      "goal": "Move only route selection into routing.route_notification(user, event) returning tuple[str, str]. Preserve notifications.send_notification(user, event) and all returned dictionaries unchanged.",
+      "initial_files": {
+        "notifications.py": "def send_notification(user, event):\n    preferred = user.get(\"preferred_channel\", \"email\")\n    if event.get(\"urgent\") and user.get(\"phone\"):\n        channel, address = \"sms\", user[\"phone\"]\n    elif preferred == \"push\" and user.get(\"device\"):\n        channel, address = \"push\", user[\"device\"]\n    else:\n        channel, address = \"email\", user[\"email\"]\n    return {\"channel\": channel, \"address\": address, \"message\": event[\"message\"]}\n",
+        "test_notifications.py": "from notifications import send_notification\n\n\ndef test_routing_behavior_is_preserved():\n    user = {\"email\": \"a@example.test\", \"phone\": \"123\", \"device\": \"dev\", \"preferred_channel\": \"push\"}\n    assert send_notification(user, {\"message\": \"normal\"}) == {\"channel\": \"push\", \"address\": \"dev\", \"message\": \"normal\"}\n    assert send_notification(user, {\"message\": \"urgent\", \"urgent\": True}) == {\"channel\": \"sms\", \"address\": \"123\", \"message\": \"urgent\"}\n    assert send_notification({\"email\": \"b@example.test\"}, {\"message\": \"fallback\"}) == {\"channel\": \"email\", \"address\": \"b@example.test\", \"message\": \"fallback\"}\n"
+      },
+      "immutable_files": ["test_notifications.py"],
+      "required_candidate_files": ["notifications.py", "routing.py"],
+      "artifacts": ["notifications.py", "routing.py"],
+      "checks": [
+        {
+          "id": "notifications-pytest",
+          "command": ["{python}", "-m", "pytest", "-q", "test_notifications.py"],
+          "timeout_seconds": 30
+        },
+        {
+          "id": "notifications-structure",
+          "command": ["{python}", "-c", "from pathlib import Path; from routing import route_notification; assert callable(route_notification); assert 'from routing import route_notification' in Path('notifications.py').read_text(encoding='utf-8')"],
+          "timeout_seconds": 30
+        }
+      ]
+    },
+    {
+      "id": "refactor-config-precedence",
+      "family": "refactor",
+      "goal": "Extract config_sources.environment_values(environment), config_sources.explicit_values(values), and config_merge.merge_layers(*layers). Preserve config.load_config(defaults, file_values, environment, command_line) and precedence defaults < file < env < CLI.",
+      "initial_files": {
+        "config.py": "def load_config(defaults, file_values, environment, command_line):\n    result = dict(defaults)\n    result.update({key: value for key, value in file_values.items() if value is not None})\n    result.update({key[4:].lower(): value for key, value in environment.items() if key.startswith(\"APP_\") and value is not None})\n    result.update({key: value for key, value in command_line.items() if value is not None})\n    return result\n",
+        "test_config.py": "from config import load_config\n\n\ndef test_defaults_file_environment_cli_precedence_is_preserved():\n    assert load_config(\n        {\"host\": \"default\", \"port\": \"1\", \"debug\": \"false\"},\n        {\"host\": \"file\", \"port\": \"2\"},\n        {\"APP_HOST\": \"env\", \"APP_PORT\": \"3\", \"OTHER\": \"ignored\"},\n        {\"host\": \"cli\", \"port\": None},\n    ) == {\"host\": \"cli\", \"port\": \"3\", \"debug\": \"false\"}\n\n\ndef test_none_values_do_not_erase_lower_precedence_values():\n    assert load_config({\"name\": \"default\"}, {\"name\": None}, {\"APP_NAME\": None}, {\"name\": None}) == {\"name\": \"default\"}\n"
+      },
+      "immutable_files": ["test_config.py"],
+      "required_candidate_files": ["config.py", "config_sources.py", "config_merge.py"],
+      "artifacts": ["config.py", "config_sources.py", "config_merge.py"],
+      "checks": [
+        {
+          "id": "config-pytest",
+          "command": ["{python}", "-m", "pytest", "-q", "test_config.py"],
+          "timeout_seconds": 30
+        },
+        {
+          "id": "config-structure",
+          "command": ["{python}", "-c", "from pathlib import Path; from config_sources import environment_values, explicit_values; from config_merge import merge_layers; source = Path('config.py').read_text(encoding='utf-8'); assert callable(environment_values) and callable(explicit_values) and callable(merge_layers); assert 'environment_values' in source and 'explicit_values' in source and 'merge_layers' in source"],
+          "timeout_seconds": 30
+        }
+      ]
+    }
+  ]
+}

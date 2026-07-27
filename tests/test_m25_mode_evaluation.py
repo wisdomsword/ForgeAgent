@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 HARNESS_PATH = ROOT / "scripts" / "m23_mode_evaluation.py"
 M23_PROTOCOL_PATH = ROOT / "docs" / "evaluation" / "m23" / "protocol.json"
 M23_FORMAL_ROOT = ROOT / "docs" / "evaluation" / "m23" / "runs" / "2026-07-27-haiku-4-5"
+M25_PROTOCOL_PATH = ROOT / "docs" / "evaluation" / "m25" / "protocol.json"
 BASE_REF = "d7fa30526f829959102b5fb69b4778899d6b1f88"
 M25_SCHEMA = "forgeagent.m25.mode-evaluation/v1"
 
@@ -367,3 +368,28 @@ def test_m25_resume_skips_exact_terminal_and_rejects_unexpected_filename(tmp_pat
             environment_sha256,
             environment=environment,
         )
+
+
+def test_checked_in_m25_protocol_fixes_models_tasks_families_and_baselines() -> None:
+    harness = load_harness()
+    protocol, digest = harness.load_protocol(M25_PROTOCOL_PATH)
+    m23 = json.loads(M23_PROTOCOL_PATH.read_text(encoding="utf-8"))
+    assert protocol.schema_ == M25_SCHEMA
+    assert protocol.model_ids == ("claude-haiku-4-5", "gpt-5.4-mini")
+    assert protocol.repetitions == 5
+    assert len(protocol.tasks) == 9
+    assert digest == harness.canonical_sha256(
+        protocol.model_dump(mode="json", by_alias=True)
+    )
+    for index in range(3):
+        actual = protocol.tasks[index].model_dump(mode="json")
+        assert actual.pop("family") == "baseline"
+        assert actual == m23["tasks"][index]
+    assert [(task.id, task.family) for task in protocol.tasks[3:]] == [
+        ("fix-ttl-expiration-boundary", "bugfix"),
+        ("fix-invoice-discount-composition", "bugfix"),
+        ("add-topological-batches", "feature"),
+        ("add-jsonl-dead-letter-output", "feature"),
+        ("refactor-notification-routing", "refactor"),
+        ("refactor-config-precedence", "refactor"),
+    ]
