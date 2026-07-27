@@ -943,7 +943,7 @@ rtk git commit -m "test(evaluation): fix M25 programming task suite"
 - Consumes: checked-in M25 task specs, `prepare_workspace()`, `run_checks()`。
 - Produces: `_write_reference_solution(task_id, workspace)` and executable audit tests proving initial failure/reference pass/immutable protection/check strength。
 
-- [ ] **Step 1: Write the failing initial-versus-reference audit**
+- [x] **Step 1: Write the failing initial-versus-reference audit**
 
 Add `_write_reference_solution()` with these exact transformations:
 
@@ -982,13 +982,13 @@ def test_real_programming_fixture_fails_initially_and_reference_passes(task_id, 
     assert immutable_before == {path: (reference / path).read_bytes() for path in task.immutable_files}
 ```
 
-- [ ] **Step 2: Run RED solvability audit**
+- [x] **Step 2: Run RED solvability audit**
 
 Run: `rtk uv --cache-dir /tmp/forgeagent-m25-uv-cache run pytest -q tests/test_m25_mode_evaluation.py::test_real_programming_fixture_fails_initially_and_reference_passes`
 
 Expected: FAIL until every reference transformation is complete and every initial fixture has a failing check.
 
-- [ ] **Step 3: Write and run the second check-strength audit**
+- [x] **Step 3: Write and run the second check-strength audit**
 
 Add one plausible incomplete candidate per task and assert its checks fail:
 
@@ -1009,7 +1009,7 @@ Run: `rtk uv --cache-dir /tmp/forgeagent-m25-uv-cache run pytest -q tests/test_m
 
 Expected: PASS for all six initial/reference/weak/immutable cases.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 rtk git add tests/test_m25_mode_evaluation.py
