@@ -38,7 +38,7 @@ base-ref: 2aaeec33ec797be73f1f91b2a8bf0ea9a7c61906
 - Consumes: future `.gitlab-ci.yml`, `pyproject.toml`, `tests.test_container_backend`, `docs/platform-support.md`, README/ACTION_PLAN/milestone paths.
 - Produces: structural CI/document contracts used by every later task.
 
-- [ ] **Step 1: Write failing CI structure tests**
+- [x] **Step 1: Write failing CI structure tests**
 
 Create helpers that load YAML and normalize job script lines:
 
@@ -94,7 +94,7 @@ def test_docker_job_requires_preflight_and_zero_skip_junit():
         assert expected in script
 ```
 
-- [ ] **Step 2: Write failing marker and documentation tests**
+- [x] **Step 2: Write failing marker and documentation tests**
 
 Reflect module test functions and count markers:
 
@@ -118,13 +118,13 @@ def test_container_module_has_four_unit_and_ten_integration_tests():
 
 Add document assertions for `docs/platform-support.md`, the five explicit statuses/terms, and README/ACTION_PLAN/milestone links.
 
-- [ ] **Step 3: Run the new test file and observe RED**
+- [x] **Step 3: Run the new test file and observe RED**
 
 Run: `UV_CACHE_DIR=/tmp/forgeagent-m24-uv-cache uv run pytest -q tests/test_continuous_verification.py`
 
 Expected: FAIL because `.gitlab-ci.yml`, marker registration, platform document and M24 public docs do not exist.
 
-- [ ] **Step 4: Commit the RED contract**
+- [x] **Step 4: Commit the RED contract**
 
 ```bash
 git add tests/test_continuous_verification.py
@@ -142,7 +142,7 @@ git commit -m "test: define M24 continuous verification contracts"
 - Consumes: pytest marker name `container_integration` from Task 1.
 - Produces: stable selection of exactly 10 real Docker tests.
 
-- [ ] **Step 1: Register the marker**
+- [x] **Step 1: Register the marker**
 
 Extend `[tool.pytest.ini_options]`:
 
@@ -152,7 +152,7 @@ markers = [
 ]
 ```
 
-- [ ] **Step 2: Apply marker to the ten real Docker tests**
+- [x] **Step 2: Apply marker to the ten real Docker tests**
 
 Define next to `docker_required`:
 
@@ -162,7 +162,7 @@ container_integration = pytest.mark.container_integration
 
 Add `@container_integration` to each of the ten tests already decorated with `@docker_required`; do not mark the four no-Docker unit tests.
 
-- [ ] **Step 3: Run marker contract and collection checks**
+- [x] **Step 3: Run marker contract and collection checks**
 
 Run: `UV_CACHE_DIR=/tmp/forgeagent-m24-uv-cache uv run pytest -q tests/test_continuous_verification.py::test_container_module_has_four_unit_and_ten_integration_tests`
 
@@ -172,7 +172,7 @@ Run: `UV_CACHE_DIR=/tmp/forgeagent-m24-uv-cache uv run pytest --collect-only -q 
 
 Expected: output ends with `10/14 tests collected (4 deselected)` or equivalent pytest collection summary.
 
-- [ ] **Step 4: Commit marker implementation**
+- [x] **Step 4: Commit marker implementation**
 
 ```bash
 git add pyproject.toml tests/test_container_backend.py tests/test_continuous_verification.py
@@ -189,7 +189,7 @@ git commit -m "test: mark real container integration cases"
 - Consumes: repository uv/OpenSpec/Ruff/pytest/Golden/build commands.
 - Produces: required `offline-verification` job and Golden/dist artifacts.
 
-- [ ] **Step 1: Add global workflow, variables, cache, and verify stage**
+- [x] **Step 1: Add global workflow, variables, cache, and verify stage**
 
 Create `.gitlab-ci.yml` with:
 
@@ -212,17 +212,17 @@ cache:
     - .cache/uv
 ```
 
-- [ ] **Step 2: Add the pinned offline job**
+- [x] **Step 2: Add the pinned offline job**
 
 Use `node:22.22.0-bookworm-slim`, install Debian Python 3.11, pip, venv, git and CA certificates, install `uv==0.11.1` and `@fission-ai/openspec@1.4.1`, then run the six commands from the design. Configure `artifacts:when: always` for `artifacts/ci/golden/` and `dist/`.
 
-- [ ] **Step 3: Run structural contract**
+- [x] **Step 3: Run structural contract**
 
 Run: `UV_CACHE_DIR=/tmp/forgeagent-m24-uv-cache uv run pytest -q tests/test_continuous_verification.py::test_required_ci_jobs_cover_all_gates`
 
 Expected: the offline assertions pass; Docker assertions may remain RED until Task 4.
 
-- [ ] **Step 4: Commit offline CI**
+- [x] **Step 4: Commit offline CI**
 
 ```bash
 git add .gitlab-ci.yml tests/test_continuous_verification.py
@@ -239,7 +239,7 @@ git commit -m "ci: add required offline verification gate"
 - Consumes: marker from Task 2 and fixed Docker/image identifiers.
 - Produces: DinD job, JUnit artifact and tests=10/skipped=0 enforcement.
 
-- [ ] **Step 1: Add Docker CLI/DinD service and variables**
+- [x] **Step 1: Add Docker CLI/DinD service and variables**
 
 Add `linux-docker-container` using:
 
@@ -255,7 +255,7 @@ variables:
 
 Install `python3 py3-pip git`, install uv 0.11.1, run `uv sync --locked`, then the Docker preflight commands.
 
-- [ ] **Step 2: Run marked tests and validate JUnit**
+- [x] **Step 2: Run marked tests and validate JUnit**
 
 Create `artifacts/ci`, run the marker command, then use a YAML block scalar with `python - <<'PY'` to parse XML. Sum all `testsuite` attributes and assert:
 
@@ -268,13 +268,13 @@ assert skipped == 0, counts
 
 Publish `artifacts/ci/container-junit.xml` under both `artifacts.paths` and `artifacts.reports.junit`.
 
-- [ ] **Step 3: Run all CI structural contracts**
+- [x] **Step 3: Run all CI structural contracts**
 
 Run: `UV_CACHE_DIR=/tmp/forgeagent-m24-uv-cache uv run pytest -q tests/test_continuous_verification.py -k 'ci or container_module'`
 
 Expected: PASS.
 
-- [ ] **Step 4: Commit Docker CI**
+- [x] **Step 4: Commit Docker CI**
 
 ```bash
 git add .gitlab-ci.yml tests/test_continuous_verification.py
@@ -295,7 +295,7 @@ git commit -m "ci: require real Linux Docker container tests"
 - Consumes: status model and evidence rules from Design Doc.
 - Produces: public platform state, M24 status and next-step routing.
 
-- [ ] **Step 1: Write the platform matrix**
+- [x] **Step 1: Write the platform matrix**
 
 Document status definitions and these rows exactly:
 
@@ -308,17 +308,17 @@ Document status definitions and these rows exactly:
 
 For each row include prerequisites, current evidence, limitations and the next Comet change trigger. State that only a dated Linux runner 10/10 result may promote Linux Docker to `verified`.
 
-- [ ] **Step 2: Create M24 milestone and update public status**
+- [x] **Step 2: Create M24 milestone and update public status**
 
 Create milestone sections matching `MILESTONE_GUIDE.md`, update `milestones/latest` to `milestone_024.md`, add README sections linking `.gitlab-ci.yml` and the platform matrix, and add an M24 row to ACTION_PLAN. Keep M23's `2305 passed, 10 skipped` and all older historical counts unchanged.
 
-- [ ] **Step 3: Run documentation contracts**
+- [x] **Step 3: Run documentation contracts**
 
 Run: `UV_CACHE_DIR=/tmp/forgeagent-m24-uv-cache uv run pytest -q tests/test_continuous_verification.py tests/test_collaboration_docs.py`
 
 Expected: PASS.
 
-- [ ] **Step 4: Commit documentation**
+- [x] **Step 4: Commit documentation**
 
 ```bash
 git add docs/platform-support.md milestones/milestone_024.md milestones/latest README.md ACTION_PLAN.md tests/test_continuous_verification.py
@@ -337,7 +337,7 @@ git commit -m "docs: define M24 platform evidence matrix"
 - Consumes: completed CI/marker/docs implementation.
 - Produces: dated local Docker evidence, verification report and completed tasks.
 
-- [ ] **Step 1: Run the ten real Docker tests with JUnit**
+- [x] **Step 1: Run the ten real Docker tests with JUnit**
 
 Run outside filesystem sandbox if needed:
 
@@ -352,7 +352,7 @@ UV_CACHE_DIR=/tmp/forgeagent-m24-uv-cache uv run pytest -q \
 
 Expected: `10 passed`, no skipped. Parse JUnit with the same standard-library logic and record host/daemon/image identifiers in platform docs as `supplemental` evidence.
 
-- [ ] **Step 2: Run focused and complete offline gates**
+- [x] **Step 2: Run focused and complete offline gates**
 
 Run:
 
@@ -370,17 +370,17 @@ git diff --check
 
 Expected: all exit 0; Golden report says 20/20; full pytest may have environment-specific non-container skips but the separate Docker evidence is 10/10.
 
-- [ ] **Step 3: Perform two self-reviews and fix findings**
+- [x] **Step 3: Perform two self-reviews and fix findings**
 
 Review 1: compare every OpenSpec scenario with CI/tests/docs evidence; verify no platform is overclaimed.
 
 Review 2: inspect `.gitlab-ci.yml` for shell/YAML hazards, version mismatch, artifacts, DinD readiness, hidden allow-failure, JUnit aggregation and offline reproducibility. Fix findings and rerun affected gates.
 
-- [ ] **Step 4: Complete task tracking and write verification report**
+- [x] **Step 4: Complete task tracking and write verification report**
 
 Check all 8 OpenSpec tasks, write the full verification report with actual commands/results and explicit “GitLab pipeline 未在本地运行” limitation, then run Comet verify/archive.
 
-- [ ] **Step 5: Commit verification evidence**
+- [x] **Step 5: Commit verification evidence**
 
 ```bash
 git add docs/platform-support.md milestones/milestone_024.md openspec/changes/m24-continuous-verification-platform-matrix/tasks.md docs/superpowers/reports/2026-07-27-m24-continuous-verification-platform-matrix-verify.md
