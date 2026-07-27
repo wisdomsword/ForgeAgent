@@ -41,9 +41,7 @@ def _sha256_string(value: object) -> bool:
 
 
 def _canonical_sha256(value: object) -> str:
-    encoded = json.dumps(
-        value, ensure_ascii=True, sort_keys=True, separators=(",", ":")
-    ).encode()
+    encoded = json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(encoded).hexdigest()
 
 
@@ -148,9 +146,7 @@ def _add(metrics: dict[str, Any], record: dict[str, Any]) -> None:
     metrics["scheduled_runs"] += 1
     metrics["solved_runs"] += record.get("solved") is True
     metrics["logical_model_calls"] += logical_calls
-    metrics["provider_attempts"] += _integer(
-        record.get("provider_attempts"), "provider_attempts"
-    )
+    metrics["provider_attempts"] += _integer(record.get("provider_attempts"), "provider_attempts")
     metrics["usage_missing_calls"] += missing_calls
     metrics["usage_rate_denominator_calls"] += logical_calls
     tokens = record.get("tokens")
@@ -194,15 +190,11 @@ def recompute(protocol_path: Path, output_dir: Path) -> dict[str, object]:
 
     models = {model: {mode: _empty_metrics() for mode in MODES} for model in MODELS}
     families = {
-        family: {
-            model: {mode: _empty_metrics() for mode in MODES} for model in MODELS
-        }
+        family: {model: {mode: _empty_metrics() for mode in MODES} for model in MODELS}
         for family in FAMILIES
     }
     tasks = {
-        task_id: {
-            model: {mode: _empty_metrics() for mode in MODES} for model in MODELS
-        }
+        task_id: {model: {mode: _empty_metrics() for mode in MODES} for model in MODELS}
         for task_id in task_families
     }
     seen = set()
@@ -275,9 +267,7 @@ def recompute(protocol_path: Path, output_dir: Path) -> dict[str, object]:
 
 def _mismatch(path: str, actual: object, expected: object) -> None:
     if actual != expected:
-        raise ValueError(
-            f"independent recompute mismatch at {path}: {actual!r} != {expected!r}"
-        )
+        raise ValueError(f"independent recompute mismatch at {path}: {actual!r} != {expected!r}")
 
 
 def _verify_bucket(path: str, projection: dict[str, Any], summary: dict[str, Any]) -> None:
@@ -296,9 +286,7 @@ def _verify_bucket(path: str, projection: dict[str, Any], summary: dict[str, Any
         projection["scheduled_runs"],
     )
     expected_completion = projection["solved_runs"] / projection["scheduled_runs"]
-    if not math.isclose(
-        completion.get("value"), expected_completion, rel_tol=0.0, abs_tol=1e-12
-    ):
+    if not math.isclose(completion.get("value"), expected_completion, rel_tol=0.0, abs_tol=1e-12):
         raise ValueError(f"independent recompute mismatch at {path}.completion.value")
     for field in ("logical_model_calls", "provider_attempts"):
         distribution = summary.get(field)

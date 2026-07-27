@@ -33,9 +33,7 @@ def load_harness():
 
 
 def _git(*arguments: str) -> bytes:
-    return subprocess.run(
-        ("git", *arguments), cwd=ROOT, check=True, capture_output=True
-    ).stdout
+    return subprocess.run(("git", *arguments), cwd=ROOT, check=True, capture_output=True).stdout
 
 
 def m25_protocol_dict() -> dict[str, object]:
@@ -72,9 +70,7 @@ def test_tracked_m23_protocol_and_evidence_are_byte_identical_to_base_ref() -> N
     current = _git("ls-tree", "-r", "--name-only", "HEAD", "docs/evaluation/m23")
     assert current == expected
     for relative_path in expected.decode().splitlines():
-        assert (ROOT / relative_path).read_bytes() == _git(
-            "show", f"{BASE_REF}:{relative_path}"
-        )
+        assert (ROOT / relative_path).read_bytes() == _git("show", f"{BASE_REF}:{relative_path}")
 
 
 def test_formal_m23_raw_recomputes_to_checked_in_summary_and_report() -> None:
@@ -130,15 +126,11 @@ def test_unknown_schema_fails_before_model_parsing(schema: str | None) -> None:
     [
         (lambda value: value.__setitem__("unexpected", True), "extra"),
         (
-            lambda value: value.__setitem__(
-                "model_ids", ["gpt-5.4-mini", "claude-haiku-4-5"]
-            ),
+            lambda value: value.__setitem__("model_ids", ["gpt-5.4-mini", "claude-haiku-4-5"]),
             "model_ids",
         ),
         (
-            lambda value: value.__setitem__(
-                "model_ids", ["claude-haiku-4-5", "claude-haiku-4-5"]
-            ),
+            lambda value: value.__setitem__("model_ids", ["claude-haiku-4-5", "claude-haiku-4-5"]),
             "model_ids",
         ),
         (lambda value: value["tasks"].__setitem__(1, copy.deepcopy(value["tasks"][0])), "unique"),
@@ -188,11 +180,7 @@ def test_m25_schedule_has_fixed_270_run_order_and_global_position_balance() -> N
         "triad": 90,
     }
     assert all(
-        sum(
-            s.task_id == task.id and s.model_id == model and s.mode == mode
-            for s in schedule
-        )
-        == 5
+        sum(s.task_id == task.id and s.model_id == model and s.mode == mode for s in schedule) == 5
         for task in protocol.tasks
         for model in protocol.model_ids
         for mode in protocol.modes
@@ -269,9 +257,7 @@ def _m25_record_dict(harness, protocol, spec, environment, environment_sha256):
         "task_id": spec.task_id,
         "task_family": spec.task_family,
         "model_id": spec.model_id,
-        "provider_route_sha256": harness.route_hash_for_model(
-            environment, spec.model_id
-        ),
+        "provider_route_sha256": harness.route_hash_for_model(environment, spec.model_id),
         "mode": spec.mode,
         "repeat": spec.repeat,
         "protocol_sha256": protocol_sha256,
@@ -322,9 +308,7 @@ def test_m25_resume_rejects_conflicting_terminal_records(tmp_path, mutation) -> 
     schedule = harness.build_schedule(protocol)
     environment = _m25_environment(harness, protocol)
     environment_sha256 = "9" * 64
-    record = _m25_record_dict(
-        harness, protocol, schedule[0], environment, environment_sha256
-    )
+    record = _m25_record_dict(harness, protocol, schedule[0], environment, environment_sha256)
     mutation(record)
     raw_dir = tmp_path / "raw"
     raw_dir.mkdir()
@@ -346,9 +330,7 @@ def test_m25_resume_skips_exact_terminal_and_rejects_unexpected_filename(tmp_pat
     schedule = harness.build_schedule(protocol)
     environment = _m25_environment(harness, protocol)
     environment_sha256 = "9" * 64
-    record = _m25_record_dict(
-        harness, protocol, schedule[0], environment, environment_sha256
-    )
+    record = _m25_record_dict(harness, protocol, schedule[0], environment, environment_sha256)
     raw_dir = tmp_path / "raw"
     raw_dir.mkdir()
     filename = harness.run_id_for(protocol, schedule[0]) + ".json"
@@ -380,9 +362,7 @@ def test_checked_in_m25_protocol_fixes_models_tasks_families_and_baselines() -> 
     assert protocol.model_ids == ("claude-haiku-4-5", "gpt-5.4-mini")
     assert protocol.repetitions == 5
     assert len(protocol.tasks) == 9
-    assert digest == harness.canonical_sha256(
-        protocol.model_dump(mode="json", by_alias=True)
-    )
+    assert digest == harness.canonical_sha256(protocol.model_dump(mode="json", by_alias=True))
     for index in range(3):
         actual = protocol.tasks[index].model_dump(mode="json")
         assert actual.pop("family") == "baseline"
@@ -538,12 +518,9 @@ if __name__ == "__main__":
 """,
             encoding="utf-8",
         )
-        (workspace / "output.jsonl").write_text(
-            '{"id": "1", "kind": "open"}\n', encoding="utf-8"
-        )
+        (workspace / "output.jsonl").write_text('{"id": "1", "kind": "open"}\n', encoding="utf-8")
         (workspace / "dead-letter.jsonl").write_text(
-            '{"error": "JSONDecodeError", "line": 2}\n'
-            '{"error": "KeyError", "line": 3}\n',
+            '{"error": "JSONDecodeError", "line": 2}\n{"error": "KeyError", "line": 3}\n',
             encoding="utf-8",
         )
         return
@@ -627,9 +604,7 @@ PROGRAMMING_TASK_IDS = (
 
 
 @pytest.mark.parametrize("task_id", PROGRAMMING_TASK_IDS)
-def test_real_programming_fixture_fails_initially_and_reference_passes(
-    task_id, tmp_path
-) -> None:
+def test_real_programming_fixture_fails_initially_and_reference_passes(task_id, tmp_path) -> None:
     harness = load_harness()
     protocol, _ = harness.load_protocol(M25_PROTOCOL_PATH)
     task = next(task for task in protocol.tasks if task.id == task_id)
@@ -640,14 +615,10 @@ def test_real_programming_fixture_fails_initially_and_reference_passes(
     reference = tmp_path / "reference"
     reference.mkdir()
     harness.prepare_workspace(task, reference)
-    immutable_before = {
-        path: (reference / path).read_bytes() for path in task.immutable_files
-    }
+    immutable_before = {path: (reference / path).read_bytes() for path in task.immutable_files}
     _write_reference_solution(task_id, reference)
     assert all(check.status == "passed" for check in harness.run_checks(task, reference))
-    assert all(
-        artifact.status == "ok" for artifact in harness.hash_artifacts(task, reference)
-    )
+    assert all(artifact.status == "ok" for artifact in harness.hash_artifacts(task, reference))
     assert immutable_before == {
         path: (reference / path).read_bytes() for path in task.immutable_files
     }
@@ -684,9 +655,7 @@ WEAK_MUTATIONS = {
 
 
 @pytest.mark.parametrize("task_id", PROGRAMMING_TASK_IDS)
-def test_programming_fixture_check_strength_and_fixture_integrity(
-    task_id, tmp_path
-) -> None:
+def test_programming_fixture_check_strength_and_fixture_integrity(task_id, tmp_path) -> None:
     harness = load_harness()
     protocol, _ = harness.load_protocol(M25_PROTOCOL_PATH)
     task = next(task for task in protocol.tasks if task.id == task_id)
@@ -775,9 +744,7 @@ def test_m25_preflight_rejects_tracked_dirty_before_writing_environment(
         capability = SimpleNamespace(max_output_tokens=8192)
 
         def __init__(self, model_id):
-            self.capability = SimpleNamespace(
-                model_id=model_id, max_output_tokens=8192
-            )
+            self.capability = SimpleNamespace(model_id=model_id, max_output_tokens=8192)
 
         def close(self):
             pass
@@ -792,9 +759,7 @@ def test_m25_preflight_rejects_tracked_dirty_before_writing_environment(
     monkeypatch.setattr(
         harness,
         "_git_value",
-        lambda _root, *arguments: (
-            "a" * 40 if arguments[0] == "rev-parse" else " M tracked.py"
-        ),
+        lambda _root, *arguments: "a" * 40 if arguments[0] == "rev-parse" else " M tracked.py",
     )
     with pytest.raises(ValueError, match="tracked.*clean"):
         harness.preflight(
@@ -829,9 +794,7 @@ def test_m25_preflight_closes_all_probes_when_second_route_is_invalid(
     def resolve(model_id, registry):
         if failure == "route" and model_id == "gpt-5.4-mini":
             raise ValueError("model route is ambiguous")
-        return SimpleNamespace(
-            capability=SimpleNamespace(client_kind="fake"), base_url=None
-        )
+        return SimpleNamespace(capability=SimpleNamespace(client_kind="fake"), base_url=None)
 
     monkeypatch.setattr(harness, "resolve_model", resolve)
     monkeypatch.setattr(
@@ -853,9 +816,7 @@ def test_m25_preflight_closes_all_probes_when_second_route_is_invalid(
     assert not (tmp_path / "output" / "environment.json").exists()
 
 
-def test_m25_preflight_rejects_mismatched_existing_environment(
-    tmp_path, monkeypatch
-) -> None:
+def test_m25_preflight_rejects_mismatched_existing_environment(tmp_path, monkeypatch) -> None:
     harness = load_harness()
     protocol, digest = harness.load_protocol(M25_PROTOCOL_PATH)
     routes = {
@@ -950,10 +911,14 @@ def test_m25_execution_routes_every_role_through_run_model(
             return cls()
 
         def run(self, goal):
-            roles = ("generator", "evaluator") if mode == "duo" else (
-                "planner",
-                "generator",
-                "evaluator",
+            roles = (
+                ("generator", "evaluator")
+                if mode == "duo"
+                else (
+                    "planner",
+                    "generator",
+                    "evaluator",
+                )
             )
             for role in roles:
                 owned = create_kwargs["role_task_builder"](role, 1, object(), role)
@@ -1040,9 +1005,7 @@ def make_m25_raw_record(harness, spec, protocol_sha256, *, solved=True):
         task_id=spec.task_id,
         task_family=spec.task_family,
         model_id=spec.model_id,
-        provider_route_sha256=(
-            "b" * 64 if spec.model_id == "claude-haiku-4-5" else "c" * 64
-        ),
+        provider_route_sha256=("b" * 64 if spec.model_id == "claude-haiku-4-5" else "c" * 64),
         mode=spec.mode,
         repeat=spec.repeat,
         protocol_sha256=protocol_sha256,
@@ -1099,26 +1062,24 @@ def test_m25_aggregate_uses_exact_model_family_task_and_call_denominators() -> N
         "observed_runs": 270,
         "complete": True,
     }
-    assert summary["models"]["claude-haiku-4-5"]["modes"]["single"][
-        "scheduled_runs"
-    ] == 45
-    assert summary["models"]["gpt-5.4-mini"]["modes"]["triad"][
-        "scheduled_runs"
-    ] == 45
-    assert summary["families"]["baseline"]["models"]["claude-haiku-4-5"][
-        "modes"
-    ]["duo"]["scheduled_runs"] == 15
-    assert summary["families"]["bugfix"]["models"]["gpt-5.4-mini"]["modes"][
-        "single"
-    ]["scheduled_runs"] == 10
+    assert summary["models"]["claude-haiku-4-5"]["modes"]["single"]["scheduled_runs"] == 45
+    assert summary["models"]["gpt-5.4-mini"]["modes"]["triad"]["scheduled_runs"] == 45
+    assert (
+        summary["families"]["baseline"]["models"]["claude-haiku-4-5"]["modes"]["duo"][
+            "scheduled_runs"
+        ]
+        == 15
+    )
+    assert (
+        summary["families"]["bugfix"]["models"]["gpt-5.4-mini"]["modes"]["single"]["scheduled_runs"]
+        == 10
+    )
     assert summary["tasks"]["csv-region-summary"]["family"] == "baseline"
-    selected = summary["tasks"]["csv-region-summary"]["models"][
-        "claude-haiku-4-5"
-    ]["modes"]["single"]
+    selected = summary["tasks"]["csv-region-summary"]["models"]["claude-haiku-4-5"]["modes"][
+        "single"
+    ]
     assert selected["scheduled_runs"] == 5
-    assert summary["models"]["claude-haiku-4-5"]["modes"]["single"][
-        "first_acceptance_rate"
-    ] is None
+    assert summary["models"]["claude-haiku-4-5"]["modes"]["single"]["first_acceptance_rate"] is None
     selected_records = [
         record
         for record in records
@@ -1180,9 +1141,7 @@ def test_m25_report_keeps_models_and_modes_descriptive_without_ranking() -> None
     protocol, digest = harness.load_protocol(M25_PROTOCOL_PATH)
     records = make_complete_m25_records(harness, protocol, digest)
     summary = harness.aggregate_records(protocol, harness.build_schedule(protocol), records)
-    environment = _m25_environment(harness, protocol).model_dump(
-        mode="json", by_alias=True
-    )
+    environment = _m25_environment(harness, protocol).model_dump(mode="json", by_alias=True)
     report = harness.render_report(protocol, environment, summary)
     assert "## Model: claude-haiku-4-5" in report
     assert "## Model: gpt-5.4-mini" in report
@@ -1206,9 +1165,7 @@ def test_m25_report_keeps_models_and_modes_descriptive_without_ranking() -> None
 
 
 def _write_m25_batch(harness, output, protocol, digest, records):
-    environment = _m25_environment(harness, protocol).model_copy(
-        update={"protocol_sha256": digest}
-    )
+    environment = _m25_environment(harness, protocol).model_copy(update={"protocol_sha256": digest})
     environment_sha = harness.environment_sha256(environment)
     output.mkdir()
     (output / "environment.json").write_text(
@@ -1225,9 +1182,7 @@ def test_m25_read_raw_records_binds_filenames_routes_and_environment(tmp_path) -
     protocol, digest = harness.load_protocol(M25_PROTOCOL_PATH)
     records = make_complete_m25_records(harness, protocol, digest)
     output = tmp_path / "complete"
-    environment, environment_sha = _write_m25_batch(
-        harness, output, protocol, digest, records
-    )
+    environment, environment_sha = _write_m25_batch(harness, output, protocol, digest, records)
     loaded = harness.read_raw_records(
         output / "raw",
         protocol,
@@ -1259,9 +1214,7 @@ def test_m25_aggregate_failure_preserves_existing_outputs(tmp_path) -> None:
     (output / "summary.json").write_bytes(summary_bytes)
     (output / "report.md").write_bytes(report_bytes)
     with pytest.raises(ValueError, match="complete 270"):
-        harness.aggregate_command(
-            M25_PROTOCOL_PATH, output, allowed_output_root=tmp_path
-        )
+        harness.aggregate_command(M25_PROTOCOL_PATH, output, allowed_output_root=tmp_path)
     assert (output / "summary.json").read_bytes() == summary_bytes
     assert (output / "report.md").read_bytes() == report_bytes
 
@@ -1269,9 +1222,7 @@ def test_m25_aggregate_failure_preserves_existing_outputs(tmp_path) -> None:
 def test_m25_environment_raw_and_summary_have_safe_recursive_projection() -> None:
     harness = load_harness()
     protocol, digest = harness.load_protocol(M25_PROTOCOL_PATH)
-    environment = _m25_environment(harness, protocol).model_copy(
-        update={"protocol_sha256": digest}
-    )
+    environment = _m25_environment(harness, protocol).model_copy(update={"protocol_sha256": digest})
     record = make_complete_m25_records(harness, protocol, digest)[0].model_copy(
         update={
             "checks": (

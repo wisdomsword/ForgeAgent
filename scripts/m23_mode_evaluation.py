@@ -178,9 +178,7 @@ TaskFamily = Literal["baseline", "bugfix", "feature", "refactor"]
 
 def _model_slug(model_id: str) -> str:
     slug = "-".join(
-        part
-        for part in re.sub(r"[^a-z0-9]+", "-", model_id.lower()).split("-")
-        if part
+        part for part in re.sub(r"[^a-z0-9]+", "-", model_id.lower()).split("-") if part
     )
     if not slug:
         raise ValueError("model id has no safe slug")
@@ -193,9 +191,7 @@ class M25TaskSpec(TaskSpec):
 
 class M25EvaluationProtocol(StrictModel):
     schema_: Literal[M25_PROTOCOL_SCHEMA] = Field(alias="schema")
-    model_ids: tuple[
-        Literal["claude-haiku-4-5"], Literal["gpt-5.4-mini"]
-    ]
+    model_ids: tuple[Literal["claude-haiku-4-5"], Literal["gpt-5.4-mini"]]
     generation: GenerationSettings
     execution: ExecutionSettings
     modes: tuple[Mode, ...]
@@ -511,9 +507,7 @@ def build_schedule(protocol: Protocol) -> tuple[RunSpecification, ...]:
             if (task_index + repeat_index) % 2:
                 stable_models.reverse()
             for model_index, model_id in stable_models:
-                order = protocol.mode_orders[
-                    (2 * task_index + model_index + repeat_index) % 3
-                ]
+                order = protocol.mode_orders[(2 * task_index + model_index + repeat_index) % 3]
                 for mode in order:
                     schedule.append(
                         M25RunSpec(
@@ -530,10 +524,7 @@ def build_schedule(protocol: Protocol) -> tuple[RunSpecification, ...]:
 
 def _run_id_for_spec(run_spec: RunSpecification) -> str:
     if isinstance(run_spec, RunSpec):
-        return (
-            f"{run_spec.sequence:02d}-{run_spec.task_id}-"
-            f"r{run_spec.repeat}-{run_spec.mode}"
-        )
+        return f"{run_spec.sequence:02d}-{run_spec.task_id}-r{run_spec.repeat}-{run_spec.mode}"
     return (
         f"{run_spec.sequence:03d}-{run_spec.task_id}-{_model_slug(run_spec.model_id)}-"
         f"r{run_spec.repeat}-{run_spec.mode}"
@@ -632,9 +623,7 @@ def environment_manifest(
     provider_route_sha256: str | None = None,
 ) -> Environment:
     git_commit = _git_value(repo_root, "rev-parse", "HEAD")
-    tracked_dirty = bool(
-        _git_value(repo_root, "status", "--porcelain", "--untracked-files=no")
-    )
+    tracked_dirty = bool(_git_value(repo_root, "status", "--porcelain", "--untracked-files=no"))
     common = dict(
         generated_at=_utc_now(),
         git_commit=git_commit,
@@ -971,11 +960,11 @@ def run_collaboration(
         return _OwnedRoleTask(task, client)
 
     collaboration_identity = {
-            "scope": "m23-collaboration",
-            "sequence": run_spec.sequence,
-            "task_id": run_spec.task_id,
-            "repeat": run_spec.repeat,
-            "mode": run_spec.mode,
+        "scope": "m23-collaboration",
+        "sequence": run_spec.sequence,
+        "task_id": run_spec.task_id,
+        "repeat": run_spec.repeat,
+        "mode": run_spec.mode,
     }
     if namespace == "m25":
         collaboration_identity["scope"] = "m25-collaboration"
@@ -1117,9 +1106,7 @@ def read_raw_records(
     for path in files:
         if path.is_symlink() or not path.is_file():
             raise ValueError("raw records must be regular non-symlink files")
-        record_type = (
-            RawRecord if isinstance(protocol, EvaluationProtocol) else M25RawRecord
-        )
+        record_type = RawRecord if isinstance(protocol, EvaluationProtocol) else M25RawRecord
         records.append(record_type.model_validate_json(path.read_bytes()))
     schedule = build_schedule(protocol)
     if isinstance(protocol, EvaluationProtocol):
@@ -1132,8 +1119,7 @@ def read_raw_records(
         if {path.name for path in files} != expected_filenames:
             raise ValueError("M25 raw filenames do not match the fixed schedule")
         if any(
-            record.provider_route_sha256
-            != route_hash_for_model(environment, record.model_id)
+            record.provider_route_sha256 != route_hash_for_model(environment, record.model_id)
             for record in validated
         ):
             raise ValueError("M25 raw record route does not match environment")
@@ -1190,8 +1176,7 @@ def _validate_complete_m25_records(
         raise ValueError("M25 aggregation requires only M25 raw records")
     typed_records = tuple(record for record in records if isinstance(record, M25RawRecord))
     combinations = [
-        (record.task_id, record.model_id, record.repeat, record.mode)
-        for record in typed_records
+        (record.task_id, record.model_id, record.repeat, record.mode) for record in typed_records
     ]
     if len(set(combinations)) != len(combinations):
         raise ValueError("duplicate M25 raw record combination")
@@ -1204,18 +1189,19 @@ def _validate_complete_m25_records(
     if len({record.environment_sha256 for record in typed_records}) != 1:
         raise ValueError("M25 environment hash mismatch across raw records")
     for model_id in protocol.model_ids:
-        if len(
-            {
-                record.provider_route_sha256
-                for record in typed_records
-                if record.model_id == model_id
-            }
-        ) != 1:
+        if (
+            len(
+                {
+                    record.provider_route_sha256
+                    for record in typed_records
+                    if record.model_id == model_id
+                }
+            )
+            != 1
+        ):
             raise ValueError("M25 route hash mismatch within model records")
 
-    expected = {
-        (spec.task_id, spec.model_id, spec.repeat, spec.mode): spec for spec in schedule
-    }
+    expected = {(spec.task_id, spec.model_id, spec.repeat, spec.mode): spec for spec in schedule}
     observed = {
         (record.task_id, record.model_id, record.repeat, record.mode): record
         for record in typed_records
@@ -1315,17 +1301,13 @@ def _aggregate_m25_records(
     def model_modes(selected: Sequence[M25RawRecord]) -> dict[str, object]:
         return {
             "modes": {
-                mode: _aggregate_group(
-                    [record for record in selected if record.mode == mode], mode
-                )
+                mode: _aggregate_group([record for record in selected if record.mode == mode], mode)
                 for mode in MODES
             }
         }
 
     models = {
-        model_id: model_modes(
-            [record for record in validated if record.model_id == model_id]
-        )
+        model_id: model_modes([record for record in validated if record.model_id == model_id])
         for model_id in protocol.model_ids
     }
     families = {
@@ -1492,8 +1474,7 @@ def _render_m25_report(
                         else "- Corrections: N/A"
                     ),
                     "- Tokens: " + json.dumps(metrics["tokens"], sort_keys=True),
-                    "- Model calls: "
-                    + json.dumps(metrics["logical_model_calls"], sort_keys=True),
+                    "- Model calls: " + json.dumps(metrics["logical_model_calls"], sort_keys=True),
                     "- Provider attempts: "
                     + json.dumps(metrics["provider_attempts"], sort_keys=True),
                     "- End-to-end latency: "
@@ -1694,9 +1675,7 @@ def preflight(
         repo_root=Path(__file__).parents[1],
         model_routes=model_routes if isinstance(protocol, M25EvaluationProtocol) else None,
         provider_route_sha256=(
-            model_routes[protocol.model_id][1]
-            if isinstance(protocol, EvaluationProtocol)
-            else None
+            model_routes[protocol.model_id][1] if isinstance(protocol, EvaluationProtocol) else None
         ),
     )
     digest = environment_sha256(manifest)
@@ -1773,8 +1752,7 @@ def pending_run_specs(
             if (
                 record.task_family != spec.task_family
                 or record.model_id != spec.model_id
-                or record.provider_route_sha256
-                != route_hash_for_model(environment, spec.model_id)
+                or record.provider_route_sha256 != route_hash_for_model(environment, spec.model_id)
             ):
                 raise ValueError("existing raw record M25 identity mismatch")
         if record.protocol_sha256 != protocol_sha256:
@@ -1809,9 +1787,10 @@ def aggregate_command(
     if isinstance(protocol, EvaluationProtocol):
         environment_matches = environment_matches and environment.model_id == protocol.model_id
     else:
-        environment_matches = environment_matches and tuple(
-            route.model_id for route in environment.model_routes
-        ) == protocol.model_ids
+        environment_matches = (
+            environment_matches
+            and tuple(route.model_id for route in environment.model_routes) == protocol.model_ids
+        )
     if not environment_matches:
         raise ValueError("environment manifest does not match protocol")
     environment_sha256_value = environment_sha256(environment)

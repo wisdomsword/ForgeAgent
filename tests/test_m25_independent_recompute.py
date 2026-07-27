@@ -32,12 +32,9 @@ def write_complete_evidence(output: Path):
     harness = load_harness()
     protocol, digest = harness.load_protocol(M25_PROTOCOL_PATH)
     records = make_complete_m25_records(harness, protocol, digest)
-    _, environment_sha = _write_m25_batch(
-        harness, output, protocol, digest, records
-    )
+    _, environment_sha = _write_m25_batch(harness, output, protocol, digest, records)
     bound = tuple(
-        record.model_copy(update={"environment_sha256": environment_sha})
-        for record in records
+        record.model_copy(update={"environment_sha256": environment_sha}) for record in records
     )
     summary = harness.aggregate_records(protocol, harness.build_schedule(protocol), bound)
     (output / "summary.json").write_bytes(harness.canonical_json(summary))
@@ -50,9 +47,7 @@ def test_independent_recompute_matches_and_detects_changed_denominator(tmp_path)
     recompute = load_recompute()
     projection = recompute.recompute(M25_PROTOCOL_PATH, output)
     assert projection["runs"] == 270
-    assert projection["models"]["claude-haiku-4-5"]["single"][
-        "scheduled_runs"
-    ] == 45
+    assert projection["models"]["claude-haiku-4-5"]["single"]["scheduled_runs"] == 45
     recompute.verify_summary(M25_PROTOCOL_PATH, output)
 
     summary["models"]["gpt-5.4-mini"]["modes"]["duo"]["scheduled_runs"] = 44
