@@ -726,6 +726,100 @@ def test_resume_skips_only_exact_matching_raw_record(tmp_path: Path) -> None:
         harness.pending_run_specs(tmp_path, schedule, digest, "b" * 64)
 
 
+def test_resume_rejects_run_id_that_disagrees_with_fixed_filename(tmp_path: Path) -> None:
+    harness = load_harness()
+    protocol, digest = harness.load_protocol(PROTOCOL_PATH)
+    schedule = harness.build_schedule(protocol)
+    first = make_raw_record(harness, schedule[0], digest)
+    target = tmp_path / "raw" / f"{first.run_id}.json"
+    harness.write_raw_record(target, first.model_copy(update={"run_id": "wrong-id"}))
+    with pytest.raises(ValueError, match="run id"):
+        harness.pending_run_specs(tmp_path, schedule, digest, "b" * 64)
+
+
+def test_aggregate_rejects_environment_manifest_bound_to_another_protocol(
+    tmp_path: Path,
+) -> None:
+    harness = load_harness()
+    protocol, digest = harness.load_protocol(PROTOCOL_PATH)
+    manifest = harness.environment_manifest(
+        protocol,
+        digest,
+        repo_root=ROOT,
+        provider_route_sha256="c" * 64,
+    ).model_copy(update={"protocol_sha256": "f" * 64})
+    environment_digest = harness.environment_sha256(manifest)
+    (tmp_path / "raw").mkdir()
+    (tmp_path / "environment.json").write_text(
+        json.dumps(manifest.model_dump(mode="json", by_alias=True)), encoding="utf-8"
+    )
+    for record in make_complete_records(harness, harness.build_schedule(protocol), digest):
+        bound = record.model_copy(update={"environment_sha256": environment_digest})
+        harness.write_raw_record(tmp_path / "raw" / f"{bound.run_id}.json", bound)
+    with pytest.raises(ValueError, match="environment.*protocol"):
+        harness.aggregate_command(PROTOCOL_PATH, tmp_path)
+
+
+def test_successful_preflight_closes_probe_and_writes_only_safe_manifest(
+    tmp_path: Path, monkeypatch
+) -> None:
+    harness = load_harness()
+    protocol, digest = harness.load_protocol(PROTOCOL_PATH)
+    client = SimpleNamespace(
+        capability=SimpleNamespace(
+            model_id=protocol.model_id, max_output_tokens=8192, client_kind="anthropic"
+        ),
+        closed=False,
+    )
+    client.close = lambda: setattr(client, "closed", True)
+    monkeypatch.setattr(
+        harness,
+        "resolve_model",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            capability=client.capability,
+            api_key="SECRET_KEY_MUST_NOT_PERSIST",
+            base_url="https://provider.invalid/secret-route",
+        ),
+    )
+    context = harness.preflight(
+        protocol,
+        digest,
+        tmp_path / "output",
+        allowed_output_root=tmp_path,
+        registry_loader=lambda: object(),
+        client_builder=lambda *_args, **_kwargs: client,
+    )
+    persisted = (tmp_path / "output" / "environment.json").read_text()
+    assert client.closed is True
+    assert context.environment.protocol_sha256 == digest
+    assert "SECRET_KEY" not in persisted
+    assert "provider.invalid" not in persisted
+
+
+def test_keyboard_interrupt_preserves_existing_raw_record(tmp_path: Path, monkeypatch) -> None:
+    harness = load_harness()
+    protocol, digest = harness.load_protocol(PROTOCOL_PATH)
+    schedule = harness.build_schedule(protocol)
+    output = tmp_path / "runs"
+    first = make_raw_record(harness, schedule[0], digest)
+    target = output / "raw" / f"{first.run_id}.json"
+    harness.write_raw_record(target, first)
+    original = target.read_bytes()
+    monkeypatch.setattr(
+        harness,
+        "preflight",
+        lambda *_args, **_kwargs: SimpleNamespace(registry=object(), environment_sha256="b" * 64),
+    )
+    monkeypatch.setattr(
+        harness,
+        "execute_run",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(KeyboardInterrupt()),
+    )
+    with pytest.raises(KeyboardInterrupt):
+        harness.run_command(PROTOCOL_PATH, output, allowed_output_root=tmp_path)
+    assert target.read_bytes() == original
+
+
 def test_run_command_writes_all_terminal_records_then_aggregates(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -748,7 +842,7 @@ def test_run_command_writes_all_terminal_records_then_aggregates(
         _workspace,
         _registry,
     ):
-        return make_raw_record(harness, run_spec, digest)
+        return make_raw_record(harness, run_spec, digest, solved=run_spec.sequence != 1)
 
     monkeypatch.setattr(harness, "execute_run", fake_execute)
 
@@ -760,6 +854,8 @@ def test_run_command_writes_all_terminal_records_then_aggregates(
     output = tmp_path / "runs"
     assert harness.run_command(PROTOCOL_PATH, output, allowed_output_root=tmp_path) == 0
     assert len(list((output / "raw").glob("*.json"))) == 27
+    first = json.loads((output / "raw" / "01-csv-region-summary-r1-single.json").read_text())
+    assert first["solved"] is False
     assert aggregate_calls == [(PROTOCOL_PATH, output)]
 
 

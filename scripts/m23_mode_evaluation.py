@@ -864,6 +864,9 @@ def _validate_complete_records(
         raise ValueError("complete 27 schedule does not match raw records")
     for combination, spec in expected_combinations.items():
         record = records_by_combination[combination]
+        expected_run_id = f"{spec.sequence:02d}-{spec.task_id}-r{spec.repeat}-{spec.mode}"
+        if record.run_id != expected_run_id:
+            raise ValueError("raw record run id does not match schedule")
         if record.sequence != spec.sequence:
             raise ValueError("raw record sequence does not match schedule")
         if record.run_spec_sha256 != run_spec_hash(spec, protocol_sha256):
@@ -1190,13 +1193,14 @@ def pending_run_specs(
         except Exception as error:
             raise ValueError("existing raw record is invalid") from error
         if (
-            record.sequence != spec.sequence
+            record.run_id != path.stem
+            or record.sequence != spec.sequence
             or record.task_id != spec.task_id
             or record.repeat != spec.repeat
             or record.mode != spec.mode
             or record.run_spec_sha256 != run_spec_hash(spec, protocol_sha256)
         ):
-            raise ValueError("existing raw record run spec mismatch")
+            raise ValueError("existing raw record run id or run spec mismatch")
         if record.protocol_sha256 != protocol_sha256:
             raise ValueError("existing raw record protocol mismatch")
         if record.environment_sha256 != environment_sha256_value:
@@ -1210,6 +1214,13 @@ def aggregate_command(protocol_path: Path, output_dir: Path) -> int:
     if environment_path.is_symlink() or not environment_path.is_file():
         raise ValueError("environment manifest is missing or invalid")
     environment = EnvironmentManifest.model_validate_json(environment_path.read_bytes())
+    if (
+        environment.protocol_sha256 != protocol_sha256
+        or environment.model_id != protocol.model_id
+        or environment.generation != protocol.generation
+        or environment.execution != protocol.execution
+    ):
+        raise ValueError("environment manifest does not match protocol")
     environment_sha256_value = environment_sha256(environment)
     records = read_raw_records(
         output_dir / "raw",
