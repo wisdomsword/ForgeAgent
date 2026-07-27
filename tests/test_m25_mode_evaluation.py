@@ -4,6 +4,7 @@ import copy
 import dataclasses
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 from collections import Counter
@@ -1263,3 +1264,70 @@ def test_m25_aggregate_failure_preserves_existing_outputs(tmp_path) -> None:
         )
     assert (output / "summary.json").read_bytes() == summary_bytes
     assert (output / "report.md").read_bytes() == report_bytes
+
+
+def test_m25_environment_raw_and_summary_have_safe_recursive_projection() -> None:
+    harness = load_harness()
+    protocol, digest = harness.load_protocol(M25_PROTOCOL_PATH)
+    environment = _m25_environment(harness, protocol).model_copy(
+        update={"protocol_sha256": digest}
+    )
+    record = make_complete_m25_records(harness, protocol, digest)[0].model_copy(
+        update={
+            "checks": (
+                harness.CheckRecord(
+                    id="safe-check",
+                    status="passed",
+                    exit_code=0,
+                    duration_ms=1,
+                    stdout_bytes=0,
+                    stderr_bytes=0,
+                    stdout_sha256="0" * 64,
+                    stderr_sha256="0" * 64,
+                ),
+            )
+        }
+    )
+    summary = harness.aggregate_records(
+        protocol,
+        harness.build_schedule(protocol),
+        make_complete_m25_records(harness, protocol, digest),
+    )
+    values = [
+        environment.model_dump(mode="json", by_alias=True),
+        record.model_dump(mode="json", by_alias=True),
+        summary,
+    ]
+    forbidden_key = re.compile(
+        r"goal|prompt|messages|reply|body|text|api_key|credential|base_url|absolute_path",
+        re.IGNORECASE,
+    )
+    forbidden_values = (
+        "SECRET_SENTINEL",
+        "https://provider.invalid/private",
+        "/private/workspace/sentinel",
+    )
+
+    def walk(value):
+        if isinstance(value, dict):
+            for key, item in value.items():
+                assert forbidden_key.search(key) is None
+                yield from walk(item)
+        elif isinstance(value, list):
+            for item in value:
+                yield from walk(item)
+        elif isinstance(value, str):
+            yield value
+
+    strings = [string for value in values for string in walk(value)]
+    assert all(sentinel not in string for sentinel in forbidden_values for string in strings)
+    assert set(record.checks[0].model_dump()) == {
+        "id",
+        "status",
+        "exit_code",
+        "duration_ms",
+        "stdout_bytes",
+        "stderr_bytes",
+        "stdout_sha256",
+        "stderr_sha256",
+    }
