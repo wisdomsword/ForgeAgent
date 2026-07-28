@@ -1,0 +1,16 @@
+{
+  "change": "calibrate-collaboration-routing",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "83a8175d1178722e75df2cc4fc9f9acdb12d1d4f4018dcd6e6cad3828975179b",
+  "files": [
+    { "path": "openspec/changes/calibrate-collaboration-routing/proposal.md", "sha256": "d9a953e8e7ccbbcbd6a25e4c584029acfe26d3fb5beeca982e97f809f787999b" },
+    { "path": "openspec/changes/calibrate-collaboration-routing/design.md", "sha256": "79513a7c3abe777e8864323066432ff4843ae019761fd14c1cdbe33e06967ad0" },
+    { "path": "openspec/changes/calibrate-collaboration-routing/tasks.md", "sha256": "c7a6a186ff9c16a9a5d1e98a2548291777cf4dee1f1dc3f244f4d59e9528bee6" },
+    { "path": "openspec/changes/calibrate-collaboration-routing/specs/collaboration-routing-evaluation/spec.md", "sha256": "69e51f46203109562766ed71c6fb225e8a9466d086ec0a771a46c0e412ef1e95" },
+    { "path": "openspec/changes/calibrate-collaboration-routing/specs/continuous-verification/spec.md", "sha256": "e55ef62f87eee62d97faf03bccfd0d05f2755f976c43c53d0921ad8f4e8b9176" },
+    { "path": "openspec/changes/calibrate-collaboration-routing/specs/runtime-collaboration/spec.md", "sha256": "f5cdd7f7994c7cf0c82b401c5bfe6d7b01445004281f827c4fd3ef0a7ed7b182" }
+  ]
+}

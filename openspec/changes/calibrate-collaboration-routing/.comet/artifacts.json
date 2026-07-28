@@ -1,0 +1,8 @@
+{
+  "openspec_proposal": "openspec/changes/calibrate-collaboration-routing/proposal.md",
+  "openspec_design": "openspec/changes/calibrate-collaboration-routing/design.md",
+  "openspec_tasks": "openspec/changes/calibrate-collaboration-routing/tasks.md",
+  "openspec_delta_spec": "openspec/changes/calibrate-collaboration-routing/specs/collaboration-routing-evaluation/spec.md",
+  "handoff_context": "openspec/changes/calibrate-collaboration-routing/.comet/handoff/design-context.json",
+  "handoff_markdown": "openspec/changes/calibrate-collaboration-routing/.comet/handoff/design-context.md"
+}
