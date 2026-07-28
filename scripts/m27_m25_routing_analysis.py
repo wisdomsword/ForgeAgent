@@ -284,6 +284,7 @@ def write_outputs(output_dir: Path, analysis: dict[str, object]) -> None:
     }
     temporary_paths: list[tuple[Path, Path]] = []
     backup_paths: list[tuple[Path, Path]] = []
+    published_destinations: list[Path] = []
     try:
         for name, content in outputs.items():
             descriptor, temporary = tempfile.mkstemp(prefix=f".{name}.", dir=output_dir)
@@ -305,8 +306,9 @@ def write_outputs(output_dir: Path, analysis: dict[str, object]) -> None:
                 backup_paths.append((backup_path, destination))
         for temporary_path, destination in temporary_paths:
             temporary_path.replace(destination)
+            published_destinations.append(destination)
     except Exception:
-        for _, destination in temporary_paths:
+        for destination in published_destinations:
             destination.unlink(missing_ok=True)
         for backup_path, destination in backup_paths:
             backup_path.replace(destination)

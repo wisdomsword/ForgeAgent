@@ -160,6 +160,45 @@ def test_write_outputs_removes_partial_publication_on_failure(
     assert not (tmp_path / "derived" / "report.md").exists()
 
 
+def test_write_outputs_preserves_existing_outputs_when_backup_creation_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = load_analysis()
+    output_dir = tmp_path / "derived"
+    output_dir.mkdir()
+    existing = {
+        "analysis.json": b"old analysis\n",
+        "report.md": b"old report\n",
+    }
+    for name, content in existing.items():
+        (output_dir / name).write_bytes(content)
+
+    original_replace = Path.replace
+
+    def fail_report_backup(path: Path, target: Path) -> Path:
+        if path.name == "report.md" and target.name.startswith(".backup-report.md."):
+            raise OSError("simulated backup failure")
+        return original_replace(path, target)
+
+    monkeypatch.setattr(Path, "replace", fail_report_backup)
+    analysis = {
+        "source": {
+            "runs": 0,
+            "protocol_sha256": "test",
+            "environment_sha256": "test",
+            "frozen_manifest": {"sha256": "test"},
+        },
+        "families": {},
+        "quality_eligible_for_automatic_triad": [],
+        "automatic_triad_restored_for": [],
+    }
+
+    with pytest.raises(OSError, match="simulated backup failure"):
+        module.write_outputs(output_dir, analysis)
+
+    assert {path.name: path.read_bytes() for path in output_dir.iterdir()} == existing
+
+
 @pytest.mark.parametrize(
     ("existing", "expected"),
     [
