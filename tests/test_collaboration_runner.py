@@ -355,11 +355,12 @@ def test_duo_submit_loser_does_not_claim_or_poison_winner_state(tmp_path: Path, 
 
 
 def test_duo_injects_host_checks_only_into_evaluator_registry(tmp_path: Path):
-    builder = _RoleBuilder(
+    builder = _ArtifactRoleBuilder(
         {
             ("generator", 1): [_candidate()],
             ("evaluator", 1): [_checked_evaluation(passed=True)],
-        }
+        },
+        tmp_path,
     )
 
     report = _runner(
@@ -423,7 +424,7 @@ def test_duo_resume_with_pending_evaluation_does_not_reuse_check_evidence(tmp_pa
 
 def test_duo_new_generator_attempt_must_rerun_checks_before_passing(tmp_path: Path):
     checks = {"unit": CheckDefinition(id="unit", argv=(sys.executable, "-c", "pass"))}
-    builder = _RoleBuilder(
+    builder = _ArtifactRoleBuilder(
         {
             ("generator", 1): [_candidate()],
             ("evaluator", 1): [_checked_evaluation(passed=False)],
@@ -432,7 +433,8 @@ def test_duo_new_generator_attempt_must_rerun_checks_before_passing(tmp_path: Pa
                 _evaluation(passed=True),
                 _checked_evaluation(passed=True),
             ],
-        }
+        },
+        tmp_path,
     )
 
     report = _runner(tmp_path, builder, evaluator_checks=checks).run("write PRIVATE_GOAL artifact")

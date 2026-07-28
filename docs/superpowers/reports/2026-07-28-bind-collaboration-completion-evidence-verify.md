@@ -19,9 +19,11 @@
 
 ## 新鲜验证证据
 
-- 沙箱可执行全套：`2408 passed, 22 skipped in 99.00s`；排除必须绑定 loopback socket 的
+- 沙箱可执行全套：归档前 `2408 passed, 22 skipped in 99.00s`；本地合并后最终复验
+  `2408 passed, 22 skipped in 99.30s`。排除必须绑定 loopback socket 的
   `tests/test_m16_filewrite_allowlist_blackbox.py` 与单独验证的 `tests/test_packaging.py`。
-- M26 最终聚焦回归：`274 passed in 35.65s`，覆盖 check runner、协作工具/Runner/integration、
+- M26 最终聚焦回归：归档前 `274 passed in 35.65s`；本地合并后最终复验
+  `274 passed in 35.98s`。覆盖 check runner、协作工具/Runner/integration、
   M26 harness、M23/M25 历史锁、协作文档和持续验证合同。
 - M26 harness：最终版本 `38 passed`；script/test SHA-256 分别为
   `b1fe8161028e352ad921271cfe184e896e4ad5f5b60255574350c24d569a1325` 与
@@ -76,6 +78,11 @@
   运行时源码 hash 的严格映射校验、中间证据批次非权威标记及运行时合同文档。
 - 最终独立复审确认 final-v5 与当前 harness、`check_runner.py`、`collaboration.py` hash 一致，
   无剩余 Critical 或 Important finding。
+- 本地合并后的第一轮复验在主工作区暴露 2 个 Runner 测试失败：测试角色 Task 未绑定
+  `tmp_path`，导致 `RunCheck` 扫描当前仓库并正确拒绝 `.codegraph/daemon.sock` 特殊文件。
+  生产 CLI/Loop/evaluation builder 均已确认传入协作 workspace；因此只把这两个测试切换到既有
+  `_ArtifactRoleBuilder(..., tmp_path)`，不放宽特殊文件 fail-closed。RED 为 `2 failed`，GREEN 为
+  `2 passed`，随后聚焦与全套复验均通过。
 
 ## 环境限制
 
@@ -89,7 +96,7 @@
 
 ## 分支处理
 
-- 当前分支：`feature/20260728/bind-collaboration-completion-evidence`。
+- M26 归档提交 `64d7ca3` 已通过 `--ff-only` 本地合并到 `main`，没有 pull 或 push。
 - 两轮自审后选择 finishing-a-development-branch 方案 3：保留分支至 Comet archive 完成，再本地
   合并到 `main`，不 push。归档前不合并可避免 active change 生命周期跨分支漂移。
 - `.superpowers/sdd/task-1-report.md` 是用户明确保留审查的无关修改，不属于 M26，所有提交继续排除；
@@ -97,6 +104,6 @@
 
 ## 最终评估
 
-M26 满足正式 verify 的通过标准，可同步 delta spec 并归档。归档后更新 ACTION_PLAN、里程碑链接和
-状态，提交归档产物，再将 feature 分支本地合并到 main；不 push。mypy、loopback 和 packaging
-全依赖安装作为环境补证缺口保留，不影响本次已验证的 M26 完成证据绑定能力。
+M26 已完成正式 verify、delta spec 同步、归档和本地合并。合并后暴露的测试夹具环境耦合已按
+systematic debugging/TDD 修复并完成全套复验；运行时源码和 final-v5 hash 均未改变。mypy、
+loopback 和 packaging 全依赖安装作为环境补证缺口保留，不影响本次已验证的 M26 完成证据绑定能力。

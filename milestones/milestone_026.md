@@ -69,12 +69,15 @@ M23/M25 历史 evidence，未新增依赖、状态 schema、公开配置面或�
 - [x] Task 4 review 发现并修复 fixture 路径逃逸、symlink、执行类型复用、provider 分类、严格
   schema/交叉一致性和安全临时文件问题；冻结 SHA 复审通过。
 - [x] 最终两轮自审发现并修正 M23 未来全局字节锁和运行时文档遗漏。
+- [x] 本地合并后复验暴露 2 个 Runner 测试未绑定 `tmp_path`；确认生产 builder 均绑定 workspace
+  后，只修测试夹具且保留特殊文件 fail-closed，最终聚焦与全套复验通过。
 - [x] 未发现未处理的 Critical/Important 正确性、安全或边界问题。
 
 ### 验收评审
 
-- [x] M26 最终聚焦回归 `274 passed`；harness 最终测试 `38 passed`。
-- [x] 沙箱可执行全套 `2408 passed, 22 skipped`；Ruff check/format 与 `git diff --check` 通过。
+- [x] M26 本地合并后最终聚焦回归 `274 passed in 35.98s`；harness 最终测试 `38 passed`。
+- [x] 本地合并后沙箱可执行全套 `2408 passed, 22 skipped in 99.30s`；Ruff check/format 与
+  `git diff --check` 通过。
 - [x] OpenSpec 归档前当前 change valid、全库 strict `21 passed, 0 failed`；归档后主规格
   `20 passed, 0 failed`。
 - [x] 权威批次 `2026-07-28-final-v5` 输出
