@@ -890,23 +890,8 @@ def _confirmed_collaboration_mode(
     read_line: Callable[[str], str],
     console: Console,
 ):
-    decision = resolve_collaboration_mode(goal, cast(CollaborationMode | None, requested_mode))
-    if not decision.override_required:
-        return decision
-    if not confirmation_available:
-        console.print("[red]collaboration override requires confirmation[/red]")
-        return None
-    try:
-        answer = read_line("allow weaker collaboration mode? [y/N] ").strip().lower()
-    except EOFError:
-        answer = ""
-    if answer not in {"y", "yes"}:
-        return None
-    return resolve_collaboration_mode(
-        goal,
-        cast(CollaborationMode | None, requested_mode),
-        allow_weaker_override=True,
-    )
+    del confirmation_available, read_line, console
+    return resolve_collaboration_mode(goal, cast(CollaborationMode | None, requested_mode))
 
 
 def run_loop_once(
@@ -1862,8 +1847,6 @@ def repl(
                 _print_command_menu(console)
                 continue
             decision = resolve_collaboration_mode(goal, None)
-            if decision.reason == "programming":
-                console.print("mode: triad (programming task)")
             if decision.mode == "single":
                 run_once(
                     goal,
@@ -2518,8 +2501,6 @@ def serve_http(
                 if record_goal
                 else resolve_collaboration_mode("ordinary request", requested_mode)
             )
-            if decision.override_required:
-                raise CollaborationRoleConfigurationError
             if decision.mode in {"duo", "triad"}:
                 role_models = {
                     "planner": settings.service.planner_model or settings.model,
@@ -2961,8 +2942,6 @@ def main(
                 )
                 if decision is None:
                     return 1 if interactive_identity else 2
-                if decision.reason == "programming":
-                    console.print("mode: triad (programming task)")
                 if decision.mode == "single":
                     outcome = run_once(
                         args.goal,

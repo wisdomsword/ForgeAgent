@@ -136,13 +136,21 @@ def test_repl_duo_dispatches_only_the_goal(monkeypatch):
     assert calls == [("verify the report", "duo")]
 
 
-def test_repl_programming_goal_auto_routes_to_triad(monkeypatch):
-    calls: list[tuple[str, str]] = []
+def test_repl_programming_goal_uses_single(monkeypatch):
+    single_calls: list[str] = []
+    collaboration_calls: list[object] = []
     monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: None)
     monkeypatch.setattr(
         cli_module,
+        "run_once",
+        lambda goal, **kwargs: (
+            single_calls.append(goal) or SimpleNamespace(status=SimpleNamespace(solved=True))
+        ),
+    )
+    monkeypatch.setattr(
+        cli_module,
         "run_collaboration_once",
-        lambda goal, **kwargs: calls.append((goal, kwargs["mode"])) or _report(mode="triad"),
+        lambda *args, **kwargs: collaboration_calls.append((args, kwargs)),
     )
     console = Console(record=True, force_terminal=False, file=__import__("io").StringIO())
     inputs = iter(["Add a unit test", "quit"])
@@ -159,11 +167,12 @@ def test_repl_programming_goal_auto_routes_to_triad(monkeypatch):
         use_registry_snapshot=False,
     )
 
-    assert calls == [("Add a unit test", "triad")]
-    assert "mode: triad (programming task)" in console.export_text()
+    assert single_calls == ["Add a unit test"]
+    assert collaboration_calls == []
+    assert "programming task" not in console.export_text()
 
 
-def test_repl_duo_programming_goal_requires_and_honors_interactive_confirmation(monkeypatch):
+def test_repl_explicit_duo_does_not_read_override_confirmation(monkeypatch):
     calls: list[tuple[str, str]] = []
     monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: None)
     monkeypatch.setattr(
@@ -171,7 +180,7 @@ def test_repl_duo_programming_goal_requires_and_honors_interactive_confirmation(
         "run_collaboration_once",
         lambda goal, **kwargs: calls.append((goal, kwargs["mode"])) or _report(),
     )
-    inputs = iter(["/duo Add a unit test", "yes", "quit"])
+    inputs = iter(["/duo Add a unit test", "quit"])
 
     repl(
         tier="restricted",
@@ -185,51 +194,6 @@ def test_repl_duo_programming_goal_requires_and_honors_interactive_confirmation(
     )
 
     assert calls == [("Add a unit test", "duo")]
-
-
-def test_repl_duo_programming_goal_rejection_does_not_run(monkeypatch):
-    calls: list[object] = []
-    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: None)
-    monkeypatch.setattr(cli_module, "run_collaboration_once", lambda *a, **k: calls.append((a, k)))
-    console = Console(record=True, force_terminal=False, file=__import__("io").StringIO())
-    inputs = iter(["/duo Add a unit test", "no", "quit"])
-
-    repl(
-        tier="restricted",
-        model="mock",
-        client_factory=lambda _model: SimpleNamespace(),
-        console=console,
-        read_line=lambda _prompt: next(inputs),
-        confirmation_available=True,
-        no_identity=True,
-        no_memory=True,
-        use_registry_snapshot=False,
-    )
-
-    assert calls == []
-
-
-def test_repl_duo_programming_goal_non_tty_rejects_without_reading_confirmation(monkeypatch):
-    calls: list[object] = []
-    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: None)
-    monkeypatch.setattr(cli_module, "run_collaboration_once", lambda *a, **k: calls.append((a, k)))
-    console = Console(record=True, force_terminal=False, file=__import__("io").StringIO())
-    inputs = iter(["/duo Add a unit test", "quit"])
-
-    repl(
-        tier="restricted",
-        model="mock",
-        client_factory=lambda _model: SimpleNamespace(),
-        console=console,
-        read_line=lambda _prompt: next(inputs),
-        confirmation_available=False,
-        no_identity=True,
-        no_memory=True,
-        use_registry_snapshot=False,
-    )
-
-    assert calls == []
-    assert "collaboration override requires confirmation" in console.export_text()
 
 
 def test_run_collaboration_wraps_role_client_configuration_errors(tmp_path, monkeypatch):
@@ -410,15 +374,17 @@ def test_loop_context_is_untrusted_role_data_and_checkpoint_only_extends_generat
     assert "Checkpoint" not in role_tools["evaluator"]
 
 
-def test_cli_run_auto_routes_programming_goal_to_triad(monkeypatch):
-    calls: list[tuple[str, str]] = []
+def test_cli_programming_goal_uses_run_once(monkeypatch):
+    calls: list[str] = []
     monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: None)
     monkeypatch.setattr(cli_module, "resolve_cli_identity", lambda **kwargs: None)
     monkeypatch.setattr(cli_module, "_load_skill_registry", lambda **kwargs: None)
     monkeypatch.setattr(
         cli_module,
-        "run_collaboration_once",
-        lambda goal, **kwargs: calls.append((goal, kwargs["mode"])) or _report(mode="triad"),
+        "run_once",
+        lambda goal, **kwargs: (
+            calls.append(goal) or SimpleNamespace(status=SimpleNamespace(solved=True))
+        ),
     )
 
     code = cli_module.main(
@@ -427,7 +393,7 @@ def test_cli_run_auto_routes_programming_goal_to_triad(monkeypatch):
     )
 
     assert code == 0
-    assert calls == [("Add a unit test", "triad")]
+    assert calls == ["Add a unit test"]
 
 
 def test_cli_run_single_nonprogramming_uses_unchanged_run_once(monkeypatch):
