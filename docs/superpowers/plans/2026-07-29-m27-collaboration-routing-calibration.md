@@ -316,7 +316,7 @@ git commit -m "docs: publish m27 collaboration routing policy"
 - Consumes: Task 1-3 提交与全部验证命令。
 - Produces: 精确当前基线、验证报告、完成的 OpenSpec tasks 和 M27 续接记录。
 
-- [ ] **Step 1: 运行完整验证**
+- [x] **Step 1: 运行完整验证**
 
 Run:
 
@@ -333,7 +333,7 @@ git diff --check
 Expected: pytest 全通过且只保留环境依赖 skip；Ruff 两项通过；OpenSpec 全部 strict 通过；Golden
 `20/20`；wheel/sdist 构建成功；diff check 无输出。
 
-- [ ] **Step 2: 用实际结果定稿基线并复验合同**
+- [x] **Step 2: 用实际结果定稿基线并复验合同**
 
 把 Step 1 的精确 pytest、OpenSpec、Golden 数字同时写入 README 与 platform-support。Run:
 
@@ -341,7 +341,7 @@ Expected: pytest 全通过且只保留环境依赖 skip；Ruff 两项通过；Op
 
 Expected: PASS，两个公开文件数字一致。
 
-- [ ] **Step 3: 两轮最终自审**
+- [x] **Step 3: 两轮最终自审**
 
 第一轮检查：逐条映射三份 delta spec 与新 capability，确认没有恢复自动类别、没有把 candidate files
 当证据、M25 冻结树无 diff、Linux/Memory claim 精确。第二轮检查：搜索
@@ -349,13 +349,13 @@ Expected: PASS，两个公开文件数字一致。
 并逐项判断剩余出现是否为历史归档；检查显式 Single/Duo/Triad、bound_checks audit、HTTP/Loop 兼容。
 发现问题立即添加失败测试、修复并复验。
 
-- [ ] **Step 4: 写验证报告与里程碑**
+- [x] **Step 4: 写验证报告与里程碑**
 
 验证报告记录命令、实际输出摘要、M25 派生关键数字、两轮自审结论、独立审查结论和已知边界。
 `milestone_027.md` 按 `MILESTONE_GUIDE.md` 包含状态、范围、设计、任务、交付物、评审、验证、遗留和
 续接指引；`milestones/latest` 指向 `milestone_027.md`。
 
-- [ ] **Step 5: 勾选 OpenSpec 与计划任务并提交**
+- [x] **Step 5: 勾选 OpenSpec 与计划任务并提交**
 
 勾选本计划和 `openspec/changes/calibrate-collaboration-routing/tasks.md` 的对应完成项。Run:
 
@@ -364,7 +364,7 @@ git add README.md docs/platform-support.md openspec/changes/calibrate-collaborat
 git commit -m "chore: complete m27 collaboration routing calibration"
 ```
 
-- [ ] **Step 6: 运行最终状态检查**
+- [x] **Step 6: 运行最终状态检查**
 
 Run:
 
