@@ -1,0 +1,2082 @@
+{
+  "automatic_triad_restored_for": [],
+  "decision": {
+    "default_mode": "single",
+    "reason": "No task family has a strictly higher Triad solved rate than Single.",
+    "triad_still_available_for": [
+      "explicit_selection",
+      "bound_checks"
+    ]
+  },
+  "families": {
+    "baseline": {
+      "duo": {
+        "end_to_end_latency_seconds": {
+          "mean": 144.37527486383138,
+          "sum": 4331.258245914942
+        },
+        "false_completion_rate_runtime_completed": {
+          "denominator": 20,
+          "numerator": 3,
+          "value": 0.15
+        },
+        "false_completion_rate_scheduled": {
+          "denominator": 30,
+          "numerator": 3,
+          "value": 0.1
+        },
+        "false_completions": 3,
+        "logical_model_calls": {
+          "mean": 10.633333333333333,
+          "sum": 319
+        },
+        "provider_attempts": {
+          "mean": 10.633333333333333,
+          "sum": 319
+        },
+        "runtime_completed_runs": 20,
+        "scheduled_runs": 30,
+        "solved_rate": {
+          "denominator": 30,
+          "numerator": 17,
+          "value": 0.5666666666666667
+        },
+        "solved_runs": 17,
+        "termination_reasons": {
+          "completed": 20,
+          "invalid_role_submission": 4,
+          "rejection_limit": 6
+        },
+        "tokens": {
+          "mean": {
+            "cached_tokens": 5060.266666666666,
+            "input_tokens": 20316.366666666665,
+            "output_tokens": 10239.6,
+            "reasoning_tokens": 5648.1
+          },
+          "sum": {
+            "cached_tokens": 151808,
+            "input_tokens": 609491,
+            "output_tokens": 307188,
+            "reasoning_tokens": 169443
+          }
+        }
+      },
+      "single": {
+        "end_to_end_latency_seconds": {
+          "mean": 73.31212675420878,
+          "sum": 2199.3638026262634
+        },
+        "false_completion_rate_runtime_completed": {
+          "denominator": 24,
+          "numerator": 2,
+          "value": 0.08333333333333333
+        },
+        "false_completion_rate_scheduled": {
+          "denominator": 30,
+          "numerator": 2,
+          "value": 0.06666666666666667
+        },
+        "false_completions": 2,
+        "logical_model_calls": {
+          "mean": 5.966666666666667,
+          "sum": 179
+        },
+        "provider_attempts": {
+          "mean": 5.966666666666667,
+          "sum": 179
+        },
+        "runtime_completed_runs": 24,
+        "scheduled_runs": 30,
+        "solved_rate": {
+          "denominator": 30,
+          "numerator": 22,
+          "value": 0.7333333333333333
+        },
+        "solved_runs": 22,
+        "termination_reasons": {
+          "answered_in_prose": 3,
+          "completed": 24,
+          "failed": 1,
+          "max_rounds": 2
+        },
+        "tokens": {
+          "mean": {
+            "cached_tokens": 4864.0,
+            "input_tokens": 20886.7,
+            "output_tokens": 4635.866666666667,
+            "reasoning_tokens": 2013.6333333333334
+          },
+          "sum": {
+            "cached_tokens": 145920,
+            "input_tokens": 626601,
+            "output_tokens": 139076,
+            "reasoning_tokens": 60409
+          }
+        }
+      },
+      "triad": {
+        "end_to_end_latency_seconds": {
+          "mean": 144.4863550362798,
+          "sum": 4334.590651088394
+        },
+        "false_completion_rate_runtime_completed": {
+          "denominator": 22,
+          "numerator": 0,
+          "value": 0.0
+        },
+        "false_completion_rate_scheduled": {
+          "denominator": 30,
+          "numerator": 0,
+          "value": 0.0
+        },
+        "false_completions": 0,
+        "logical_model_calls": {
+          "mean": 11.633333333333333,
+          "sum": 349
+        },
+        "provider_attempts": {
+          "mean": 11.633333333333333,
+          "sum": 349
+        },
+        "runtime_completed_runs": 22,
+        "scheduled_runs": 30,
+        "solved_rate": {
+          "denominator": 30,
+          "numerator": 22,
+          "value": 0.7333333333333333
+        },
+        "solved_runs": 22,
+        "termination_reasons": {
+          "completed": 22,
+          "invalid_role_submission": 2,
+          "rejection_limit": 6
+        },
+        "tokens": {
+          "mean": {
+            "cached_tokens": 4241.066666666667,
+            "input_tokens": 23867.0,
+            "output_tokens": 10114.5,
+            "reasoning_tokens": 4530.8
+          },
+          "sum": {
+            "cached_tokens": 127232,
+            "input_tokens": 716010,
+            "output_tokens": 303435,
+            "reasoning_tokens": 135924
+          }
+        }
+      }
+    },
+    "bugfix": {
+      "duo": {
+        "end_to_end_latency_seconds": {
+          "mean": 147.23306565419188,
+          "sum": 2944.6613130838377
+        },
+        "false_completion_rate_runtime_completed": {
+          "denominator": 15,
+          "numerator": 8,
+          "value": 0.5333333333333333
+        },
+        "false_completion_rate_scheduled": {
+          "denominator": 20,
+          "numerator": 8,
+          "value": 0.4
+        },
+        "false_completions": 8,
+        "logical_model_calls": {
+          "mean": 8.9,
+          "sum": 178
+        },
+        "provider_attempts": {
+          "mean": 8.9,
+          "sum": 178
+        },
+        "runtime_completed_runs": 15,
+        "scheduled_runs": 20,
+        "solved_rate": {
+          "denominator": 20,
+          "numerator": 7,
+          "value": 0.35
+        },
+        "solved_runs": 7,
+        "termination_reasons": {
+          "completed": 15,
+          "invalid_role_submission": 1,
+          "rejection_limit": 4
+        },
+        "tokens": {
+          "mean": {
+            "cached_tokens": 3430.4,
+            "input_tokens": 14893.95,
+            "output_tokens": 9843.75,
+            "reasoning_tokens": 5836.2
+          },
+          "sum": {
+            "cached_tokens": 68608,
+            "input_tokens": 297879,
+            "output_tokens": 196875,
+            "reasoning_tokens": 116724
+          }
+        }
+      },
+      "single": {
+        "end_to_end_latency_seconds": {
+          "mean": 78.5189548666007,
+          "sum": 1570.3790973320138
+        },
+        "false_completion_rate_runtime_completed": {
+          "denominator": 19,
+          "numerator": 2,
+          "value": 0.10526315789473684
+        },
+        "false_completion_rate_scheduled": {
+          "denominator": 20,
+          "numerator": 2,
+          "value": 0.1
+        },
+        "false_completions": 2,
+        "logical_model_calls": {
+          "mean": 5.85,
+          "sum": 117
+        },
+        "provider_attempts": {
+          "mean": 5.85,
+          "sum": 117
+        },
+        "runtime_completed_runs": 19,
+        "scheduled_runs": 20,
+        "solved_rate": {
+          "denominator": 20,
+          "numerator": 17,
+          "value": 0.85
+        },
+        "solved_runs": 17,
+        "termination_reasons": {
+          "completed": 19,
+          "max_rounds": 1
+        },
+        "tokens": {
+          "mean": {
+            "cached_tokens": 5068.8,
+            "input_tokens": 21369.25,
+            "output_tokens": 5143.25,
+            "reasoning_tokens": 2184.8
+          },
+          "sum": {
+            "cached_tokens": 101376,
+            "input_tokens": 427385,
+            "output_tokens": 102865,
+            "reasoning_tokens": 43696
+          }
+        }
+      },
+      "triad": {
+        "end_to_end_latency_seconds": {
+          "mean": 166.48916729170597,
+          "sum": 3329.7833458341192
+        },
+        "false_completion_rate_runtime_completed": {
+          "denominator": 14,
+          "numerator": 5,
+          "value": 0.35714285714285715
+        },
+        "false_completion_rate_scheduled": {
+          "denominator": 20,
+          "numerator": 5,
+          "value": 0.25
+        },
+        "false_completions": 5,
+        "logical_model_calls": {
+          "mean": 9.3,
+          "sum": 186
+        },
+        "provider_attempts": {
+          "mean": 9.3,
+          "sum": 186
+        },
+        "runtime_completed_runs": 14,
+        "scheduled_runs": 20,
+        "solved_rate": {
+          "denominator": 20,
+          "numerator": 9,
+          "value": 0.45
+        },
+        "solved_runs": 9,
+        "termination_reasons": {
+          "completed": 14,
+          "invalid_role_submission": 1,
+          "rejection_limit": 5
+        },
+        "tokens": {
+          "mean": {
+            "cached_tokens": 3763.2,
+            "input_tokens": 15910.15,
+            "output_tokens": 11448.2,
+            "reasoning_tokens": 6394.1
+          },
+          "sum": {
+            "cached_tokens": 75264,
+            "input_tokens": 318203,
+            "output_tokens": 228964,
+            "reasoning_tokens": 127882
+          }
+        }
+      }
+    },
+    "feature": {
+      "duo": {
+        "end_to_end_latency_seconds": {
+          "mean": 236.07605369387892,
+          "sum": 4721.521073877579
+        },
+        "false_completion_rate_runtime_completed": {
+          "denominator": 9,
+          "numerator": 7,
+          "value": 0.7777777777777778
+        },
+        "false_completion_rate_scheduled": {
+          "denominator": 20,
+          "numerator": 7,
+          "value": 0.35
+        },
+        "false_completions": 7,
+        "logical_model_calls": {
+          "mean": 9.8,
+          "sum": 196
+        },
+        "provider_attempts": {
+          "mean": 9.8,
+          "sum": 196
+        },
+        "runtime_completed_runs": 9,
+        "scheduled_runs": 20,
+        "solved_rate": {
+          "denominator": 20,
+          "numerator": 2,
+          "value": 0.1
+        },
+        "solved_runs": 2,
+        "termination_reasons": {
+          "completed": 9,
+          "rejection_limit": 6,
+          "role_failed": 5
+        },
+        "tokens": {
+          "mean": {
+            "cached_tokens": 5555.2,
+            "input_tokens": 20143.7,
+            "output_tokens": 12871.95,
+            "reasoning_tokens": 7590.0
+          },
+          "sum": {
+            "cached_tokens": 111104,
+            "input_tokens": 402874,
+            "output_tokens": 257439,
+            "reasoning_tokens": 151800
+          }
+        }
+      },
+      "single": {
+        "end_to_end_latency_seconds": {
+          "mean": 124.78923530003522,
+          "sum": 2495.7847060007043
+        },
+        "false_completion_rate_runtime_completed": {
+          "denominator": 9,
+          "numerator": 5,
+          "value": 0.5555555555555556
+        },
+        "false_completion_rate_scheduled": {
+          "denominator": 20,
+          "numerator": 5,
+          "value": 0.25
+        },
+        "false_completions": 5,
+        "logical_model_calls": {
+          "mean": 7.05,
+          "sum": 141
+        },
+        "provider_attempts": {
+          "mean": 7.05,
+          "sum": 141
+        },
+        "runtime_completed_runs": 9,
+        "scheduled_runs": 20,
+        "solved_rate": {
+          "denominator": 20,
+          "numerator": 4,
+          "value": 0.2
+        },
+        "solved_runs": 4,
+        "termination_reasons": {
+          "answered_in_prose": 1,
+          "completed": 9,
+          "max_rounds": 9,
+          "needs_info": 1
+        },
+        "tokens": {
+          "mean": {
+            "cached_tokens": 4800.0,
+            "input_tokens": 35147.05,
+            "output_tokens": 9185.15,
+            "reasoning_tokens": 4041.15
+          },
+          "sum": {
+            "cached_tokens": 96000,
+            "input_tokens": 702941,
+            "output_tokens": 183703,
+            "reasoning_tokens": 80823
+          }
+        }
+      },
+      "triad": {
+        "end_to_end_latency_seconds": {
+          "mean": 270.6448536832293,
+          "sum": 5412.897073664586
+        },
+        "false_completion_rate_runtime_completed": {
+          "denominator": 15,
+          "numerator": 14,
+          "value": 0.9333333333333333
+        },
+        "false_completion_rate_scheduled": {
+          "denominator": 20,
+          "numerator": 14,
+          "value": 0.7
+        },
+        "false_completions": 14,
+        "logical_model_calls": {
+          "mean": 9.25,
+          "sum": 185
+        },
+        "provider_attempts": {
+          "mean": 9.25,
+          "sum": 185
+        },
+        "runtime_completed_runs": 15,
+        "scheduled_runs": 20,
+        "solved_rate": {
+          "denominator": 20,
+          "numerator": 1,
+          "value": 0.05
+        },
+        "solved_runs": 1,
+        "termination_reasons": {
+          "completed": 15,
+          "rejection_limit": 3,
+          "role_failed": 1,
+          "unrecoverable_failure": 1
+        },
+        "tokens": {
+          "mean": {
+            "cached_tokens": 5363.2,
+            "input_tokens": 23007.65,
+            "output_tokens": 16756.1,
+            "reasoning_tokens": 10273.25
+          },
+          "sum": {
+            "cached_tokens": 107264,
+            "input_tokens": 460153,
+            "output_tokens": 335122,
+            "reasoning_tokens": 205465
+          }
+        }
+      }
+    },
+    "refactor": {
+      "duo": {
+        "end_to_end_latency_seconds": {
+          "mean": 211.7490913668531,
+          "sum": 4234.981827337062
+        },
+        "false_completion_rate_runtime_completed": {
+          "denominator": 12,
+          "numerator": 9,
+          "value": 0.75
+        },
+        "false_completion_rate_scheduled": {
+          "denominator": 20,
+          "numerator": 9,
+          "value": 0.45
+        },
+        "false_completions": 9,
+        "logical_model_calls": {
+          "mean": 9.85,
+          "sum": 197
+        },
+        "provider_attempts": {
+          "mean": 9.85,
+          "sum": 197
+        },
+        "runtime_completed_runs": 12,
+        "scheduled_runs": 20,
+        "solved_rate": {
+          "denominator": 20,
+          "numerator": 3,
+          "value": 0.15
+        },
+        "solved_runs": 3,
+        "termination_reasons": {
+          "completed": 12,
+          "invalid_role_submission": 5,
+          "rejection_limit": 1,
+          "role_failed": 2
+        },
+        "tokens": {
+          "mean": {
+            "cached_tokens": 5363.2,
+            "input_tokens": 19001.45,
+            "output_tokens": 11112.05,
+            "reasoning_tokens": 6949.0
+          },
+          "sum": {
+            "cached_tokens": 107264,
+            "input_tokens": 380029,
+            "output_tokens": 222241,
+            "reasoning_tokens": 138980
+          }
+        }
+      },
+      "single": {
+        "end_to_end_latency_seconds": {
+          "mean": 84.1207506333536,
+          "sum": 1682.415012667072
+        },
+        "false_completion_rate_runtime_completed": {
+          "denominator": 15,
+          "numerator": 6,
+          "value": 0.4
+        },
+        "false_completion_rate_scheduled": {
+          "denominator": 20,
+          "numerator": 6,
+          "value": 0.3
+        },
+        "false_completions": 6,
+        "logical_model_calls": {
+          "mean": 7.3,
+          "sum": 146
+        },
+        "provider_attempts": {
+          "mean": 7.3,
+          "sum": 146
+        },
+        "runtime_completed_runs": 15,
+        "scheduled_runs": 20,
+        "solved_rate": {
+          "denominator": 20,
+          "numerator": 9,
+          "value": 0.45
+        },
+        "solved_runs": 9,
+        "termination_reasons": {
+          "completed": 15,
+          "max_rounds": 5
+        },
+        "tokens": {
+          "mean": {
+            "cached_tokens": 5094.4,
+            "input_tokens": 24675.0,
+            "output_tokens": 5380.9,
+            "reasoning_tokens": 2617.45
+          },
+          "sum": {
+            "cached_tokens": 101888,
+            "input_tokens": 493500,
+            "output_tokens": 107618,
+            "reasoning_tokens": 52349
+          }
+        }
+      },
+      "triad": {
+        "end_to_end_latency_seconds": {
+          "mean": 248.22169439370046,
+          "sum": 4964.433887874009
+        },
+        "false_completion_rate_runtime_completed": {
+          "denominator": 9,
+          "numerator": 6,
+          "value": 0.6666666666666666
+        },
+        "false_completion_rate_scheduled": {
+          "denominator": 20,
+          "numerator": 6,
+          "value": 0.3
+        },
+        "false_completions": 6,
+        "logical_model_calls": {
+          "mean": 11.0,
+          "sum": 220
+        },
+        "provider_attempts": {
+          "mean": 11.0,
+          "sum": 220
+        },
+        "runtime_completed_runs": 9,
+        "scheduled_runs": 20,
+        "solved_rate": {
+          "denominator": 20,
+          "numerator": 3,
+          "value": 0.15
+        },
+        "solved_runs": 3,
+        "termination_reasons": {
+          "completed": 9,
+          "invalid_role_submission": 2,
+          "rejection_limit": 4,
+          "role_failed": 5
+        },
+        "tokens": {
+          "mean": {
+            "cached_tokens": 7270.4,
+            "input_tokens": 25075.25,
+            "output_tokens": 14493.0,
+            "reasoning_tokens": 9362.85
+          },
+          "sum": {
+            "cached_tokens": 145408,
+            "input_tokens": 501505,
+            "output_tokens": 289860,
+            "reasoning_tokens": 187257
+          }
+        }
+      }
+    }
+  },
+  "models": {
+    "claude-haiku-4-5": {
+      "duo": {
+        "end_to_end_latency_seconds": {
+          "mean": 88.20431382789329,
+          "sum": 3969.1941222551977
+        },
+        "false_completion_rate_runtime_completed": {
+          "denominator": 36,
+          "numerator": 18,
+          "value": 0.5
+        },
+        "false_completion_rate_scheduled": {
+          "denominator": 45,
+          "numerator": 18,
+          "value": 0.4
+        },
+        "false_completions": 18,
+        "logical_model_calls": {
+          "mean": 11.355555555555556,
+          "sum": 511
+        },
+        "provider_attempts": {
+          "mean": 11.355555555555556,
+          "sum": 511
+        },
+        "runtime_completed_runs": 36,
+        "scheduled_runs": 45,
+        "solved_rate": {
+          "denominator": 45,
+          "numerator": 18,
+          "value": 0.4
+        },
+        "solved_runs": 18,
+        "termination_reasons": {
+          "completed": 36,
+          "invalid_role_submission": 4,
+          "rejection_limit": 1,
+          "role_failed": 4
+        },
+        "tokens": {
+          "mean": {
+            "cached_tokens": 0.0,
+            "input_tokens": 15794.244444444445,
+            "output_tokens": 5978.666666666667,
+            "reasoning_tokens": 0.0
+          },
+          "sum": {
+            "cached_tokens": 0,
+            "input_tokens": 710741,
+            "output_tokens": 269040,
+            "reasoning_tokens": 0
+          }
+        }
+      },
+      "single": {
+        "end_to_end_latency_seconds": {
+          "mean": 56.97717275923739,
+          "sum": 2563.9727741656825
+        },
+        "false_completion_rate_runtime_completed": {
+          "denominator": 27,
+          "numerator": 4,
+          "value": 0.14814814814814814
+        },
+        "false_completion_rate_scheduled": {
+          "denominator": 45,
+          "numerator": 4,
+          "value": 0.08888888888888889
+        },
+        "false_completions": 4,
+        "logical_model_calls": {
+          "mean": 7.777777777777778,
+          "sum": 350
+        },
+        "provider_attempts": {
+          "mean": 7.777777777777778,
+          "sum": 350
+        },
+        "runtime_completed_runs": 27,
+        "scheduled_runs": 45,
+        "solved_rate": {
+          "denominator": 45,
+          "numerator": 23,
+          "value": 0.5111111111111111
+        },
+        "solved_runs": 23,
+        "termination_reasons": {
+          "answered_in_prose": 2,
+          "completed": 27,
+          "failed": 1,
+          "max_rounds": 15
+        },
+        "tokens": {
+          "mean": {
+            "cached_tokens": 0.0,
+            "input_tokens": 26451.6,
+            "output_tokens": 4387.333333333333,
+            "reasoning_tokens": 0.0
+          },
+          "sum": {
+            "cached_tokens": 0,
+            "input_tokens": 1190322,
+            "output_tokens": 197430,
+            "reasoning_tokens": 0
+          }
+        }
+      },
+      "triad": {
+        "end_to_end_latency_seconds": {
+          "mean": 84.36034844811333,
+          "sum": 3796.2156801651
+        },
+        "false_completion_rate_runtime_completed": {
+          "denominator": 38,
+          "numerator": 15,
+          "value": 0.39473684210526316
+        },
+        "false_completion_rate_scheduled": {
+          "denominator": 45,
+          "numerator": 15,
+          "value": 0.3333333333333333
+        },
+        "false_completions": 15,
+        "logical_model_calls": {
+          "mean": 10.4,
+          "sum": 468
+        },
+        "provider_attempts": {
+          "mean": 10.4,
+          "sum": 468
+        },
+        "runtime_completed_runs": 38,
+        "scheduled_runs": 45,
+        "solved_rate": {
+          "denominator": 45,
+          "numerator": 23,
+          "value": 0.5111111111111111
+        },
+        "solved_runs": 23,
+        "termination_reasons": {
+          "completed": 38,
+          "invalid_role_submission": 3,
+          "rejection_limit": 1,
+          "role_failed": 2,
+          "unrecoverable_failure": 1
+        },
+        "tokens": {
+          "mean": {
+            "cached_tokens": 0.0,
+            "input_tokens": 16331.666666666666,
+            "output_tokens": 6836.333333333333,
+            "reasoning_tokens": 0.0
+          },
+          "sum": {
+            "cached_tokens": 0,
+            "input_tokens": 734925,
+            "output_tokens": 307635,
+            "reasoning_tokens": 0
+          }
+        }
+      }
+    },
+    "gpt-5.4-mini": {
+      "duo": {
+        "end_to_end_latency_seconds": {
+          "mean": 272.51618528796047,
+          "sum": 12263.228337958222
+        },
+        "false_completion_rate_runtime_completed": {
+          "denominator": 20,
+          "numerator": 9,
+          "value": 0.45
+        },
+        "false_completion_rate_scheduled": {
+          "denominator": 45,
+          "numerator": 9,
+          "value": 0.2
+        },
+        "false_completions": 9,
+        "logical_model_calls": {
+          "mean": 8.422222222222222,
+          "sum": 379
+        },
+        "provider_attempts": {
+          "mean": 8.422222222222222,
+          "sum": 379
+        },
+        "runtime_completed_runs": 20,
+        "scheduled_runs": 45,
+        "solved_rate": {
+          "denominator": 45,
+          "numerator": 11,
+          "value": 0.24444444444444444
+        },
+        "solved_runs": 11,
+        "termination_reasons": {
+          "completed": 20,
+          "invalid_role_submission": 6,
+          "rejection_limit": 16,
+          "role_failed": 3
+        },
+        "tokens": {
+          "mean": {
+            "cached_tokens": 9750.755555555555,
+            "input_tokens": 21767.37777777778,
+            "output_tokens": 15882.288888888888,
+            "reasoning_tokens": 12821.044444444444
+          },
+          "sum": {
+            "cached_tokens": 438784,
+            "input_tokens": 979532,
+            "output_tokens": 714703,
+            "reasoning_tokens": 576947
+          }
+        }
+      },
+      "single": {
+        "end_to_end_latency_seconds": {
+          "mean": 119.64377432134158,
+          "sum": 5383.969844460371
+        },
+        "false_completion_rate_runtime_completed": {
+          "denominator": 40,
+          "numerator": 11,
+          "value": 0.275
+        },
+        "false_completion_rate_scheduled": {
+          "denominator": 45,
+          "numerator": 11,
+          "value": 0.24444444444444444
+        },
+        "false_completions": 11,
+        "logical_model_calls": {
+          "mean": 5.177777777777778,
+          "sum": 233
+        },
+        "provider_attempts": {
+          "mean": 5.177777777777778,
+          "sum": 233
+        },
+        "runtime_completed_runs": 40,
+        "scheduled_runs": 45,
+        "solved_rate": {
+          "denominator": 45,
+          "numerator": 29,
+          "value": 0.6444444444444445
+        },
+        "solved_runs": 29,
+        "termination_reasons": {
+          "answered_in_prose": 2,
+          "completed": 40,
+          "max_rounds": 2,
+          "needs_info": 1
+        },
+        "tokens": {
+          "mean": {
+            "cached_tokens": 9892.977777777778,
+            "input_tokens": 23557.88888888889,
+            "output_tokens": 7462.933333333333,
+            "reasoning_tokens": 5272.822222222222
+          },
+          "sum": {
+            "cached_tokens": 445184,
+            "input_tokens": 1060105,
+            "output_tokens": 335832,
+            "reasoning_tokens": 237277
+          }
+        }
+      },
+      "triad": {
+        "end_to_end_latency_seconds": {
+          "mean": 316.566428406578,
+          "sum": 14245.489278296009
+        },
+        "false_completion_rate_runtime_completed": {
+          "denominator": 22,
+          "numerator": 10,
+          "value": 0.45454545454545453
+        },
+        "false_completion_rate_scheduled": {
+          "denominator": 45,
+          "numerator": 10,
+          "value": 0.2222222222222222
+        },
+        "false_completions": 10,
+        "logical_model_calls": {
+          "mean": 10.488888888888889,
+          "sum": 472
+        },
+        "provider_attempts": {
+          "mean": 10.488888888888889,
+          "sum": 472
+        },
+        "runtime_completed_runs": 22,
+        "scheduled_runs": 45,
+        "solved_rate": {
+          "denominator": 45,
+          "numerator": 12,
+          "value": 0.26666666666666666
+        },
+        "solved_runs": 12,
+        "termination_reasons": {
+          "completed": 22,
+          "invalid_role_submission": 2,
+          "rejection_limit": 17,
+          "role_failed": 4
+        },
+        "tokens": {
+          "mean": {
+            "cached_tokens": 10114.844444444445,
+            "input_tokens": 28021.022222222222,
+            "output_tokens": 18883.244444444445,
+            "reasoning_tokens": 14589.511111111111
+          },
+          "sum": {
+            "cached_tokens": 455168,
+            "input_tokens": 1260946,
+            "output_tokens": 849746,
+            "reasoning_tokens": 656528
+          }
+        }
+      }
+    }
+  },
+  "quality_eligible_for_automatic_triad": [],
+  "schema": "forgeagent.m27.collaboration-routing-analysis/v1",
+  "source": {
+    "environment_sha256": "d5a2ca6bac51c03c816f23eb280b0f3f764f4bf8aa6d7f33cd95981a963fecd6",
+    "frozen_manifest": {
+      "files": [
+        {
+          "path": "protocol.json",
+          "sha256": "3a244220f6519c166ec9b4fb368c5e1ad05f25aae0c2d4ba86398f9051649425"
+        },
+        {
+          "path": "environment.json",
+          "sha256": "8e65c6b692dd92ac53e9ed172f61706899f57ffaa79dee648c038d7ff0562570"
+        },
+        {
+          "path": "summary.json",
+          "sha256": "3f5a52ec344b0e146e1363e76826a622e98e75763e8440de7ef9d637a4943785"
+        },
+        {
+          "path": "report.md",
+          "sha256": "ebf304eb2556e3f69b44dc2b8ff69df7a32dfb9b680038ae372bf09b8975573f"
+        },
+        {
+          "path": "raw/001-csv-region-summary-claude-haiku-4-5-r1-single.json",
+          "sha256": "61a9c534394aa8ae3591ef575564efbef2a703a7b937b0ccb62dc1318d9e2e4c"
+        },
+        {
+          "path": "raw/002-csv-region-summary-claude-haiku-4-5-r1-duo.json",
+          "sha256": "ca83494cbb239d657289150698e6100664d5b1a142044386ba326e6654aa7ac5"
+        },
+        {
+          "path": "raw/003-csv-region-summary-claude-haiku-4-5-r1-triad.json",
+          "sha256": "02af08a07cf7ab9d91bf12d1e440900e8f15318df0ac630d1f6d0eda447d41f3"
+        },
+        {
+          "path": "raw/004-csv-region-summary-gpt-5-4-mini-r1-duo.json",
+          "sha256": "e2c1a7cf63aecd4fdb8345c144bc7aa1353a314fb070000f19cf75bb9d6720a0"
+        },
+        {
+          "path": "raw/005-csv-region-summary-gpt-5-4-mini-r1-triad.json",
+          "sha256": "603dbfeb87cb7b0111056f21565336689f2f74dbdd088b9b525151685d41c5a1"
+        },
+        {
+          "path": "raw/006-csv-region-summary-gpt-5-4-mini-r1-single.json",
+          "sha256": "077fd7e4ea31cd12967034c33d53e2365dfbf3524578729d1676aafef8cf04f9"
+        },
+        {
+          "path": "raw/007-csv-region-summary-gpt-5-4-mini-r2-triad.json",
+          "sha256": "7b76d71b8dfc9f4ee2c39a8b16a2d225fa0dc832bf67db194ee18841f48d58f5"
+        },
+        {
+          "path": "raw/008-csv-region-summary-gpt-5-4-mini-r2-single.json",
+          "sha256": "b5ec02e18330d3207fe610796da9f907a9423033ea86265bf30605ad2e4a3d44"
+        },
+        {
+          "path": "raw/009-csv-region-summary-gpt-5-4-mini-r2-duo.json",
+          "sha256": "a261b60da7c8503b402975cca616352e5f28cb75961e2fad2d8cee91ac6370e5"
+        },
+        {
+          "path": "raw/010-csv-region-summary-claude-haiku-4-5-r2-duo.json",
+          "sha256": "adca6d8be150b3af220ca945e39a0d2a10d3d0d3a034c91cf8abfd9143707423"
+        },
+        {
+          "path": "raw/011-csv-region-summary-claude-haiku-4-5-r2-triad.json",
+          "sha256": "494d6e15b72110dc80a96d745f62632efabfa7a5fe62379a11887a0fb3c2cce3"
+        },
+        {
+          "path": "raw/012-csv-region-summary-claude-haiku-4-5-r2-single.json",
+          "sha256": "db702d850ba8c42b6c4a39cdfbe36e38e0428312d414033d1b2cf4ac8f94e05b"
+        },
+        {
+          "path": "raw/013-csv-region-summary-claude-haiku-4-5-r3-triad.json",
+          "sha256": "4a411a20693cacf5370674b760bc6c6e9e672304f306cec0fc48981a6c92a5a2"
+        },
+        {
+          "path": "raw/014-csv-region-summary-claude-haiku-4-5-r3-single.json",
+          "sha256": "b37a63da63b14cd1f5cb0bc1c6b9c15e62a2e7fd09f466913d2863e9fcd41e14"
+        },
+        {
+          "path": "raw/015-csv-region-summary-claude-haiku-4-5-r3-duo.json",
+          "sha256": "a71c89815a724e56854617519a0e4b937731441292074a60b8fbdd26570cd4f7"
+        },
+        {
+          "path": "raw/016-csv-region-summary-gpt-5-4-mini-r3-single.json",
+          "sha256": "5708122a164f491b82fe261d2a18c57bfd02f1c6a2cf00b79cbabb09df0f58eb"
+        },
+        {
+          "path": "raw/017-csv-region-summary-gpt-5-4-mini-r3-duo.json",
+          "sha256": "9263388317cfcbaa2e62ff87eb3b77dc3018386b29f28bddc97c7c00ed541855"
+        },
+        {
+          "path": "raw/018-csv-region-summary-gpt-5-4-mini-r3-triad.json",
+          "sha256": "e5e73482f198e4c969eef31367019db07574598221c3aa1671d5c0fdb41e5e8c"
+        },
+        {
+          "path": "raw/019-csv-region-summary-gpt-5-4-mini-r4-duo.json",
+          "sha256": "dd94affa65ba6d07ffe09b486dcfda3ab73528c2186ef5d0ed3b0b75fb2a4df2"
+        },
+        {
+          "path": "raw/020-csv-region-summary-gpt-5-4-mini-r4-triad.json",
+          "sha256": "ce757cb632b7fba7f1896e738b0408ad21ca56ed9f68cde21ea94eced687adee"
+        },
+        {
+          "path": "raw/021-csv-region-summary-gpt-5-4-mini-r4-single.json",
+          "sha256": "81a94aed18e50276e109d737f8a2d4992889d960f9d723f81eb5118012c8422a"
+        },
+        {
+          "path": "raw/022-csv-region-summary-claude-haiku-4-5-r4-single.json",
+          "sha256": "df003801ec9f0d3564c5d7891815c6e6c5ace578b13f5afb0d03eaea216aae74"
+        },
+        {
+          "path": "raw/023-csv-region-summary-claude-haiku-4-5-r4-duo.json",
+          "sha256": "6ad4f3972a5b807c8c002b62545cc9c3929c0ed9cb5dec58bb61a7cde51afbf5"
+        },
+        {
+          "path": "raw/024-csv-region-summary-claude-haiku-4-5-r4-triad.json",
+          "sha256": "8f61b6121a5d66d1065da10004d16eefdd32bae9ded76db880770b81a160c536"
+        },
+        {
+          "path": "raw/025-csv-region-summary-claude-haiku-4-5-r5-duo.json",
+          "sha256": "cfeadca86be68dbfc525b1d9496578a8e2467510aa1acdae2f53167b5686b22c"
+        },
+        {
+          "path": "raw/026-csv-region-summary-claude-haiku-4-5-r5-triad.json",
+          "sha256": "4841d24dc91a7152ce2688aa3803848c21cafb35491a2c7b5f91c962f98568fc"
+        },
+        {
+          "path": "raw/027-csv-region-summary-claude-haiku-4-5-r5-single.json",
+          "sha256": "10176dfa3f9b69037a26d2b386bbe4f01a4f11b9b59e5af2fa6d1862fe8587f1"
+        },
+        {
+          "path": "raw/028-csv-region-summary-gpt-5-4-mini-r5-triad.json",
+          "sha256": "e27b20f6662034c9fe8fc0698dc89a77724729e272a660f52c3ec9a9ecb9d77a"
+        },
+        {
+          "path": "raw/029-csv-region-summary-gpt-5-4-mini-r5-single.json",
+          "sha256": "2613aee3704962f43474eacc321151f344090c43013061f40ac507e74406f80e"
+        },
+        {
+          "path": "raw/030-csv-region-summary-gpt-5-4-mini-r5-duo.json",
+          "sha256": "ad56ba1f15e543ab4333f7940455138fb2c8125fd3fa2c3adf72e93937e7e52f"
+        },
+        {
+          "path": "raw/031-fix-range-compression-gpt-5-4-mini-r1-single.json",
+          "sha256": "be95b472a602601d1c4b4fc87de55ee421fb0b2e864ba4c85681c7dad6923e83"
+        },
+        {
+          "path": "raw/032-fix-range-compression-gpt-5-4-mini-r1-duo.json",
+          "sha256": "5db9e774bfba3ee2bbc338e84cb61a3f6d5123962d95d8da143fd871694dc7ca"
+        },
+        {
+          "path": "raw/033-fix-range-compression-gpt-5-4-mini-r1-triad.json",
+          "sha256": "8fd8651ea96edc51a75dedc2e28643d34d65f0241a504b17b88a605960781342"
+        },
+        {
+          "path": "raw/034-fix-range-compression-claude-haiku-4-5-r1-triad.json",
+          "sha256": "bac82ffa827caf06178372056d6d88fd0fb9fbc7d7e62154fd081afcfcee92df"
+        },
+        {
+          "path": "raw/035-fix-range-compression-claude-haiku-4-5-r1-single.json",
+          "sha256": "6c76b900e7e8ac15cd64795a85b66ffa6338753877edfaf7c1c3e481260a3623"
+        },
+        {
+          "path": "raw/036-fix-range-compression-claude-haiku-4-5-r1-duo.json",
+          "sha256": "ab7f2b7d03e987f41fec1c734c382e07a10190ff5ba51f37b8449ffd5579d892"
+        },
+        {
+          "path": "raw/037-fix-range-compression-claude-haiku-4-5-r2-single.json",
+          "sha256": "c9c874e3c0b90da5dd3f0b2f71269bc2e5676915714cc658b3116be902b753c2"
+        },
+        {
+          "path": "raw/038-fix-range-compression-claude-haiku-4-5-r2-duo.json",
+          "sha256": "1f40b689de37742b3cc6324d785768d9bc7629624ef9875ef3b0de6d0284c601"
+        },
+        {
+          "path": "raw/039-fix-range-compression-claude-haiku-4-5-r2-triad.json",
+          "sha256": "27131896c4e0f547c373efedb110c3e3878efbd4616c18418e98c96c9a8f2d55"
+        },
+        {
+          "path": "raw/040-fix-range-compression-gpt-5-4-mini-r2-duo.json",
+          "sha256": "35cf3adac5474756bf83fa4163417288b122fb56c23c16183c03c09a36bcc099"
+        },
+        {
+          "path": "raw/041-fix-range-compression-gpt-5-4-mini-r2-triad.json",
+          "sha256": "f25971b9717ca472fb66e533ec2de9cd05f08f71e86482baa8e1863c19e6fa91"
+        },
+        {
+          "path": "raw/042-fix-range-compression-gpt-5-4-mini-r2-single.json",
+          "sha256": "aeb02ea1a0436c9b8b1ac34259d9b45dc80388e286de3e45df1591c148a2f745"
+        },
+        {
+          "path": "raw/043-fix-range-compression-gpt-5-4-mini-r3-triad.json",
+          "sha256": "03a6378dcda2492e5773148554ff636210b5b9e173db63bc4fb3f89c7c016e86"
+        },
+        {
+          "path": "raw/044-fix-range-compression-gpt-5-4-mini-r3-single.json",
+          "sha256": "0f7fd0d25610b221a7cc6e870657e830c55ba3d9a0cd7797f65fd9fdafa3078a"
+        },
+        {
+          "path": "raw/045-fix-range-compression-gpt-5-4-mini-r3-duo.json",
+          "sha256": "772abf04b83dddb6aa50c77d7577e919c891210e524cfd46f8054d0b65c8e192"
+        },
+        {
+          "path": "raw/046-fix-range-compression-claude-haiku-4-5-r3-duo.json",
+          "sha256": "9abb258850f3bcd019cf8dfaf431f02890a89436092c413833dc64482827e293"
+        },
+        {
+          "path": "raw/047-fix-range-compression-claude-haiku-4-5-r3-triad.json",
+          "sha256": "094d675dd1df4570bdd25268c3eb4d51ff11a0322e675f42271048197e16d15e"
+        },
+        {
+          "path": "raw/048-fix-range-compression-claude-haiku-4-5-r3-single.json",
+          "sha256": "9730206cb535fc7a364a5b04a51169a94acbd13f6e5839d9f3e0981944e5116a"
+        },
+        {
+          "path": "raw/049-fix-range-compression-claude-haiku-4-5-r4-triad.json",
+          "sha256": "75f35e66434474a3b7be6dc13e7086b3c14423fbe3cc8f0697be745b80f1e355"
+        },
+        {
+          "path": "raw/050-fix-range-compression-claude-haiku-4-5-r4-single.json",
+          "sha256": "47ec7eadd4441c30d836893004791feab53ef9fd3107cab2bf7f9b34fdbcd4ec"
+        },
+        {
+          "path": "raw/051-fix-range-compression-claude-haiku-4-5-r4-duo.json",
+          "sha256": "3e3438a110850f51f15d4ec570f962fec925085493e8d03c09efdc24c2418119"
+        },
+        {
+          "path": "raw/052-fix-range-compression-gpt-5-4-mini-r4-single.json",
+          "sha256": "a8af94d97465893996cb9865c4369ab44c86f1aed6988fb71aa3e42ff653b004"
+        },
+        {
+          "path": "raw/053-fix-range-compression-gpt-5-4-mini-r4-duo.json",
+          "sha256": "f9f16a76ffa826036129d9025041d49dc45c64343aba242468f7a760cf43f220"
+        },
+        {
+          "path": "raw/054-fix-range-compression-gpt-5-4-mini-r4-triad.json",
+          "sha256": "eb1c314fece8d0f7504136fe896bbea3de7833511ccc4626ac29d8ad5d207fa7"
+        },
+        {
+          "path": "raw/055-fix-range-compression-gpt-5-4-mini-r5-duo.json",
+          "sha256": "58103fc9bb7639c4e33bc2cfd52d0a434503f3fdbe1930da9031c4e2d1a76ab3"
+        },
+        {
+          "path": "raw/056-fix-range-compression-gpt-5-4-mini-r5-triad.json",
+          "sha256": "6076e293d21d300e1589413894709a1cf0007ce9e67d5b852284301ef9801d26"
+        },
+        {
+          "path": "raw/057-fix-range-compression-gpt-5-4-mini-r5-single.json",
+          "sha256": "6c5a44591ea1f562f6062d8152bebf75a40ac81cf7fa39eed472a64eb5834579"
+        },
+        {
+          "path": "raw/058-fix-range-compression-claude-haiku-4-5-r5-single.json",
+          "sha256": "21398d50771018c3e76bb94a8f99be6bb0329b769cd48599290277895179d65c"
+        },
+        {
+          "path": "raw/059-fix-range-compression-claude-haiku-4-5-r5-duo.json",
+          "sha256": "94fc3d5591678e65d5b6cbe66652ad1df1cfd055915fd0c9152e524718f3f19b"
+        },
+        {
+          "path": "raw/060-fix-range-compression-claude-haiku-4-5-r5-triad.json",
+          "sha256": "ebd2713248392c60038a9759a8d7f38ab92f1a12b9b4413eaf269381afcd4d59"
+        },
+        {
+          "path": "raw/061-normalize-events-claude-haiku-4-5-r1-duo.json",
+          "sha256": "b68a58f3993ad63729b4051e06c7e370bb921f56ddddf0d17b06dec88315c9a4"
+        },
+        {
+          "path": "raw/062-normalize-events-claude-haiku-4-5-r1-triad.json",
+          "sha256": "1436d9672a689f85e84376d8855e08fee477aa846c910be17add7bfb2f6d8765"
+        },
+        {
+          "path": "raw/063-normalize-events-claude-haiku-4-5-r1-single.json",
+          "sha256": "39f57b624ae3574a8cac15d9b1873343e173cacd31a9936aaa98c4a38f2f9124"
+        },
+        {
+          "path": "raw/064-normalize-events-gpt-5-4-mini-r1-triad.json",
+          "sha256": "b47aa734f5514a80a2bd87f5c9c2f039da225dd2cc388a661e38bbabb4a3b0db"
+        },
+        {
+          "path": "raw/065-normalize-events-gpt-5-4-mini-r1-single.json",
+          "sha256": "35d33063f310a2f2995ea1523a06502143d9867dba9fb3878bb9920c6b21c9c0"
+        },
+        {
+          "path": "raw/066-normalize-events-gpt-5-4-mini-r1-duo.json",
+          "sha256": "37130947d10248939307382afbed6b86a625077e16a66041c707a609cf717beb"
+        },
+        {
+          "path": "raw/067-normalize-events-gpt-5-4-mini-r2-single.json",
+          "sha256": "2e342718a4754231d73f909b15628f7639963e5f38d2b13ffa76a865e20ada94"
+        },
+        {
+          "path": "raw/068-normalize-events-gpt-5-4-mini-r2-duo.json",
+          "sha256": "c5f847db6d3f9ca02d135824618042cb9f2c9dec74e3c231cc5e5786db5ac7f2"
+        },
+        {
+          "path": "raw/069-normalize-events-gpt-5-4-mini-r2-triad.json",
+          "sha256": "ccaa01ef4055d1a7e47a88611c8af63b1d2509fdf8f6982db1e37be96f7ac0c7"
+        },
+        {
+          "path": "raw/070-normalize-events-claude-haiku-4-5-r2-triad.json",
+          "sha256": "9784b31eca24c5a1d45ff13f1c5897669ebc2d9d2648b34fc7e583420ead28b6"
+        },
+        {
+          "path": "raw/071-normalize-events-claude-haiku-4-5-r2-single.json",
+          "sha256": "62b7d13a0a5f2621a5ca237ad747505026d252d0f77bc31ae653caafab5f1753"
+        },
+        {
+          "path": "raw/072-normalize-events-claude-haiku-4-5-r2-duo.json",
+          "sha256": "710f5cb399b240e2ae06cd1ab0aafaf692cc7bd7cde6ca2caa605542bf1621b2"
+        },
+        {
+          "path": "raw/073-normalize-events-claude-haiku-4-5-r3-single.json",
+          "sha256": "28334b1cd65f039584b8ecabab3827411f680d0f3fd91f84dc069ee1b678f2ee"
+        },
+        {
+          "path": "raw/074-normalize-events-claude-haiku-4-5-r3-duo.json",
+          "sha256": "f3f8a1abbaaebc08dfa86142dac1f72e98687fa6470df0a8e67613efa10f5e6e"
+        },
+        {
+          "path": "raw/075-normalize-events-claude-haiku-4-5-r3-triad.json",
+          "sha256": "209b87dcca0b778c4ead9409a0669813f505ac7c02d521af9d85cc7625889f40"
+        },
+        {
+          "path": "raw/076-normalize-events-gpt-5-4-mini-r3-duo.json",
+          "sha256": "4b6b71b94daf4429962b9d40a5e003066426c8d4eab88da4bf41336cd774570b"
+        },
+        {
+          "path": "raw/077-normalize-events-gpt-5-4-mini-r3-triad.json",
+          "sha256": "0e174dab61d3171d0c64f9914f07b52bbd1c9a5c94ffe88cdc2fdd648266ceb0"
+        },
+        {
+          "path": "raw/078-normalize-events-gpt-5-4-mini-r3-single.json",
+          "sha256": "1455ce882f84c1e5a0b63814be01c0f57c74ada977628926d8a120ed68d669cf"
+        },
+        {
+          "path": "raw/079-normalize-events-gpt-5-4-mini-r4-triad.json",
+          "sha256": "fd69ffb0981245f24ebb5c5a7e2dad490af8c1a855df24c36fca93b5d41126d6"
+        },
+        {
+          "path": "raw/080-normalize-events-gpt-5-4-mini-r4-single.json",
+          "sha256": "56c2526753d819e28ef9392ec40374b219a7fda38f2eee054dbe5531adf95706"
+        },
+        {
+          "path": "raw/081-normalize-events-gpt-5-4-mini-r4-duo.json",
+          "sha256": "3b8ebc0fb082631712d3b39f072ac9792e8ce789c30c172076bcab50d57243aa"
+        },
+        {
+          "path": "raw/082-normalize-events-claude-haiku-4-5-r4-duo.json",
+          "sha256": "4ec2108038a4b7d247e611ae2154e7b38ed3e38023ec162cd6d5400eb57911a3"
+        },
+        {
+          "path": "raw/083-normalize-events-claude-haiku-4-5-r4-triad.json",
+          "sha256": "cd139c1bdd38b8cbd9ac7f14dc926a8bcecace6c5a98b3aecc4429f98c423817"
+        },
+        {
+          "path": "raw/084-normalize-events-claude-haiku-4-5-r4-single.json",
+          "sha256": "d30ac2f2d7bc527f2eb5718faa835bfa383f4bdc710820a9f8c150767705f535"
+        },
+        {
+          "path": "raw/085-normalize-events-claude-haiku-4-5-r5-triad.json",
+          "sha256": "162859027f414952c3a5f48fcd8c7c0b925ca475d687f1a930c93c9080a15a8b"
+        },
+        {
+          "path": "raw/086-normalize-events-claude-haiku-4-5-r5-single.json",
+          "sha256": "f50f18adb77dd99aedc6ac4ea9aba2ae14bd50ccbd1808e0f787c5e1cccf8647"
+        },
+        {
+          "path": "raw/087-normalize-events-claude-haiku-4-5-r5-duo.json",
+          "sha256": "6de44818f44361325c8b5c740b1628b0cdcf0da754ea3b683bde24b582960699"
+        },
+        {
+          "path": "raw/088-normalize-events-gpt-5-4-mini-r5-single.json",
+          "sha256": "f17d18aa8f09b1018613baecd53e5c25c47234fc460138da68314a40c6c31eae"
+        },
+        {
+          "path": "raw/089-normalize-events-gpt-5-4-mini-r5-duo.json",
+          "sha256": "6cabb63e03d7089249049d92ee8e40493b275fa804c33b4bc14980f2f1f1b382"
+        },
+        {
+          "path": "raw/090-normalize-events-gpt-5-4-mini-r5-triad.json",
+          "sha256": "64d92404442c4867f1d64403021adaa17c34ba38574d15e6eea6e5f99abc644c"
+        },
+        {
+          "path": "raw/091-fix-ttl-expiration-boundary-gpt-5-4-mini-r1-duo.json",
+          "sha256": "352ea084ee677968753169acfa85fd39ed760dc7dbdd28a44928565e99b5a219"
+        },
+        {
+          "path": "raw/092-fix-ttl-expiration-boundary-gpt-5-4-mini-r1-triad.json",
+          "sha256": "50301bc9ef40f528ec07e1476965579078b69e5852bdf1dd9ef9411d2398f1d1"
+        },
+        {
+          "path": "raw/093-fix-ttl-expiration-boundary-gpt-5-4-mini-r1-single.json",
+          "sha256": "6d564fdf20ea0f4b87628adec2efbd265d7b30bfef4e91daa401feebadc90f2a"
+        },
+        {
+          "path": "raw/094-fix-ttl-expiration-boundary-claude-haiku-4-5-r1-single.json",
+          "sha256": "a2e7d295e7670c72eb5482aec35f5d1de75eee43f58aa3f1f479dcb4cbdf385a"
+        },
+        {
+          "path": "raw/095-fix-ttl-expiration-boundary-claude-haiku-4-5-r1-duo.json",
+          "sha256": "4b883fe1fa77b249d7274b8969c6117927c6f1540cf17938d88f1cbf9c374422"
+        },
+        {
+          "path": "raw/096-fix-ttl-expiration-boundary-claude-haiku-4-5-r1-triad.json",
+          "sha256": "93293a1715911abf4b239c4de58d2c81df834a9b224a754f0435f52fa0af934e"
+        },
+        {
+          "path": "raw/097-fix-ttl-expiration-boundary-claude-haiku-4-5-r2-duo.json",
+          "sha256": "dd39cde5df1d23384792c9e4bbb0b27006f4929624175d7a1337efca0f714cd4"
+        },
+        {
+          "path": "raw/098-fix-ttl-expiration-boundary-claude-haiku-4-5-r2-triad.json",
+          "sha256": "eabefee75078a48b626b19803ceb8234ab21285d9675f25ea039068f6264beca"
+        },
+        {
+          "path": "raw/099-fix-ttl-expiration-boundary-claude-haiku-4-5-r2-single.json",
+          "sha256": "3f2cc6475841b66cd9a5ea25898bb79c125c4e5e0560d2cc0085f5ea27f8072e"
+        },
+        {
+          "path": "raw/100-fix-ttl-expiration-boundary-gpt-5-4-mini-r2-triad.json",
+          "sha256": "70d3ae7e59c4122742ca01ba5031e0504fa86a85237f318908971e56a9f99339"
+        },
+        {
+          "path": "raw/101-fix-ttl-expiration-boundary-gpt-5-4-mini-r2-single.json",
+          "sha256": "39784162879827447813a78dbcdd80d613a782fd18686daace3db54f25ad9c55"
+        },
+        {
+          "path": "raw/102-fix-ttl-expiration-boundary-gpt-5-4-mini-r2-duo.json",
+          "sha256": "41ab219e33d7dc452abcec9924f575bf81c50eb4118bcb428de7aba96485ebba"
+        },
+        {
+          "path": "raw/103-fix-ttl-expiration-boundary-gpt-5-4-mini-r3-single.json",
+          "sha256": "74aa17ac52df7f9dc04a5ac4c2f3e4e79103434bf8f4bfc7a1098daee3fbf866"
+        },
+        {
+          "path": "raw/104-fix-ttl-expiration-boundary-gpt-5-4-mini-r3-duo.json",
+          "sha256": "b38fda9788bc8e2fa25b7f5c4a6e573330561ab95504b9b04a12cc93884fc684"
+        },
+        {
+          "path": "raw/105-fix-ttl-expiration-boundary-gpt-5-4-mini-r3-triad.json",
+          "sha256": "25eb1425335c0e3e9e5195ac7bd5508dc30367eeaca524691570ddbd65539ce6"
+        },
+        {
+          "path": "raw/106-fix-ttl-expiration-boundary-claude-haiku-4-5-r3-triad.json",
+          "sha256": "0c91759039c4f318d34215b281814f9cbd85bcfb91198d844ae47edff44db54b"
+        },
+        {
+          "path": "raw/107-fix-ttl-expiration-boundary-claude-haiku-4-5-r3-single.json",
+          "sha256": "670e8871417dee2889afd5dec7ff82b626e06de33252dad5ad88db1ebaa71fe0"
+        },
+        {
+          "path": "raw/108-fix-ttl-expiration-boundary-claude-haiku-4-5-r3-duo.json",
+          "sha256": "a7233ef96f38e5ba0ebb342d84d2a743c1c4ea72d865859bbebd71e2965a7401"
+        },
+        {
+          "path": "raw/109-fix-ttl-expiration-boundary-claude-haiku-4-5-r4-single.json",
+          "sha256": "76f301d1d360262267e955a54b8ebd287a8b5b43d512cf21820cb946a6249f67"
+        },
+        {
+          "path": "raw/110-fix-ttl-expiration-boundary-claude-haiku-4-5-r4-duo.json",
+          "sha256": "2cafb3c19788004db4ad92d4b175dddaa0a48d2ec3c5f9ae4288392ca4f28228"
+        },
+        {
+          "path": "raw/111-fix-ttl-expiration-boundary-claude-haiku-4-5-r4-triad.json",
+          "sha256": "0b838c66a51e12170ae482539b574f662e91aafd2af093d2ce98c79ca595d19b"
+        },
+        {
+          "path": "raw/112-fix-ttl-expiration-boundary-gpt-5-4-mini-r4-duo.json",
+          "sha256": "75ab97929285416e258ea3e361c2e44b51127be407b25a5941817b5fafe4b05c"
+        },
+        {
+          "path": "raw/113-fix-ttl-expiration-boundary-gpt-5-4-mini-r4-triad.json",
+          "sha256": "29b6e3aa68d9d30b7deb7f67751fd56d33e15ffe6ff036486bb7a2ef318b7a13"
+        },
+        {
+          "path": "raw/114-fix-ttl-expiration-boundary-gpt-5-4-mini-r4-single.json",
+          "sha256": "e6a9f0d634a9d9994124625fe795a57c6b56956f0dd6bc2b07f08dc7b34e7154"
+        },
+        {
+          "path": "raw/115-fix-ttl-expiration-boundary-gpt-5-4-mini-r5-triad.json",
+          "sha256": "bd0c003ecb43e3e870efef33db22534c99f8d5eada54f949a3017718ef146791"
+        },
+        {
+          "path": "raw/116-fix-ttl-expiration-boundary-gpt-5-4-mini-r5-single.json",
+          "sha256": "aef2d4f9e0da4896ee0709b5da53c88400fdbe18c5761f861034ff5ec207219a"
+        },
+        {
+          "path": "raw/117-fix-ttl-expiration-boundary-gpt-5-4-mini-r5-duo.json",
+          "sha256": "5b6a2843c39d98d168e9bd3346ec2b28ce9440b861a5e42ef75169c48246e4d0"
+        },
+        {
+          "path": "raw/118-fix-ttl-expiration-boundary-claude-haiku-4-5-r5-duo.json",
+          "sha256": "b14c87d173d2c22e2a20bd80e83ca4d334784fc1eefbd1353d89ff95da17ef32"
+        },
+        {
+          "path": "raw/119-fix-ttl-expiration-boundary-claude-haiku-4-5-r5-triad.json",
+          "sha256": "68d0091836fb1ab31fe4946b72a8813703aa53e8f1587239e0b0070621746cff"
+        },
+        {
+          "path": "raw/120-fix-ttl-expiration-boundary-claude-haiku-4-5-r5-single.json",
+          "sha256": "0d0b7036abb9fed5493db8aa3df586e638d9a6d4303a8c3134bfca715db5cea4"
+        },
+        {
+          "path": "raw/121-fix-invoice-discount-composition-claude-haiku-4-5-r1-triad.json",
+          "sha256": "8af8ba517fd89aadb742207cb7e352067cd10221d2fc37c4e8c80f4b25212a3b"
+        },
+        {
+          "path": "raw/122-fix-invoice-discount-composition-claude-haiku-4-5-r1-single.json",
+          "sha256": "623b03af4a9b4b32d24c2b8c8be71d67de12cf50e6360a00de62aec8b474cc2e"
+        },
+        {
+          "path": "raw/123-fix-invoice-discount-composition-claude-haiku-4-5-r1-duo.json",
+          "sha256": "86126a60cd1d2c8a1fc728e9a69da0c31891bb97757ab4740fa42f3b889aa23f"
+        },
+        {
+          "path": "raw/124-fix-invoice-discount-composition-gpt-5-4-mini-r1-single.json",
+          "sha256": "953cd6850aa0f56c3fb38f2e5bf2e74cdba1fb180197ac9b766afc87263e2a52"
+        },
+        {
+          "path": "raw/125-fix-invoice-discount-composition-gpt-5-4-mini-r1-duo.json",
+          "sha256": "3fe65efb9c1640933f2ceca57fbd44c572e93644543b96d569346b09e572ceff"
+        },
+        {
+          "path": "raw/126-fix-invoice-discount-composition-gpt-5-4-mini-r1-triad.json",
+          "sha256": "9ebe821750ea034ce8de6a69ca7aab647be8166c6a1bb3af6b76ea74e819507c"
+        },
+        {
+          "path": "raw/127-fix-invoice-discount-composition-gpt-5-4-mini-r2-duo.json",
+          "sha256": "f6d7d84badd5cc461313bad7320f2fe050a9057dab04a58b18173869055b069e"
+        },
+        {
+          "path": "raw/128-fix-invoice-discount-composition-gpt-5-4-mini-r2-triad.json",
+          "sha256": "fc53cfb8218cb7e063ffdb096e9574a4ae99bf9d0fce3ecab5827982fe418a55"
+        },
+        {
+          "path": "raw/129-fix-invoice-discount-composition-gpt-5-4-mini-r2-single.json",
+          "sha256": "2c79ea7285630d27ae536884a11e61210f150e1c5b031f473900a7d3709dad9b"
+        },
+        {
+          "path": "raw/130-fix-invoice-discount-composition-claude-haiku-4-5-r2-single.json",
+          "sha256": "e407a64d0aee934956f8f6a8c7cc35b31ae5b561d4762c6238b12535356cdba3"
+        },
+        {
+          "path": "raw/131-fix-invoice-discount-composition-claude-haiku-4-5-r2-duo.json",
+          "sha256": "2089063fb00c66b38e6d269eacb9edbfa83f9e5bece5eb86b6278338a90b7553"
+        },
+        {
+          "path": "raw/132-fix-invoice-discount-composition-claude-haiku-4-5-r2-triad.json",
+          "sha256": "91029eeb62428a60310773dcf7d08d65207072bcd6473962474b26e506eed1fe"
+        },
+        {
+          "path": "raw/133-fix-invoice-discount-composition-claude-haiku-4-5-r3-duo.json",
+          "sha256": "d3d26b3261d613ff93a6b4903495c5547ad4ab35be88db9f0d0a91ff1e270eb4"
+        },
+        {
+          "path": "raw/134-fix-invoice-discount-composition-claude-haiku-4-5-r3-triad.json",
+          "sha256": "df15350370529e8432ac37a41a73091cde56540e39658e0bd3e4a87fa5af737a"
+        },
+        {
+          "path": "raw/135-fix-invoice-discount-composition-claude-haiku-4-5-r3-single.json",
+          "sha256": "1b0037448f5c80441f83c223d62fe71fbddda43ef7ca7ced5589be645bd0895c"
+        },
+        {
+          "path": "raw/136-fix-invoice-discount-composition-gpt-5-4-mini-r3-triad.json",
+          "sha256": "44ef71445cc5c0d0e1c9f17f25dfcd39748d7bc6137824e2b60e0b5bf7de2ae3"
+        },
+        {
+          "path": "raw/137-fix-invoice-discount-composition-gpt-5-4-mini-r3-single.json",
+          "sha256": "1cbde4fdfe8a1d83af32289eeb97a0005fea3f83569795462dfa807a63fa7a95"
+        },
+        {
+          "path": "raw/138-fix-invoice-discount-composition-gpt-5-4-mini-r3-duo.json",
+          "sha256": "043a2f05ee430b6b71471dfcdcdb93cf80f1c76002bb1500f0afef4e2758e204"
+        },
+        {
+          "path": "raw/139-fix-invoice-discount-composition-gpt-5-4-mini-r4-single.json",
+          "sha256": "00940b0e4d82838aabdc5c65dad40f8206968a5ad648a62cfaea4f1dd5495c25"
+        },
+        {
+          "path": "raw/140-fix-invoice-discount-composition-gpt-5-4-mini-r4-duo.json",
+          "sha256": "0c2b5c6ecb3bf5309f2e565133895f2db3e41e0b94453358faa2680d56cca088"
+        },
+        {
+          "path": "raw/141-fix-invoice-discount-composition-gpt-5-4-mini-r4-triad.json",
+          "sha256": "5c0a77f8ab995aec42015a7e5bc7ba0cf65b9c3e742de948e95ee0e436867e12"
+        },
+        {
+          "path": "raw/142-fix-invoice-discount-composition-claude-haiku-4-5-r4-triad.json",
+          "sha256": "d1f2777e496bfe3628d722326686a39127073f4ded9bf5cd4953eed4daca096e"
+        },
+        {
+          "path": "raw/143-fix-invoice-discount-composition-claude-haiku-4-5-r4-single.json",
+          "sha256": "bc27d44ff22ecb647c94a9917ff705d6d2b3b2307c5d9fa73afea4136e57d841"
+        },
+        {
+          "path": "raw/144-fix-invoice-discount-composition-claude-haiku-4-5-r4-duo.json",
+          "sha256": "4613cbcf44307c4d9728aedbb1efcd7a06a401ab23587bec5019e482215adc33"
+        },
+        {
+          "path": "raw/145-fix-invoice-discount-composition-claude-haiku-4-5-r5-single.json",
+          "sha256": "94a2f79adee109692e002eec65f13cdf0947690aa9cf2b91755461c957f3a0ed"
+        },
+        {
+          "path": "raw/146-fix-invoice-discount-composition-claude-haiku-4-5-r5-duo.json",
+          "sha256": "a31c3e59165e2b356ce92e846f67edfa1a66868c24aa503bcf17923594de0183"
+        },
+        {
+          "path": "raw/147-fix-invoice-discount-composition-claude-haiku-4-5-r5-triad.json",
+          "sha256": "0daf609a26ff976ea8af29fd3723ba84e27334697fea758e522c086d2f2165c4"
+        },
+        {
+          "path": "raw/148-fix-invoice-discount-composition-gpt-5-4-mini-r5-duo.json",
+          "sha256": "44e77b012c1b8c77e97318a90c0fbbfd96f8b91c1010049b23aae8b67aea7d06"
+        },
+        {
+          "path": "raw/149-fix-invoice-discount-composition-gpt-5-4-mini-r5-triad.json",
+          "sha256": "d0ecdb426d07e88f5c78a9f19a736fc7aa083b6133c4f4a2c85aabeaa682cb90"
+        },
+        {
+          "path": "raw/150-fix-invoice-discount-composition-gpt-5-4-mini-r5-single.json",
+          "sha256": "855e9928f6f81ad6f0ae7a6abbc7e61cf5ebd6677987062de3b11220c5234602"
+        },
+        {
+          "path": "raw/151-add-topological-batches-gpt-5-4-mini-r1-triad.json",
+          "sha256": "cbeb4431bd6100d1007d6c25b63fbae0f4f5a263a4cbf5dbe068f3e1a7db31ec"
+        },
+        {
+          "path": "raw/152-add-topological-batches-gpt-5-4-mini-r1-single.json",
+          "sha256": "bc892d86c6e4cbfcbf9a7c5f42a7598a6ad8163d23c0af6d5537b7cf30b73db6"
+        },
+        {
+          "path": "raw/153-add-topological-batches-gpt-5-4-mini-r1-duo.json",
+          "sha256": "b7b94c40684c480a2ec23ec603c659da1ea03de3a9529b854597703e8a7ccc8a"
+        },
+        {
+          "path": "raw/154-add-topological-batches-claude-haiku-4-5-r1-duo.json",
+          "sha256": "4441ee91577b9e5228e6aea1f3cce4dc7dbf51da92428b736d74a9fbfff9b070"
+        },
+        {
+          "path": "raw/155-add-topological-batches-claude-haiku-4-5-r1-triad.json",
+          "sha256": "c5a592a6c52352d02eda4c3cee19f8a7d381f982b514c95fa415314c318d1062"
+        },
+        {
+          "path": "raw/156-add-topological-batches-claude-haiku-4-5-r1-single.json",
+          "sha256": "0e6d0b562a9666b08941d61a3e3b87b95f2cf9ba1bd6ffe9541dadad12cdcdb8"
+        },
+        {
+          "path": "raw/157-add-topological-batches-claude-haiku-4-5-r2-triad.json",
+          "sha256": "56364df71786441dd9f1e0ed4ea0078c55e74f732790d8c9a4238f94be9a29c7"
+        },
+        {
+          "path": "raw/158-add-topological-batches-claude-haiku-4-5-r2-single.json",
+          "sha256": "3fb00cd2b2df073762ec9cd3ebe9190ef55970e0a0061a2055b02f3315804287"
+        },
+        {
+          "path": "raw/159-add-topological-batches-claude-haiku-4-5-r2-duo.json",
+          "sha256": "7bf466b8e577abd4ec50f4d00e424df1a820f32c8f301a0af5f57a5cc380ce59"
+        },
+        {
+          "path": "raw/160-add-topological-batches-gpt-5-4-mini-r2-single.json",
+          "sha256": "b636fa0b5ec1ccda95b937f7c6594eff189a7fed0632b6d06272f474b0ae84fa"
+        },
+        {
+          "path": "raw/161-add-topological-batches-gpt-5-4-mini-r2-duo.json",
+          "sha256": "a982fdbbffc80ac637ea9741186c859d314a08bdc1562f11ebfcecd098421ac2"
+        },
+        {
+          "path": "raw/162-add-topological-batches-gpt-5-4-mini-r2-triad.json",
+          "sha256": "9ccc3a1de40ea5f340e1e365617a3cc85b1725f13f92502026ecc6f3d415063a"
+        },
+        {
+          "path": "raw/163-add-topological-batches-gpt-5-4-mini-r3-duo.json",
+          "sha256": "29884cc9bd9c9851c21a4755261a03b07986a219e2863b541bbc972d26542fab"
+        },
+        {
+          "path": "raw/164-add-topological-batches-gpt-5-4-mini-r3-triad.json",
+          "sha256": "7184521af7e5c5778086b3a6bcea53f740f997d1a5e97e1203a7e3c014fd7d74"
+        },
+        {
+          "path": "raw/165-add-topological-batches-gpt-5-4-mini-r3-single.json",
+          "sha256": "475c16f6d6aa98fe45081b0f2d6bddb5d1f4d58281631510ed90a2f4ac95a8cc"
+        },
+        {
+          "path": "raw/166-add-topological-batches-claude-haiku-4-5-r3-single.json",
+          "sha256": "5150164506d2319b04015577f322861bd021a091533f504e82a7e2fa1e267754"
+        },
+        {
+          "path": "raw/167-add-topological-batches-claude-haiku-4-5-r3-duo.json",
+          "sha256": "f2c9e16c3fe10e3638e9bddf9a855b5a6a31403448b0c8d6748f49fcc4684da1"
+        },
+        {
+          "path": "raw/168-add-topological-batches-claude-haiku-4-5-r3-triad.json",
+          "sha256": "26ce28948e20477f11b656ac9f501fdb5dc5f7cd880e4de31efcc51bc0c4588b"
+        },
+        {
+          "path": "raw/169-add-topological-batches-claude-haiku-4-5-r4-duo.json",
+          "sha256": "f45ecb731107a5fb701519db9f6ab7e6b6d64517c6277c01c1c08b0b1b16552a"
+        },
+        {
+          "path": "raw/170-add-topological-batches-claude-haiku-4-5-r4-triad.json",
+          "sha256": "f53240e916cc827ea73cce1b645859928a40c96220546291a8500c7188405e30"
+        },
+        {
+          "path": "raw/171-add-topological-batches-claude-haiku-4-5-r4-single.json",
+          "sha256": "da91ae6a6db213feda2e972b4835967cf0a9b31fbcf15d1041168b08e2b2c110"
+        },
+        {
+          "path": "raw/172-add-topological-batches-gpt-5-4-mini-r4-triad.json",
+          "sha256": "33dfe227715e749388501d3dc5784dc7ade25fa93af825b96821bd2ea1aaf861"
+        },
+        {
+          "path": "raw/173-add-topological-batches-gpt-5-4-mini-r4-single.json",
+          "sha256": "27798229c530d7b090241f9905835cdc58591cb60916f12269784eecffafc08e"
+        },
+        {
+          "path": "raw/174-add-topological-batches-gpt-5-4-mini-r4-duo.json",
+          "sha256": "6fb6633858092d8d86696461788b51d6b99c7eb31efede2b251c7ac287f92540"
+        },
+        {
+          "path": "raw/175-add-topological-batches-gpt-5-4-mini-r5-single.json",
+          "sha256": "3aea9d6d4f2d8fa0b3f81ec73fe469194900a6ef7e94badac4d3b1c1896f009c"
+        },
+        {
+          "path": "raw/176-add-topological-batches-gpt-5-4-mini-r5-duo.json",
+          "sha256": "084405898a2ebe90fa1d2b18a9a915259dbb281ec619aa03476e043835edba45"
+        },
+        {
+          "path": "raw/177-add-topological-batches-gpt-5-4-mini-r5-triad.json",
+          "sha256": "2bd231818dde1e1bac2d2baa73b4a6e67df6a820ebb61c8cf5a7065b6d62364c"
+        },
+        {
+          "path": "raw/178-add-topological-batches-claude-haiku-4-5-r5-triad.json",
+          "sha256": "74081eb05cab82039c0343d97c04d870baccee58626cf94bced70dad47e93fb6"
+        },
+        {
+          "path": "raw/179-add-topological-batches-claude-haiku-4-5-r5-single.json",
+          "sha256": "ef3d40eaba3ebfe2bb681505e7a5585cb3c4514bbf6217f9851ee8d2e39b34dc"
+        },
+        {
+          "path": "raw/180-add-topological-batches-claude-haiku-4-5-r5-duo.json",
+          "sha256": "a1492fee18ec868f3ee51532450d5b7e39f03e30ecaa612b4b581209d063c5b3"
+        },
+        {
+          "path": "raw/181-add-jsonl-dead-letter-output-claude-haiku-4-5-r1-single.json",
+          "sha256": "2096b9d8ea3fd995f00c7b7b767a7277db65c13b00900748d25500195d6b3a1b"
+        },
+        {
+          "path": "raw/182-add-jsonl-dead-letter-output-claude-haiku-4-5-r1-duo.json",
+          "sha256": "0f8305b0b6580c1698236a8963a0623bda879a5e3a0dbcf2cc79fde9d00f5c79"
+        },
+        {
+          "path": "raw/183-add-jsonl-dead-letter-output-claude-haiku-4-5-r1-triad.json",
+          "sha256": "7679d08da00c74170a306bee499b5b39adfcc2c0064b6245a5e6fc7f8a8334c9"
+        },
+        {
+          "path": "raw/184-add-jsonl-dead-letter-output-gpt-5-4-mini-r1-duo.json",
+          "sha256": "ac736d86ad049baa0abbb3512ac5f5016ec5966d5e3191481a777cf27289b7de"
+        },
+        {
+          "path": "raw/185-add-jsonl-dead-letter-output-gpt-5-4-mini-r1-triad.json",
+          "sha256": "f6b4c4648eccfcd242dedec1b8d45b04b95989abd990cb570b8f7c08f6be2d4c"
+        },
+        {
+          "path": "raw/186-add-jsonl-dead-letter-output-gpt-5-4-mini-r1-single.json",
+          "sha256": "910d86614bc45a328d400ee449447c5686807d1a6fe59496efffaf910c27acb9"
+        },
+        {
+          "path": "raw/187-add-jsonl-dead-letter-output-gpt-5-4-mini-r2-triad.json",
+          "sha256": "14858139ae051eececa6489fe7b24171f9587ce7958ea5aebaeb780d481583a0"
+        },
+        {
+          "path": "raw/188-add-jsonl-dead-letter-output-gpt-5-4-mini-r2-single.json",
+          "sha256": "049aa1761aae1372270fc9069c108f639b8e174fc90616790684df0129e931cc"
+        },
+        {
+          "path": "raw/189-add-jsonl-dead-letter-output-gpt-5-4-mini-r2-duo.json",
+          "sha256": "f70ced42fc98af0f93a7ae5e9bfe4221552734161825f7626f87fcb84f7a924e"
+        },
+        {
+          "path": "raw/190-add-jsonl-dead-letter-output-claude-haiku-4-5-r2-duo.json",
+          "sha256": "6a424b8702751da5aa725d7cb99cf3f80c63b3ef2e6617428b68ff177173c476"
+        },
+        {
+          "path": "raw/191-add-jsonl-dead-letter-output-claude-haiku-4-5-r2-triad.json",
+          "sha256": "57124252cd464256c4b7ebfbce9087a7f7ebd7be44694efea66a1f70e0154fc4"
+        },
+        {
+          "path": "raw/192-add-jsonl-dead-letter-output-claude-haiku-4-5-r2-single.json",
+          "sha256": "07bc640e4e50bde30295f93f555298b27e81f99441d94f284983a2bf5ba4e5f4"
+        },
+        {
+          "path": "raw/193-add-jsonl-dead-letter-output-claude-haiku-4-5-r3-triad.json",
+          "sha256": "dded33920f8a10fffb2c6c0144da2ee472ec29375bddcc3423ecd58a4ed67b3f"
+        },
+        {
+          "path": "raw/194-add-jsonl-dead-letter-output-claude-haiku-4-5-r3-single.json",
+          "sha256": "984e4bc38a7c959491ed4d945fce13d43d01d496fde61e037c0486c842cc0603"
+        },
+        {
+          "path": "raw/195-add-jsonl-dead-letter-output-claude-haiku-4-5-r3-duo.json",
+          "sha256": "6f4fa53b266aa427bfeca48d25e39153d29883d8caf5595f79fced4685de06a2"
+        },
+        {
+          "path": "raw/196-add-jsonl-dead-letter-output-gpt-5-4-mini-r3-single.json",
+          "sha256": "2df1cea5e89d6dbf2e8b57f88d9a3ebb02555cd8996de2d47b1a5d87c57a6caf"
+        },
+        {
+          "path": "raw/197-add-jsonl-dead-letter-output-gpt-5-4-mini-r3-duo.json",
+          "sha256": "d57c2a9a06692ae29fb3762c0f4d89fc7245a35212b5f43c47f0ceb5f157cced"
+        },
+        {
+          "path": "raw/198-add-jsonl-dead-letter-output-gpt-5-4-mini-r3-triad.json",
+          "sha256": "e414934e961995620b60e552beb75822775bc942b47fcddee24430e235dd36bd"
+        },
+        {
+          "path": "raw/199-add-jsonl-dead-letter-output-gpt-5-4-mini-r4-duo.json",
+          "sha256": "b7f81998b9b903f7958cc4568a5a7431a594743bf4f553d0383003502184b60e"
+        },
+        {
+          "path": "raw/200-add-jsonl-dead-letter-output-gpt-5-4-mini-r4-triad.json",
+          "sha256": "b0ddbaa8013b217874f3eec4fd43ffda13f98c64fffb0213eb0ab7caa45ead71"
+        },
+        {
+          "path": "raw/201-add-jsonl-dead-letter-output-gpt-5-4-mini-r4-single.json",
+          "sha256": "661875c32cab85c22d7f918219120413c732afe07326277cbc77a19f498d0126"
+        },
+        {
+          "path": "raw/202-add-jsonl-dead-letter-output-claude-haiku-4-5-r4-single.json",
+          "sha256": "b82c5335b7d7cb908a46935f310df51b82a0c253bd9772fde1e3d6376f6c67fe"
+        },
+        {
+          "path": "raw/203-add-jsonl-dead-letter-output-claude-haiku-4-5-r4-duo.json",
+          "sha256": "3cf5ddc697f569c0fbd10c55766a4562d0df1da72af353caf66a71405237a6ea"
+        },
+        {
+          "path": "raw/204-add-jsonl-dead-letter-output-claude-haiku-4-5-r4-triad.json",
+          "sha256": "cc0b0d718f0da7b8a663cef129a18260b8149a8612a408a7b046492e61061516"
+        },
+        {
+          "path": "raw/205-add-jsonl-dead-letter-output-claude-haiku-4-5-r5-duo.json",
+          "sha256": "2ed4faebb3bf7d4b7b93b5ce8deb46ba35f54986013fec2e226a730b15933f57"
+        },
+        {
+          "path": "raw/206-add-jsonl-dead-letter-output-claude-haiku-4-5-r5-triad.json",
+          "sha256": "91dee59b639d27a6260547ef76c7517547dca86ca47e9b5da2dee07f55247216"
+        },
+        {
+          "path": "raw/207-add-jsonl-dead-letter-output-claude-haiku-4-5-r5-single.json",
+          "sha256": "5f4309d8653bcc05b429e3adc2e38edfa33d37dd87188438b9966f53d0a505ab"
+        },
+        {
+          "path": "raw/208-add-jsonl-dead-letter-output-gpt-5-4-mini-r5-triad.json",
+          "sha256": "7d683b1a95d6279bff5aa38681fafbfbd05eb01be187212fb5664922b57afa9f"
+        },
+        {
+          "path": "raw/209-add-jsonl-dead-letter-output-gpt-5-4-mini-r5-single.json",
+          "sha256": "b83e8df560584e04cbd58dbf2c47f3d58bd9c0099067177202828eeaa169cce1"
+        },
+        {
+          "path": "raw/210-add-jsonl-dead-letter-output-gpt-5-4-mini-r5-duo.json",
+          "sha256": "e169f8107c6b79ee3158493f9424a5d67ec64ee66bc1512f66771de73a997ae5"
+        },
+        {
+          "path": "raw/211-refactor-notification-routing-gpt-5-4-mini-r1-single.json",
+          "sha256": "c8831ac78759107db63b4dedfdcf3c46f0aa8d235f04cc2e7efc650590289390"
+        },
+        {
+          "path": "raw/212-refactor-notification-routing-gpt-5-4-mini-r1-duo.json",
+          "sha256": "05f0ce77c95416cc96a4be7cbd80c0d031d176f74e3858f3ffb6120a3c9bcbb5"
+        },
+        {
+          "path": "raw/213-refactor-notification-routing-gpt-5-4-mini-r1-triad.json",
+          "sha256": "a9fa4837083199ea802e5921c9ee356956ac39b9b945639b1cdadce50276df41"
+        },
+        {
+          "path": "raw/214-refactor-notification-routing-claude-haiku-4-5-r1-triad.json",
+          "sha256": "0a461efb2a9d23e548bdbd381281594285d60b80d4a39378e30bfaf2f80c9c88"
+        },
+        {
+          "path": "raw/215-refactor-notification-routing-claude-haiku-4-5-r1-single.json",
+          "sha256": "6ff722ed8f07778885b21bbb5511fe55a76d8e97544fbe7cb2b77b8bfdad20b1"
+        },
+        {
+          "path": "raw/216-refactor-notification-routing-claude-haiku-4-5-r1-duo.json",
+          "sha256": "c27c31729d9619aea4883e5c4b98351c232244fbaab8a3e5e75946a25284f87b"
+        },
+        {
+          "path": "raw/217-refactor-notification-routing-claude-haiku-4-5-r2-single.json",
+          "sha256": "5a29553480ce73c0e5d9ce54ff53477d23ffa6dcde05af1cd7aae1523d11db3a"
+        },
+        {
+          "path": "raw/218-refactor-notification-routing-claude-haiku-4-5-r2-duo.json",
+          "sha256": "e785e6716652375808d600144e45649fa1f7af7a169c295c69139523b45936a8"
+        },
+        {
+          "path": "raw/219-refactor-notification-routing-claude-haiku-4-5-r2-triad.json",
+          "sha256": "5a03b3c7b4a9cc31c1bbf6bf3b46e724c9663fc33d3f32794c24c0377097d210"
+        },
+        {
+          "path": "raw/220-refactor-notification-routing-gpt-5-4-mini-r2-duo.json",
+          "sha256": "70bcbe218ae73bc907978888909e12e9dbac9d4b1e6aea81c9ed4b6921419df6"
+        },
+        {
+          "path": "raw/221-refactor-notification-routing-gpt-5-4-mini-r2-triad.json",
+          "sha256": "dd97480fe5dc31821a7c41c6fb0f3e59f4a9aaaadf42554be955b63c6e8a3a7a"
+        },
+        {
+          "path": "raw/222-refactor-notification-routing-gpt-5-4-mini-r2-single.json",
+          "sha256": "1bb95fc26562a0fb9f25577b37321dbd20ca7cfe59da3ae180f7cb3365088865"
+        },
+        {
+          "path": "raw/223-refactor-notification-routing-gpt-5-4-mini-r3-triad.json",
+          "sha256": "bb7cb28e9f3f0e596f835b9d9e9bad0377055ae63071376b057da552a3c3dd41"
+        },
+        {
+          "path": "raw/224-refactor-notification-routing-gpt-5-4-mini-r3-single.json",
+          "sha256": "921d79e3e436a1346042152e5af903e6b2c6a9bac22aabe49868c06c61bcb30b"
+        },
+        {
+          "path": "raw/225-refactor-notification-routing-gpt-5-4-mini-r3-duo.json",
+          "sha256": "a02355b6846c033b475a15d8c05080fd8437433a4202edd42dda0aeb99c6a8b6"
+        },
+        {
+          "path": "raw/226-refactor-notification-routing-claude-haiku-4-5-r3-duo.json",
+          "sha256": "de746e0a53afebe2f3224f32e084734f6a1e8269cd2471eeb2825968fe3eb1ff"
+        },
+        {
+          "path": "raw/227-refactor-notification-routing-claude-haiku-4-5-r3-triad.json",
+          "sha256": "579b72bc08df1b785552b7bef260e0225ca223852b8ea35038ccffa6369deb8e"
+        },
+        {
+          "path": "raw/228-refactor-notification-routing-claude-haiku-4-5-r3-single.json",
+          "sha256": "36c16141b431b42d02f71184f63745af81f4652ce058262a2ef929bc15579c93"
+        },
+        {
+          "path": "raw/229-refactor-notification-routing-claude-haiku-4-5-r4-triad.json",
+          "sha256": "1fff5ca5069c12c275d605e79e7f2adc0eb384ece35de35b8bf5da13e3fb0e35"
+        },
+        {
+          "path": "raw/230-refactor-notification-routing-claude-haiku-4-5-r4-single.json",
+          "sha256": "42059b3aaa822c39e7d619cf1cd968a66ed06947f3d82f508914d2a134eaa21e"
+        },
+        {
+          "path": "raw/231-refactor-notification-routing-claude-haiku-4-5-r4-duo.json",
+          "sha256": "ff2a3490059e634d6e0ceca0e3f2d89a731bb70fb7c8dec45d7df8407fa7f586"
+        },
+        {
+          "path": "raw/232-refactor-notification-routing-gpt-5-4-mini-r4-single.json",
+          "sha256": "116a2d517c6547815d1c1c2b177603dfb934132248496d7fa0d31020e32b8552"
+        },
+        {
+          "path": "raw/233-refactor-notification-routing-gpt-5-4-mini-r4-duo.json",
+          "sha256": "8b304b415829f03a2ecf7e8d6b43e4dda7ab6fc7402baf99348b4043b863f2b3"
+        },
+        {
+          "path": "raw/234-refactor-notification-routing-gpt-5-4-mini-r4-triad.json",
+          "sha256": "50e1d0c250fe7f2a990d122f07f0ba8d3fbc1092cff39bbb08b8ac93a65e9c5d"
+        },
+        {
+          "path": "raw/235-refactor-notification-routing-gpt-5-4-mini-r5-duo.json",
+          "sha256": "25d98d4a245bf3ac4be40d2fb2b8f8af835727f91f2958e2675a252c40059719"
+        },
+        {
+          "path": "raw/236-refactor-notification-routing-gpt-5-4-mini-r5-triad.json",
+          "sha256": "e0218b720077d44db308687e96258f7405b2224df679040efd0f5a8e01349633"
+        },
+        {
+          "path": "raw/237-refactor-notification-routing-gpt-5-4-mini-r5-single.json",
+          "sha256": "f0d48fd1c87634b766cf0cacdf7ef8a72a5f21b6afe6b0bc3a4f9fb8f46085ce"
+        },
+        {
+          "path": "raw/238-refactor-notification-routing-claude-haiku-4-5-r5-single.json",
+          "sha256": "df16b6197610860050ce5e2e67bef49bea5a869139b963b6083c9685e7d69fa3"
+        },
+        {
+          "path": "raw/239-refactor-notification-routing-claude-haiku-4-5-r5-duo.json",
+          "sha256": "3e84e7f8e9a83f7db510abbc2985a2fa3ceb34cc919ee365c2b45b3c71993d25"
+        },
+        {
+          "path": "raw/240-refactor-notification-routing-claude-haiku-4-5-r5-triad.json",
+          "sha256": "5653fee1e8de6be840d41717cf88775480aef7d3463db0d23bc0f850961746c7"
+        },
+        {
+          "path": "raw/241-refactor-config-precedence-claude-haiku-4-5-r1-duo.json",
+          "sha256": "a79fab1c6963f26c814906c93ba91c51f53ddca6654f5f20e649a5733addcf5f"
+        },
+        {
+          "path": "raw/242-refactor-config-precedence-claude-haiku-4-5-r1-triad.json",
+          "sha256": "e8eadf662d56e43a7d10b9d5a146ba68a86a78320af5c6b8ba795b7c50919a15"
+        },
+        {
+          "path": "raw/243-refactor-config-precedence-claude-haiku-4-5-r1-single.json",
+          "sha256": "b5716969efe0fd56708216c7cf85270b5405930aa97eb193cecf806d44e567f7"
+        },
+        {
+          "path": "raw/244-refactor-config-precedence-gpt-5-4-mini-r1-triad.json",
+          "sha256": "3794d324a6a122c921b0000351b2459ade0c077c104f80bc3a9bd0f131cf2a45"
+        },
+        {
+          "path": "raw/245-refactor-config-precedence-gpt-5-4-mini-r1-single.json",
+          "sha256": "4f305e79ac7621ce7dc68cab29d70dd061c389ddd5ad002eef017bf665663c3e"
+        },
+        {
+          "path": "raw/246-refactor-config-precedence-gpt-5-4-mini-r1-duo.json",
+          "sha256": "4452a0d60aeb0a0718c2301fd3e6654891e7775132defd3324f54dca65dda0e4"
+        },
+        {
+          "path": "raw/247-refactor-config-precedence-gpt-5-4-mini-r2-single.json",
+          "sha256": "bf3965728b9364cf33360b829199f4ad8f5a79945d89057d6e46c2fe194de993"
+        },
+        {
+          "path": "raw/248-refactor-config-precedence-gpt-5-4-mini-r2-duo.json",
+          "sha256": "66662eb09ce4d4a2e1932d976d927168eb70a168b3bcef8bbdb32278578ecc68"
+        },
+        {
+          "path": "raw/249-refactor-config-precedence-gpt-5-4-mini-r2-triad.json",
+          "sha256": "6d6d61ea42b694e5fc8ece6b7b30b6d6d35d188b6a0d649ebeea0c4ffa6f482f"
+        },
+        {
+          "path": "raw/250-refactor-config-precedence-claude-haiku-4-5-r2-triad.json",
+          "sha256": "ee8efcc9aafb8ff2f6b7a18a0fd321878eeb51b1f914a3956a119a64378f2b71"
+        },
+        {
+          "path": "raw/251-refactor-config-precedence-claude-haiku-4-5-r2-single.json",
+          "sha256": "3d8833d46b9a242167a23572056e8d1cfc5bbfb66be91672ce1ab04ecbe25259"
+        },
+        {
+          "path": "raw/252-refactor-config-precedence-claude-haiku-4-5-r2-duo.json",
+          "sha256": "2302cc717390ab2ee24249c2685adb7e69ddf43dcb85f2b0afc4220adcdcb91d"
+        },
+        {
+          "path": "raw/253-refactor-config-precedence-claude-haiku-4-5-r3-single.json",
+          "sha256": "480a4d646c84d6a6464b344d4e8562e6725ca963d61b13e70a55936b0785ed59"
+        },
+        {
+          "path": "raw/254-refactor-config-precedence-claude-haiku-4-5-r3-duo.json",
+          "sha256": "9587ba757750cb29bfb5d7de7fb80cdae7fe29ca6bb068974ea4f17c1ba23fd0"
+        },
+        {
+          "path": "raw/255-refactor-config-precedence-claude-haiku-4-5-r3-triad.json",
+          "sha256": "f99a45e80792fe3c00ee8774d7e5e2b2bdbc1fd77c593590311fc81b93f7f180"
+        },
+        {
+          "path": "raw/256-refactor-config-precedence-gpt-5-4-mini-r3-duo.json",
+          "sha256": "fb379fea59e58421f11815eb0f37ef49305fbc5feb55da6c6ee1ba040bbff529"
+        },
+        {
+          "path": "raw/257-refactor-config-precedence-gpt-5-4-mini-r3-triad.json",
+          "sha256": "476f149244188209928fc87703addd898ac152c81f4bfee41ce8227792516d18"
+        },
+        {
+          "path": "raw/258-refactor-config-precedence-gpt-5-4-mini-r3-single.json",
+          "sha256": "c11e55a10a7d362e1fb31a90a77f4599af6385dd7710796003d2571ce78b2936"
+        },
+        {
+          "path": "raw/259-refactor-config-precedence-gpt-5-4-mini-r4-triad.json",
+          "sha256": "847768d17f76c17e10aacb6caf746ad8f70970ca1571b70c44027f89f35c77ec"
+        },
+        {
+          "path": "raw/260-refactor-config-precedence-gpt-5-4-mini-r4-single.json",
+          "sha256": "7ae4cf41585ac94819c93898525f75046723145c19ce527b68571c6ed0121574"
+        },
+        {
+          "path": "raw/261-refactor-config-precedence-gpt-5-4-mini-r4-duo.json",
+          "sha256": "ef75661239e68912c876ed2a35300db11d442a74b2f6771e6ffee98b84ea9923"
+        },
+        {
+          "path": "raw/262-refactor-config-precedence-claude-haiku-4-5-r4-duo.json",
+          "sha256": "c04c3602b03e791e0f5290449fe1018482f9085ffb86888114e75125c0c152aa"
+        },
+        {
+          "path": "raw/263-refactor-config-precedence-claude-haiku-4-5-r4-triad.json",
+          "sha256": "80aa17647b8d45d2b048ac5200e13a145b9c44d5da3594174038609699e4727c"
+        },
+        {
+          "path": "raw/264-refactor-config-precedence-claude-haiku-4-5-r4-single.json",
+          "sha256": "b9db31f87656655ffda95785e4715ea91481dc52f785e53fef90b662fedf6f84"
+        },
+        {
+          "path": "raw/265-refactor-config-precedence-claude-haiku-4-5-r5-triad.json",
+          "sha256": "e1f2395fa6dee2060362fe7e81ea6d498a58ec541903dc9a1ed6fdfa2df05228"
+        },
+        {
+          "path": "raw/266-refactor-config-precedence-claude-haiku-4-5-r5-single.json",
+          "sha256": "091e300d784f0d340538d09dbf3ee64a37a1deb7cb12e96635712e3c6a79fe67"
+        },
+        {
+          "path": "raw/267-refactor-config-precedence-claude-haiku-4-5-r5-duo.json",
+          "sha256": "6badfa53579811928be25ff25d034f1f10bf0fae889ff4320540d345d3038f4d"
+        },
+        {
+          "path": "raw/268-refactor-config-precedence-gpt-5-4-mini-r5-single.json",
+          "sha256": "f7e18e85c895449314ad3d3448c68fed259f1ef519e4281aa45afb20017e4480"
+        },
+        {
+          "path": "raw/269-refactor-config-precedence-gpt-5-4-mini-r5-duo.json",
+          "sha256": "b489b10406275a1f4c176ddd0a44259a3f77fa2f33660805e42ab10dc4b2d6b1"
+        },
+        {
+          "path": "raw/270-refactor-config-precedence-gpt-5-4-mini-r5-triad.json",
+          "sha256": "ea2fb83fb8861fea03d62e5e3bb291f2ad920686c6a79dded07042eeb2dbbf36"
+        }
+      ],
+      "sha256": "06d9e38f54772767b91fcea0552a0b819005b099ab3cc818a90ef1dacc62d355"
+    },
+    "milestone": "M25",
+    "protocol_sha256": "42fc536b22472d175c97f38c1fe2b4ad14f607fdf890c2fa2c4a700fee79e93c",
+    "runs": 270
+  }
+}
