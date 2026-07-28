@@ -31,9 +31,36 @@ def test_readme_documents_collaboration_entry_points_routing_and_cost() -> None:
         "usage_available",
     ):
         assert fragment in text
-    assert "显式 triad > 编程任务强制 triad" in text
+    for fragment in (
+        "默认 Single",
+        "显式选择 Single、Duo 或 Triad",
+        "非空冻结检查",
+        "仅为旧配置兼容保留",
+    ):
+        assert fragment in text
+    for stale_fragment in (
+        "显式 triad > 编程任务强制 triad",
+        "编程任务强制 Triad",
+        "较弱模式与",
+    ):
+        assert stale_fragment not in text
     assert "`SubmitCandidate`" in text
     assert "不需要额外 standalone `task_status`" in text
+
+
+def test_readme_documents_memory_runtime_as_user_editable_and_atomic() -> None:
+    text = _text("README.md")
+
+    for fragment in (
+        ".forgeagent/MEMORY.md",
+        "原子",
+        "用户",
+        "编辑",
+        "--no-memory",
+        "--no-identity",
+    ):
+        assert fragment in text
+    assert "当前版本只读" not in text
 
 
 def test_readme_documents_m22_candidate_readiness_without_weakening_confirmation() -> None:
@@ -78,7 +105,7 @@ def test_protocol_documents_collaboration_schema_authority_and_safe_report() -> 
         assert f"`{field}`" in text
 
 
-def test_http_docs_cover_strict_modes_headless_policy_and_projection() -> None:
+def test_http_docs_cover_explicit_modes_headless_policy_and_projection() -> None:
     text = _text("docs/http-task-service.md")
 
     assert '"mode": "duo"' in text
@@ -87,7 +114,17 @@ def test_http_docs_cover_strict_modes_headless_policy_and_projection() -> None:
     assert "triad_plan_policy" in text
     assert "deny" in text and "preauthorize" in text
     assert "allow_weaker_override" in text
-    assert "needs_confirmation" in text
+    assert "compatibility-only" in text
+    assert "default collaboration route is Single" in text
+    assert "explicit modes" in text
+    assert "frozen checks" in text
+    for stale_fragment in (
+        "needs_confirmation",
+        "weaker-mode override",
+        "deterministic programming-task Triad route",
+        "deterministic programming rule selects Triad",
+    ):
+        assert stale_fragment not in text
     assert "Evaluator" in text and "read-only" in text
     assert "role model" in text.lower()
     assert "credential" in text
@@ -117,6 +154,9 @@ def test_threat_model_covers_collaboration_role_and_state_boundaries() -> None:
         "prompt injection",
         "symlink",
         "cost",
+        "trusted host",
+        "frozen checks",
+        "boolean fact",
     ):
         assert fragment.lower() in text.lower()
 

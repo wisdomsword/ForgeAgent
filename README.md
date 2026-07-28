@@ -19,6 +19,15 @@ M24 已完成并归档，change 见
 macOS Docker Desktop 结果只作为 supplemental 证据；Linux GitLab CI 已 verified（Pipeline 50 /
 Job 249），不外推为 Podman 或 Windows 支持。
 
+## M27 协作路由校准（进行中）
+
+M27 已根据 M25 冻结协议完成路由裁决：默认 Single；用户显式选择 Single、Duo 或 Triad 时直接
+遵从；只有可信宿主已经为本次任务绑定**非空冻结检查**时，未显式选择的任务才自动使用 Triad。
+任务文本中的编程特征和候选文件就绪要求都不会自动升级模式。`allow_weaker_override` 仅为旧配置
+兼容保留，不再改变路由或要求确认。M25 派生报告新增误完成率和原样终止原因分类；没有任何任务
+类别的 Triad solved rate 严格高于 Single，因此不恢复任何类别的自动 Triad。详见
+[`M27 派生报告`](docs/evaluation/m25/derived/m27-collaboration-routing/report.md)。
+
 2026-07-26 已完成 restricted worker bootstrap 加固与发布完整性收尾。sdist 采用显式输入
 allowlist，只包含包源码、`pyproject.toml`、`README.md`、`uv.lock`，另保留 Hatchling
 必需或生成的 `.gitignore`、`PKG-INFO`；agent/workflow/OpenSpec 开发目录和用户本地文件均由
@@ -194,11 +203,11 @@ ForgeAgent 子进程中冻结 `calc.py` 和 `test_calc.py` 的最小就绪要求
 REPL 提供 `/duo <goal>` 和 `/triad <goal>`，并复用 `/help`、completion 与历史路径。
 缺少 goal 时只显示 usage，不启动任务。
 
-路由优先级是：显式 triad > 编程任务强制 triad > 显式 duo/single > 默认 single。编程任务
-由有界、确定性的中英文动作词 + 代码产物/文件规则识别，不调用分类模型。显式较弱模式与
-编程强制 Triad 冲突时，交互 CLI 要求确认；确认后相当于
-`allow_weaker_override=true`。非 TTY CLI 无确认通道时拒绝；HTTP 只能由服务端配置
-`allow_weaker_override` 预授权，客户端不能提交该策略。
+路由规则是：**默认 Single**。用户显式选择 Single、Duo 或 Triad 时直接生效；只有可信宿主已为
+本次任务绑定非空冻结检查时，未显式选择的任务才使用 Triad。普通 CLI、REPL、Loop 和 HTTP 的
+初始路由没有这类检查，因而保持 Single；编程文本和候选文件就绪要求都不会触发自动升级。
+`allow_weaker_override` 仅为旧配置兼容保留，不再改变路由或要求确认，客户端也不能提交宿主检查
+事实。
 
 公开报告仅显示 collaboration ID、mode/status/reason/phase、计划/通过/失败数、角色尝试、
 rejections、rounds、归一化 usage、`usage_available` 与最多 8 条掩码后证据摘要；不显示完整
@@ -505,7 +514,10 @@ ForgeAgent 的系统提示词由固定协议段（不可覆盖，见 [`docs/text
 - `~/.forgeagent/SOUL.md`：用户级 Agent 人格/身份描述，存在时**完全替换**内置中性默认人格，不与默认内容合并；缺失时保留该默认人格作为 SOUL 段。
 - `~/.forgeagent/USER.md`：用户级偏好说明（如“回答从简”“默认用中文”），随每次任务注入。
 - `<allowed_root>/.forgeagent/AGENTS.md`：项目级协作规则。**首次使用需终端确认**（有界、控制字符转义、secret 掩码后的内容预览 + 截断项目标签），确认结果原子写入 `~/.forgeagent/identity-trust.json`；内容变化会使旧确认失效并重新提示确认；无交互终端（headless）时默认拒绝，不会静默生效。
-- `<allowed_root>/.forgeagent/MEMORY.md`：项目级记忆，同 `AGENTS.md` 走确认门。当前版本只读——ForgeAgent 不会自动写入或提炼记忆内容，由用户手工维护。
+- `<allowed_root>/.forgeagent/MEMORY.md`：项目级记忆，同 `AGENTS.md` 走确认门。M18 的准入规则会把
+  合法的 `/remember` 输入或模型候选以原子方式持久化到该文件；用户可以直接编辑以更正或删除记忆，
+  下一个任务会重新读取。`--no-memory` 关闭两个记忆作用域；`--no-identity` 按身份合同同时关闭
+  SOUL、USER、AGENTS 和 MEMORY。
 
 所有身份文件都有 32 KiB 单文件上限，多个文件掩码后合计 96 KiB 上限，任何正文都不会被截断：SOUL/USER 超限时任务以身份配置错误停止；AGENTS/MEMORY 超限或使合计超限时，仅剥离相应项目段、输出脱敏诊断并继续。路径解析拒绝 `.forgeagent` 目录或身份文件通过 symlink 逃出 `home`/`allowed_root`。详见 [`docs/threat-model.md`](docs/threat-model.md) T12。
 

@@ -124,7 +124,10 @@ def test_platform_matrix_and_public_docs_are_linked() -> None:
     matrix = (ROOT / "docs/platform-support.md").read_text(encoding="utf-8")
     for status in ("verified", "configured", "supplemental", "scheduled", "deferred"):
         assert status in matrix
-    for platform in ("Linux amd64/arm64", "rootless Podman", "Windows native", "macOS"):
+    assert "Linux Docker runner topology" in matrix
+    assert "Linux amd64/arm64 + Docker Engine" not in matrix
+    assert "Linux runner remains\n`configured`" not in matrix
+    for platform in ("rootless Podman", "Windows native", "macOS"):
         assert platform in matrix
     for column in ("Prerequisites", "Current evidence", "Limitations", "Next Comet trigger"):
         assert column in matrix
@@ -137,6 +140,20 @@ def test_platform_matrix_and_public_docs_are_linked() -> None:
         assert "docs/platform-support.md" in text
     assert readme.count("## 当前验证") == 1
     current_section = readme.split("## 当前验证", 1)[1].split("\n## ", 1)[0]
-    assert re.search(r"\d+ passed, \d+ skipped", current_section)
-    assert re.search(r"OpenSpec strict: `\d+/\d+`", current_section)
-    assert re.search(r"Golden: `\d+/\d+`", current_section)
+    readme_baseline = re.search(
+        r"pytest: `(?P<pytest>\d+ passed, \d+ skipped)`；"
+        r"OpenSpec strict: `(?P<openspec>\d+/\d+)`\.",
+        current_section,
+    )
+    assert readme_baseline is not None
+    golden = re.search(r"Golden: `(?P<golden>\d+/\d+)`", current_section)
+    assert golden is not None
+
+    platform_baseline = re.search(
+        r"Current offline repository baseline: `(?P<pytest>\d+ passed, \d+ skipped)`; "
+        r"OpenSpec strict `(?P<openspec>\d+/\d+)`;\nGolden `(?P<golden>\d+/\d+)`",
+        matrix,
+    )
+    assert platform_baseline is not None
+    readme_values = readme_baseline.groupdict() | {"golden": golden.group("golden")}
+    assert readme_values == platform_baseline.groupdict()
