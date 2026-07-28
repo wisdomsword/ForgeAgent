@@ -6,7 +6,7 @@ import ipaddress
 import math
 import os
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from dataclasses import field as dataclass_field
 from pathlib import Path
 
@@ -82,6 +82,13 @@ class HttpServiceConfig:
     ) -> HttpServiceConfig:
         """Build config with the dedicated token environment variable taking priority."""
         values = dict(config or {})
+        unknown_fields = set(values) - {
+            *(field.name for field in fields(cls) if field.name != "context_config"),
+            "context",
+        }
+        if unknown_fields:
+            names = ", ".join(sorted(unknown_fields))
+            raise ValueError(f"unknown HTTP service configuration fields: {names}")
         source_env = os.environ if env is None else env
         token = source_env.get("FORGEAGENT_HTTP_TOKEN", values.get("token", ""))
         host = str(values.get("bind_host", "127.0.0.1"))

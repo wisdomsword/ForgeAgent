@@ -51,12 +51,13 @@ def test_readme_documents_collaboration_entry_points_routing_and_cost() -> None:
 def test_readme_keeps_explicit_modes_and_bound_checks_on_trusted_host_boundary() -> None:
     text = _text("README.md")
 
-    for fragment in (
-        "显式模式优先于可信宿主已绑定的冻结检查",
-        "`has_bound_checks` 是可信宿主的内部事实",
-        "HTTP 请求、普通任务请求、服务器 YAML 或任务文本都不能提供或伪造它",
-    ):
-        assert fragment in text
+    assert "显式模式优先" in text
+    assert "可信宿主已绑定的冻结检查" in text
+    assert "`has_bound_checks` 是可信宿主的内部事实" in text
+    assert "HTTP 请求和普通任务请求中出现" in text
+    assert "会被严格拒绝" in text
+    assert "服务器 YAML 中出现它也会被严格拒绝" in text
+    assert "任务文本" in text
 
 
 def test_readme_documents_memory_runtime_as_user_editable_and_atomic() -> None:

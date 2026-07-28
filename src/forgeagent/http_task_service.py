@@ -233,6 +233,8 @@ class TaskService:
     ) -> tuple[TaskRecord, dict[str, object]]:
         option_snapshot: dict[str, object] = {}
         for key, value in options.items():
+            if key == "has_bound_checks":
+                raise TypeError("Task options must not set has_bound_checks.")
             if not isinstance(key, str) or type(value) not in _OPTION_SCALAR_TYPES:
                 raise TypeError("Task options must use string keys and scalar values.")
             if type(value) is float and not math.isfinite(value):

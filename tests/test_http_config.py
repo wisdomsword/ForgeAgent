@@ -148,6 +148,11 @@ def test_http_config_accepts_server_owned_collaboration_policy():
     assert config.allow_weaker_override is True
 
 
+def test_http_config_rejects_client_forgeable_bound_checks_fact():
+    with pytest.raises(ValueError, match="has_bound_checks"):
+        HttpServiceConfig.from_sources(config={"token": "secret", "has_bound_checks": True}, env={})
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [

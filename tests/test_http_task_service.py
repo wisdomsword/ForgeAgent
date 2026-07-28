@@ -224,6 +224,23 @@ def test_programming_submission_audits_safe_single_route_before_worker_runs():
     assert "PRIVATE_GOAL" not in repr(route)
 
 
+def test_client_bound_checks_option_cannot_select_triad_or_enter_worker_record():
+    observed: list[Mapping[str, object]] = []
+
+    def factory(record: TaskRecord) -> _FakeTask:
+        observed.append(record.options)
+        return _instant_factory(record)
+
+    service = TaskService(factory=factory, config=CONFIG)
+    try:
+        with pytest.raises(TypeError, match="has_bound_checks"):
+            service.submit("Add a unit test", {"has_bound_checks": True})
+        assert observed == []
+        assert service.records == {}
+    finally:
+        service.shutdown(1.0)
+
+
 class _Clock:
     def __init__(self) -> None:
         self.now = 100.0

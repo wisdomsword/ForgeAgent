@@ -23,7 +23,8 @@ macOS Docker Desktop 结果只作为 supplemental 证据；仅 Linux Docker runn
 
 M27 已根据 M25 冻结协议完成路由裁决：默认 Single；用户显式选择 Single、Duo 或 Triad 时直接
 遵从，显式模式优先于可信宿主已绑定的冻结检查；只有可信宿主已经为本次任务绑定**非空冻结检查**时，
-未显式选择的任务才自动使用 Triad。`has_bound_checks` 是可信宿主的内部事实，HTTP 请求、普通任务请求、服务器 YAML 或任务文本都不能提供或伪造它。
+未显式选择的任务才自动使用 Triad。`has_bound_checks` 是可信宿主的内部事实。HTTP 请求和普通任务请求中出现
+`has_bound_checks` 会被严格拒绝；服务器 YAML 中出现它也会被严格拒绝。任务文本不能提供或伪造该事实。
 任务文本中的编程特征和候选文件就绪要求都不会
 自动升级模式。`allow_weaker_override` 仅为旧配置兼容保留，不再改变路由或要求确认。M25 派生报告
 新增误完成率和原样终止原因分类；没有任何任务

@@ -82,3 +82,50 @@ UV_CACHE_DIR=/tmp/forgeagent-m27-uv-cache uv run pytest -q \
 
 16 passed in 0.09s
 ```
+
+## Reviewer 最后修复轮
+
+### RED
+
+先增加 HTTP 配置、任务服务和 README 的可执行边界合同，再运行：
+
+```text
+UV_CACHE_DIR=/tmp/forgeagent-m27-uv-cache uv run pytest -q \
+  tests/test_http_config.py tests/test_http_task_service.py tests/test_collaboration_docs.py
+
+3 failed, 125 passed
+```
+
+失败证明 `HttpServiceConfig.from_sources()` 会静默忽略服务器 YAML 中的
+`has_bound_checks`，`TaskService` 会保留普通 options 中的该字段，而 README 还没有将
+HTTP/普通任务/服务器 YAML 的拒绝语义拆成稳定的公开合同。
+
+### GREEN
+
+HTTP 配置现在严格拒绝所有未知字段，因此服务器 YAML 中的 `has_bound_checks` 无法成为宿主
+证据。任务服务也在复制 options、创建记录和调度 worker 前拒绝该键；它不会触发 Triad，也不会
+进入 worker record。HTTP POST schema 原本已使用精确字段集，继续在解析前拒绝该未公开字段。
+README 改用独立语义句，避免整句匹配脆弱性。
+
+```text
+UV_CACHE_DIR=/tmp/forgeagent-m27-uv-cache uv run pytest -q \
+  tests/test_http_config.py tests/test_http_task_service.py tests/test_collaboration_docs.py
+
+128 passed in 0.13s
+
+UV_CACHE_DIR=/tmp/forgeagent-m27-uv-cache uv run ruff check \
+  src/forgeagent/http_config.py src/forgeagent/http_task_service.py \
+  tests/test_http_config.py tests/test_http_task_service.py tests/test_collaboration_docs.py
+
+All checks passed!
+
+UV_CACHE_DIR=/tmp/forgeagent-m27-uv-cache uv run ruff format --check \
+  src/forgeagent/http_config.py src/forgeagent/http_task_service.py \
+  tests/test_http_config.py tests/test_http_task_service.py tests/test_collaboration_docs.py
+
+5 files already formatted
+
+git diff --check
+```
+
+全部通过。
