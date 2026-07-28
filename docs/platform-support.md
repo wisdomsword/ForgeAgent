@@ -7,7 +7,7 @@ required CI job exists but its runner evidence is still pending.
 
 | Platform tuple | Priority | Status | Prerequisites | Current evidence | Limitations | Next Comet trigger |
 | --- | --- | --- | --- | --- | --- | --- |
-| Linux amd64/arm64 + Docker Engine | P0 | configured | Privileged GitLab Docker executor tagged `docker-privileged`; shared build volume | Required DinD job and strict 10-test JUnit contract are checked in | No target Linux runner result yet | First target runner result, or any DinD topology failure |
+| Linux amd64/arm64 + Docker Engine | P0 | verified | Linux Docker runner with Docker daemon, shared build volume, and the checked-in JUnit contract | 2026-07-28 runner execution: 10 passed, 0 skipped, 0 failures, 0 errors; JUnit artifact generated | This evidence covers the reported Linux runner topology only; it does not prove Podman, Windows, or every Linux executor | Any runner topology change, or a DinD/container contract failure |
 | Linux + rootless Podman | P1 | scheduled | Product decision to support Podman; compatible CLI/mount/network/pids/user/kill semantics | No execution evidence | Current backend commands and hardening flags target Docker | Podman becomes a release target or a compatibility spike is scheduled |
 | Windows native | P2 | deferred | Product decision to support Windows; path, locking, resource-limit, and container-tier design | No execution evidence | Drive-letter colons and Unix-specific isolation assumptions require design work | Windows becomes a release target |
 | macOS arm64 + Docker Desktop Linux daemon | non-release | supplemental | Docker Desktop 29.2.1 and local `python:3.11-slim` | Dated local JUnit 10/10 below | Linux VM daemon evidence does not prove native Linux runners, Podman, or Windows | Regression in local evidence or a change to the non-release smoke environment |
@@ -23,7 +23,20 @@ same-path bind-mount source through GitLab's shared build volume. A runner with 
 executor or build-volume topology must prove that contract before being marked `verified`.
 
 Current offline repository baseline: `2309 passed, 10 skipped`; OpenSpec strict `20/20`;
-Golden `20/20`.
+Golden `20/20`. The dated Linux runner evidence below is separate from this offline baseline.
+
+## Linux Docker Runner Evidence
+
+On 2026-07-28, a Linux Docker runner executed the required container gate as user `2000:2000`:
+
+```text
+10 passed, 4 deselected in 13.32s
+```
+
+The command wrote a non-empty `artifacts/ci/container-junit.xml`. The four deselected tests are
+the non-integration unit tests in `tests/test_container_backend.py`; the ten marked integration
+tests had zero skips, failures, and errors. Earlier root-owned artifacts and pytest cache entries
+were removed before this run; the command itself was executed without `sudo`.
 
 ## Supplemental Local Evidence
 
