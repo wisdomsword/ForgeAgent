@@ -808,7 +808,9 @@ def build_raw_record(
         artifacts=artifacts,
         solved=mode_result.runtime_completed
         and bool(checks)
-        and all(check.status == "passed" for check in checks),
+        and all(check.status == "passed" for check in checks)
+        and bool(artifacts)
+        and all(artifact.status == "ok" for artifact in artifacts),
         first_acceptance_passed=mode_result.first_acceptance_passed,
         rejection_count=mode_result.rejection_count,
         correction_count=mode_result.correction_count,

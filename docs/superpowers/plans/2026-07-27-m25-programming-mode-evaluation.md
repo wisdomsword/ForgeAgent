@@ -1334,13 +1334,13 @@ Expected: a committed implementation SHA different from base-ref; record this ex
 - Consumes: committed clean implementation, configured credentials/routes for both fixed model IDs, fixed protocol and serial run/aggregate CLI。
 - Produces: complete terminal evidence, reproducible aggregate outputs, independent recompute PASS and evidence commit。
 
-- [ ] **Step 1: Create only the fixed M25 evidence root**
+- [x] **Step 1: Create only the fixed M25 evidence root**
 
 Run: `rtk mkdir -p docs/evaluation/m25/runs`
 
 Expected: directory exists; no M23 path is created, removed, or modified.
 
-- [ ] **Step 2: Execute preflight without a provider model call**
+- [x] **Step 2: Execute preflight without a provider model call**
 
 Run:
 
@@ -1350,7 +1350,7 @@ rtk uv --cache-dir /tmp/forgeagent-m25-uv-cache run python -c "import importlib.
 
 Expected: `models=2 routes=2 runs=270 commit=<Task 8 implementation SHA>` and exit 0. Failure means no real run starts; fix only route/credential/configuration or implementation defect, rerun all affected Task 8 gates, commit tracked fixes, remove only the uncommitted M25 environment created by the failed preflight when its identity no longer matches, and rerun this step.
 
-- [ ] **Step 3: Execute or safely resume the fixed serial batch**
+- [x] **Step 3: Execute or safely resume the fixed serial batch**
 
 Run:
 
@@ -1360,7 +1360,7 @@ rtk uv --cache-dir /tmp/forgeagent-m25-uv-cache run python scripts/m23_mode_eval
 
 Expected: each absent run prints `RUN sequence=<n>` then `DONE sequence=<n> solved=<true|false>`; each exact existing terminal raw prints `SKIP sequence=<n>`; interruption exits without a partial raw and the identical command resumes. Exit 0 occurs only after 270 complete raws aggregate successfully. Do not run two copies concurrently.
 
-- [ ] **Step 4: Assert complete identities before trusting aggregates**
+- [x] **Step 4: Assert complete identities before trusting aggregates**
 
 Run:
 
@@ -1370,7 +1370,7 @@ rtk uv --cache-dir /tmp/forgeagent-m25-uv-cache run python -c "import json; from
 
 Expected: `RAW_IDENTITY_OK runs=270`.
 
-- [ ] **Step 5: Prove repeat aggregation equivalence and independent recompute**
+- [x] **Step 5: Prove repeat aggregation equivalence and independent recompute**
 
 First copy `summary.json` and `report.md` to `/tmp/forgeagent-m25-summary-first.json` and `/tmp/forgeagent-m25-report-first.md`, rerun:
 
@@ -1388,7 +1388,7 @@ rtk uv --cache-dir /tmp/forgeagent-m25-uv-cache run python scripts/m25_independe
 
 Expected: `INDEPENDENT_RECOMPUTE_OK runs=270`.
 
-- [ ] **Step 6: Scan real evidence safety and protect M23 once more**
+- [x] **Step 6: Scan real evidence safety and protect M23 once more**
 
 Run the recursive checked-in test against the real evidence root by passing it through the test's explicit `M25_REAL_EVIDENCE_ROOT` environment hook; the hook only selects a read-only test input and does not alter product configuration:
 
@@ -1396,7 +1396,7 @@ Run: `M25_REAL_EVIDENCE_ROOT=docs/evaluation/m25/runs/2026-07-27-haiku-4-5-gpt-5
 
 Expected: PASS; no sensitive key/value/path leaks and M23 bytes remain identical to base-ref.
 
-- [ ] **Step 7: Commit only complete M25 evidence**
+- [x] **Step 7: Commit only complete M25 evidence**
 
 ```bash
 rtk git add docs/evaluation/m25/runs/2026-07-27-haiku-4-5-gpt-5-4-mini
@@ -1418,7 +1418,7 @@ rtk git commit -m "data(evaluation): record complete M25 model batch"
 - Consumes: complete real report/summary, independent recompute PASS, Task 8/9 command outputs, `MILESTONE_GUIDE.md`。
 - Produces: discoverable neutral evidence, completed OpenSpec task ledger, M25 milestone and final verified repository state。
 
-- [ ] **Step 1: Write RED public-document contracts**
+- [x] **Step 1: Write RED public-document contracts**
 
 Add a test that requires all public documents to link `docs/evaluation/m25/protocol.json`, the fixed real `report.md`, and `scripts/m25_independent_recompute.py`; require the M25 ACTION_PLAN row and milestone to state 270/270, both model IDs, local/date/provider-weight limitations, no automatic ranking, independent recompute PASS, and M23 unchanged. Assert `milestones/latest` equals `milestone_025.md` and every checkbox in active M25 `tasks.md` is checked.
 
@@ -1426,7 +1426,7 @@ Run: `rtk uv --cache-dir /tmp/forgeagent-m25-uv-cache run pytest -q tests/test_m
 
 Expected: FAIL because M25 public docs and milestone are absent.
 
-- [ ] **Step 2: Write the evaluation README and public entry points**
+- [x] **Step 2: Write the evaluation README and public entry points**
 
 `docs/evaluation/m25/README.md` must contain:
 
@@ -1439,7 +1439,7 @@ Expected: FAIL because M25 public docs and milestone are absent.
 
 Add a concise README section linking this document, protocol and report. Add an M25 ACTION_PLAN row with scope `9 tasks x 2 models x 3 modes x 5 repetitions`, evidence `270/270 terminal raw`, independent recompute PASS, and status `已完成并归档` only after Comet archive; before archive use `实现与真实证据完成，待 Comet verify/归档`.
 
-- [ ] **Step 3: Create the milestone from verified facts**
+- [x] **Step 3: Create the milestone from verified facts**
 
 Follow `MILESTONE_GUIDE.md` exactly. `milestones/milestone_025.md` must record:
 
@@ -1453,11 +1453,11 @@ Follow `MILESTONE_GUIDE.md` exactly. `milestones/milestone_025.md` must record:
 
 Write `milestones/latest` as the single line `milestone_025.md`.
 
-- [ ] **Step 4: Check all OpenSpec implementation boxes after evidence/docs exist**
+- [x] **Step 4: Check all OpenSpec implementation boxes after evidence/docs exist**
 
 Change each of the 18 `- [ ]` entries in `openspec/changes/m25-programming-mode-evaluation/tasks.md` to `- [x]`. Do not edit the delta spec or `.comet.yaml` in this task; Comet owns workflow state and verification report paths.
 
-- [ ] **Step 5: Run final focused, full, golden, Ruff, build, OpenSpec and diff gates**
+- [x] **Step 5: Run final focused, full, golden, Ruff, build, OpenSpec and diff gates**
 
 Run: `rtk uv --cache-dir /tmp/forgeagent-m25-uv-cache run pytest -q tests/test_m23_mode_evaluation.py tests/test_m25_mode_evaluation.py tests/test_m25_independent_recompute.py`
 
@@ -1495,7 +1495,7 @@ Run: `rtk git diff --check`
 
 Expected: no output, exit 0.
 
-- [ ] **Step 6: Complete two final audits**
+- [x] **Step 6: Complete two final audits**
 
 Audit 1, contract/data: compare all OpenSpec requirements with protocol/environment/raw/summary/report; verify exact denominators, failure lists, usage gaps, Single N/A, route/family/model bindings and absence of partial aggregate writes.
 

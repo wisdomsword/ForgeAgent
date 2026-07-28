@@ -22,12 +22,12 @@
 
 ## 5. 真实模型证据批次
 
-- [ ] 5.1 提交实现并执行双模型 credential/route、协议 hash、环境、tracked-clean 和 270-run/轮次/token 上限 preflight
-- [ ] 5.2 执行或安全续跑 270 次真实模型评估，保存 270 份终态 raw，任何不完整或混合批次均不聚合
-- [ ] 5.3 从完整 raw 独立复算 `summary.json` 和 `report.md`，核对所有分母、失败、usage 缺失、模型与任务族切片
+- [x] 5.1 提交实现并执行双模型 credential/route、协议 hash、环境、tracked-clean 和 270-run/轮次/token 上限 preflight
+- [x] 5.2 执行或安全续跑 270 次真实模型评估，保存 270 份终态 raw，任何不完整或混合批次均不聚合
+- [x] 5.3 从完整 raw 独立复算 `summary.json` 和 `report.md`，核对所有分母、失败、usage 缺失、模型与任务族切片
 
 ## 6. 验证与里程碑收尾
 
-- [ ] 6.1 完成两轮最终自审，修复错误、前后不一致、遗漏、数据泄漏、隐式排名和 M23 漂移
-- [ ] 6.2 运行聚焦测试、全量 pytest、golden、Ruff、build、OpenSpec strict 和 `git diff --check`
-- [ ] 6.3 更新 `ACTION_PLAN.md`、评估文档与 M25 里程碑，记录真实证据范围、限制、验证输出和续接指引
+- [x] 6.1 完成两轮最终自审，修复错误、前后不一致、遗漏、数据泄漏、隐式排名和 M23 漂移
+- [x] 6.2 运行聚焦测试、全量 pytest、golden、Ruff、build、OpenSpec strict 和 `git diff --check`
+- [x] 6.3 更新 `ACTION_PLAN.md`、评估文档与 M25 里程碑，记录真实证据范围、限制、验证输出和续接指引

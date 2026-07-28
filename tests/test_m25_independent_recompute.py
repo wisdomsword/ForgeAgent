@@ -74,6 +74,22 @@ def test_independent_recompute_rejects_run_spec_hash_tampering(tmp_path) -> None
         load_recompute().recompute(M25_PROTOCOL_PATH, output)
 
 
+def test_independent_recompute_rejects_solved_artifact_mismatch(tmp_path) -> None:
+    output = tmp_path / "evidence"
+    write_complete_evidence(output)
+    first = sorted((output / "raw").glob("*.json"))[0]
+    record = json.loads(first.read_text(encoding="utf-8"))
+    record["runtime_completed"] = True
+    for check in record["checks"]:
+        check["status"] = "passed"
+    for artifact in record["artifacts"]:
+        artifact["status"] = "missing"
+    record["solved"] = True
+    first.write_text(json.dumps(record), encoding="utf-8")
+    with pytest.raises(ValueError, match="solved does not match"):
+        load_recompute().recompute(M25_PROTOCOL_PATH, output)
+
+
 def test_independent_recompute_cli_reports_complete_run_count(tmp_path) -> None:
     output = tmp_path / "evidence"
     write_complete_evidence(output)

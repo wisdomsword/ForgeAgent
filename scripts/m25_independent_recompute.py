@@ -55,7 +55,9 @@ def _protocol_sha256(protocol: dict[str, Any]) -> str:
     return _canonical_sha256(normalized)
 
 
-def _fixed_protocol(protocol_path: Path) -> tuple[dict[str, Any], dict[str, str]]:
+def _fixed_protocol(
+    protocol_path: Path,
+) -> tuple[dict[str, Any], dict[str, str], dict[str, tuple[str, ...]]]:
     protocol = _load_object(protocol_path)
     if (
         protocol.get("schema") != SCHEMA
@@ -74,6 +76,7 @@ def _fixed_protocol(protocol_path: Path) -> tuple[dict[str, Any], dict[str, str]
     if not isinstance(tasks, list) or len(tasks) != 9:
         raise ValueError("M25 protocol must contain nine tasks")
     task_families: dict[str, str] = {}
+    task_artifacts: dict[str, tuple[str, ...]] = {}
     for task in tasks:
         if not isinstance(task, dict):
             raise ValueError("M25 task must be an object")
@@ -81,12 +84,20 @@ def _fixed_protocol(protocol_path: Path) -> tuple[dict[str, Any], dict[str, str]
         family = task.get("family")
         if not isinstance(task_id, str) or family not in FAMILIES or task_id in task_families:
             raise ValueError("M25 task identity or family is invalid")
+        artifacts = task.get("artifacts")
+        if (
+            not isinstance(artifacts, list)
+            or not artifacts
+            or any(not isinstance(path, str) for path in artifacts)
+        ):
+            raise ValueError("M25 task artifacts are invalid")
         task_families[task_id] = family
+        task_artifacts[task_id] = tuple(artifacts)
     if Counter(task_families.values()) != Counter(
         {"baseline": 3, "bugfix": 2, "feature": 2, "refactor": 2}
     ):
         raise ValueError("M25 family counts do not match")
-    return protocol, task_families
+    return protocol, task_families, task_artifacts
 
 
 def _schedule(
@@ -159,8 +170,32 @@ def _add(metrics: dict[str, Any], record: dict[str, Any]) -> None:
         metrics["tokens"][field] += _integer(value, field)
 
 
+def _validate_solved(record: dict[str, Any], required_artifacts: tuple[str, ...]) -> None:
+    checks = record.get("checks")
+    artifacts = record.get("artifacts")
+    if (
+        not isinstance(checks, list)
+        or not checks
+        or any(not isinstance(check, dict) for check in checks)
+    ):
+        raise ValueError("M25 raw checks are invalid")
+    if not isinstance(artifacts, list) or any(
+        not isinstance(artifact, dict) for artifact in artifacts
+    ):
+        raise ValueError("M25 raw artifacts are invalid")
+    if tuple(artifact.get("path") for artifact in artifacts) != required_artifacts:
+        raise ValueError("M25 raw artifacts do not match protocol")
+    expected = (
+        record.get("runtime_completed") is True
+        and all(check.get("status") == "passed" for check in checks)
+        and all(artifact.get("status") == "ok" for artifact in artifacts)
+    )
+    if record.get("solved") is not expected:
+        raise ValueError("M25 raw solved does not match runtime, checks, and artifacts")
+
+
 def recompute(protocol_path: Path, output_dir: Path) -> dict[str, object]:
-    protocol, task_families = _fixed_protocol(protocol_path)
+    protocol, task_families, task_artifacts = _fixed_protocol(protocol_path)
     expected = _schedule(protocol, task_families)
     environment = _load_object(output_dir / "environment.json")
     routes = environment.get("model_routes")
@@ -240,6 +275,7 @@ def recompute(protocol_path: Path, output_dir: Path) -> dict[str, object]:
         )
         if record.get("run_spec_sha256") != expected_run_spec_sha256:
             raise ValueError("M25 raw run-spec hash does not match")
+        _validate_solved(record, task_artifacts[task_id])
         record_environment = record.get("environment_sha256")
         if (
             not _sha256_string(record_environment)

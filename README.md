@@ -55,6 +55,20 @@ v2 固定协议见
 里程碑收尾见
 [`milestone_023.md`](milestones/milestone_023.md)。
 
+## M25 编程模式质量—成本评估
+
+M25 以独立协议扩大 M23 的证据范围，不修改 M23 历史数据。固定范围为 9 个任务 x 2 个模型
+x 3 种模式 x 5 次重复，已形成 270/270 份 terminal raw；模型为 `claude-haiku-4-5` 和
+`gpt-5.4-mini`。协议见
+[`docs/evaluation/m25/protocol.json`](docs/evaluation/m25/protocol.json)，完整说明见
+[`docs/evaluation/m25/README.md`](docs/evaluation/m25/README.md)，中立报告见
+[`docs/evaluation/m25/runs/2026-07-27-haiku-4-5-gpt-5-4-mini/report.md`](docs/evaluation/m25/runs/2026-07-27-haiku-4-5-gpt-5-4-mini/report.md)，独立复算入口为
+[`scripts/m25_independent_recompute.py`](scripts/m25_independent_recompute.py)，结果为
+`INDEPENDENT_RECOMPUTE_OK runs=270`。
+
+证据只适用于记录日期、本机平台和当时的 provider 路由；provider 侧模型权重无法独立固定。
+报告不自动排名模式或模型，也不形成产品推荐。M23 的 tracked protocol 和正式证据保持字节不变。
+
 当前主线已完成 M17 Runtime Context Engineering、M18 Memory Runtime（含归档后两次
 人工复测 hotfix）、M19 Skills Runtime（程序性知识从 Memory 分流到可验证、快照化、渐进
 加载的 Skill）、M20 Eval（离线评估记录、趋势与显式 opt-in 独立 Evaluator）与 M21 Loop

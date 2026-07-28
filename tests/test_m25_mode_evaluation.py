@@ -181,9 +181,10 @@ def test_m25_fixture_candidate_files_fit_collaboration_contract() -> None:
     harness = load_harness()
     protocol, _ = harness.load_protocol(M25_PROTOCOL_PATH)
     for task in protocol.tasks:
-        assert normalize_required_candidate_files(
-            task.required_candidate_files
-        ) == task.required_candidate_files
+        assert (
+            normalize_required_candidate_files(task.required_candidate_files)
+            == task.required_candidate_files
+        )
 
 
 def test_m25_schedule_has_fixed_270_run_order_and_global_position_balance() -> None:
@@ -1013,6 +1014,51 @@ def test_m25_raw_record_binds_model_family_and_route_hash() -> None:
     assert record.provider_route_sha256 == "c" * 64
 
 
+def test_m25_raw_solved_requires_all_artifacts() -> None:
+    harness = load_harness()
+    protocol, _ = harness.load_protocol(M25_PROTOCOL_PATH)
+    spec = harness.build_schedule(protocol)[0]
+    common = {
+        "run_spec": spec,
+        "mode_result": harness.ModeResult(
+            runtime_completed=True,
+            runtime_status="completed",
+            runtime_reason="completed",
+            first_acceptance_passed=None,
+            rejection_count=None,
+            correction_count=None,
+        ),
+        "checks": (
+            harness.CheckRecord(
+                id="check",
+                status="passed",
+                exit_code=0,
+                stdout_sha256="0" * 64,
+                stderr_sha256="0" * 64,
+            ),
+        ),
+        "audit_metrics": harness.project_audit_metrics([]),
+        "protocol_sha256": "a" * 64,
+        "environment_sha256": "b" * 64,
+        "provider_route_sha256": "c" * 64,
+        "started_at": "2026-07-27T00:00:00.000Z",
+        "finished_at": "2026-07-27T00:00:01.000Z",
+        "end_to_end_latency_seconds": 1.0,
+    }
+    missing = harness.build_raw_record(
+        **common,
+        artifacts=(harness.ArtifactResult(path="result.txt", status="missing"),),
+    )
+    complete = harness.build_raw_record(
+        **common,
+        artifacts=(
+            harness.ArtifactResult(path="result.txt", status="ok", size=1, sha256="d" * 64),
+        ),
+    )
+    assert missing.solved is False
+    assert complete.solved is True
+
+
 def make_m25_raw_record(harness, spec, protocol_sha256, *, solved=True):
     logical_calls = 2 if spec.sequence % 10 == 0 else 1
     missing_calls = logical_calls - 1
@@ -1057,15 +1103,41 @@ def make_m25_raw_record(harness, spec, protocol_sha256, *, solved=True):
 
 
 def make_complete_m25_records(harness, protocol, protocol_sha256):
-    return tuple(
-        make_m25_raw_record(
-            harness,
-            spec,
-            protocol_sha256,
-            solved=spec.sequence % 7 != 0,
+    tasks = {task.id: task for task in protocol.tasks}
+    records = []
+    for spec in harness.build_schedule(protocol):
+        task = tasks[spec.task_id]
+        records.append(
+            make_m25_raw_record(
+                harness,
+                spec,
+                protocol_sha256,
+                solved=spec.sequence % 7 != 0,
+            ).model_copy(
+                update={
+                    "checks": tuple(
+                        harness.CheckRecord(
+                            id=check.id,
+                            status="passed",
+                            exit_code=0,
+                            stdout_sha256="0" * 64,
+                            stderr_sha256="0" * 64,
+                        )
+                        for check in task.checks
+                    ),
+                    "artifacts": tuple(
+                        harness.ArtifactResult(
+                            path=path,
+                            status="ok",
+                            size=1,
+                            sha256="d" * 64,
+                        )
+                        for path in task.artifacts
+                    ),
+                }
+            )
         )
-        for spec in harness.build_schedule(protocol)
-    )
+    return tuple(records)
 
 
 def test_m25_aggregate_uses_exact_model_family_task_and_call_denominators() -> None:
@@ -1299,3 +1371,47 @@ def test_m25_environment_raw_and_summary_have_safe_recursive_projection() -> Non
         "stdout_sha256",
         "stderr_sha256",
     }
+
+
+def test_m25_public_docs_and_milestone_publish_verified_evidence() -> None:
+    evidence_root = ROOT / "docs" / "evaluation" / "m25"
+    run_root = evidence_root / "runs" / "2026-07-27-haiku-4-5-gpt-5-4-mini"
+    milestone = ROOT / "milestones" / "milestone_025.md"
+    public_paths = (
+        ROOT / "README.md",
+        ROOT / "ACTION_PLAN.md",
+        evidence_root / "README.md",
+        milestone,
+    )
+    required_refs = (
+        "docs/evaluation/m25/protocol.json",
+        "docs/evaluation/m25/runs/2026-07-27-haiku-4-5-gpt-5-4-mini/report.md",
+        "scripts/m25_independent_recompute.py",
+    )
+    for path in public_paths:
+        text = path.read_text(encoding="utf-8")
+        for reference in required_refs:
+            assert reference in text
+
+    combined = "\n".join(path.read_text(encoding="utf-8") for path in public_paths)
+    for required in (
+        "270/270",
+        "claude-haiku-4-5",
+        "gpt-5.4-mini",
+        "INDEPENDENT_RECOMPUTE_OK runs=270",
+        "M23",
+        "本机",
+        "日期",
+        "provider",
+        "权重",
+        "不自动排名",
+    ):
+        assert required in combined
+
+    assert (run_root / "summary.json").is_file()
+    assert (run_root / "report.md").is_file()
+    assert (ROOT / "milestones" / "latest").read_text(encoding="utf-8") == ("milestone_025.md\n")
+    tasks = (
+        ROOT / "openspec" / "changes" / "m25-programming-mode-evaluation" / "tasks.md"
+    ).read_text(encoding="utf-8")
+    assert "- [ ]" not in tasks
