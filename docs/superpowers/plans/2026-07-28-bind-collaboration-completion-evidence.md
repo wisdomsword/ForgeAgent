@@ -36,27 +36,27 @@ base-ref: 7534ba8b24b616c03560d0ac82ef136feca0f283
 - Consumes: 现有 `_ignored(name: str) -> bool`、`run_check(...) -> CheckResult` 和 `shutil.copytree` 临时副本。
 - Produces: `candidate_snapshot_digest(root: str | Path) -> str`；`CheckResult.snapshot_digest: str = ""`，该字段默认不进入 `model_dump()`；已成功复制副本后的结果携带摘要。
 
-- [ ] **Step 1: 写摘要行为的失败测试**
+- [x] **Step 1: 写摘要行为的失败测试**
 
 在 `tests/test_check_runner.py` 增加测试，证明相同文件树摘要稳定，文件内容/路径/空目录/权限模式变化会改变摘要，而 `.git`、`.forgeagent`、缓存目录和 `*.pyc` 变化不会改变摘要；另断言 `run_check` 的成功结果具有 64 位摘要且 `result.model_dump()` 不包含 `snapshot_digest`。
 
-- [ ] **Step 2: 运行 RED 并确认缺失接口导致失败**
+- [x] **Step 2: 运行 RED 并确认缺失接口导致失败**
 
 Run: `uv run pytest tests/test_check_runner.py -q`
 
 Expected: FAIL，原因是 `candidate_snapshot_digest` 或 `snapshot_digest` 尚不存在，而不是 fixture/语法错误。
 
-- [ ] **Step 3: 实现最小摘要算法并绑定临时副本**
+- [x] **Step 3: 实现最小摘要算法并绑定临时副本**
 
 在 `check_runner.py` 使用标准库 `hashlib`，安全验证目录后按相对 POSIX 路径排序，将目录/文件类型标记、权限模式、文件长度和内容写入 SHA-256；复用 `_ignored`，拒绝符号链接和特殊文件。`run_check` 在复制完成后、创建 `.check-tmp` 前计算摘要，并传入所有复制后返回的 `_result` 路径。`CheckResult.snapshot_digest` 使用 Pydantic `Field(default="", exclude=True, repr=False)`，避免模型反馈或既有序列化调用暴露宿主证据。
 
-- [ ] **Step 4: 运行 GREEN 与回归测试**
+- [x] **Step 4: 运行 GREEN 与回归测试**
 
 Run: `uv run pytest tests/test_check_runner.py -q`
 
 Expected: PASS，所有 check runner 测试通过。
 
-- [ ] **Step 5: 提交 Task 1**
+- [x] **Step 5: 提交 Task 1**
 
 ```bash
 git add src/forgeagent/check_runner.py tests/test_check_runner.py
