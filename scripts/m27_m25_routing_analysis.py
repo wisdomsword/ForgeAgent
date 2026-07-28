@@ -283,15 +283,24 @@ def write_outputs(output_dir: Path, analysis: dict[str, object]) -> None:
         "report.md": render_report(analysis).encode(),
     }
     temporary_paths: list[tuple[Path, Path]] = []
+    reservation_paths: list[Path] = []
     backup_paths: list[tuple[Path, Path]] = []
     published_destinations: list[Path] = []
+    unresolved_backups: set[Path] = set()
     try:
         for name, content in outputs.items():
             descriptor, temporary = tempfile.mkstemp(prefix=f".{name}.", dir=output_dir)
             temporary_path = Path(temporary)
-            with os.fdopen(descriptor, "wb") as handle:
-                handle.write(content)
             temporary_paths.append((temporary_path, output_dir / name))
+            try:
+                with os.fdopen(descriptor, "wb") as handle:
+                    handle.write(content)
+            except Exception:
+                try:
+                    os.close(descriptor)
+                except OSError:
+                    pass
+                raise
 
         # Move any prior pair aside before publishing, so a failed second replace can restore it.
         for _, destination in temporary_paths:
@@ -299,25 +308,48 @@ def write_outputs(output_dir: Path, analysis: dict[str, object]) -> None:
                 descriptor, backup = tempfile.mkstemp(
                     prefix=f".backup-{destination.name}.", dir=output_dir
                 )
-                os.close(descriptor)
                 backup_path = Path(backup)
+                reservation_paths.append(backup_path)
+                os.close(descriptor)
                 backup_path.unlink()
                 destination.replace(backup_path)
                 backup_paths.append((backup_path, destination))
         for temporary_path, destination in temporary_paths:
             temporary_path.replace(destination)
             published_destinations.append(destination)
-    except Exception:
-        for destination in published_destinations:
-            destination.unlink(missing_ok=True)
+    except Exception as publication_error:
+        restore_errors: list[Exception] = []
+        backed_destinations = {destination for _, destination in backup_paths}
         for backup_path, destination in backup_paths:
-            backup_path.replace(destination)
+            try:
+                backup_path.replace(destination)
+            except Exception as restore_error:
+                unresolved_backups.add(backup_path)
+                restore_errors.append(restore_error)
+        for destination in published_destinations:
+            if destination not in backed_destinations:
+                try:
+                    destination.unlink(missing_ok=True)
+                except Exception as cleanup_error:
+                    restore_errors.append(cleanup_error)
+        if restore_errors:
+            raise ExceptionGroup(
+                "output publication failed and rollback was incomplete",
+                [publication_error, *restore_errors],
+            ) from publication_error
         raise
     finally:
         for temporary_path, _ in temporary_paths:
-            temporary_path.unlink(missing_ok=True)
-        for backup_path, _ in backup_paths:
-            backup_path.unlink(missing_ok=True)
+            try:
+                temporary_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        for reservation_path in reservation_paths:
+            if reservation_path not in unresolved_backups:
+                try:
+                    reservation_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
 
 
 def main() -> int:

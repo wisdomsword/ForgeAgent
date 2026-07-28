@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -197,6 +198,137 @@ def test_write_outputs_preserves_existing_outputs_when_backup_creation_fails(
         module.write_outputs(output_dir, analysis)
 
     assert {path.name: path.read_bytes() for path in output_dir.iterdir()} == existing
+
+
+def test_write_outputs_keeps_unresolved_backup_when_rollback_restore_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = load_analysis()
+    output_dir = tmp_path / "derived"
+    output_dir.mkdir()
+    existing = {
+        "analysis.json": b"old analysis\n",
+        "report.md": b"old report\n",
+    }
+    for name, content in existing.items():
+        (output_dir / name).write_bytes(content)
+
+    original_replace = Path.replace
+
+    def fail_publication_and_analysis_restore(path: Path, target: Path) -> Path:
+        if path.name.startswith(".report.md.") and target.name == "report.md":
+            raise OSError("simulated publish failure")
+        if path.name.startswith(".backup-analysis.json.") and target.name == "analysis.json":
+            raise OSError("simulated restore failure")
+        return original_replace(path, target)
+
+    monkeypatch.setattr(Path, "replace", fail_publication_and_analysis_restore)
+    analysis = {
+        "source": {
+            "runs": 0,
+            "protocol_sha256": "test",
+            "environment_sha256": "test",
+            "frozen_manifest": {"sha256": "test"},
+        },
+        "families": {},
+        "quality_eligible_for_automatic_triad": [],
+        "automatic_triad_restored_for": [],
+    }
+
+    with pytest.raises(ExceptionGroup) as raised:
+        module.write_outputs(output_dir, analysis)
+
+    errors = [str(error) for error in raised.value.exceptions]
+    assert errors == ["simulated publish failure", "simulated restore failure"]
+    unresolved = list(output_dir.glob(".backup-analysis.json.*"))
+    assert len(unresolved) == 1
+    assert unresolved[0].read_bytes() == existing["analysis.json"]
+    assert (output_dir / "report.md").read_bytes() == existing["report.md"]
+    assert not list(output_dir.glob(".analysis.json.*"))
+    assert not list(output_dir.glob(".report.md.*"))
+    assert not list(output_dir.glob(".backup-report.md.*"))
+
+
+def test_write_outputs_cleans_backup_reservation_when_unlink_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = load_analysis()
+    output_dir = tmp_path / "derived"
+    output_dir.mkdir()
+    existing = {
+        "analysis.json": b"old analysis\n",
+        "report.md": b"old report\n",
+    }
+    for name, content in existing.items():
+        (output_dir / name).write_bytes(content)
+
+    original_unlink = Path.unlink
+    failed = False
+
+    def fail_first_backup_reservation_unlink(path: Path, *args, **kwargs) -> None:
+        nonlocal failed
+        if not failed and path.name.startswith(".backup-analysis.json."):
+            failed = True
+            raise OSError("simulated reservation unlink failure")
+        original_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", fail_first_backup_reservation_unlink)
+    analysis = {
+        "source": {
+            "runs": 0,
+            "protocol_sha256": "test",
+            "environment_sha256": "test",
+            "frozen_manifest": {"sha256": "test"},
+        },
+        "families": {},
+        "quality_eligible_for_automatic_triad": [],
+        "automatic_triad_restored_for": [],
+    }
+
+    with pytest.raises(OSError, match="simulated reservation unlink failure"):
+        module.write_outputs(output_dir, analysis)
+
+    assert {path.name: path.read_bytes() for path in output_dir.iterdir()} == existing
+
+
+def test_write_outputs_cleans_temp_and_fd_when_fdopen_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = load_analysis()
+    output_dir = tmp_path / "derived"
+    descriptors: list[int] = []
+
+    def fail_fdopen(descriptor: int, *_args, **_kwargs):
+        descriptors.append(descriptor)
+        raise OSError("simulated fdopen failure")
+
+    monkeypatch.setattr(module.os, "fdopen", fail_fdopen)
+    analysis = {
+        "source": {
+            "runs": 0,
+            "protocol_sha256": "test",
+            "environment_sha256": "test",
+            "frozen_manifest": {"sha256": "test"},
+        },
+        "families": {},
+        "quality_eligible_for_automatic_triad": [],
+        "automatic_triad_restored_for": [],
+    }
+
+    try:
+        with pytest.raises(OSError, match="simulated fdopen failure"):
+            module.write_outputs(output_dir, analysis)
+
+        assert list(output_dir.iterdir()) == []
+        assert len(descriptors) == 1
+        with pytest.raises(OSError):
+            os.fstat(descriptors[0])
+    finally:
+        for descriptor in descriptors:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
 
 
 @pytest.mark.parametrize(
