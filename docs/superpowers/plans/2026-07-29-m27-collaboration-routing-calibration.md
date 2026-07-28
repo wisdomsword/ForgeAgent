@@ -195,7 +195,9 @@ Expected: FAIL，因为脚本不存在。
 
 冻结 manifest 至少包含 protocol、environment.json、summary.json、report.md 和 270 个 raw 的相对路径
 及 SHA-256，再计算 canonical manifest digest。写出前确认 `output_dir.resolve()` 不等于或位于
-`run_dir.resolve()` 内。JSON 使用 `sort_keys=True` 和换行；两个文件先写同目录临时文件再 replace。
+`run_dir.resolve()` 内。JSON 使用 `sort_keys=True` 和换行；两个文件先写入预先命名事务目录，再
+逐文件 `replace`。普通 I/O 异常尽力完整回滚；逐文件发布不是跨文件原子事务，异步中断或回滚/
+探测不确定时必须报错并保留 `old/staged/failed-new` 恢复证据，不得输出成功标记。
 
 策略裁决按 family 比较 Triad 与 Single solved rate；仅严格更高者进入 quality eligible。真实 M25
 结果应令 eligible 与 restored 均为空。
@@ -375,3 +377,57 @@ git status --short
 ```
 
 Expected: change strict valid；提交 diff 无空白错误；状态仅显示用户原有未跟踪文件。
+
+### Task 5: 最终独立评审修复
+
+**Files:**
+- Modify: `scripts/m27_m25_routing_analysis.py`
+- Modify: `tests/test_m27_m25_routing_analysis.py`
+- Modify: `src/forgeagent/cli.py`
+- Modify: `tests/test_collaboration_integrations.py`
+
+**Interfaces:**
+- Preserves: `write_outputs(output_dir, analysis)` 的普通 I/O 失败回滚与可观察失败合同；逐文件
+  `replace` 不承诺任意异步中断下的跨文件原子性，状态不确定时保留预命名恢复目录。
+- Produces: CLI/REPL Single 路由与协作路由一致的 `collaboration.route` 审计，且不记录 goal/argv/path。
+
+- [ ] **Step 1: 写两个独立 RED 合同**
+
+模拟第一个既有目标从 destination 移到 backup 时失败，断言两个旧产物都保持原字节；为 CLI 和 REPL
+默认/显式 Single 注入 audit sink，断言各发出一次 `collaboration.route`，mode/reason 稳定且 payload
+不包含 goal、argv 或 path。
+
+- [ ] **Step 2: 运行 RED**
+
+Run:
+
+```bash
+UV_CACHE_DIR=/tmp/forgeagent-m27-uv-cache uv run pytest -q \
+  tests/test_m27_m25_routing_analysis.py tests/test_collaboration_integrations.py
+```
+
+Expected: 新增合同失败，分别暴露既有文件误删和 Single 路由漏审计。
+
+- [ ] **Step 3: 实现最小 GREEN**
+
+派生输出使用固定 `staged/old/failed-new` rename 状态机：普通 I/O 失败尽力回滚；异步中断、restore
+或 probe 不确定时立即停止该文件的后续破坏性 rename，保留恢复目录并抛出聚合异常。Single 分支在调用 `run_once`
+前使用既有 `emit_collaboration_route`，复用当前 decision、audit sink 与 task id 语义，不改变
+`run_once` 的通用接口，也不重复发出 Duo/Triad 审计。
+
+- [ ] **Step 4: 运行 GREEN 与相邻回归**
+
+Run:
+
+```bash
+UV_CACHE_DIR=/tmp/forgeagent-m27-uv-cache uv run pytest -q \
+  tests/test_m27_m25_routing_analysis.py tests/test_collaboration_integrations.py \
+  tests/test_collaboration_routing.py tests/test_http_task_service.py
+```
+
+Expected: 全部 PASS。
+
+- [ ] **Step 5: 重新完整验证、更新证据并提交**
+
+重复 Task 4 的 pytest、OpenSpec、Golden、Ruff、离线打包和 diff 检查；用实际数字同步 README、
+platform-support、验证报告与 milestone，完成两轮自审和独立复审后提交。

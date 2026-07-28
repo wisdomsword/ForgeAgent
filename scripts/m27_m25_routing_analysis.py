@@ -307,57 +307,73 @@ def write_outputs(output_dir: Path, analysis: dict[str, object]) -> None:
 
     output_dir.mkdir(parents=True, exist_ok=True)
     transaction_dir.mkdir()
+    had_old = {name: False for name in outputs}
+    publish_started = {name: False for name in outputs}
     try:
         for name, content in outputs.items():
             with paths[name]["staged"].open("xb") as handle:
                 handle.write(content)
 
-        for file_paths in paths.values():
+        for name, file_paths in paths.items():
             try:
                 file_paths["destination"].replace(file_paths["old"])
+                had_old[name] = True
             except FileNotFoundError:
                 pass
+            publish_started[name] = True
             file_paths["staged"].replace(file_paths["destination"])
     except BaseException as transaction_error:
+        if not isinstance(transaction_error, Exception):
+            raise BaseExceptionGroup(
+                "output publication was interrupted; transaction evidence was retained",
+                [transaction_error],
+            ) from transaction_error
+
         rollback_errors: list[BaseException] = []
-        for file_paths in paths.values():
+        rollback_uncertain = False
+        for name, file_paths in paths.items():
             restored_old = False
             try:
                 file_paths["old"].replace(file_paths["destination"])
                 restored_old = True
             except FileNotFoundError:
-                pass
+                if had_old[name]:
+                    rollback_uncertain = True
+                    rollback_errors.append(
+                        RuntimeError(
+                            f"rollback state uncertain for {file_paths['destination'].name}"
+                        )
+                    )
+                    continue
             except BaseException as restore_error:
+                rollback_uncertain = True
                 rollback_errors.append(restore_error)
-                try:
-                    file_paths["old"].replace(file_paths["destination"])
-                    restored_old = True
-                except FileNotFoundError:
-                    restored_old = True
-                except BaseException as retry_error:
-                    rollback_errors.append(retry_error)
+                continue
 
             if restored_old:
                 continue
 
-            staged_was_present = False
             try:
                 file_paths["staged"].replace(file_paths["failed_new"])
-                staged_was_present = True
             except FileNotFoundError:
-                pass
+                if publish_started[name]:
+                    try:
+                        file_paths["destination"].replace(file_paths["failed_new"])
+                    except FileNotFoundError:
+                        rollback_uncertain = True
+                        rollback_errors.append(
+                            RuntimeError(
+                                f"rollback state uncertain for {file_paths['destination'].name}"
+                            )
+                        )
+                    except BaseException as remove_new_error:
+                        rollback_uncertain = True
+                        rollback_errors.append(remove_new_error)
             except BaseException as probe_error:
+                rollback_uncertain = True
                 rollback_errors.append(probe_error)
 
-            if not staged_was_present:
-                try:
-                    file_paths["destination"].replace(file_paths["failed_new"])
-                except FileNotFoundError:
-                    pass
-                except BaseException as remove_new_error:
-                    rollback_errors.append(remove_new_error)
-
-        if rollback_errors:
+        if rollback_uncertain:
             raise BaseExceptionGroup(
                 "output publication failed and rollback was incomplete",
                 [transaction_error, *rollback_errors],

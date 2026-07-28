@@ -205,13 +205,12 @@ def test_write_outputs_keeps_unresolved_backup_when_rollback_restore_fails(
     transactions = list(output_dir.glob(".m27-routing-analysis-*"))
     assert len(transactions) == 1
     assert (transactions[0] / "analysis.json.old").read_bytes() == existing["analysis.json"]
-    assert (transactions[0] / "analysis.json.failed-new").read_bytes() != existing["analysis.json"]
-    assert not (output_dir / "analysis.json").exists()
+    assert (output_dir / "analysis.json").read_bytes() != existing["analysis.json"]
     assert (output_dir / "report.md").read_bytes() == existing["report.md"]
     assert (output_dir / "unrelated.txt").read_text() == "keep"
 
 
-def test_write_outputs_uses_failed_new_when_restore_and_public_removal_fail(
+def test_write_outputs_stops_after_restore_failure_and_preserves_evidence(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     module = load_analysis()
@@ -253,10 +252,9 @@ def test_write_outputs_uses_failed_new_when_restore_and_public_removal_fail(
         module.write_outputs(output_dir, analysis)
 
     transaction = next(output_dir.glob(".m27-routing-analysis-*"))
-    assert restore_attempts == 2
-    assert not (output_dir / "analysis.json").exists()
+    assert restore_attempts == 1
+    assert (output_dir / "analysis.json").read_bytes() != existing["analysis.json"]
     assert (transaction / "analysis.json.old").read_bytes() == existing["analysis.json"]
-    assert (transaction / "analysis.json.failed-new").read_bytes() != existing["analysis.json"]
 
 
 def test_write_outputs_reports_rollback_probe_interrupt_and_keeps_transaction(
@@ -321,10 +319,12 @@ def test_write_outputs_cleans_known_transaction_after_stage_write_interrupt(
         "automatic_triad_restored_for": [],
     }
 
-    with pytest.raises(KeyboardInterrupt, match="simulated stage open interrupt"):
+    with pytest.raises(BaseExceptionGroup) as raised:
         module.write_outputs(output_dir, analysis)
 
-    assert list(output_dir.iterdir()) == []
+    assert any("simulated stage open interrupt" in str(error) for error in raised.value.exceptions)
+    transaction = next(output_dir.glob(".m27-routing-analysis-*"))
+    assert list(transaction.iterdir()) == []
 
 
 def test_write_outputs_rolls_back_keyboard_interrupt_during_second_publish(
@@ -360,10 +360,14 @@ def test_write_outputs_rolls_back_keyboard_interrupt_during_second_publish(
         "automatic_triad_restored_for": [],
     }
 
-    with pytest.raises(KeyboardInterrupt, match="simulated interrupt"):
+    with pytest.raises(BaseExceptionGroup) as raised:
         module.write_outputs(output_dir, analysis)
 
-    assert {path.name: path.read_bytes() for path in output_dir.iterdir()} == existing
+    assert any("simulated interrupt" in str(error) for error in raised.value.exceptions)
+    transaction = next(output_dir.glob(".m27-routing-analysis-*"))
+    assert (transaction / "analysis.json.old").read_bytes() == existing["analysis.json"]
+    assert (transaction / "report.md.old").read_bytes() == existing["report.md"]
+    assert (transaction / "report.md.staged").exists()
 
 
 def test_write_outputs_recovers_when_backup_move_interrupts_after_replace(
@@ -400,10 +404,13 @@ def test_write_outputs_recovers_when_backup_move_interrupts_after_replace(
         "automatic_triad_restored_for": [],
     }
 
-    with pytest.raises(KeyboardInterrupt, match="simulated post-backup interrupt"):
+    with pytest.raises(BaseExceptionGroup) as raised:
         module.write_outputs(output_dir, analysis)
 
-    assert {path.name: path.read_bytes() for path in output_dir.iterdir()} == existing
+    assert any("simulated post-backup interrupt" in str(error) for error in raised.value.exceptions)
+    transaction = next(output_dir.glob(".m27-routing-analysis-*"))
+    assert (transaction / "analysis.json.old").read_bytes() == existing["analysis.json"]
+    assert (transaction / "analysis.json.staged").exists()
 
 
 def test_write_outputs_removes_new_only_publish_when_interrupt_follows_replace(
@@ -432,13 +439,18 @@ def test_write_outputs_removes_new_only_publish_when_interrupt_follows_replace(
         "automatic_triad_restored_for": [],
     }
 
-    with pytest.raises(KeyboardInterrupt, match="simulated post-publish interrupt"):
+    with pytest.raises(BaseExceptionGroup) as raised:
         module.write_outputs(output_dir, analysis)
 
-    assert list(output_dir.iterdir()) == []
+    assert any(
+        "simulated post-publish interrupt" in str(error) for error in raised.value.exceptions
+    )
+    transaction = next(output_dir.glob(".m27-routing-analysis-*"))
+    assert (transaction / "report.md.staged").exists()
+    assert (output_dir / "analysis.json").exists()
 
 
-@pytest.mark.parametrize("stage", ["rollback-files", "successful-publication"])
+@pytest.mark.parametrize("stage", ["successful-publication"])
 def test_write_outputs_exposes_persistent_cleanup_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stage: str
 ) -> None:

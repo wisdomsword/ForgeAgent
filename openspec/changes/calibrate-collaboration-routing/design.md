@@ -68,6 +68,12 @@ M27 派生目录输出 JSON 投影与 Markdown 报告。它按 model/mode 和 ta
 - 原样统计稳定 `runtime_reason`，不主观合并类别；
 - logical model calls、provider attempts、延迟和 token 的总计与均值。
 
+派生产物使用预先命名的事务目录与逐文件 `replace` 发布。正常成功时两个公开文件均替换完成；
+普通 I/O 异常会尽力恢复发布前文件并清理事务目录。该机制不是跨两个文件的原子事务：若遇到
+`KeyboardInterrupt`、`SystemExit`，或回滚/状态探测本身失败，脚本停止后续破坏性 rename，抛出
+`BaseExceptionGroup`，并保留事务目录中的 `*.old`、`*.staged`、`*.failed-new` 恢复证据。此时
+公开路径可能处于中间态，调用方不得把运行视为成功，也不得删除事务目录后继续发布。
+
 是否恢复某类自动 Triad，先判断该类别的 Triad solved rate 是否严格高于 Single。冻结 M25 中
 没有类别通过该质量门：baseline 持平，bugfix、feature 和 refactor 均更低。因此 M27 不恢复
 任何自动类别；延迟和调用成本作为支持证据报告，不引入任意权衡阈值。M25 早于 M26 证据绑定，
