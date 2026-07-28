@@ -79,8 +79,10 @@ run 根之外；脚本不提供覆盖或重写输入的参数。
 - logical model calls、provider attempts、端到端延迟与各 token 字段的 sum/mean。
 
 所有 rate 都输出 numerator、denominator 和 value，零分母时 value 为 null。数值字段必须为有限、
-非负值；reason 必须是非空字符串；布尔字段必须是严格 bool。失败时脚本非零退出且不先写半成品。
-成功时先在内存构造完整结果，再通过临时文件 + replace 原子写 JSON 与 Markdown。
+非负值；reason 必须是非空字符串；布尔字段必须是严格 bool。成功时先在内存构造完整结果，再通过
+预先命名事务目录中的 `staged/old/failed-new` 文件逐个 `replace` JSON 与 Markdown。逐文件
+`replace` 不是跨文件原子事务：普通 I/O 异常在状态明确时完整回滚并清理；异步中断或回滚状态不确定
+时脚本非零退出、停止该文件后续破坏性 rename，并保留可识别事务目录作为恢复证据，不冒充发布成功。
 
 ### 3.3 策略裁决
 
