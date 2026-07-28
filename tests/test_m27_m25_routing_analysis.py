@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -200,6 +199,50 @@ def test_write_outputs_preserves_existing_outputs_when_backup_creation_fails(
     assert {path.name: path.read_bytes() for path in output_dir.iterdir()} == existing
 
 
+def test_write_outputs_preserves_existing_outputs_when_backup_reservation_open_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = load_analysis()
+    output_dir = tmp_path / "derived"
+    output_dir.mkdir()
+    existing = {
+        "analysis.json": b"old analysis\n",
+        "report.md": b"old report\n",
+    }
+    for name, content in existing.items():
+        (output_dir / name).write_bytes(content)
+
+    original_named_temporary_file = module.tempfile.NamedTemporaryFile
+    reservations = 0
+
+    def fail_first_backup_reservation(*args, **kwargs):
+        nonlocal reservations
+        prefix = kwargs.get("prefix", "")
+        if prefix.startswith(".backup-"):
+            reservations += 1
+            if reservations == 1:
+                raise KeyboardInterrupt("simulated reservation open interrupt")
+        return original_named_temporary_file(*args, **kwargs)
+
+    monkeypatch.setattr(module.tempfile, "NamedTemporaryFile", fail_first_backup_reservation)
+    analysis = {
+        "source": {
+            "runs": 0,
+            "protocol_sha256": "test",
+            "environment_sha256": "test",
+            "frozen_manifest": {"sha256": "test"},
+        },
+        "families": {},
+        "quality_eligible_for_automatic_triad": [],
+        "automatic_triad_restored_for": [],
+    }
+
+    with pytest.raises(KeyboardInterrupt, match="simulated reservation open interrupt"):
+        module.write_outputs(output_dir, analysis)
+
+    assert {path.name: path.read_bytes() for path in output_dir.iterdir()} == existing
+
+
 def test_write_outputs_keeps_unresolved_backup_when_rollback_restore_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -243,10 +286,56 @@ def test_write_outputs_keeps_unresolved_backup_when_rollback_restore_fails(
     unresolved = list(output_dir.glob(".backup-analysis.json.*"))
     assert len(unresolved) == 1
     assert unresolved[0].read_bytes() == existing["analysis.json"]
+    assert not (output_dir / "analysis.json").exists()
     assert (output_dir / "report.md").read_bytes() == existing["report.md"]
     assert not list(output_dir.glob(".analysis.json.*"))
     assert not list(output_dir.glob(".report.md.*"))
     assert not list(output_dir.glob(".backup-report.md.*"))
+
+
+def test_write_outputs_keeps_restored_old_content_when_restore_interrupts_after_replace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = load_analysis()
+    output_dir = tmp_path / "derived"
+    output_dir.mkdir()
+    existing = {
+        "analysis.json": b"old analysis\n",
+        "report.md": b"old report\n",
+    }
+    for name, content in existing.items():
+        (output_dir / name).write_bytes(content)
+
+    original_replace = Path.replace
+
+    def fail_publish_then_interrupt_after_restore(path: Path, target: Path) -> Path:
+        if path.name.startswith(".report.md.") and target.name == "report.md":
+            raise OSError("simulated publish failure")
+        if path.name.startswith(".backup-analysis.json.") and target.name == "analysis.json":
+            original_replace(path, target)
+            raise KeyboardInterrupt("simulated post-restore interrupt")
+        return original_replace(path, target)
+
+    monkeypatch.setattr(Path, "replace", fail_publish_then_interrupt_after_restore)
+    analysis = {
+        "source": {
+            "runs": 0,
+            "protocol_sha256": "test",
+            "environment_sha256": "test",
+            "frozen_manifest": {"sha256": "test"},
+        },
+        "families": {},
+        "quality_eligible_for_automatic_triad": [],
+        "automatic_triad_restored_for": [],
+    }
+
+    with pytest.raises(BaseExceptionGroup) as raised:
+        module.write_outputs(output_dir, analysis)
+
+    assert any(
+        "simulated post-restore interrupt" in str(error) for error in raised.value.exceptions
+    )
+    assert {path.name: path.read_bytes() for path in output_dir.iterdir()} == existing
 
 
 def test_write_outputs_cleans_backup_reservation_when_unlink_fails(
@@ -291,18 +380,38 @@ def test_write_outputs_cleans_backup_reservation_when_unlink_fails(
     assert {path.name: path.read_bytes() for path in output_dir.iterdir()} == existing
 
 
-def test_write_outputs_cleans_temp_and_fd_when_fdopen_fails(
+def test_write_outputs_cleans_temp_when_named_temp_write_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     module = load_analysis()
     output_dir = tmp_path / "derived"
-    descriptors: list[int] = []
+    original_named_temporary_file = module.tempfile.NamedTemporaryFile
 
-    def fail_fdopen(descriptor: int, *_args, **_kwargs):
-        descriptors.append(descriptor)
-        raise OSError("simulated fdopen failure")
+    class FailingWriteFile:
+        def __init__(self, *args, **kwargs) -> None:
+            self._file = original_named_temporary_file(*args, **kwargs)
+            self.name = self._file.name
+            self.closed = False
 
-    monkeypatch.setattr(module.os, "fdopen", fail_fdopen)
+        def __enter__(self):
+            self._file.__enter__()
+            return self
+
+        def write(self, _content: bytes) -> None:
+            raise OSError("simulated write failure")
+
+        def __exit__(self, *args) -> None:
+            self._file.__exit__(*args)
+            self.closed = self._file.closed
+
+    files: list[FailingWriteFile] = []
+
+    def failing_named_temporary_file(*args, **kwargs):
+        file = FailingWriteFile(*args, **kwargs)
+        files.append(file)
+        return file
+
+    monkeypatch.setattr(module.tempfile, "NamedTemporaryFile", failing_named_temporary_file)
     analysis = {
         "source": {
             "runs": 0,
@@ -315,20 +424,230 @@ def test_write_outputs_cleans_temp_and_fd_when_fdopen_fails(
         "automatic_triad_restored_for": [],
     }
 
-    try:
-        with pytest.raises(OSError, match="simulated fdopen failure"):
-            module.write_outputs(output_dir, analysis)
+    with pytest.raises(OSError, match="simulated write failure"):
+        module.write_outputs(output_dir, analysis)
 
-        assert list(output_dir.iterdir()) == []
-        assert len(descriptors) == 1
-        with pytest.raises(OSError):
-            os.fstat(descriptors[0])
-    finally:
-        for descriptor in descriptors:
-            try:
-                os.close(descriptor)
-            except OSError:
-                pass
+    assert list(output_dir.iterdir()) == []
+    assert len(files) == 1
+    assert files[0].closed is True
+
+
+def test_write_outputs_cleans_temp_when_named_temp_close_fails_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = load_analysis()
+    output_dir = tmp_path / "derived"
+    original_named_temporary_file = module.tempfile.NamedTemporaryFile
+
+    class FailingCloseFile:
+        def __init__(self, *args, **kwargs) -> None:
+            self._file = original_named_temporary_file(*args, **kwargs)
+            self.name = self._file.name
+            self.exit_calls = 0
+
+        def __enter__(self):
+            self._file.__enter__()
+            return self
+
+        def write(self, content: bytes) -> int:
+            return self._file.write(content)
+
+        def __exit__(self, *args) -> None:
+            self.exit_calls += 1
+            self._file.__exit__(*args)
+            raise OSError("simulated close failure")
+
+    files: list[FailingCloseFile] = []
+
+    def failing_named_temporary_file(*args, **kwargs):
+        file = FailingCloseFile(*args, **kwargs)
+        files.append(file)
+        return file
+
+    monkeypatch.setattr(module.tempfile, "NamedTemporaryFile", failing_named_temporary_file)
+    analysis = {
+        "source": {
+            "runs": 0,
+            "protocol_sha256": "test",
+            "environment_sha256": "test",
+            "frozen_manifest": {"sha256": "test"},
+        },
+        "families": {},
+        "quality_eligible_for_automatic_triad": [],
+        "automatic_triad_restored_for": [],
+    }
+
+    with pytest.raises(OSError, match="simulated close failure"):
+        module.write_outputs(output_dir, analysis)
+
+    assert list(output_dir.iterdir()) == []
+    assert len(files) == 1
+    assert files[0].exit_calls == 1
+
+
+def test_write_outputs_rolls_back_keyboard_interrupt_during_second_publish(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = load_analysis()
+    output_dir = tmp_path / "derived"
+    output_dir.mkdir()
+    existing = {
+        "analysis.json": b"old analysis\n",
+        "report.md": b"old report\n",
+    }
+    for name, content in existing.items():
+        (output_dir / name).write_bytes(content)
+
+    original_replace = Path.replace
+
+    def interrupt_report_publication(path: Path, target: Path) -> Path:
+        if path.name.startswith(".report.md.") and target.name == "report.md":
+            raise KeyboardInterrupt("simulated interrupt")
+        return original_replace(path, target)
+
+    monkeypatch.setattr(Path, "replace", interrupt_report_publication)
+    analysis = {
+        "source": {
+            "runs": 0,
+            "protocol_sha256": "test",
+            "environment_sha256": "test",
+            "frozen_manifest": {"sha256": "test"},
+        },
+        "families": {},
+        "quality_eligible_for_automatic_triad": [],
+        "automatic_triad_restored_for": [],
+    }
+
+    with pytest.raises(KeyboardInterrupt, match="simulated interrupt"):
+        module.write_outputs(output_dir, analysis)
+
+    assert {path.name: path.read_bytes() for path in output_dir.iterdir()} == existing
+
+
+def test_write_outputs_recovers_when_backup_move_interrupts_after_replace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = load_analysis()
+    output_dir = tmp_path / "derived"
+    output_dir.mkdir()
+    existing = {
+        "analysis.json": b"old analysis\n",
+        "report.md": b"old report\n",
+    }
+    for name, content in existing.items():
+        (output_dir / name).write_bytes(content)
+
+    original_replace = Path.replace
+
+    def interrupt_after_backup_move(path: Path, target: Path) -> Path:
+        result = original_replace(path, target)
+        if path.name == "analysis.json" and target.name.startswith(".backup-analysis.json."):
+            raise KeyboardInterrupt("simulated post-backup interrupt")
+        return result
+
+    monkeypatch.setattr(Path, "replace", interrupt_after_backup_move)
+    analysis = {
+        "source": {
+            "runs": 0,
+            "protocol_sha256": "test",
+            "environment_sha256": "test",
+            "frozen_manifest": {"sha256": "test"},
+        },
+        "families": {},
+        "quality_eligible_for_automatic_triad": [],
+        "automatic_triad_restored_for": [],
+    }
+
+    with pytest.raises(KeyboardInterrupt, match="simulated post-backup interrupt"):
+        module.write_outputs(output_dir, analysis)
+
+    assert {path.name: path.read_bytes() for path in output_dir.iterdir()} == existing
+
+
+def test_write_outputs_removes_new_only_publish_when_interrupt_follows_replace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = load_analysis()
+    output_dir = tmp_path / "derived"
+    original_replace = Path.replace
+
+    def interrupt_after_analysis_publish(path: Path, target: Path) -> Path:
+        result = original_replace(path, target)
+        if path.name.startswith(".analysis.json.") and target.name == "analysis.json":
+            raise KeyboardInterrupt("simulated post-publish interrupt")
+        return result
+
+    monkeypatch.setattr(Path, "replace", interrupt_after_analysis_publish)
+    analysis = {
+        "source": {
+            "runs": 0,
+            "protocol_sha256": "test",
+            "environment_sha256": "test",
+            "frozen_manifest": {"sha256": "test"},
+        },
+        "families": {},
+        "quality_eligible_for_automatic_triad": [],
+        "automatic_triad_restored_for": [],
+    }
+
+    with pytest.raises(KeyboardInterrupt, match="simulated post-publish interrupt"):
+        module.write_outputs(output_dir, analysis)
+
+    assert list(output_dir.iterdir()) == []
+
+
+@pytest.mark.parametrize("stage", ["temporary", "reservation", "successful-publication"])
+def test_write_outputs_exposes_persistent_cleanup_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stage: str
+) -> None:
+    module = load_analysis()
+    output_dir = tmp_path / "derived"
+    if stage in ("reservation", "successful-publication"):
+        output_dir.mkdir()
+        (output_dir / "analysis.json").write_text("old analysis\n", encoding="utf-8")
+    original_unlink = Path.unlink
+    original_replace = Path.replace
+    backup_unlinks = 0
+
+    def fail_cleanup(path: Path, *args, **kwargs) -> None:
+        nonlocal backup_unlinks
+        if stage == "temporary" and path.name.startswith(".analysis.json."):
+            raise OSError("simulated persistent temp cleanup failure")
+        if stage == "reservation" and path.name.startswith(".backup-analysis.json."):
+            raise OSError("simulated persistent reservation cleanup failure")
+        if stage == "successful-publication" and path.name.startswith(".backup-analysis.json."):
+            backup_unlinks += 1
+            if backup_unlinks > 1:
+                raise OSError("simulated successful publication cleanup failure")
+        original_unlink(path, *args, **kwargs)
+
+    def fail_publication(path: Path, target: Path) -> Path:
+        if stage == "temporary" and path.name.startswith(".analysis.json."):
+            raise OSError("simulated publication failure")
+        return original_replace(path, target)
+
+    monkeypatch.setattr(Path, "unlink", fail_cleanup)
+    monkeypatch.setattr(Path, "replace", fail_publication)
+    analysis = {
+        "source": {
+            "runs": 0,
+            "protocol_sha256": "test",
+            "environment_sha256": "test",
+            "frozen_manifest": {"sha256": "test"},
+        },
+        "families": {},
+        "quality_eligible_for_automatic_triad": [],
+        "automatic_triad_restored_for": [],
+    }
+
+    with pytest.raises(BaseException) as raised:
+        module.write_outputs(output_dir, analysis)
+
+    if isinstance(raised.value, BaseExceptionGroup):
+        messages = [str(error) for error in raised.value.exceptions]
+    else:
+        messages = [str(raised.value)]
+    assert any("cleanup failure" in message for message in messages)
 
 
 @pytest.mark.parametrize(

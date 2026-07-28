@@ -8,7 +8,6 @@ import hashlib
 import importlib.util
 import json
 import math
-import os
 import sys
 import tempfile
 from pathlib import Path
@@ -287,69 +286,79 @@ def write_outputs(output_dir: Path, analysis: dict[str, object]) -> None:
     backup_paths: list[tuple[Path, Path]] = []
     published_destinations: list[Path] = []
     unresolved_backups: set[Path] = set()
+
+    def cleanup(paths: list[Path]) -> list[BaseException]:
+        errors: list[BaseException] = []
+        for path in paths:
+            try:
+                path.unlink(missing_ok=True)
+            except BaseException as error:
+                errors.append(error)
+        return errors
+
     try:
         for name, content in outputs.items():
-            descriptor, temporary = tempfile.mkstemp(prefix=f".{name}.", dir=output_dir)
-            temporary_path = Path(temporary)
-            temporary_paths.append((temporary_path, output_dir / name))
-            try:
-                with os.fdopen(descriptor, "wb") as handle:
-                    handle.write(content)
-            except Exception:
-                try:
-                    os.close(descriptor)
-                except OSError:
-                    pass
-                raise
+            with tempfile.NamedTemporaryFile(
+                prefix=f".{name}.", dir=output_dir, delete=False
+            ) as handle:
+                temporary_path = Path(handle.name)
+                temporary_paths.append((temporary_path, output_dir / name))
+                handle.write(content)
 
         # Move any prior pair aside before publishing, so a failed second replace can restore it.
         for _, destination in temporary_paths:
             if destination.exists():
-                descriptor, backup = tempfile.mkstemp(
-                    prefix=f".backup-{destination.name}.", dir=output_dir
-                )
-                backup_path = Path(backup)
-                reservation_paths.append(backup_path)
-                os.close(descriptor)
+                with tempfile.NamedTemporaryFile(
+                    prefix=f".backup-{destination.name}.", dir=output_dir, delete=False
+                ) as handle:
+                    backup_path = Path(handle.name)
+                    reservation_paths.append(backup_path)
                 backup_path.unlink()
-                destination.replace(backup_path)
                 backup_paths.append((backup_path, destination))
+                destination.replace(backup_path)
         for temporary_path, destination in temporary_paths:
             temporary_path.replace(destination)
             published_destinations.append(destination)
-    except Exception as publication_error:
-        restore_errors: list[Exception] = []
-        backed_destinations = {destination for _, destination in backup_paths}
+    except BaseException as publication_error:
+        rollback_errors: list[BaseException] = []
+        restored_destinations: set[Path] = set()
         for backup_path, destination in backup_paths:
+            if not backup_path.exists():
+                continue
             try:
                 backup_path.replace(destination)
-            except Exception as restore_error:
-                unresolved_backups.add(backup_path)
-                restore_errors.append(restore_error)
-        for destination in published_destinations:
-            if destination not in backed_destinations:
+                restored_destinations.add(destination)
+            except BaseException as restore_error:
+                if backup_path.exists():
+                    unresolved_backups.add(backup_path)
+                elif destination.exists():
+                    restored_destinations.add(destination)
+                rollback_errors.append(restore_error)
+        possibly_published = set(published_destinations)
+        possibly_published.update(
+            destination
+            for temporary_path, destination in temporary_paths
+            if not temporary_path.exists() and destination.exists()
+        )
+        for destination in possibly_published:
+            if destination not in restored_destinations:
                 try:
                     destination.unlink(missing_ok=True)
-                except Exception as cleanup_error:
-                    restore_errors.append(cleanup_error)
-        if restore_errors:
-            raise ExceptionGroup(
+                except BaseException as cleanup_error:
+                    rollback_errors.append(cleanup_error)
+        cleanup_paths = [path for path, _ in temporary_paths]
+        cleanup_paths.extend(path for path in reservation_paths if path not in unresolved_backups)
+        rollback_errors.extend(cleanup(cleanup_paths))
+        if rollback_errors:
+            raise BaseExceptionGroup(
                 "output publication failed and rollback was incomplete",
-                [publication_error, *restore_errors],
+                [publication_error, *rollback_errors],
             ) from publication_error
         raise
-    finally:
-        for temporary_path, _ in temporary_paths:
-            try:
-                temporary_path.unlink(missing_ok=True)
-            except OSError:
-                pass
-        for reservation_path in reservation_paths:
-            if reservation_path not in unresolved_backups:
-                try:
-                    reservation_path.unlink(missing_ok=True)
-                except OSError:
-                    pass
+    else:
+        cleanup_errors = cleanup([path for path, _ in temporary_paths] + reservation_paths)
+        if cleanup_errors:
+            raise BaseExceptionGroup("output publication cleanup failed", cleanup_errors)
 
 
 def main() -> int:
