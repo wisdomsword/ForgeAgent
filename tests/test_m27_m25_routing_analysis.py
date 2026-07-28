@@ -77,8 +77,15 @@ def test_derive_reports_false_completion_costs_and_quality_gate(tmp_path: Path) 
         "tokens",
     ):
         assert set(family_bucket[metric]) == {"sum", "mean"}
-    assert analysis["automatic_triad_restored_for"] == []
-    assert "M25 早于 M26" in load_analysis().render_report(analysis)
+    eligible = analysis["quality_eligible_for_automatic_triad"]
+    assert eligible
+    assert analysis["automatic_triad_restored_for"] == eligible
+    assert analysis["decision"]["reason"] == (
+        "Triad has a strictly higher solved rate than Single for: " + ", ".join(eligible) + "."
+    )
+    report = load_analysis().render_report(analysis)
+    assert "M25 早于 M26" in report
+    assert "automatic Triad restored: " + ", ".join(eligible) in report
 
 
 def test_derive_rejects_raw_identity_and_summary_tampering(tmp_path: Path) -> None:
@@ -151,3 +158,88 @@ def test_write_outputs_removes_partial_publication_on_failure(
         module.write_outputs(tmp_path / "derived", analysis)
     assert not (tmp_path / "derived" / "analysis.json").exists()
     assert not (tmp_path / "derived" / "report.md").exists()
+
+
+@pytest.mark.parametrize(
+    ("existing", "expected"),
+    [
+        (
+            {"analysis.json": b"old analysis\n", "report.md": b"old report\n"},
+            {"analysis.json": b"old analysis\n", "report.md": b"old report\n"},
+        ),
+        ({"analysis.json": b"old analysis\n"}, {"analysis.json": b"old analysis\n"}),
+        ({"report.md": b"old report\n"}, {"report.md": b"old report\n"}),
+    ],
+)
+def test_write_outputs_restores_preexisting_pair_when_second_replace_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    existing: dict[str, bytes],
+    expected: dict[str, bytes],
+) -> None:
+    module = load_analysis()
+    output_dir = tmp_path / "derived"
+    output_dir.mkdir()
+    for name, content in existing.items():
+        (output_dir / name).write_bytes(content)
+
+    original_replace = Path.replace
+
+    def fail_only_new_report(path: Path, target: Path) -> Path:
+        if Path(target).name == "report.md" and Path(path).name.startswith(".report.md."):
+            raise OSError("simulated second publish failure")
+        return original_replace(path, target)
+
+    monkeypatch.setattr(Path, "replace", fail_only_new_report)
+    analysis = {
+        "source": {
+            "runs": 0,
+            "protocol_sha256": "test",
+            "environment_sha256": "test",
+            "frozen_manifest": {"sha256": "test"},
+        },
+        "families": {},
+        "quality_eligible_for_automatic_triad": [],
+        "automatic_triad_restored_for": [],
+    }
+
+    with pytest.raises(OSError, match="simulated second publish failure"):
+        module.write_outputs(output_dir, analysis)
+
+    published = {
+        path.name: path.read_bytes()
+        for path in output_dir.iterdir()
+        if not path.name.startswith(".")
+    }
+    assert published == expected
+
+
+def test_write_outputs_replaces_preexisting_pair_on_success(tmp_path: Path) -> None:
+    module = load_analysis()
+    output_dir = tmp_path / "derived"
+    output_dir.mkdir()
+    (output_dir / "analysis.json").write_text("old analysis\n", encoding="utf-8")
+    (output_dir / "report.md").write_text("old report\n", encoding="utf-8")
+    analysis = {
+        "source": {
+            "runs": 0,
+            "protocol_sha256": "test",
+            "environment_sha256": "test",
+            "frozen_manifest": {"sha256": "test"},
+        },
+        "families": {},
+        "quality_eligible_for_automatic_triad": [],
+        "automatic_triad_restored_for": [],
+    }
+
+    module.write_outputs(output_dir, analysis)
+
+    assert (
+        json.loads((output_dir / "analysis.json").read_text(encoding="utf-8"))["source"]["runs"]
+        == 0
+    )
+    assert (
+        (output_dir / "report.md")
+        .read_text(encoding="utf-8")
+        .startswith("# M27 M25 协作路由派生分析\n")
+    )

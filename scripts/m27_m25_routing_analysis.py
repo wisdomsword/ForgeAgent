@@ -171,6 +171,12 @@ def derive(protocol_path: Path, run_dir: Path) -> dict[str, object]:
         for family, modes in families.items()
         if modes["triad"]["solved_rate"]["value"] > modes["single"]["solved_rate"]["value"]
     ]
+    restored = eligible.copy()
+    reason = (
+        "No task family has a strictly higher Triad solved rate than Single."
+        if not restored
+        else "Triad has a strictly higher solved rate than Single for: " + ", ".join(restored) + "."
+    )
     return {
         "schema": "forgeagent.m27.collaboration-routing-analysis/v1",
         "source": {
@@ -183,10 +189,10 @@ def derive(protocol_path: Path, run_dir: Path) -> dict[str, object]:
         "models": models,
         "families": families,
         "quality_eligible_for_automatic_triad": eligible,
-        "automatic_triad_restored_for": [],
+        "automatic_triad_restored_for": restored,
         "decision": {
             "default_mode": "single",
-            "reason": "No task family has a strictly higher Triad solved rate than Single.",
+            "reason": reason,
             "triad_still_available_for": ["explicit_selection", "bound_checks"],
         },
     }
@@ -199,12 +205,18 @@ def _percentage(value: float | None) -> str:
 def render_report(analysis: dict[str, object]) -> str:
     """Render the immutable-input projection as a concise human-readable report."""
     source = analysis["source"]
+    restored = analysis["automatic_triad_restored_for"]
+    restored_description = (
+        "M27 不恢复任何任务类别的自动 Triad：没有类别的 Triad solved rate 严格高于 Single。"
+        if not restored
+        else "M27 自动恢复以下任务类别的 Triad：" + ", ".join(restored) + "。"
+    )
     lines = [
         "# M27 M25 协作路由派生分析",
         "",
         "## 结论",
         "",
-        "M27 不恢复任何任务类别的自动 Triad：没有类别的 Triad solved rate 严格高于 Single。",
+        restored_description,
         "默认保持 Single；用户显式选择或可信宿主已绑定冻结检查时仍可使用 Triad。",
         "",
         "M25 早于 M26 冻结检查绑定。下列误完成和终止原因是历史结果，不能作为当前 "
@@ -271,7 +283,7 @@ def write_outputs(output_dir: Path, analysis: dict[str, object]) -> None:
         "report.md": render_report(analysis).encode(),
     }
     temporary_paths: list[tuple[Path, Path]] = []
-    published_paths: list[Path] = []
+    backup_paths: list[tuple[Path, Path]] = []
     try:
         for name, content in outputs.items():
             descriptor, temporary = tempfile.mkstemp(prefix=f".{name}.", dir=output_dir)
@@ -279,15 +291,31 @@ def write_outputs(output_dir: Path, analysis: dict[str, object]) -> None:
             with os.fdopen(descriptor, "wb") as handle:
                 handle.write(content)
             temporary_paths.append((temporary_path, output_dir / name))
+
+        # Move any prior pair aside before publishing, so a failed second replace can restore it.
+        for _, destination in temporary_paths:
+            if destination.exists():
+                descriptor, backup = tempfile.mkstemp(
+                    prefix=f".backup-{destination.name}.", dir=output_dir
+                )
+                os.close(descriptor)
+                backup_path = Path(backup)
+                backup_path.unlink()
+                destination.replace(backup_path)
+                backup_paths.append((backup_path, destination))
         for temporary_path, destination in temporary_paths:
             temporary_path.replace(destination)
-            published_paths.append(destination)
+    except Exception:
+        for _, destination in temporary_paths:
+            destination.unlink(missing_ok=True)
+        for backup_path, destination in backup_paths:
+            backup_path.replace(destination)
+        raise
     finally:
         for temporary_path, _ in temporary_paths:
             temporary_path.unlink(missing_ok=True)
-        if len(published_paths) != len(outputs):
-            for destination in published_paths:
-                destination.unlink(missing_ok=True)
+        for backup_path, _ in backup_paths:
+            backup_path.unlink(missing_ok=True)
 
 
 def main() -> int:
