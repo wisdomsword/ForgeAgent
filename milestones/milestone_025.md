@@ -1,12 +1,12 @@
 # 里程碑 M25: 编程模式质量—成本证据
 
-- 状态: 实现与真实证据完成，待 Comet verify/归档
+- 状态: 已完成并归档
 - 起止: 2026-07-27 ~ 2026-07-28
 - 对应 ACTION_PLAN 行: M25（见该文件 §四 里程碑表）
 - 前置里程碑: [milestone_024](milestone_024.md)
 - 技术设计: [2026-07-27-m25-programming-mode-evaluation-design](../docs/superpowers/specs/2026-07-27-m25-programming-mode-evaluation-design.md)
 - 实施计划: [2026-07-27-m25-programming-mode-evaluation](../docs/superpowers/plans/2026-07-27-m25-programming-mode-evaluation.md)
-- OpenSpec change: [`m25-programming-mode-evaluation`](../openspec/changes/m25-programming-mode-evaluation/)
+- OpenSpec change: [`2026-07-28-m25-programming-mode-evaluation`](../openspec/changes/archive/2026-07-28-m25-programming-mode-evaluation/)
 
 ## 目标与范围
 

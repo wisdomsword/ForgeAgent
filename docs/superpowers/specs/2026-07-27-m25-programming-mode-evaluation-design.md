@@ -2,6 +2,8 @@
 comet_change: m25-programming-mode-evaluation
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-07-28-m25-programming-mode-evaluation
+status: final
 ---
 
 # M25 编程模式质量—成本评估技术设计
@@ -232,3 +234,4 @@ M25 raw 禁止包含 goal、prompt、messages、reply、body、text、api_key、
 - 没有自动排名或优越性结论；
 - M23 历史文件 hash 未变；
 - 项目验证门禁通过并记录原始输出摘要。
+

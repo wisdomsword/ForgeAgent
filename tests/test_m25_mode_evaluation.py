@@ -1412,6 +1412,11 @@ def test_m25_public_docs_and_milestone_publish_verified_evidence() -> None:
     assert (run_root / "report.md").is_file()
     assert (ROOT / "milestones" / "latest").read_text(encoding="utf-8") == ("milestone_025.md\n")
     tasks = (
-        ROOT / "openspec" / "changes" / "m25-programming-mode-evaluation" / "tasks.md"
+        ROOT
+        / "openspec"
+        / "changes"
+        / "archive"
+        / "2026-07-28-m25-programming-mode-evaluation"
+        / "tasks.md"
     ).read_text(encoding="utf-8")
     assert "- [ ]" not in tasks

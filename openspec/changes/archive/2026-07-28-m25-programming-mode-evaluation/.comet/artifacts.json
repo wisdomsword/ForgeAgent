@@ -4,5 +4,6 @@
   "openspec_tasks": "openspec/changes/m25-programming-mode-evaluation/tasks.md",
   "openspec_delta_spec": "openspec/changes/m25-programming-mode-evaluation/specs/collaboration-mode-evaluation/spec.md",
   "handoff_context": "openspec/changes/m25-programming-mode-evaluation/.comet/handoff/design-context.json",
-  "handoff_markdown": "openspec/changes/m25-programming-mode-evaluation/.comet/handoff/design-context.md"
+  "handoff_markdown": "openspec/changes/m25-programming-mode-evaluation/.comet/handoff/design-context.md",
+  "archive_directory": "openspec/changes/archive/2026-07-28-m25-programming-mode-evaluation"
 }

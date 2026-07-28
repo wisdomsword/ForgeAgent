@@ -1,6 +1,6 @@
 workflow: full
 language: zh-CN
-phase: verify
+phase: archive
 context_compression: off
 build_mode: subagent-driven-development
 build_pause: null
@@ -13,12 +13,12 @@ auto_transition: true
 base_ref: d7fa30526f829959102b5fb69b4778899d6b1f88
 design_doc: docs/superpowers/specs/2026-07-27-m25-programming-mode-evaluation-design.md
 plan: docs/superpowers/plans/2026-07-27-m25-programming-mode-evaluation.md
-verify_result: pending
+verify_result: pass
 verification_report: docs/superpowers/reports/2026-07-28-m25-programming-mode-evaluation-verify.md
 branch_status: handled
 created_at: 2026-07-27
-verified_at: null
-archived: false
+verified_at: 2026-07-28
+archived: true
 direct_override: null
 handoff_context: openspec/changes/m25-programming-mode-evaluation/.comet/handoff/design-context.json
 handoff_hash: 15490125223768741d07f47b32c01de1f13b0a379587a39af19d4a95ccfdb51d
