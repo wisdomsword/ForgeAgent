@@ -3,14 +3,14 @@
 - Change: calibrate-collaboration-routing
 - Review mode: thorough
 - TDD mode: tdd
-- Current plan task: Task 2: M25 冻结证据派生分析
-- OpenSpec mapping: 2.1, 2.2, 2.3 冻结 M25 派生分析
+- Current plan task: Task 3: 文档合同与公开状态
+- OpenSpec mapping: 3.1, 3.2, 3.3 文档与证据
 - Stage: done
-- Review/fix round: 1/2
-- Brief: `.superpowers/sdd/task-2-brief.md`
-- Implementation commit: ab8bb27
-- Changed files: `scripts/m27_m25_routing_analysis.py`, `tests/test_m27_m25_routing_analysis.py`, `docs/evaluation/m25/README.md`, `docs/evaluation/m25/derived/m27-collaboration-routing/analysis.json`, `docs/evaluation/m25/derived/m27-collaboration-routing/report.md`
-- RED evidence: `2 failed` because the derivation module did not exist
-- GREEN evidence: `9 passed`; real `runs=270 restored=none`; independent recompute and frozen hashes passed; Ruff/diff passed
-- Risk signals: evaluation schema and historical evidence integrity
-- Review status: approved after fix commit 399c8bb; no remaining findings
+- Review/fix round: 2/2
+- Brief: `.superpowers/sdd/task-3-brief.md`
+- Implementation commit: a91b057
+- Changed files: `README.md`, `ACTION_PLAN.md`, `docs/http-task-service.md`, `docs/threat-model.md`, `docs/platform-support.md`, `tests/test_collaboration_docs.py`, `tests/test_continuous_verification.py`
+- RED evidence: `5 failed, 9 passed`
+- GREEN evidence: `14 passed`; Ruff check/format and diff check passed
+- Risk signals: public documentation contract across runtime, evidence, and platform status
+- Review status: approved after commits 941042f and 6b3f3f5; no remaining findings

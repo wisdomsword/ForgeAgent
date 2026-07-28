@@ -256,7 +256,7 @@ git commit -m "feat: derive m25 collaboration routing evidence"
 - Consumes: Task 1 路由合同、Task 2 派生报告、最终前一轮 pytest/OpenSpec/Golden 数字。
 - Produces: 一致的 Single 默认、Memory 行为、M27 路由裁决、Linux verified 和当前基线公开合同。
 
-- [ ] **Step 1: 写文档 RED 合同**
+- [x] **Step 1: 写文档 RED 合同**
 
 在协作文档测试中断言 README/HTTP 文档包含：默认 Single、显式模式优先、非空冻结检查可 Triad、
 `allow_weaker_override` 仅兼容无行为；不再包含编程任务强制 Triad、needs_confirmation 或较弱覆盖。
@@ -273,13 +273,13 @@ assert "原子" in readme and "用户" in readme and "编辑" in readme
 
 提取 README 与 platform-support 的当前 pytest/OpenSpec/Golden 数字并断言完全相等。
 
-- [ ] **Step 2: 运行文档 RED**
+- [x] **Step 2: 运行文档 RED**
 
 Run: `UV_CACHE_DIR=/tmp/forgeagent-m27-uv-cache uv run pytest -q tests/test_collaboration_docs.py tests/test_continuous_verification.py`
 
 Expected: FAIL，因为旧强制 Triad、Memory 只读、旧 baseline 和 Linux 矛盾仍存在。
 
-- [ ] **Step 3: 更新文档至 GREEN**
+- [x] **Step 3: 更新文档至 GREEN**
 
 README 改为新路由与 Memory 真相；HTTP 文档删除 headless override confirmation，保留显式 Duo/Triad
 和 Planner 确认策略；threat-model 说明自动 Triad 只来自可信宿主绑定检查，布尔事实不是用户输入。
@@ -289,13 +289,13 @@ platform-support 第一行写为 `Linux Docker runner topology (Pipeline 50 / Jo
 保留 verified 与 10/10 JUnit，删除最后 configured 句。此步骤先使用当时最近一次完整验证数字；Task 4
 最终全量结果若变化，再同步精确数字。
 
-- [ ] **Step 4: 运行文档 GREEN**
+- [x] **Step 4: 运行文档 GREEN**
 
 Run: `UV_CACHE_DIR=/tmp/forgeagent-m27-uv-cache uv run pytest -q tests/test_collaboration_docs.py tests/test_continuous_verification.py`
 
 Expected: 全部 PASS。
 
-- [ ] **Step 5: 提交 Task 3**
+- [x] **Step 5: 提交 Task 3**
 
 ```bash
 git add README.md ACTION_PLAN.md docs/http-task-service.md docs/threat-model.md docs/platform-support.md tests/test_collaboration_docs.py tests/test_continuous_verification.py
