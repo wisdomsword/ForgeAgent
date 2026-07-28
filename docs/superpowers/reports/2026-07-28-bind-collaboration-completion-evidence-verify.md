@@ -2,10 +2,11 @@
 
 ## 结论
 
-正式验证 PASS，可进入归档。M26 的运行时实现、OpenSpec delta、技术设计、测试、文档和独立受控
-证据一致；未发现未解决的 Critical 或 Important 正确性、安全、边界问题。mypy、M16 loopback
-黑盒和 packaging 全依赖安装仍受工具/沙箱/离线缓存限制，均明确记录为未验证的环境补充项，
-没有冒充通过，也不改变 M26 自身产品门禁结论。
+归档时正式验证 PASS。2026-07-29 归档后审计发现并修复一项 Important 可用性缺陷：检查复制
+规则漏排本地 agent/workflow 元数据，导致真实开发仓库可在检查开始前因 socket 或 symlink 稳定
+`copy_error`。M26 的完成证据门、OpenSpec delta 与 `final-v5` 历史批次保持不变；修复后的当前
+验证结果见“归档后审计更正”。mypy、M16 loopback 黑盒和 packaging 全依赖安装仍受工具/沙箱/
+离线缓存限制，均明确记录为未验证的环境补充项，没有冒充通过。
 
 ## 记分卡
 
@@ -76,13 +77,29 @@
   全局字节锁，已收敛到 M23 自身提交区间并验证。
 - 第二轮最终自审专查模糊、错误、过度保守、前后不一致、遗漏和 false completion 旁路；补齐
   运行时源码 hash 的严格映射校验、中间证据批次非权威标记及运行时合同文档。
-- 最终独立复审确认 final-v5 与当前 harness、`check_runner.py`、`collaboration.py` hash 一致，
-  无剩余 Critical 或 Important finding。
+- 归档时独立复审确认 final-v5 与当时 harness、`check_runner.py`、`collaboration.py` hash 一致，
+  当时未报告剩余 Critical 或 Important finding；2026-07-29 审计发现的元数据漏排问题已在本报告
+  后续更正，不能继续把该结论表述为当前源码无问题。
 - 本地合并后的第一轮复验在主工作区暴露 2 个 Runner 测试失败：测试角色 Task 未绑定
-  `tmp_path`，导致 `RunCheck` 扫描当前仓库并正确拒绝 `.codegraph/daemon.sock` 特殊文件。
-  生产 CLI/Loop/evaluation builder 均已确认传入协作 workspace；因此只把这两个测试切换到既有
-  `_ArtifactRoleBuilder(..., tmp_path)`，不放宽特殊文件 fail-closed。RED 为 `2 failed`，GREEN 为
-  `2 passed`，随后聚焦与全套复验均通过。
+  `tmp_path`，导致 `RunCheck` 扫描当前仓库并拒绝 `.codegraph/daemon.sock`。归档时先把两个测试
+  切换到既有 `_ArtifactRoleBuilder(..., tmp_path)`；RED 为 `2 failed`，GREEN 为 `2 passed`，
+  随后聚焦与全套复验均通过。2026-07-29 归档后审计进一步确认，该失败还暴露了复制规则漏排
+  agent/workflow 元数据的运行时可用性缺陷，修正见下节。
+
+## 归档后审计更正（2026-07-29）
+
+- 实际项目根稳定复现 `candidate_snapshot_digest(Path.cwd())` 报
+  `project contains an unsupported special file`；`.codegraph/daemon.sock` 和 `.claude/skills`
+  symlink 属于本地工具元数据，不应进入 Candidate 检查语义。
+- 复制、源树校验与 snapshot digest 现仅忽略项目根的 `.agent`、`.agents`、`.claude`、
+  `.codegraph`、`.codex`、`.superpowers` 真实目录；同名嵌套目录和顶层同名普通文件仍属于
+  Candidate，symlink/special-file fail-closed 保持不变。
+- M26 `final-v5` 仍冻结为原运行时版本证据，其 environment 中源码 hash 不改写；当前修复使用
+  新回归与全套验证证明，不把后续源码冒充为原批次输入。
+- 新鲜验证：check/collaboration/M26 专项 `155 passed in 25.79s`；沙箱可执行全套
+  `2420 passed, 22 skipped in 99.63s`；Golden `20/20`；Ruff 全库 check 与 113 files format
+  check；OpenSpec strict `20 passed, 0 failed`；M26 专用缓存离线 build 成功生成 wheel 与 sdist；
+  项目根 snapshot digest 成功计算。packaging 全依赖安装、mypy 和 loopback 限制仍按原记录保留。
 
 ## 环境限制
 
@@ -104,6 +121,7 @@
 
 ## 最终评估
 
-M26 已完成正式 verify、delta spec 同步、归档和本地合并。合并后暴露的测试夹具环境耦合已按
-systematic debugging/TDD 修复并完成全套复验；运行时源码和 final-v5 hash 均未改变。mypy、
-loopback 和 packaging 全依赖安装作为环境补证缺口保留，不影响本次已验证的 M26 完成证据绑定能力。
+M26 已完成正式 verify、delta spec 同步、归档和本地合并。归档后审计已按 systematic
+debugging/TDD 修复检查器对 agent/workflow 元数据的错误拒绝，并保留非忽略 Candidate 树的安全
+拒绝语义。`final-v5` 原始文件和 hash 未改写，继续只证明其冻结运行时版本；当前修复由新的回归与
+全套验证证明。mypy、loopback 和 packaging 全依赖安装作为环境补证缺口保留。

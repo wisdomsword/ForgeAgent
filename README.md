@@ -6,10 +6,10 @@
 
 ## 当前验证
 
-pytest: `2408 passed, 22 skipped`；OpenSpec strict: `20/20`.
+pytest: `2420 passed, 22 skipped`；OpenSpec strict: `20/20`.
 
-该 pytest 结果排除当前沙箱禁止 loopback socket 的 11 个 M16 黑盒测试和另行验证的
-packaging 测试；未把环境限制误报为通过。本机 Docker Desktop 专项为
+该 pytest 结果来自 2026-07-29 M26 归档后审计，排除当前沙箱禁止 loopback socket 的 11 个
+M16 黑盒测试和另行验证的 packaging 测试；未把环境限制误报为通过。本机 Docker Desktop 专项为
 `10 passed`、零 skip；2026-07-28 手工 Linux runner 专项为 `10 passed`、零 skip；GitLab Linux
 Docker Job 249 为 `10 passed`、零 skip；Golden: `20/20`。
 
@@ -75,6 +75,22 @@ x 3 种模式 x 5 次重复，已形成 270/270 份 terminal raw；模型为 `cl
 [`2026-07-28-m25-programming-mode-evaluation`](openspec/changes/archive/2026-07-28-m25-programming-mode-evaluation/)，
 里程碑收尾见 [`milestone_025.md`](milestones/milestone_025.md)。
 
+## M26 协作完成证据绑定
+
+M26 已完成并归档。宿主注入冻结检查时，Duo/Triad 的全通过 `SubmitEvaluation` 必须具备当前
+Evaluator Task、当前 Generator attempt、同一当前 Candidate 快照的全部最新通过证据；恢复、
+新 attempt、缺失/失败检查和检查后修改均 fail closed。归档 change 见
+[`2026-07-28-bind-collaboration-completion-evidence`](openspec/changes/archive/2026-07-28-bind-collaboration-completion-evidence/)，
+权威受控证据见
+[`2026-07-28-final-v5`](docs/evaluation/m26/runs/2026-07-28-final-v5/)。该批次绑定的是 M26 当时
+运行时源码 hash，继续作为历史版本证据保留，不随后续修复改写。
+
+2026-07-29 归档后审计发现，检查副本原先没有排除项目根的 `.codegraph`、`.claude` 等本地
+agent/workflow 元数据，真实开发仓库会因其中的 socket 或 Skill symlink 在检查开始前稳定
+`copy_error`。当前复制、校验与摘要仅忽略 `.agent`、`.agents`、`.claude`、`.codegraph`、
+`.codex`、`.superpowers` 这六个顶层真实目录；同名嵌套目录、顶层同名普通文件，以及非忽略
+Candidate 树中的 symlink/特殊文件仍进入摘要或 fail closed。
+
 当前主线已完成 M17 Runtime Context Engineering、M18 Memory Runtime（含归档后两次
 人工复测 hotfix）、M19 Skills Runtime（程序性知识从 Memory 分流到可验证、快照化、渐进
 加载的 Skill）、M20 Eval（离线评估记录、趋势与显式 opt-in 独立 Evaluator）与 M21 Loop
@@ -127,7 +143,9 @@ CLI/HTTP 请求不能定义或启用检查，默认 Evaluator 工具集保持不
   `FileList` 和 `SubmitEvaluation`，没有 Exec、写、编辑、Web、MCP、Skill 或 Survey 工具。
   可信宿主程序可额外注入固定 `RunCheck` ID；模型不能提供 argv/env/cwd/timeout，CLI/HTTP
   客户端也不能定义检查。检查只允许当前 Python 的固定入口并限制在一次性副本；它仍是
-  Python application-layer isolation，不承诺密封 OS sandbox。宿主注入检查时，全通过
+  Python application-layer isolation，不承诺密封 OS sandbox。项目根的 agent/workflow 元数据
+  目录不属于 Candidate 快照；同名嵌套目录仍属于 Candidate，非忽略树中的 symlink 和特殊文件会
+  在复制前 fail closed。宿主注入检查时，全通过
   `SubmitEvaluation` 还必须具备当前 Evaluator Task 内对同一 Generator attempt、同一当前
   Candidate 快照产生的全部最新通过证据；检查缺失、失败、超时、旧 attempt、快照变化或恢复后
   未重跑都会 fail closed。包含失败项的 verdict 仍可提前提交；未注入检查时保持原行为。

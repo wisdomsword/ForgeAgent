@@ -61,6 +61,63 @@ def test_candidate_snapshot_digest_tracks_candidate_semantics(tmp_path: Path):
     assert check_runner_module.candidate_snapshot_digest(source) != baseline
 
 
+@pytest.mark.parametrize(
+    "metadata_name",
+    [".agent", ".agents", ".claude", ".codegraph", ".codex", ".superpowers"],
+)
+def test_candidate_snapshot_digest_ignores_agent_workflow_metadata(
+    tmp_path: Path, metadata_name: str
+):
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "candidate.txt").write_text("candidate", encoding="utf-8")
+    metadata = source / metadata_name
+    metadata.mkdir()
+    outside = tmp_path / "outside.txt"
+    outside.write_text("outside", encoding="utf-8")
+    (metadata / "unsafe-link").symlink_to(outside)
+
+    baseline = check_runner_module.candidate_snapshot_digest(source)
+
+    (metadata / "generated.txt").write_text("changed", encoding="utf-8")
+    assert check_runner_module.candidate_snapshot_digest(source) == baseline
+
+
+def test_candidate_snapshot_digest_rejects_nested_agent_metadata_symlink(tmp_path: Path):
+    source = tmp_path / "source"
+    nested_metadata = source / "src" / ".claude"
+    nested_metadata.mkdir(parents=True)
+    outside = tmp_path / "outside.txt"
+    outside.write_text("outside", encoding="utf-8")
+    (nested_metadata / "unsafe-link").symlink_to(outside)
+
+    with pytest.raises(ValueError, match="unsupported symlink"):
+        check_runner_module.candidate_snapshot_digest(source)
+
+
+def test_candidate_snapshot_digest_rejects_root_agent_metadata_symlink(tmp_path: Path):
+    source = tmp_path / "source"
+    source.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (source / ".claude").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="unsupported symlink"):
+        check_runner_module.candidate_snapshot_digest(source)
+
+
+def test_candidate_snapshot_digest_tracks_root_agent_metadata_regular_file(tmp_path: Path):
+    source = tmp_path / "source"
+    source.mkdir()
+    metadata_file = source / ".codex"
+    metadata_file.write_text("first", encoding="utf-8")
+
+    baseline = check_runner_module.candidate_snapshot_digest(source)
+    metadata_file.write_text("second", encoding="utf-8")
+
+    assert check_runner_module.candidate_snapshot_digest(source) != baseline
+
+
 def test_candidate_snapshot_digest_rejects_file_changed_while_hashing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
@@ -154,6 +211,52 @@ def test_check_runs_in_temporary_copy_and_preserves_real_project(
     assert temporary_roots and all(not path.exists() for path in temporary_roots)
     assert len(result.snapshot_digest) == 64
     assert "snapshot_digest" not in result.model_dump()
+
+
+def test_check_ignores_agent_workflow_metadata_during_copy(tmp_path: Path):
+    (tmp_path / "candidate.txt").write_text("candidate", encoding="utf-8")
+    metadata = tmp_path / ".codegraph"
+    metadata.mkdir()
+    outside = tmp_path.parent / "outside-check-metadata.txt"
+    outside.write_text("outside", encoding="utf-8")
+    (metadata / "unsafe-link").symlink_to(outside)
+    check = _python_check(
+        "metadata-copy",
+        "from pathlib import Path; "
+        "assert Path('candidate.txt').read_text() == 'candidate'; "
+        "assert not Path('.codegraph').exists()",
+    )
+
+    result = run_check(check, allowed_root=tmp_path)
+
+    assert result.status == "passed", result.stderr
+
+
+def test_check_rejects_nested_agent_metadata_symlink(tmp_path: Path):
+    nested_metadata = tmp_path / "src" / ".codegraph"
+    nested_metadata.mkdir(parents=True)
+    outside = tmp_path.parent / "outside-nested-check-metadata.txt"
+    outside.write_text("outside", encoding="utf-8")
+    (nested_metadata / "unsafe-link").symlink_to(outside)
+
+    result = run_check(
+        _python_check("nested-metadata", "print('must not run')"), allowed_root=tmp_path
+    )
+
+    assert result.status == "copy_error"
+    assert "must not run" not in result.stdout
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFO is unavailable")
+def test_check_rejects_root_agent_metadata_special_file(tmp_path: Path):
+    os.mkfifo(tmp_path / ".codegraph")
+
+    result = run_check(
+        _python_check("root-metadata-special", "print('must not run')"), allowed_root=tmp_path
+    )
+
+    assert result.status == "copy_error"
+    assert "must not run" not in result.stdout
 
 
 def test_check_receives_only_minimal_environment_and_definition_values(

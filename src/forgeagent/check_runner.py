@@ -22,6 +22,14 @@ from .secret_policy import is_secret_name, mask_audit_data, sensitive_env_values
 _OUTPUT_LIMIT = 16 * 1024
 _TRUNCATION_MARKER = b"\n... output truncated ...\n"
 _POLL_SECONDS = 0.01
+_ROOT_IGNORED_NAMES = {
+    ".agent",
+    ".agents",
+    ".claude",
+    ".codegraph",
+    ".codex",
+    ".superpowers",
+}
 _IGNORED_NAMES = {
     ".git",
     ".forgeagent",
@@ -110,7 +118,11 @@ def run_check(
     with tempfile.TemporaryDirectory(prefix="forgeagent-check-") as temporary_root:
         working_root = Path(temporary_root) / "project"
         try:
-            shutil.copytree(source_root, working_root, ignore=_ignore_entries)
+            shutil.copytree(
+                source_root,
+                working_root,
+                ignore=lambda directory, names: _ignore_entries(source_root, directory, names),
+            )
         except (OSError, shutil.Error) as exc:
             return _result("copy_error", started, stderr=str(exc), secrets=secrets)
         try:
@@ -232,10 +244,14 @@ def _describe_candidate_tree(
         directory = pending.pop()
         with os.scandir(directory) as entries:
             for entry in entries:
-                if _ignored(entry.name):
-                    continue
                 path = Path(entry.path)
                 metadata = entry.stat(follow_symlinks=False)
+                if _ignored(
+                    entry.name,
+                    root_entry=directory == source_root,
+                    mode=metadata.st_mode,
+                ):
+                    continue
                 if stat.S_ISLNK(metadata.st_mode):
                     raise ValueError("project contains an unsupported symlink")
                 if stat.S_ISDIR(metadata.st_mode):
@@ -284,9 +300,9 @@ def _validate_source_tree(source_root: Path) -> None:
         directory = pending.pop()
         with os.scandir(directory) as entries:
             for entry in entries:
-                if _ignored(entry.name):
-                    continue
                 mode = entry.stat(follow_symlinks=False).st_mode
+                if _ignored(entry.name, root_entry=directory == source_root, mode=mode):
+                    continue
                 if stat.S_ISLNK(mode):
                     raise ValueError("project contains an unsupported symlink")
                 if stat.S_ISDIR(mode):
@@ -295,12 +311,27 @@ def _validate_source_tree(source_root: Path) -> None:
                     raise ValueError("project contains an unsupported special file")
 
 
-def _ignore_entries(_directory: str, names: list[str]) -> set[str]:
-    return {name for name in names if _ignored(name)}
+def _ignore_entries(source_root: Path, directory: str, names: list[str]) -> set[str]:
+    root_entry = Path(directory) == source_root
+    ignored = set()
+    for name in names:
+        mode = None
+        if root_entry and name in _ROOT_IGNORED_NAMES:
+            try:
+                mode = (Path(directory) / name).stat(follow_symlinks=False).st_mode
+            except OSError:
+                pass
+        if _ignored(name, root_entry=root_entry, mode=mode):
+            ignored.add(name)
+    return ignored
 
 
-def _ignored(name: str) -> bool:
-    return name in _IGNORED_NAMES or name.endswith(".pyc")
+def _ignored(name: str, *, root_entry: bool, mode: int | None) -> bool:
+    return (
+        name in _IGNORED_NAMES
+        or (root_entry and name in _ROOT_IGNORED_NAMES and mode is not None and stat.S_ISDIR(mode))
+        or name.endswith(".pyc")
+    )
 
 
 def _terminate_process_group(process: subprocess.Popen[bytes]) -> None:

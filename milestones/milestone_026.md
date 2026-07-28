@@ -69,8 +69,9 @@ M23/M25 历史 evidence，未新增依赖、状态 schema、公开配置面或�
 - [x] Task 4 review 发现并修复 fixture 路径逃逸、symlink、执行类型复用、provider 分类、严格
   schema/交叉一致性和安全临时文件问题；冻结 SHA 复审通过。
 - [x] 最终两轮自审发现并修正 M23 未来全局字节锁和运行时文档遗漏。
-- [x] 本地合并后复验暴露 2 个 Runner 测试未绑定 `tmp_path`；确认生产 builder 均绑定 workspace
-  后，只修测试夹具且保留特殊文件 fail-closed，最终聚焦与全套复验通过。
+- [x] 本地合并后复验暴露 2 个 Runner 测试未绑定 `tmp_path`；归档时先修测试夹具。2026-07-29
+  归档后审计确认该失败同时暴露 agent/workflow 元数据漏排问题，已按下节修复且保留非忽略
+  Candidate 树的 symlink/special-file fail-closed。
 - [x] 未发现未处理的 Critical/Important 正确性、安全或边界问题。
 
 ### 验收评审
@@ -96,9 +97,21 @@ M23/M25 历史 evidence，未新增依赖、状态 schema、公开配置面或�
 - [ ] hostile concurrent writer — 影响：hash 检测正常变化但不是事务级文件系统 snapshot — 计划：
   保留威胁模型限制；如需更强保证另立 capability，不在 M26 扩张。
 
+## 归档后审计修复（2026-07-29）
+
+- [x] 真实仓库根复现 `.codegraph/daemon.sock` 导致 snapshot/copy 在检查前失败。
+- [x] 仅忽略项目根的 `.agent`、`.agents`、`.claude`、`.codegraph`、`.codex`、`.superpowers`
+  真实目录，避免本地 agent/workflow 元数据及其内部 symlink/socket 污染 Candidate 语义。
+- [x] 增加 digest、完整复制执行链和同名嵌套目录回归；嵌套目录仍属于 Candidate，其中的 symlink
+  和特殊文件仍被拒绝。
+- [x] 保留 `final-v5` 原始文件和源码 hash，不把后续修复改写成 M26 当时的运行输入。
+- [x] 新鲜验证：相关专项 `155 passed in 25.79s`；沙箱可执行全套
+  `2420 passed, 22 skipped in 99.63s`；Golden `20/20`；Ruff；OpenSpec strict `20/20`；
+  M26 专用缓存离线 build 生成 wheel 与 sdist；项目根 snapshot digest 成功计算。
+
 ## 续接指引
 
 M26 已完成并归档，主 `runtime-collaboration` spec 已同步。下一步如启动 M27，必须建立新的
 Comet/OpenSpec change，范围只做协作路由校准，不能改写 M26 受控证据。`.superpowers/sdd/task-1-report.md`
 是用户保留审查的无关修改，继续留在现有 worktree；受环境限制的 mypy/loopback/packaging 证据
-保持明确未验证。M26 分支只做本地合并，不 push。
+保持明确未验证。M26 原归档分支当时只做本地合并；后续发布状态以 `main` Git 历史为准。
