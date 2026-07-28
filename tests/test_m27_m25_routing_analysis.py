@@ -138,7 +138,7 @@ def test_write_outputs_removes_partial_publication_on_failure(
     original_replace = Path.replace
 
     def fail_report_publication(path: Path, target: Path) -> Path:
-        if Path(target).name == "report.md":
+        if path.name == "report.md.staged" and Path(target).name == "report.md":
             raise OSError("simulated publish failure")
         return original_replace(path, target)
 
@@ -160,95 +160,13 @@ def test_write_outputs_removes_partial_publication_on_failure(
     assert not (tmp_path / "derived" / "report.md").exists()
 
 
-def test_write_outputs_preserves_existing_outputs_when_backup_creation_fails(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    module = load_analysis()
-    output_dir = tmp_path / "derived"
-    output_dir.mkdir()
-    existing = {
-        "analysis.json": b"old analysis\n",
-        "report.md": b"old report\n",
-    }
-    for name, content in existing.items():
-        (output_dir / name).write_bytes(content)
-
-    original_replace = Path.replace
-
-    def fail_report_backup(path: Path, target: Path) -> Path:
-        if path.name == "report.md" and target.name.startswith(".backup-report.md."):
-            raise OSError("simulated backup failure")
-        return original_replace(path, target)
-
-    monkeypatch.setattr(Path, "replace", fail_report_backup)
-    analysis = {
-        "source": {
-            "runs": 0,
-            "protocol_sha256": "test",
-            "environment_sha256": "test",
-            "frozen_manifest": {"sha256": "test"},
-        },
-        "families": {},
-        "quality_eligible_for_automatic_triad": [],
-        "automatic_triad_restored_for": [],
-    }
-
-    with pytest.raises(OSError, match="simulated backup failure"):
-        module.write_outputs(output_dir, analysis)
-
-    assert {path.name: path.read_bytes() for path in output_dir.iterdir()} == existing
-
-
-def test_write_outputs_preserves_existing_outputs_when_backup_reservation_open_fails(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    module = load_analysis()
-    output_dir = tmp_path / "derived"
-    output_dir.mkdir()
-    existing = {
-        "analysis.json": b"old analysis\n",
-        "report.md": b"old report\n",
-    }
-    for name, content in existing.items():
-        (output_dir / name).write_bytes(content)
-
-    original_named_temporary_file = module.tempfile.NamedTemporaryFile
-    reservations = 0
-
-    def fail_first_backup_reservation(*args, **kwargs):
-        nonlocal reservations
-        prefix = kwargs.get("prefix", "")
-        if prefix.startswith(".backup-"):
-            reservations += 1
-            if reservations == 1:
-                raise KeyboardInterrupt("simulated reservation open interrupt")
-        return original_named_temporary_file(*args, **kwargs)
-
-    monkeypatch.setattr(module.tempfile, "NamedTemporaryFile", fail_first_backup_reservation)
-    analysis = {
-        "source": {
-            "runs": 0,
-            "protocol_sha256": "test",
-            "environment_sha256": "test",
-            "frozen_manifest": {"sha256": "test"},
-        },
-        "families": {},
-        "quality_eligible_for_automatic_triad": [],
-        "automatic_triad_restored_for": [],
-    }
-
-    with pytest.raises(KeyboardInterrupt, match="simulated reservation open interrupt"):
-        module.write_outputs(output_dir, analysis)
-
-    assert {path.name: path.read_bytes() for path in output_dir.iterdir()} == existing
-
-
 def test_write_outputs_keeps_unresolved_backup_when_rollback_restore_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     module = load_analysis()
     output_dir = tmp_path / "derived"
     output_dir.mkdir()
+    (output_dir / "unrelated.txt").write_text("keep", encoding="utf-8")
     existing = {
         "analysis.json": b"old analysis\n",
         "report.md": b"old report\n",
@@ -259,9 +177,9 @@ def test_write_outputs_keeps_unresolved_backup_when_rollback_restore_fails(
     original_replace = Path.replace
 
     def fail_publication_and_analysis_restore(path: Path, target: Path) -> Path:
-        if path.name.startswith(".report.md.") and target.name == "report.md":
+        if path.name == "report.md.staged" and target.name == "report.md":
             raise OSError("simulated publish failure")
-        if path.name.startswith(".backup-analysis.json.") and target.name == "analysis.json":
+        if path.name == "analysis.json.old" and target.name == "analysis.json":
             raise OSError("simulated restore failure")
         return original_replace(path, target)
 
@@ -278,22 +196,22 @@ def test_write_outputs_keeps_unresolved_backup_when_rollback_restore_fails(
         "automatic_triad_restored_for": [],
     }
 
-    with pytest.raises(ExceptionGroup) as raised:
+    with pytest.raises(BaseExceptionGroup) as raised:
         module.write_outputs(output_dir, analysis)
 
     errors = [str(error) for error in raised.value.exceptions]
-    assert errors == ["simulated publish failure", "simulated restore failure"]
-    unresolved = list(output_dir.glob(".backup-analysis.json.*"))
-    assert len(unresolved) == 1
-    assert unresolved[0].read_bytes() == existing["analysis.json"]
+    assert "simulated publish failure" in errors
+    assert "simulated restore failure" in errors
+    transactions = list(output_dir.glob(".m27-routing-analysis-*"))
+    assert len(transactions) == 1
+    assert (transactions[0] / "analysis.json.old").read_bytes() == existing["analysis.json"]
+    assert (transactions[0] / "analysis.json.failed-new").read_bytes() != existing["analysis.json"]
     assert not (output_dir / "analysis.json").exists()
     assert (output_dir / "report.md").read_bytes() == existing["report.md"]
-    assert not list(output_dir.glob(".analysis.json.*"))
-    assert not list(output_dir.glob(".report.md.*"))
-    assert not list(output_dir.glob(".backup-report.md.*"))
+    assert (output_dir / "unrelated.txt").read_text() == "keep"
 
 
-def test_write_outputs_keeps_restored_old_content_when_restore_interrupts_after_replace(
+def test_write_outputs_uses_failed_new_when_restore_and_public_removal_fail(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     module = load_analysis()
@@ -307,16 +225,55 @@ def test_write_outputs_keeps_restored_old_content_when_restore_interrupts_after_
         (output_dir / name).write_bytes(content)
 
     original_replace = Path.replace
+    restore_attempts = 0
 
-    def fail_publish_then_interrupt_after_restore(path: Path, target: Path) -> Path:
-        if path.name.startswith(".report.md.") and target.name == "report.md":
+    def fail_restore_and_interrupt_report_publish(path: Path, target: Path) -> Path:
+        nonlocal restore_attempts
+        if path.name == "report.md.staged" and target.name == "report.md":
             raise OSError("simulated publish failure")
-        if path.name.startswith(".backup-analysis.json.") and target.name == "analysis.json":
-            original_replace(path, target)
-            raise KeyboardInterrupt("simulated post-restore interrupt")
+        if path.name == "analysis.json.old" and target.name == "analysis.json":
+            restore_attempts += 1
+            raise OSError("simulated restore failure")
         return original_replace(path, target)
 
-    monkeypatch.setattr(Path, "replace", fail_publish_then_interrupt_after_restore)
+    monkeypatch.setattr(Path, "replace", fail_restore_and_interrupt_report_publish)
+    analysis = {
+        "source": {
+            "runs": 0,
+            "protocol_sha256": "test",
+            "environment_sha256": "test",
+            "frozen_manifest": {"sha256": "test"},
+        },
+        "families": {},
+        "quality_eligible_for_automatic_triad": [],
+        "automatic_triad_restored_for": [],
+    }
+
+    with pytest.raises(BaseExceptionGroup):
+        module.write_outputs(output_dir, analysis)
+
+    transaction = next(output_dir.glob(".m27-routing-analysis-*"))
+    assert restore_attempts == 2
+    assert not (output_dir / "analysis.json").exists()
+    assert (transaction / "analysis.json.old").read_bytes() == existing["analysis.json"]
+    assert (transaction / "analysis.json.failed-new").read_bytes() != existing["analysis.json"]
+
+
+def test_write_outputs_reports_rollback_probe_interrupt_and_keeps_transaction(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = load_analysis()
+    output_dir = tmp_path / "derived"
+    original_replace = Path.replace
+
+    def fail_publish_and_probe(path: Path, target: Path) -> Path:
+        if path.name == "analysis.json.staged" and target.name == "analysis.json":
+            raise OSError("simulated publish failure")
+        if path.name == "analysis.json.staged" and target.name == "analysis.json.failed-new":
+            raise KeyboardInterrupt("simulated rollback probe interrupt")
+        return original_replace(path, target)
+
+    monkeypatch.setattr(Path, "replace", fail_publish_and_probe)
     analysis = {
         "source": {
             "runs": 0,
@@ -333,35 +290,25 @@ def test_write_outputs_keeps_restored_old_content_when_restore_interrupts_after_
         module.write_outputs(output_dir, analysis)
 
     assert any(
-        "simulated post-restore interrupt" in str(error) for error in raised.value.exceptions
+        "simulated rollback probe interrupt" in str(error) for error in raised.value.exceptions
     )
-    assert {path.name: path.read_bytes() for path in output_dir.iterdir()} == existing
+    transaction = next(output_dir.glob(".m27-routing-analysis-*"))
+    assert (transaction / "analysis.json.staged").exists()
 
 
-def test_write_outputs_cleans_backup_reservation_when_unlink_fails(
+def test_write_outputs_cleans_known_transaction_after_stage_write_interrupt(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     module = load_analysis()
     output_dir = tmp_path / "derived"
-    output_dir.mkdir()
-    existing = {
-        "analysis.json": b"old analysis\n",
-        "report.md": b"old report\n",
-    }
-    for name, content in existing.items():
-        (output_dir / name).write_bytes(content)
+    original_open = Path.open
 
-    original_unlink = Path.unlink
-    failed = False
+    def interrupt_analysis_stage(path: Path, *args, **kwargs):
+        if path.name == "analysis.json.staged":
+            raise KeyboardInterrupt("simulated stage open interrupt")
+        return original_open(path, *args, **kwargs)
 
-    def fail_first_backup_reservation_unlink(path: Path, *args, **kwargs) -> None:
-        nonlocal failed
-        if not failed and path.name.startswith(".backup-analysis.json."):
-            failed = True
-            raise OSError("simulated reservation unlink failure")
-        original_unlink(path, *args, **kwargs)
-
-    monkeypatch.setattr(Path, "unlink", fail_first_backup_reservation_unlink)
+    monkeypatch.setattr(Path, "open", interrupt_analysis_stage)
     analysis = {
         "source": {
             "runs": 0,
@@ -374,115 +321,10 @@ def test_write_outputs_cleans_backup_reservation_when_unlink_fails(
         "automatic_triad_restored_for": [],
     }
 
-    with pytest.raises(OSError, match="simulated reservation unlink failure"):
-        module.write_outputs(output_dir, analysis)
-
-    assert {path.name: path.read_bytes() for path in output_dir.iterdir()} == existing
-
-
-def test_write_outputs_cleans_temp_when_named_temp_write_fails(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    module = load_analysis()
-    output_dir = tmp_path / "derived"
-    original_named_temporary_file = module.tempfile.NamedTemporaryFile
-
-    class FailingWriteFile:
-        def __init__(self, *args, **kwargs) -> None:
-            self._file = original_named_temporary_file(*args, **kwargs)
-            self.name = self._file.name
-            self.closed = False
-
-        def __enter__(self):
-            self._file.__enter__()
-            return self
-
-        def write(self, _content: bytes) -> None:
-            raise OSError("simulated write failure")
-
-        def __exit__(self, *args) -> None:
-            self._file.__exit__(*args)
-            self.closed = self._file.closed
-
-    files: list[FailingWriteFile] = []
-
-    def failing_named_temporary_file(*args, **kwargs):
-        file = FailingWriteFile(*args, **kwargs)
-        files.append(file)
-        return file
-
-    monkeypatch.setattr(module.tempfile, "NamedTemporaryFile", failing_named_temporary_file)
-    analysis = {
-        "source": {
-            "runs": 0,
-            "protocol_sha256": "test",
-            "environment_sha256": "test",
-            "frozen_manifest": {"sha256": "test"},
-        },
-        "families": {},
-        "quality_eligible_for_automatic_triad": [],
-        "automatic_triad_restored_for": [],
-    }
-
-    with pytest.raises(OSError, match="simulated write failure"):
+    with pytest.raises(KeyboardInterrupt, match="simulated stage open interrupt"):
         module.write_outputs(output_dir, analysis)
 
     assert list(output_dir.iterdir()) == []
-    assert len(files) == 1
-    assert files[0].closed is True
-
-
-def test_write_outputs_cleans_temp_when_named_temp_close_fails_once(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    module = load_analysis()
-    output_dir = tmp_path / "derived"
-    original_named_temporary_file = module.tempfile.NamedTemporaryFile
-
-    class FailingCloseFile:
-        def __init__(self, *args, **kwargs) -> None:
-            self._file = original_named_temporary_file(*args, **kwargs)
-            self.name = self._file.name
-            self.exit_calls = 0
-
-        def __enter__(self):
-            self._file.__enter__()
-            return self
-
-        def write(self, content: bytes) -> int:
-            return self._file.write(content)
-
-        def __exit__(self, *args) -> None:
-            self.exit_calls += 1
-            self._file.__exit__(*args)
-            raise OSError("simulated close failure")
-
-    files: list[FailingCloseFile] = []
-
-    def failing_named_temporary_file(*args, **kwargs):
-        file = FailingCloseFile(*args, **kwargs)
-        files.append(file)
-        return file
-
-    monkeypatch.setattr(module.tempfile, "NamedTemporaryFile", failing_named_temporary_file)
-    analysis = {
-        "source": {
-            "runs": 0,
-            "protocol_sha256": "test",
-            "environment_sha256": "test",
-            "frozen_manifest": {"sha256": "test"},
-        },
-        "families": {},
-        "quality_eligible_for_automatic_triad": [],
-        "automatic_triad_restored_for": [],
-    }
-
-    with pytest.raises(OSError, match="simulated close failure"):
-        module.write_outputs(output_dir, analysis)
-
-    assert list(output_dir.iterdir()) == []
-    assert len(files) == 1
-    assert files[0].exit_calls == 1
 
 
 def test_write_outputs_rolls_back_keyboard_interrupt_during_second_publish(
@@ -501,7 +343,7 @@ def test_write_outputs_rolls_back_keyboard_interrupt_during_second_publish(
     original_replace = Path.replace
 
     def interrupt_report_publication(path: Path, target: Path) -> Path:
-        if path.name.startswith(".report.md.") and target.name == "report.md":
+        if path.name == "report.md.staged" and target.name == "report.md":
             raise KeyboardInterrupt("simulated interrupt")
         return original_replace(path, target)
 
@@ -541,7 +383,7 @@ def test_write_outputs_recovers_when_backup_move_interrupts_after_replace(
 
     def interrupt_after_backup_move(path: Path, target: Path) -> Path:
         result = original_replace(path, target)
-        if path.name == "analysis.json" and target.name.startswith(".backup-analysis.json."):
+        if path.name == "analysis.json" and target.name == "analysis.json.old":
             raise KeyboardInterrupt("simulated post-backup interrupt")
         return result
 
@@ -573,7 +415,7 @@ def test_write_outputs_removes_new_only_publish_when_interrupt_follows_replace(
 
     def interrupt_after_analysis_publish(path: Path, target: Path) -> Path:
         result = original_replace(path, target)
-        if path.name.startswith(".analysis.json.") and target.name == "analysis.json":
+        if path.name == "analysis.json.staged" and target.name == "analysis.json":
             raise KeyboardInterrupt("simulated post-publish interrupt")
         return result
 
@@ -596,33 +438,31 @@ def test_write_outputs_removes_new_only_publish_when_interrupt_follows_replace(
     assert list(output_dir.iterdir()) == []
 
 
-@pytest.mark.parametrize("stage", ["temporary", "reservation", "successful-publication"])
+@pytest.mark.parametrize("stage", ["rollback-files", "successful-publication"])
 def test_write_outputs_exposes_persistent_cleanup_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stage: str
 ) -> None:
     module = load_analysis()
     output_dir = tmp_path / "derived"
-    if stage in ("reservation", "successful-publication"):
+    if stage == "successful-publication":
         output_dir.mkdir()
         (output_dir / "analysis.json").write_text("old analysis\n", encoding="utf-8")
     original_unlink = Path.unlink
     original_replace = Path.replace
-    backup_unlinks = 0
 
     def fail_cleanup(path: Path, *args, **kwargs) -> None:
-        nonlocal backup_unlinks
-        if stage == "temporary" and path.name.startswith(".analysis.json."):
-            raise OSError("simulated persistent temp cleanup failure")
-        if stage == "reservation" and path.name.startswith(".backup-analysis.json."):
-            raise OSError("simulated persistent reservation cleanup failure")
-        if stage == "successful-publication" and path.name.startswith(".backup-analysis.json."):
-            backup_unlinks += 1
-            if backup_unlinks > 1:
-                raise OSError("simulated successful publication cleanup failure")
+        if stage == "rollback-files" and path.name == "report.md.staged":
+            raise OSError("simulated rollback cleanup failure")
+        if stage == "successful-publication" and path.name == "analysis.json.old":
+            raise OSError("simulated successful publication cleanup failure")
         original_unlink(path, *args, **kwargs)
 
     def fail_publication(path: Path, target: Path) -> Path:
-        if stage == "temporary" and path.name.startswith(".analysis.json."):
+        if (
+            stage == "rollback-files"
+            and path.name == "report.md.staged"
+            and target.name == "report.md"
+        ):
             raise OSError("simulated publication failure")
         return original_replace(path, target)
 
@@ -676,7 +516,7 @@ def test_write_outputs_restores_preexisting_pair_when_second_replace_fails(
     original_replace = Path.replace
 
     def fail_only_new_report(path: Path, target: Path) -> Path:
-        if Path(target).name == "report.md" and Path(path).name.startswith(".report.md."):
+        if Path(target).name == "report.md" and Path(path).name == "report.md.staged":
             raise OSError("simulated second publish failure")
         return original_replace(path, target)
 
@@ -710,6 +550,7 @@ def test_write_outputs_replaces_preexisting_pair_on_success(tmp_path: Path) -> N
     output_dir.mkdir()
     (output_dir / "analysis.json").write_text("old analysis\n", encoding="utf-8")
     (output_dir / "report.md").write_text("old report\n", encoding="utf-8")
+    (output_dir / "unrelated.txt").write_text("keep", encoding="utf-8")
     analysis = {
         "source": {
             "runs": 0,
@@ -733,3 +574,4 @@ def test_write_outputs_replaces_preexisting_pair_on_success(tmp_path: Path) -> N
         .read_text(encoding="utf-8")
         .startswith("# M27 M25 协作路由派生分析\n")
     )
+    assert (output_dir / "unrelated.txt").read_text(encoding="utf-8") == "keep"

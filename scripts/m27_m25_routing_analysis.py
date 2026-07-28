@@ -9,7 +9,7 @@ import importlib.util
 import json
 import math
 import sys
-import tempfile
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -276,87 +276,102 @@ def _ensure_output_outside_run(output_dir: Path, run_dir: Path) -> None:
 
 
 def write_outputs(output_dir: Path, analysis: dict[str, object]) -> None:
-    output_dir.mkdir(parents=True, exist_ok=True)
     outputs = {
         "analysis.json": _canonical_json(analysis),
         "report.md": render_report(analysis).encode(),
     }
-    temporary_paths: list[tuple[Path, Path]] = []
-    reservation_paths: list[Path] = []
-    backup_paths: list[tuple[Path, Path]] = []
-    published_destinations: list[Path] = []
-    unresolved_backups: set[Path] = set()
+    transaction_dir = output_dir / f".m27-routing-analysis-{uuid.uuid4().hex}"
+    paths = {
+        name: {
+            "destination": output_dir / name,
+            "staged": transaction_dir / f"{name}.staged",
+            "old": transaction_dir / f"{name}.old",
+            "failed_new": transaction_dir / f"{name}.failed-new",
+        }
+        for name in outputs
+    }
 
-    def cleanup(paths: list[Path]) -> list[BaseException]:
+    def cleanup_transaction() -> list[BaseException]:
         errors: list[BaseException] = []
-        for path in paths:
-            try:
-                path.unlink(missing_ok=True)
-            except BaseException as error:
-                errors.append(error)
+        for file_paths in paths.values():
+            for key in ("staged", "old", "failed_new"):
+                try:
+                    file_paths[key].unlink(missing_ok=True)
+                except BaseException as error:
+                    errors.append(error)
+        try:
+            transaction_dir.rmdir()
+        except BaseException as error:
+            errors.append(error)
         return errors
 
+    output_dir.mkdir(parents=True, exist_ok=True)
+    transaction_dir.mkdir()
     try:
         for name, content in outputs.items():
-            with tempfile.NamedTemporaryFile(
-                prefix=f".{name}.", dir=output_dir, delete=False
-            ) as handle:
-                temporary_path = Path(handle.name)
-                temporary_paths.append((temporary_path, output_dir / name))
+            with paths[name]["staged"].open("xb") as handle:
                 handle.write(content)
 
-        # Move any prior pair aside before publishing, so a failed second replace can restore it.
-        for _, destination in temporary_paths:
-            if destination.exists():
-                with tempfile.NamedTemporaryFile(
-                    prefix=f".backup-{destination.name}.", dir=output_dir, delete=False
-                ) as handle:
-                    backup_path = Path(handle.name)
-                    reservation_paths.append(backup_path)
-                backup_path.unlink()
-                backup_paths.append((backup_path, destination))
-                destination.replace(backup_path)
-        for temporary_path, destination in temporary_paths:
-            temporary_path.replace(destination)
-            published_destinations.append(destination)
-    except BaseException as publication_error:
-        rollback_errors: list[BaseException] = []
-        restored_destinations: set[Path] = set()
-        for backup_path, destination in backup_paths:
-            if not backup_path.exists():
-                continue
+        for file_paths in paths.values():
             try:
-                backup_path.replace(destination)
-                restored_destinations.add(destination)
+                file_paths["destination"].replace(file_paths["old"])
+            except FileNotFoundError:
+                pass
+            file_paths["staged"].replace(file_paths["destination"])
+    except BaseException as transaction_error:
+        rollback_errors: list[BaseException] = []
+        for file_paths in paths.values():
+            restored_old = False
+            try:
+                file_paths["old"].replace(file_paths["destination"])
+                restored_old = True
+            except FileNotFoundError:
+                pass
             except BaseException as restore_error:
-                if backup_path.exists():
-                    unresolved_backups.add(backup_path)
-                elif destination.exists():
-                    restored_destinations.add(destination)
                 rollback_errors.append(restore_error)
-        possibly_published = set(published_destinations)
-        possibly_published.update(
-            destination
-            for temporary_path, destination in temporary_paths
-            if not temporary_path.exists() and destination.exists()
-        )
-        for destination in possibly_published:
-            if destination not in restored_destinations:
                 try:
-                    destination.unlink(missing_ok=True)
-                except BaseException as cleanup_error:
-                    rollback_errors.append(cleanup_error)
-        cleanup_paths = [path for path, _ in temporary_paths]
-        cleanup_paths.extend(path for path in reservation_paths if path not in unresolved_backups)
-        rollback_errors.extend(cleanup(cleanup_paths))
+                    file_paths["old"].replace(file_paths["destination"])
+                    restored_old = True
+                except FileNotFoundError:
+                    restored_old = True
+                except BaseException as retry_error:
+                    rollback_errors.append(retry_error)
+
+            if restored_old:
+                continue
+
+            staged_was_present = False
+            try:
+                file_paths["staged"].replace(file_paths["failed_new"])
+                staged_was_present = True
+            except FileNotFoundError:
+                pass
+            except BaseException as probe_error:
+                rollback_errors.append(probe_error)
+
+            if not staged_was_present:
+                try:
+                    file_paths["destination"].replace(file_paths["failed_new"])
+                except FileNotFoundError:
+                    pass
+                except BaseException as remove_new_error:
+                    rollback_errors.append(remove_new_error)
+
         if rollback_errors:
             raise BaseExceptionGroup(
                 "output publication failed and rollback was incomplete",
-                [publication_error, *rollback_errors],
-            ) from publication_error
+                [transaction_error, *rollback_errors],
+            ) from transaction_error
+
+        cleanup_errors = cleanup_transaction()
+        if cleanup_errors:
+            raise BaseExceptionGroup(
+                "output publication failed and transaction cleanup was incomplete",
+                [transaction_error, *cleanup_errors],
+            ) from transaction_error
         raise
     else:
-        cleanup_errors = cleanup([path for path, _ in temporary_paths] + reservation_paths)
+        cleanup_errors = cleanup_transaction()
         if cleanup_errors:
             raise BaseExceptionGroup("output publication cleanup failed", cleanup_errors)
 
