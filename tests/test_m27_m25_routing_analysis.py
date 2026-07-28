@@ -413,6 +413,93 @@ def test_write_outputs_recovers_when_backup_move_interrupts_after_replace(
     assert (transaction / "analysis.json.staged").exists()
 
 
+def test_write_outputs_treats_post_backup_file_not_found_as_uncertain(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = load_analysis()
+    output_dir = tmp_path / "derived"
+    output_dir.mkdir()
+    old_analysis = b"old analysis\n"
+    (output_dir / "analysis.json").write_bytes(old_analysis)
+    original_replace = Path.replace
+    publish_attempted = False
+
+    def fail_after_backup_replace(path: Path, target: Path) -> Path:
+        nonlocal publish_attempted
+        if path.name == "analysis.json.staged" and target.name == "analysis.json":
+            publish_attempted = True
+        result = original_replace(path, target)
+        if path.name == "analysis.json" and target.name == "analysis.json.old":
+            raise FileNotFoundError("simulated post-backup FNF")
+        return result
+
+    monkeypatch.setattr(Path, "replace", fail_after_backup_replace)
+    analysis = {
+        "source": {
+            "runs": 0,
+            "protocol_sha256": "test",
+            "environment_sha256": "test",
+            "frozen_manifest": {"sha256": "test"},
+        },
+        "families": {},
+        "quality_eligible_for_automatic_triad": [],
+        "automatic_triad_restored_for": [],
+    }
+
+    with pytest.raises(BaseExceptionGroup) as raised:
+        module.write_outputs(output_dir, analysis)
+
+    assert any("simulated post-backup FNF" in str(error) for error in raised.value.exceptions)
+    assert publish_attempted is False
+    transaction = next(output_dir.glob(".m27-routing-analysis-*"))
+    assert (transaction / "analysis.json.old").read_bytes() == old_analysis
+    assert (transaction / "analysis.json.staged").exists()
+
+
+def test_write_outputs_keeps_restored_old_after_post_restore_file_not_found(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = load_analysis()
+    output_dir = tmp_path / "derived"
+    output_dir.mkdir()
+    existing = {
+        "analysis.json": b"old analysis\n",
+        "report.md": b"old report\n",
+    }
+    for name, content in existing.items():
+        (output_dir / name).write_bytes(content)
+    original_replace = Path.replace
+
+    def fail_publish_then_restore_after_replace(path: Path, target: Path) -> Path:
+        if path.name == "report.md.staged" and target.name == "report.md":
+            raise OSError("simulated publish failure")
+        result = original_replace(path, target)
+        if path.name == "analysis.json.old" and target.name == "analysis.json":
+            raise FileNotFoundError("simulated post-restore FNF")
+        return result
+
+    monkeypatch.setattr(Path, "replace", fail_publish_then_restore_after_replace)
+    analysis = {
+        "source": {
+            "runs": 0,
+            "protocol_sha256": "test",
+            "environment_sha256": "test",
+            "frozen_manifest": {"sha256": "test"},
+        },
+        "families": {},
+        "quality_eligible_for_automatic_triad": [],
+        "automatic_triad_restored_for": [],
+    }
+
+    with pytest.raises(BaseExceptionGroup) as raised:
+        module.write_outputs(output_dir, analysis)
+
+    assert any("rollback state uncertain" in str(error) for error in raised.value.exceptions)
+    assert (output_dir / "analysis.json").read_bytes() == existing["analysis.json"]
+    transaction = next(output_dir.glob(".m27-routing-analysis-*"))
+    assert not (transaction / "analysis.json.failed-new").exists()
+
+
 def test_write_outputs_removes_new_only_publish_when_interrupt_follows_replace(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

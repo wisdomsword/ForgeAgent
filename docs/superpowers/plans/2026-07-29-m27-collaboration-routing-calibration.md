@@ -391,13 +391,13 @@ Expected: change strict valid；提交 diff 无空白错误；状态仅显示用
   `replace` 不承诺任意异步中断下的跨文件原子性，状态不确定时保留预命名恢复目录。
 - Produces: CLI/REPL Single 路由与协作路由一致的 `collaboration.route` 审计，且不记录 goal/argv/path。
 
-- [ ] **Step 1: 写两个独立 RED 合同**
+- [x] **Step 1: 写两个独立 RED 合同**
 
 模拟第一个既有目标从 destination 移到 backup 时失败，断言两个旧产物都保持原字节；为 CLI 和 REPL
 默认/显式 Single 注入 audit sink，断言各发出一次 `collaboration.route`，mode/reason 稳定且 payload
 不包含 goal、argv 或 path。
 
-- [ ] **Step 2: 运行 RED**
+- [x] **Step 2: 运行 RED**
 
 Run:
 
@@ -408,14 +408,14 @@ UV_CACHE_DIR=/tmp/forgeagent-m27-uv-cache uv run pytest -q \
 
 Expected: 新增合同失败，分别暴露既有文件误删和 Single 路由漏审计。
 
-- [ ] **Step 3: 实现最小 GREEN**
+- [x] **Step 3: 实现最小 GREEN**
 
 派生输出使用固定 `staged/old/failed-new` rename 状态机：普通 I/O 失败尽力回滚；异步中断、restore
 或 probe 不确定时立即停止该文件的后续破坏性 rename，保留恢复目录并抛出聚合异常。Single 分支在调用 `run_once`
 前使用既有 `emit_collaboration_route`，复用当前 decision、audit sink 与 task id 语义，不改变
 `run_once` 的通用接口，也不重复发出 Duo/Triad 审计。
 
-- [ ] **Step 4: 运行 GREEN 与相邻回归**
+- [x] **Step 4: 运行 GREEN 与相邻回归**
 
 Run:
 

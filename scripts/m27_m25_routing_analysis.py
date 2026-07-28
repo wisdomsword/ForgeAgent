@@ -316,16 +316,28 @@ def write_outputs(output_dir: Path, analysis: dict[str, object]) -> None:
 
         for name, file_paths in paths.items():
             try:
-                file_paths["destination"].replace(file_paths["old"])
-                had_old[name] = True
+                file_paths["destination"].lstat()
             except FileNotFoundError:
                 pass
+            else:
+                had_old[name] = True
+                file_paths["destination"].replace(file_paths["old"])
             publish_started[name] = True
             file_paths["staged"].replace(file_paths["destination"])
     except BaseException as transaction_error:
         if not isinstance(transaction_error, Exception):
             raise BaseExceptionGroup(
                 "output publication was interrupted; transaction evidence was retained",
+                [transaction_error],
+            ) from transaction_error
+        if any(
+            had_old[name]
+            and not publish_started[name]
+            and isinstance(transaction_error, FileNotFoundError)
+            for name in outputs
+        ):
+            raise BaseExceptionGroup(
+                "output backup state was uncertain; transaction evidence was retained",
                 [transaction_error],
             ) from transaction_error
 
