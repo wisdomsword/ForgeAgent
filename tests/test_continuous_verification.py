@@ -80,6 +80,9 @@ def test_docker_job_requires_preflight_and_zero_skip_junit() -> None:
     assert "artifacts/ci/container-junit.xml" in docker["artifacts"]["paths"]
     for expected in (
         'mkdir -p artifacts/ci "$TMPDIR"',
+        "adduser -D -u 1000 forgeagent",
+        'chown -R forgeagent:forgeagent "$CI_PROJECT_DIR"',
+        "su-exec forgeagent",
         "docker info",
         "docker pull python:3.11-slim",
         "docker image inspect python:3.11-slim",

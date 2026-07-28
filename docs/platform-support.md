@@ -8,7 +8,7 @@ is evaluated independently.
 
 | Platform tuple | Priority | Status | Prerequisites | Current evidence | Limitations | Next Comet trigger |
 | --- | --- | --- | --- | --- | --- | --- |
-| Linux amd64/arm64 + Docker Engine | P0 | verified | Linux Docker runner with Docker daemon, shared build volume, and the checked-in JUnit contract | 2026-07-28 runner execution: 10 passed, 0 skipped, 0 failures, 0 errors; JUnit artifact generated | This evidence covers the reported Linux runner topology only; it does not prove Podman, Windows, or every Linux executor | Any runner topology change, or a DinD/container contract failure |
+| Linux amd64/arm64 + Docker Engine | P0 | configured | Linux Docker runner with Docker daemon, shared build volume, non-root job execution, and the checked-in JUnit contract | Manual runner: 10 passed, 0 skipped; GitLab Pipeline 48 / Job 245 reached Docker and failed because the job ran as root (`uid: 0`) | Required GitLab Job must pass after the non-root bootstrap fix; this does not prove Podman, Windows, or every Linux executor | Successful post-fix GitLab Job, or any runner topology change |
 | Linux + rootless Podman | P1 | scheduled | Product decision to support Podman; compatible CLI/mount/network/pids/user/kill semantics | No execution evidence | Current backend commands and hardening flags target Docker | Podman becomes a release target or a compatibility spike is scheduled |
 | Windows native | P2 | deferred | Product decision to support Windows; path, locking, resource-limit, and container-tier design | No execution evidence | Drive-letter colons and Unix-specific isolation assumptions require design work | Windows becomes a release target |
 | macOS arm64 + Docker Desktop Linux daemon | non-release | supplemental | Docker Desktop 29.2.1 and local `python:3.11-slim` | Dated local JUnit 10/10 below | Linux VM daemon evidence does not prove native Linux runners, Podman, or Windows | Regression in local evidence or a change to the non-release smoke environment |
@@ -24,11 +24,12 @@ same-path bind-mount source through GitLab's shared build volume. A runner with 
 executor or build-volume topology must prove that contract before being marked `verified`.
 
 Current offline repository baseline: `2309 passed, 10 skipped`; OpenSpec strict `20/20`;
-Golden `20/20`. The dated Linux runner evidence below is separate from this offline baseline.
+Golden `20/20`. The dated Linux runner evidence below is separate from this offline baseline. The
+required GitLab job remains `configured` until a post-fix run passes.
 
 ## Linux Docker Runner Evidence
 
-On 2026-07-28, a Linux Docker runner executed the required container gate as user `2000:2000`:
+On 2026-07-28, a Linux Docker runner executed the container gate manually as user `2000:2000`:
 
 ```text
 10 passed, 4 deselected in 13.32s
@@ -37,7 +38,10 @@ On 2026-07-28, a Linux Docker runner executed the required container gate as use
 The command wrote a non-empty `artifacts/ci/container-junit.xml`. The four deselected tests are
 the non-integration unit tests in `tests/test_container_backend.py`; the ten marked integration
 tests had zero skips, failures, and errors. Earlier root-owned artifacts and pytest cache entries
-were removed before this run; the command itself was executed without `sudo`.
+were removed before this run; the command itself was executed without `sudo`. This is manual Linux
+evidence, not a passing GitLab Pipeline result. Pipeline 48 / Job 245 confirmed Docker daemon and
+image availability but failed at `test_t9_non_root_and_sys_masked` with `uid: 0`; the CI fix adds a
+non-root `su-exec` bootstrap.
 
 ## Supplemental Local Evidence
 

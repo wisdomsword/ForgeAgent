@@ -22,7 +22,7 @@
   failures=0、errors=0 做硬断言。
 - Docker job 绑定 `docker-privileged` runner，并把 `TMPDIR` 放在共享 build volume 中，保持
   ContainerBackend same-path bind mount 在 DinD service 中可见。
-- Linux Docker 为 P0 verified（2026-07-28 runner 10/10）；Podman 为 P1 scheduled；Windows 为 P2 deferred；macOS
+- Linux Docker 为 P0 configured（手工 runner 10/10；GitLab Job 245 暴露 root bootstrap 问题，待修复后重跑）；Podman 为 P1 scheduled；Windows 为 P2 deferred；macOS
   arm64 Docker Desktop 仅 supplemental。详细矩阵见 [`docs/platform-support.md`](../docs/platform-support.md)。
 
 ## 子任务清单
@@ -32,7 +32,7 @@
 - [x] 编写离线验证 job
 - [x] 编写 Linux Docker job 与 JUnit 零 skip 合同
 - [x] 更新 README、ACTION_PLAN 与平台矩阵
-- [x] 在 Linux Docker runner 上执行完整证据 — 2026-07-28，10 passed、0 skipped、JUnit 非空
+- [x] 手工 Linux Docker runner 证据 — 2026-07-28，10 passed、0 skipped、JUnit 非空
 - [x] 完成 Comet verify、main fast-forward 合并与 OpenSpec 归档
 
 ## 交付物清单
@@ -61,7 +61,7 @@
 - [x] Golden `20/20`、OpenSpec strict `20/20`、Ruff、wheel/sdist 与发布边界通过
 - [x] macOS Docker Desktop supplemental JUnit：tests=10、failures/errors/skipped=0；镜像 digest
   `sha256:db3ff2e1800a8581e2c48a27c3995339d47bdf046da21c7627accd3d51053a93`
-- [x] Linux Docker 十项 tests=10 且零 skip — 2026-07-28 runner：10 passed、0 skipped、0 failures、0 errors
+- [ ] GitLab Linux Docker 十项 tests=10 且零 skip — Job 245 因 root bootstrap 失败，待修复后重跑
 
 ## 遗留问题
 
@@ -69,6 +69,6 @@
 
 ## 续接指引
 
-M24 已归档并合并 main。Linux Docker 已有一条 dated runner 10/10 证据，状态升为 verified；该
-结论仅适用于记录的 runner 拓扑。Podman 升为发布目标时
+M24 已归档并合并 main。Linux Docker 有手工 dated runner 10/10 证据，但必需 GitLab Job 仍待
+非 root bootstrap 修复后重跑；在 CI 通过前保持 configured。该结论仅适用于记录的 runner 拓扑。Podman 升为发布目标时
 新建独立兼容性 change；Windows 仍 deferred，不在本里程碑扩展运行时。
