@@ -188,8 +188,45 @@ def run_check(
 def candidate_snapshot_digest(root: str | Path) -> str:
     """Return a stable digest of the files that evaluator checks can observe."""
     source_root = Path(root).resolve()
-    _validate_source_tree(source_root)
-    paths = [(".", source_root)]
+    paths = _describe_candidate_tree(source_root)
+
+    digest = hashlib.sha256(b"forgeagent-candidate-snapshot-v1\0")
+    for relative_path, path, marker, expected_metadata in paths:
+        encoded_path = relative_path.encode("utf-8", errors="surrogateescape")
+        digest.update(marker)
+        digest.update(len(encoded_path).to_bytes(8, "big"))
+        digest.update(encoded_path)
+        digest.update(stat.S_IMODE(expected_metadata[2]).to_bytes(4, "big"))
+        if marker == b"F":
+            if not hasattr(os, "O_NOFOLLOW"):
+                raise RuntimeError("safe snapshot hashing is unavailable")
+            descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            try:
+                before = os.fstat(descriptor)
+                if not stat.S_ISREG(before.st_mode) or _stat_metadata(before) != expected_metadata:
+                    raise ValueError("candidate changed while hashing")
+                digest.update(before.st_size.to_bytes(8, "big"))
+                bytes_read = 0
+                while chunk := os.read(descriptor, 1024 * 1024):
+                    bytes_read += len(chunk)
+                    digest.update(chunk)
+                after = os.fstat(descriptor)
+                if bytes_read != before.st_size or _stat_metadata(after) != _stat_metadata(before):
+                    raise ValueError("candidate changed while hashing")
+            finally:
+                os.close(descriptor)
+    if _describe_candidate_tree(source_root) != paths:
+        raise ValueError("candidate changed while hashing")
+    return digest.hexdigest()
+
+
+def _describe_candidate_tree(
+    source_root: Path,
+) -> list[tuple[str, Path, bytes, tuple[int, ...]]]:
+    root_metadata = source_root.stat(follow_symlinks=False)
+    if not stat.S_ISDIR(root_metadata.st_mode):
+        raise ValueError("allowed_root must be an existing directory")
+    paths = [(".", source_root, b"D", _directory_metadata(root_metadata))]
     pending = [source_root]
     while pending:
         directory = pending.pop()
@@ -198,32 +235,45 @@ def candidate_snapshot_digest(root: str | Path) -> str:
                 if _ignored(entry.name):
                     continue
                 path = Path(entry.path)
-                relative_path = path.relative_to(source_root).as_posix()
-                paths.append((relative_path, path))
-                if entry.is_dir(follow_symlinks=False):
+                metadata = entry.stat(follow_symlinks=False)
+                if stat.S_ISLNK(metadata.st_mode):
+                    raise ValueError("project contains an unsupported symlink")
+                if stat.S_ISDIR(metadata.st_mode):
+                    marker = b"D"
                     pending.append(path)
+                elif stat.S_ISREG(metadata.st_mode):
+                    marker = b"F"
+                else:
+                    raise ValueError("project contains an unsupported special file")
+                paths.append(
+                    (
+                        path.relative_to(source_root).as_posix(),
+                        path,
+                        marker,
+                        (
+                            _directory_metadata(metadata)
+                            if marker == b"D"
+                            else _stat_metadata(metadata)
+                        ),
+                    )
+                )
+    return sorted(paths)
 
-    digest = hashlib.sha256(b"forgeagent-candidate-snapshot-v1\0")
-    for relative_path, path in sorted(paths):
-        mode = path.stat(follow_symlinks=False).st_mode
-        encoded_path = relative_path.encode("utf-8", errors="surrogateescape")
-        if stat.S_ISDIR(mode):
-            marker = b"D"
-        elif stat.S_ISREG(mode):
-            marker = b"F"
-        else:
-            raise ValueError("project contains an unsupported special file")
-        digest.update(marker)
-        digest.update(len(encoded_path).to_bytes(8, "big"))
-        digest.update(encoded_path)
-        digest.update(stat.S_IMODE(mode).to_bytes(4, "big"))
-        if marker == b"F":
-            size = path.stat(follow_symlinks=False).st_size
-            digest.update(size.to_bytes(8, "big"))
-            with path.open("rb") as source:
-                while chunk := source.read(1024 * 1024):
-                    digest.update(chunk)
-    return digest.hexdigest()
+
+def _directory_metadata(metadata: os.stat_result) -> tuple[int, ...]:
+    return metadata.st_dev, metadata.st_ino, metadata.st_mode
+
+
+def _stat_metadata(metadata: os.stat_result) -> tuple[int, ...]:
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        metadata.st_mode,
+        metadata.st_nlink,
+        metadata.st_size,
+        metadata.st_mtime_ns,
+        metadata.st_ctime_ns,
+    )
 
 
 def _validate_source_tree(source_root: Path) -> None:

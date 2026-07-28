@@ -61,6 +61,58 @@ def test_candidate_snapshot_digest_tracks_candidate_semantics(tmp_path: Path):
     assert check_runner_module.candidate_snapshot_digest(source) != baseline
 
 
+def test_candidate_snapshot_digest_rejects_file_changed_while_hashing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    candidate = tmp_path / "candidate.txt"
+    original_content = b"stable candidate"
+    candidate.write_bytes(original_content)
+    real_sha256 = check_runner_module.hashlib.sha256
+
+    class MutatingHash:
+        def __init__(self, value: bytes):
+            self._digest = real_sha256(value)
+
+        def update(self, value: bytes) -> None:
+            self._digest.update(value)
+            if value == original_content:
+                candidate.write_bytes(b"changed content!")
+
+        def hexdigest(self) -> str:
+            return self._digest.hexdigest()
+
+    monkeypatch.setattr(check_runner_module.hashlib, "sha256", MutatingHash)
+
+    with pytest.raises(ValueError, match="candidate changed while hashing"):
+        check_runner_module.candidate_snapshot_digest(tmp_path)
+
+
+def test_candidate_snapshot_digest_rejects_tree_changed_while_hashing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    candidate = tmp_path / "candidate.txt"
+    content = b"stable candidate"
+    candidate.write_bytes(content)
+    real_sha256 = check_runner_module.hashlib.sha256
+
+    class MutatingHash:
+        def __init__(self, value: bytes):
+            self._digest = real_sha256(value)
+
+        def update(self, value: bytes) -> None:
+            self._digest.update(value)
+            if value == content:
+                (tmp_path / "added.txt").write_text("late addition", encoding="utf-8")
+
+        def hexdigest(self) -> str:
+            return self._digest.hexdigest()
+
+    monkeypatch.setattr(check_runner_module.hashlib, "sha256", MutatingHash)
+
+    with pytest.raises(ValueError, match="candidate changed while hashing"):
+        check_runner_module.candidate_snapshot_digest(tmp_path)
+
+
 def test_check_runs_in_temporary_copy_and_preserves_real_project(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
