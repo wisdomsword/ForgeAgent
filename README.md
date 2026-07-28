@@ -6,10 +6,12 @@
 
 ## 当前验证
 
-pytest: `2420 passed, 22 skipped`；OpenSpec strict: `20/20`.
+pytest: `2309 passed, 22 skipped`；OpenSpec strict: `21/21`.
 
-该 pytest 结果来自 2026-07-29 M26 归档后审计，排除当前沙箱禁止 loopback socket 的 11 个
-M16 黑盒测试和另行验证的 packaging 测试；未把环境限制误报为通过。本机 Docker Desktop 专项为
+该 pytest 结果是 2026-07-29 M27 当前沙箱可执行基线，排除当前沙箱禁止 loopback socket 的
+M16 黑盒测试文件和依赖安装受离线网络限制的 packaging 测试文件。未排除的完整 pytest 尝试为
+`2312 passed, 22 skipped, 12 failed`：11 项在分配 loopback port 时被操作系统拒绝，1 项在隔离
+构建依赖解析时因 DNS 不可用失败；这些项目未被误报为通过。本机 Docker Desktop 专项为
 `10 passed`、零 skip；2026-07-28 手工 Linux runner 专项为 `10 passed`、零 skip；GitLab Linux
 Docker Job 249 为 `10 passed`、零 skip；Golden: `20/20`。
 
@@ -19,7 +21,7 @@ M24 已完成并归档，change 见
 macOS Docker Desktop 结果只作为 supplemental 证据；仅 Linux Docker runner topology (Pipeline 50 / Job 249)
 已 verified，不推断未记录的 Linux 架构、Podman 或 Windows 支持。
 
-## M27 协作路由校准（进行中）
+## M27 协作路由校准（已完成，待 Comet 归档）
 
 M27 已根据 M25 冻结协议完成路由裁决：默认 Single；用户显式选择 Single、Duo 或 Triad 时直接
 遵从，显式模式优先于可信宿主已绑定的冻结检查；只有可信宿主已经为本次任务绑定**非空冻结检查**时，
