@@ -3,7 +3,8 @@
 M24 records platform evidence separately from product claims. A status describes the
 repository's current verification surface, not a promise that every host has been run.
 `verified` is reserved for an executed, reproducible platform run; `configured` means the
-required CI job exists but its runner evidence is still pending.
+required CI job exists but that platform tuple still lacks runner evidence. Each platform tuple
+is evaluated independently.
 
 | Platform tuple | Priority | Status | Prerequisites | Current evidence | Limitations | Next Comet trigger |
 | --- | --- | --- | --- | --- | --- | --- |
