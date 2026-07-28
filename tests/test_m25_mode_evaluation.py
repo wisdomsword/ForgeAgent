@@ -1420,3 +1420,5 @@ def test_m25_public_docs_and_milestone_publish_verified_evidence() -> None:
         / "tasks.md"
     ).read_text(encoding="utf-8")
     assert "- [ ]" not in tasks
+    plan = M25_PLAN_PATH.read_text(encoding="utf-8")
+    assert plan.count("archived-with: 2026-07-28-m25-programming-mode-evaluation") == 1

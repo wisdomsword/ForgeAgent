@@ -104,9 +104,6 @@ aggregate_records(
 
 M23 调用 `environment_manifest()` 保留现有 `provider_route_sha256=` keyword；新 M25 调用只传 `model_routes=`，函数拒绝两者同时存在或同时缺失。`pending_run_specs()` 保留前四个现有 positional 参数，并增加 keyword-only `environment: Environment | None = None`，因此现有 M23 测试和调用不需要伪造 M25 route 数据。
 
-archived-with: 2026-07-28-m25-programming-mode-evaluation
----
-
 ### Task 1: M23 不可变门与 M25 严格 schema 分派
 
 **Files:**
@@ -1511,4 +1508,3 @@ rtk git commit -m "docs(evaluation): close M25 evidence milestone"
 ```
 
 After this commit, hand control back to Comet verify. Do not mark the change archived, alter `.comet.yaml`, or rewrite the ACTION_PLAN row to `已完成并归档` until Comet verification and the explicit archive decision succeed.
-
