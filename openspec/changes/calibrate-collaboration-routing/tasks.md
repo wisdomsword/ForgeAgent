@@ -20,5 +20,5 @@
 
 - [x] 4.1 运行路由、集成、派生分析与文档合同定向测试
 - [x] 4.2 运行全量 pytest、OpenSpec strict、Golden 20/20、Ruff check/format、打包和 diff 检查；loopback 与 packaging 依赖安装的环境例外如实记录
-- [x] 4.3 完成两轮最终自审与独立代码评审，修复全部确认问题并重复受影响验证
-- [x] 4.4 创建 M27、更新 milestones/latest 并完成验证收尾；delta spec 归档与分支收尾由后续 Comet 生命周期门处理
+- [x] 4.3 完成两轮最终自审与独立代码评审；修复 Task 4 复审确认的 2 项 Important 和 1 项 Minor，并重复受影响验证
+- [ ] 4.4 准备 M27 归档、更新 milestones/latest 与分支收尾 — 由后续 Comet archive/branch gate 执行，不提前声称归档完成

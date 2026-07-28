@@ -35,7 +35,18 @@ UV_CACHE_DIR=/tmp/forgeagent-m27-uv-cache uv run pytest -q
 结果：`12 failed, 2312 passed, 22 skipped in 106.75s`。
 
 - 11 项失败位于 `tests/test_m16_filewrite_allowlist_blackbox.py`，共同原因为
-  `PermissionError: [Errno 1] Operation not permitted`，脚本未能分配 loopback port。
+  `PermissionError: [Errno 1] Operation not permitted`，脚本未能分配 loopback port：
+  `test_blackbox_script_passes_exact_two_phase_contract`、
+  `test_blackbox_script_reports_model_tool_drift_as_inconclusive`、
+  `test_blackbox_script_rejects_forbidden_extra_tool_as_inconclusive`、
+  `test_failed_extra_tool_does_not_override_filewrite_evidence`、
+  `test_failed_extra_tool_with_artifact_remains_inconclusive`、
+  `test_tool_drift_takes_precedence_over_wrong_allowlist_decision`、
+  `test_allowed_phase_tool_drift_precedes_wrong_decision`、
+  `test_blackbox_script_rejects_token_leak_in_denied_audit`、
+  `test_blackbox_script_rejects_degraded_terminal_audit`、
+  `test_blackbox_script_times_out_and_stops_queued_server`、
+  `test_blackbox_script_reports_wrong_allowlist_decision_as_failure`。
 - 1 项失败为 `tests/test_packaging.py::test_wheel_and_sdist_release_contents`，隔离
   `uv build` 无法从 PyPI 解析 Hatchling；DNS 在当前沙箱不可用。
 - 非沙箱重跑按授权申请，但自动审批服务返回 `403 Forbidden`：所选 auto-review model group
@@ -118,6 +129,17 @@ packaging 测试单独复验为 `2 passed, 1 failed`：wheel/sdist 内容断言�
 Task 1-3 均经过 thorough review 与修复轮。确认问题包括：派生裁决字段与报告结论一致性、配对
 发布回滚、README 中显式模式优先和可信宿主边界、HTTP/YAML 对 `has_bound_checks` 的严格拒绝。
 这些问题均已增加失败测试、修复并复验。最终两轮自审未发现新的产品行为缺陷。
+
+Task 4 独立 review 另确认 2 项 Important 与 1 项 Minor，均属于收尾证据一致性而非产品代码：
+
+- Important：`ACTION_PLAN.md` 的权威摘要和 M27 行仍写“进行中”，且没有写入实际
+  `2309 passed, 22 skipped`、完整 12 项环境失败边界、OpenSpec `21/21`、Golden `20/20` 和
+  离线 build 结果。现已改为“已完成，待 Comet 归档”并补齐全部证据。
+- Important：OpenSpec 4.3/4.4 在独立 review 问题尚未修复、Comet archive/branch gate 尚未执行时
+  提前混合完成边界。现 4.3 只在本轮修复和受影响复验后完成；4.4 改为后续归档、
+  `milestones/latest` 与分支收尾任务并保持未勾选。
+- Minor：Task 4 报告把已经存在的提交 `09ceb10` 写成“待执行”，且没有记录本轮 review fix。
+  报告现按 Git 实际提交更新，不声称 active change 已归档。
 
 ## 已知边界
 

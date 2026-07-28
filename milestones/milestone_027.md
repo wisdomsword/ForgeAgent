@@ -62,7 +62,8 @@ Triad；只允许可信宿主在本次任务已绑定非空冻结检查时自动
 
 - [x] Task 1-3 均完成 thorough review 和修复轮
 - [x] 修复派生裁决一致性、配对发布回滚、公开宿主边界与 HTTP/YAML 拒绝语义
-- [x] 两轮最终自审未发现剩余 Critical 或 Important 产品问题
+- [x] Task 4 独立 review 的 2 项 Important 与 1 项 Minor 收尾问题已修复：ACTION_PLAN 权威状态与完整验证证据、OpenSpec 4.3/4.4 生命周期边界、Task 4 实际提交记录
+- [x] 两轮最终自审未发现剩余 Critical 或 Important 产品问题；active change 未被误写为已归档
 
 ### 验收评审
 
