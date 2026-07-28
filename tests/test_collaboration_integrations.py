@@ -416,3 +416,90 @@ def test_cli_run_single_nonprogramming_uses_unchanged_run_once(monkeypatch):
 
     assert code == 0
     assert calls == ["Summarize this report"]
+
+
+def _patch_single_run_dependencies(monkeypatch) -> None:
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: None)
+    monkeypatch.setattr(cli_module, "resolve_cli_identity", lambda **kwargs: None)
+    monkeypatch.setattr(cli_module, "_load_skill_registry", lambda **kwargs: None)
+    monkeypatch.setattr(
+        cli_module,
+        "run_once",
+        lambda _goal, **_kwargs: SimpleNamespace(status=SimpleNamespace(solved=True)),
+    )
+
+
+@pytest.mark.parametrize(
+    ("mode_args", "expected_reason", "expected_requested_mode"),
+    [([], "default", "default"), (["--mode", "single"], "explicit", "single")],
+)
+def test_cli_single_routes_once_without_goal_or_invocation_data(
+    monkeypatch,
+    mode_args,
+    expected_reason,
+    expected_requested_mode,
+):
+    _patch_single_run_dependencies(monkeypatch)
+    route_calls: list[tuple[object, object, object]] = []
+    monkeypatch.setattr(
+        cli_module,
+        "emit_collaboration_route",
+        lambda sink, decision, requested_mode: route_calls.append((sink, decision, requested_mode)),
+    )
+
+    assert (
+        cli_module.main(
+            ["--no-identity", "--no-memory", "run", "PRIVATE_GOAL", *mode_args],
+            client_factory=lambda _model: SimpleNamespace(),
+        )
+        == 0
+    )
+
+    assert len(route_calls) == 1
+    sink, decision, requested_mode = route_calls[0]
+    assert sink is None
+    assert decision.mode == "single"
+    assert decision.reason == expected_reason
+    assert decision.override_required is False
+    assert requested_mode == (None if expected_requested_mode == "default" else "single")
+    rendered = repr(route_calls)
+    for forbidden in ("PRIVATE_GOAL", "goal", "argv", "path"):
+        assert forbidden not in rendered
+
+
+def test_repl_default_single_routes_once_without_goal_or_invocation_data(monkeypatch):
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: None)
+    monkeypatch.setattr(
+        cli_module,
+        "run_once",
+        lambda _goal, **_kwargs: SimpleNamespace(status=SimpleNamespace(solved=True)),
+    )
+    route_calls: list[tuple[object, object, object]] = []
+    monkeypatch.setattr(
+        cli_module,
+        "emit_collaboration_route",
+        lambda sink, decision, requested_mode: route_calls.append((sink, decision, requested_mode)),
+    )
+    inputs = iter(["PRIVATE_GOAL", "quit"])
+
+    repl(
+        tier="restricted",
+        model="mock",
+        client_factory=lambda _model: SimpleNamespace(),
+        read_line=lambda _prompt: next(inputs),
+        confirmation_available=False,
+        no_identity=True,
+        no_memory=True,
+        use_registry_snapshot=False,
+    )
+
+    assert len(route_calls) == 1
+    sink, decision, requested_mode = route_calls[0]
+    assert sink is None
+    assert decision.mode == "single"
+    assert decision.reason == "default"
+    assert decision.override_required is False
+    assert requested_mode is None
+    rendered = repr(route_calls)
+    for forbidden in ("PRIVATE_GOAL", "goal", "argv", "path"):
+        assert forbidden not in rendered

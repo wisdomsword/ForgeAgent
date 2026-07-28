@@ -1848,6 +1848,7 @@ def repl(
                 continue
             decision = resolve_collaboration_mode(goal, None)
             if decision.mode == "single":
+                emit_collaboration_route(None, decision, None)
                 run_once(
                     goal,
                     tier=tier,
@@ -2943,6 +2944,11 @@ def main(
                 if decision is None:
                     return 1 if interactive_identity else 2
                 if decision.mode == "single":
+                    emit_collaboration_route(
+                        None,
+                        decision,
+                        cast(CollaborationMode | None, args.mode),
+                    )
                     outcome = run_once(
                         args.goal,
                         tier=args.tier,
