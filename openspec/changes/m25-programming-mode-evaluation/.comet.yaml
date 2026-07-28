@@ -1,6 +1,6 @@
 workflow: full
 language: zh-CN
-phase: build
+phase: verify
 context_compression: off
 build_mode: subagent-driven-development
 build_pause: null
@@ -8,14 +8,14 @@ subagent_dispatch: confirmed
 tdd_mode: tdd
 review_mode: standard
 isolation: branch
-verify_mode: null
+verify_mode: full
 auto_transition: true
 base_ref: d7fa30526f829959102b5fb69b4778899d6b1f88
 design_doc: docs/superpowers/specs/2026-07-27-m25-programming-mode-evaluation-design.md
 plan: docs/superpowers/plans/2026-07-27-m25-programming-mode-evaluation.md
 verify_result: pending
-verification_report: null
-branch_status: pending
+verification_report: docs/superpowers/reports/2026-07-28-m25-programming-mode-evaluation-verify.md
+branch_status: handled
 created_at: 2026-07-27
 verified_at: null
 archived: false
