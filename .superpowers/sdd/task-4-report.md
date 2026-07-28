@@ -1,11 +1,12 @@
-# M27 Task 4 Report: 全量验证、基线定稿与里程碑收尾
+# M27 Task 4 Report: 全量验证、基线定稿与 Build Handoff
 
 ## 状态
 
 `DONE_WITH_ENVIRONMENT_EXCEPTIONS`
 
-M27 产品实现、规格、派生证据与验证收尾均完成。OpenSpec change 保持 active，等待协调器进入
-Comet archive；本轮修复 Task 4 独立 review 的 2 项 Important 与 1 项 Minor，没有提前归档。
+M27 产品实现、规格、派生证据、验证与 build-stage preparation/handoff 均完成。OpenSpec change
+保持 active，等待后续 Comet archive/branch gates；没有提前执行 delta spec 同步、归档、最终
+里程碑状态更新或 branch finish。
 
 ## 当前基线
 
@@ -23,6 +24,7 @@ Comet archive；本轮修复 Task 4 独立 review 的 2 项 Important 与 1 项 
 - `ACTION_PLAN.md`
 - `openspec/changes/calibrate-collaboration-routing/tasks.md`
 - `docs/superpowers/reports/2026-07-29-m27-collaboration-routing-calibration-verify.md`
+- `docs/superpowers/reports/2026-07-29-m27-task4-independent-review.md`
 - `milestones/milestone_027.md`
 - `.superpowers/sdd/task-4-report.md`
 
@@ -46,13 +48,24 @@ Comet archive；本轮修复 Task 4 独立 review 的 2 项 Important 与 1 项 
 - Minor：本报告原先把已经存在的 Task 4 提交写成“待执行”。现按 Git 实际状态记录，并明确
   active change 尚未归档。
 
+提交 `4dc1537 fix: align m27 closeout state` 修复了上述首轮 findings。复审发现两个剩余问题：
+
+- 状态机死锁：4.4 若等待实际 archive/branch finish 会阻塞后续 gate，若提前完成又会越过用户
+  决策门。本轮将 4.4 改为已完成的 build-stage preparation/handoff，只准备归档输入、确认
+  `milestones/latest` 当前指针并记录分支收尾选择项。
+- 审查证据缺口：仓库没有独立、受跟踪的 review 工件。本轮新增
+  `docs/superpowers/reports/2026-07-29-m27-task4-independent-review.md`，记录 reviewer 角色/范围、
+  首轮与复审 findings、修复提交和未重测边界，不伪造 agent ID。
+
 ## 风险信号
 
 - 非沙箱审批基础设施返回 403，无法在本轮补跑 loopback 与联网依赖安装。
 - M25 早于 M26，不可用来证明当前 evidence-bound Triad 的绝对质量。
 - 用户原有未跟踪文件和协调器进度文件未纳入 Task 4 范围。
+- 实际 delta spec 同步、change 归档、最终里程碑状态和 branch finish 仍由后续 Comet gates 执行。
 
 ## 提交
 
 - Task 4 原提交：`09ceb10 chore: complete m27 collaboration routing calibration`。
-- Review fix：`fix: align m27 closeout state`（本提交）。
+- 首轮 Review fix：`4dc1537 fix: align m27 closeout state`。
+- 最终 handoff evidence fix：`fix: complete m27 build handoff evidence`（本提交）。

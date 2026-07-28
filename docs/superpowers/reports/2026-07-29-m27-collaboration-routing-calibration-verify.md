@@ -2,8 +2,9 @@
 
 ## 结论
 
-M27 的路由、M25 派生分析、Memory 文档、当前验证基线与 Linux evidence claim 已完成验证，状态为
-“已完成，待 Comet 归档”。默认路由现在是 Single；显式 Single/Duo/Triad 优先；只有可信宿主已
+M27 的路由、M25 派生分析、Memory 文档、当前验证基线与 Linux evidence claim 已完成验证；
+build-stage preparation/handoff 已完成，等待后续 Comet archive/branch gates。默认路由现在是
+Single；显式 Single/Duo/Triad 优先；只有可信宿主已
 绑定非空冻结检查时才自动 Triad。M25 冻结证据没有任务类别的 Triad solved rate 严格高于
 Single，因此没有恢复自动类别。
 
@@ -141,6 +142,12 @@ Task 4 独立 review 另确认 2 项 Important 与 1 项 Minor，均属于收尾
 - Minor：Task 4 报告把已经存在的提交 `09ceb10` 写成“待执行”，且没有记录本轮 review fix。
   报告现按 Git 实际提交更新，不声称 active change 已归档。
 
+提交 `4dc1537` 修复上述首轮 findings。复审继续发现状态机死锁与审查证据缺口：4.4 若等待实际
+archive/branch finish 会阻塞 archive gate，若提前勾选又会越过用户决策门；同时仓库缺少独立、
+受跟踪的 review 工件。本轮把 4.4 改为已完成的 build-stage preparation/handoff，并新增
+[Task 4 独立审查记录](2026-07-29-m27-task4-independent-review.md)。该工件记录 reviewer 角色与范围、
+首轮和复审 findings、`4dc1537` 修复及未重测边界，不虚构 agent ID。
+
 ## 已知边界
 
 - 当前沙箱不能绑定 loopback socket；M16 黑盒测试未在本轮环境完成。
@@ -148,3 +155,4 @@ Task 4 独立 review 另确认 2 项 Important 与 1 项 Minor，均属于收尾
 - M25 是有限历史样本且早于 M26；未来若恢复某类自动 Triad，必须由新的冻结、版本化证据和
   独立 change 支撑。
 - OpenSpec change 仍处于 active path；本报告不提前宣称已归档。
+- delta spec 同步、最终归档状态和实际 branch finish 仍须经过后续 Comet gates。

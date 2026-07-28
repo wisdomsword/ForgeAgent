@@ -8,6 +8,7 @@
 - 实施计划: [2026-07-29-m27-collaboration-routing-calibration](../docs/superpowers/plans/2026-07-29-m27-collaboration-routing-calibration.md)
 - OpenSpec change: [`calibrate-collaboration-routing`](../openspec/changes/calibrate-collaboration-routing/)
 - 验证报告: [2026-07-29-m27-collaboration-routing-calibration-verify](../docs/superpowers/reports/2026-07-29-m27-collaboration-routing-calibration-verify.md)
+- 独立审查: [2026-07-29-m27-task4-independent-review](../docs/superpowers/reports/2026-07-29-m27-task4-independent-review.md)
 
 ## 目标与范围
 
@@ -37,6 +38,7 @@ Triad；只允许可信宿主在本次任务已绑定非空冻结检查时自动
 - [x] 建立只读 M25 派生分析和不可变输入验证
 - [x] 修正 Memory、Linux、路由和 HTTP 公开文档合同
 - [x] 完成全量可执行验证、两轮最终自审、验证报告与里程碑记录
+- [x] 完成 build-stage preparation/handoff：归档输入就绪，`milestones/latest` 当前指向 M27，分支收尾选择留给后续 gate
 - [ ] Comet delta spec 归档和分支收尾 — 后续 archive 阶段执行，不在 active change 内提前完成
 
 ## 交付物清单
@@ -63,6 +65,7 @@ Triad；只允许可信宿主在本次任务已绑定非空冻结检查时自动
 - [x] Task 1-3 均完成 thorough review 和修复轮
 - [x] 修复派生裁决一致性、配对发布回滚、公开宿主边界与 HTTP/YAML 拒绝语义
 - [x] Task 4 独立 review 的 2 项 Important 与 1 项 Minor 收尾问题已修复：ACTION_PLAN 权威状态与完整验证证据、OpenSpec 4.3/4.4 生命周期边界、Task 4 实际提交记录
+- [x] Task 4 复审发现的状态机死锁与审查证据缺口已修复，证据见独立审查工件；未虚构 reviewer agent ID 或重测结果
 - [x] 两轮最终自审未发现剩余 Critical 或 Important 产品问题；active change 未被误写为已归档
 
 ### 验收评审
@@ -80,8 +83,9 @@ Triad；只允许可信宿主在本次任务已绑定非空冻结检查时自动
 
 ## 续接指引
 
-M27 实现和验证已经完成。下一步按 Comet archive 门处理
+M27 build-stage 实现、验证与 preparation/handoff 已经完成。下一步按 Comet archive 门处理
 `openspec/changes/calibrate-collaboration-routing`：同步 delta specs、归档 change、把里程碑状态改为
-“已完成并归档”，再执行已授权的 main 合并与 push。不要修改 M25 冻结输入，也不要恢复任何自动
+“已完成并归档”，再进入 branch gate 由用户选择并执行分支收尾；本轮没有预选或执行合并/push。
+不要修改 M25 冻结输入，也不要恢复任何自动
 Triad 类别；未来策略变化必须基于新的冻结协议和版本化 change。用户原有未跟踪文件继续保留且不
 纳入提交。
