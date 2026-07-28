@@ -14,6 +14,7 @@ import unicodedata
 import weakref
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal, Protocol
 from uuid import uuid4
@@ -21,7 +22,7 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from .audit import AuditEvent, AuditSink, emit_audit
-from .check_runner import CheckDefinition, run_check
+from .check_runner import CheckDefinition, CheckStatus, candidate_snapshot_digest, run_check
 from .secret_policy import REDACTED_PATH, mask_audit_data, sensitive_env_values
 from .task import TaskOutcome
 from .tools import (
@@ -1044,6 +1045,13 @@ class RunCheckArgs(BaseModel):
     check_id: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9_-]{0,63}$")
 
 
+@dataclass(frozen=True)
+class _CheckEvidence:
+    status: CheckStatus
+    snapshot_digest: str
+    generator_attempt: int
+
+
 class SubmitPlanTool(Tool):
     name, args_model, risk_level = "SubmitPlan", SubmitPlanArgs, "low"
 
@@ -1216,8 +1224,16 @@ class SubmitCandidateTool(Tool):
 class SubmitEvaluationTool(Tool):
     name, args_model, risk_level = "SubmitEvaluation", SubmitEvaluationArgs, "low"
 
-    def __init__(self, store: CollaborationStore, state: CollaborationState) -> None:
+    def __init__(
+        self,
+        store: CollaborationStore,
+        state: CollaborationState,
+        checks: Mapping[str, CheckDefinition] | None = None,
+        evidence: dict[str, _CheckEvidence] | None = None,
+    ) -> None:
         self._store, self._state = store, state
+        self._checks = dict(checks or {})
+        self._evidence = evidence
 
     def run(self, args: BaseModel, ctx: ToolContext | None) -> ToolOutcome:
         try:
@@ -1235,6 +1251,10 @@ class SubmitEvaluationTool(Tool):
                     detail="SubmitEvaluation rejected: results must cover frozen plan ids",
                 )
             results = tuple(results_by_id[item.id] for item in self._state.plan)
+            if all(item.passed for item in results) and self._checks:
+                rejection = self._check_evidence_rejection(ctx)
+                if rejection is not None:
+                    return ToolOutcome(tool=self.name, success=False, detail=rejection)
             state = self._state.model_copy(
                 update={
                     "last_evaluation": results,
@@ -1259,12 +1279,44 @@ class SubmitEvaluationTool(Tool):
                 detail="SubmitEvaluation rejected: invalid evaluation",
             )
 
+    def _check_evidence_rejection(self, ctx: ToolContext | None) -> str | None:
+        evidence = self._evidence or {}
+        missing = tuple(check_id for check_id in self._checks if check_id not in evidence)
+        if missing:
+            return "SubmitEvaluation rejected: missing checks " + ", ".join(
+                missing[:MAX_PUBLIC_EVIDENCE_ITEMS]
+            )
+        records = tuple(evidence[check_id] for check_id in self._checks)
+        if any(record.status != "passed" for record in records):
+            return "SubmitEvaluation rejected: registered checks did not pass"
+        if any(record.generator_attempt != self._state.generator_attempts for record in records):
+            return "SubmitEvaluation rejected: check evidence is stale"
+        digests = {record.snapshot_digest for record in records}
+        if "" in digests or len(digests) != 1:
+            return "SubmitEvaluation rejected: check evidence does not match one candidate"
+        if ctx is None:
+            return "SubmitEvaluation rejected: candidate snapshot unavailable"
+        try:
+            current_digest = candidate_snapshot_digest(ctx.allowed_root)
+        except (OSError, RuntimeError, ValueError):
+            return "SubmitEvaluation rejected: candidate snapshot unavailable"
+        if current_digest not in digests:
+            return "SubmitEvaluation rejected: candidate changed after checks"
+        return None
+
 
 class RunCheckTool(Tool):
     name, args_model, risk_level = "RunCheck", RunCheckArgs, "low"
 
-    def __init__(self, checks: Mapping[str, CheckDefinition]) -> None:
+    def __init__(
+        self,
+        checks: Mapping[str, CheckDefinition],
+        evidence: dict[str, _CheckEvidence] | None = None,
+        generator_attempt: int = 0,
+    ) -> None:
         self._checks = dict(checks)
+        self._evidence = evidence
+        self._generator_attempt = generator_attempt
 
     def run(self, args: BaseModel, ctx: ToolContext | None) -> ToolOutcome:
         try:
@@ -1289,6 +1341,12 @@ class RunCheckTool(Tool):
             allowed_root=ctx.allowed_root,
             cancel_event=ctx.cancel_event,
         )
+        if self._evidence is not None:
+            self._evidence[validated.check_id] = _CheckEvidence(
+                status=result.status,
+                snapshot_digest=result.snapshot_digest,
+                generator_attempt=self._generator_attempt,
+            )
         detail = (
             f"check={validated.check_id} status={result.status} "
             f"exit_code={result.exit_code} duration_ms={result.duration_ms}\n"
@@ -1327,8 +1385,11 @@ def build_evaluator_registry(
     registry.register(FileReadTool())
     registry.register(FileListTool())
     if checks:
-        registry.register(RunCheckTool(checks))
-    registry.register(SubmitEvaluationTool(store, state))
+        evidence: dict[str, _CheckEvidence] = {}
+        registry.register(RunCheckTool(checks, evidence, state.generator_attempts))
+        registry.register(SubmitEvaluationTool(store, state, checks, evidence))
+    else:
+        registry.register(SubmitEvaluationTool(store, state))
     registry.require_completion("SubmitEvaluation")
     return registry
 

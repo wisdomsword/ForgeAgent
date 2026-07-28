@@ -395,6 +395,241 @@ def test_evaluator_registry_adds_only_host_defined_checks(tmp_path: Path):
     }
     with pytest.raises(ValidationError):
         RunCheckArgs.model_validate({"check_id": "unit", "argv": ["sh", "-c", "id"]})
+    with pytest.raises(ValidationError):
+        RunCheckArgs.model_validate({"check_id": "unit", "snapshot_digest": "model-controlled"})
+    with pytest.raises(ValidationError):
+        SubmitEvaluationArgs.model_validate(
+            {
+                "results": [
+                    {
+                        "id": "goal",
+                        "passed": True,
+                        "observed": "yes",
+                        "expected": "yes",
+                    }
+                ],
+                "check_results": {"unit": "passed"},
+            }
+        )
+
+
+def _pending_duo_evaluation(
+    tmp_path: Path, collaboration_id: str
+) -> tuple[CollaborationStore, object]:
+    store = CollaborationStore(str(tmp_path))
+    generator = store.create("Build an artifact", "duo", collaboration_id=collaboration_id)
+    assert SubmitCandidateTool(store, generator).run(SubmitCandidateArgs(), None).success is True
+    return store, store.load(generator.collaboration_id)
+
+
+def _passing_evaluation() -> SubmitEvaluationArgs:
+    return SubmitEvaluationArgs(
+        results=[
+            {
+                "id": "goal",
+                "passed": True,
+                "observed": "yes",
+                "expected": "yes",
+            }
+        ]
+    )
+
+
+def test_registered_check_must_run_before_all_pass_evaluation_is_saved(tmp_path: Path):
+    store, state = _pending_duo_evaluation(tmp_path, "1" * 32)
+    checks = {"unit": CheckDefinition(id="unit", argv=(sys.executable, "-c", "pass"))}
+    registry = build_evaluator_registry(store=store, state=state, checks=checks)
+    submit = registry.get("SubmitEvaluation")
+    assert submit is not None
+
+    before = store.load(state.collaboration_id)
+    outcome = submit.run(_passing_evaluation(), _tool_context(tmp_path))
+    after = store.load(state.collaboration_id)
+
+    assert outcome.success is False
+    assert "unit" in outcome.detail
+    assert after == before
+    assert after.evaluator_attempts == 0
+
+
+@pytest.mark.parametrize("status", ["failed", "timeout", "cancelled", "copy_error", "start_error"])
+def test_nonpassing_check_evidence_cannot_be_overridden_by_all_pass_evaluation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, status: str
+):
+    store, state = _pending_duo_evaluation(tmp_path, "2" * 32)
+    checks = {"unit": CheckDefinition(id="unit", argv=(sys.executable, "-c", "pass"))}
+    monkeypatch.setattr(
+        "forgeagent.collaboration.run_check",
+        lambda *args, **kwargs: CheckResult(status=status, snapshot_digest="snapshot"),
+    )
+    registry = build_evaluator_registry(store=store, state=state, checks=checks)
+    run = registry.get("RunCheck")
+    submit = registry.get("SubmitEvaluation")
+    assert run is not None and submit is not None
+
+    assert run.run(RunCheckArgs(check_id="unit"), _tool_context(tmp_path)).success is False
+    before = store.load(state.collaboration_id)
+    outcome = submit.run(_passing_evaluation(), _tool_context(tmp_path))
+
+    assert outcome.success is False
+    assert store.load(state.collaboration_id) == before
+
+
+def test_all_pass_evaluation_rejects_checks_from_different_candidate_snapshots(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    store, state = _pending_duo_evaluation(tmp_path, "3" * 32)
+    checks = {
+        check_id: CheckDefinition(id=check_id, argv=(sys.executable, "-c", "pass"))
+        for check_id in ("unit", "lint")
+    }
+    digests = iter(("snapshot-a", "snapshot-b"))
+    monkeypatch.setattr(
+        "forgeagent.collaboration.run_check",
+        lambda *args, **kwargs: CheckResult(status="passed", snapshot_digest=next(digests)),
+    )
+    registry = build_evaluator_registry(store=store, state=state, checks=checks)
+    run = registry.get("RunCheck")
+    submit = registry.get("SubmitEvaluation")
+    assert run is not None and submit is not None
+    for check_id in checks:
+        assert run.run(RunCheckArgs(check_id=check_id), _tool_context(tmp_path)).success is True
+
+    before = store.load(state.collaboration_id)
+    outcome = submit.run(_passing_evaluation(), _tool_context(tmp_path))
+
+    assert outcome.success is False
+    assert store.load(state.collaboration_id) == before
+
+
+def test_all_pass_evaluation_rejects_candidate_changed_after_checks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    store, state = _pending_duo_evaluation(tmp_path, "4" * 32)
+    checks = {"unit": CheckDefinition(id="unit", argv=(sys.executable, "-c", "pass"))}
+    monkeypatch.setattr(
+        "forgeagent.collaboration.run_check",
+        lambda *args, **kwargs: CheckResult(status="passed", snapshot_digest="old-snapshot"),
+    )
+    monkeypatch.setattr(
+        "forgeagent.collaboration.candidate_snapshot_digest", lambda root: "current-snapshot"
+    )
+    registry = build_evaluator_registry(store=store, state=state, checks=checks)
+    run = registry.get("RunCheck")
+    submit = registry.get("SubmitEvaluation")
+    assert run is not None and submit is not None
+    assert run.run(RunCheckArgs(check_id="unit"), _tool_context(tmp_path)).success is True
+
+    before = store.load(state.collaboration_id)
+    outcome = submit.run(_passing_evaluation(), _tool_context(tmp_path))
+
+    assert outcome.success is False
+    assert store.load(state.collaboration_id) == before
+
+
+def test_all_pass_evaluation_rejects_check_evidence_from_another_generator_attempt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    store, state = _pending_duo_evaluation(tmp_path, "8" * 32)
+    checks = {"unit": CheckDefinition(id="unit", argv=(sys.executable, "-c", "pass"))}
+    evidence = {}
+    monkeypatch.setattr(
+        "forgeagent.collaboration.run_check",
+        lambda *args, **kwargs: CheckResult(status="passed", snapshot_digest="snapshot"),
+    )
+    run = RunCheckTool(checks, evidence, state.generator_attempts)
+    assert run.run(RunCheckArgs(check_id="unit"), _tool_context(tmp_path)).success is True
+    later_attempt = state.model_copy(update={"generator_attempts": state.generator_attempts + 1})
+    submit = SubmitEvaluationTool(store, later_attempt, checks, evidence)
+
+    before = store.load(state.collaboration_id)
+    outcome = submit.run(_passing_evaluation(), _tool_context(tmp_path))
+
+    assert outcome.success is False
+    assert store.load(state.collaboration_id) == before
+
+
+def test_all_checks_on_current_snapshot_allow_all_pass_evaluation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    store, state = _pending_duo_evaluation(tmp_path, "5" * 32)
+    checks = {
+        check_id: CheckDefinition(id=check_id, argv=(sys.executable, "-c", "pass"))
+        for check_id in ("unit", "lint")
+    }
+    monkeypatch.setattr(
+        "forgeagent.collaboration.run_check",
+        lambda *args, **kwargs: CheckResult(status="passed", snapshot_digest="snapshot"),
+    )
+    monkeypatch.setattr(
+        "forgeagent.collaboration.candidate_snapshot_digest", lambda root: "snapshot"
+    )
+    registry = build_evaluator_registry(store=store, state=state, checks=checks)
+    run = registry.get("RunCheck")
+    submit = registry.get("SubmitEvaluation")
+    assert run is not None and submit is not None
+    for check_id in checks:
+        assert run.run(RunCheckArgs(check_id=check_id), _tool_context(tmp_path)).success is True
+
+    outcome = submit.run(_passing_evaluation(), _tool_context(tmp_path))
+    persisted = store.load(state.collaboration_id)
+
+    assert outcome.success is True
+    assert persisted.evaluator_attempts == 1
+    assert all(item.passed for item in persisted.last_evaluation)
+
+
+def test_failing_evaluation_can_be_saved_without_running_registered_checks(tmp_path: Path):
+    store, state = _pending_duo_evaluation(tmp_path, "6" * 32)
+    checks = {"unit": CheckDefinition(id="unit", argv=(sys.executable, "-c", "pass"))}
+    registry = build_evaluator_registry(store=store, state=state, checks=checks)
+    submit = registry.get("SubmitEvaluation")
+    assert submit is not None
+
+    outcome = submit.run(
+        SubmitEvaluationArgs(
+            results=[
+                {
+                    "id": "goal",
+                    "passed": False,
+                    "observed": "missing",
+                    "expected": "present",
+                }
+            ]
+        ),
+        _tool_context(tmp_path),
+    )
+
+    assert outcome.success is True
+    assert store.load(state.collaboration_id).evaluator_attempts == 1
+
+
+def test_candidate_digest_error_rejects_without_leaking_details(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    store, state = _pending_duo_evaluation(tmp_path, "7" * 32)
+    checks = {"unit": CheckDefinition(id="unit", argv=(sys.executable, "-c", "pass"))}
+    monkeypatch.setattr(
+        "forgeagent.collaboration.run_check",
+        lambda *args, **kwargs: CheckResult(status="passed", snapshot_digest="secret-digest"),
+    )
+    monkeypatch.setattr(
+        "forgeagent.collaboration.candidate_snapshot_digest",
+        lambda root: (_ for _ in ()).throw(OSError("/private/candidate/path")),
+    )
+    registry = build_evaluator_registry(store=store, state=state, checks=checks)
+    run = registry.get("RunCheck")
+    submit = registry.get("SubmitEvaluation")
+    assert run is not None and submit is not None
+    assert run.run(RunCheckArgs(check_id="unit"), _tool_context(tmp_path)).success is True
+
+    before = store.load(state.collaboration_id)
+    outcome = submit.run(_passing_evaluation(), _tool_context(tmp_path))
+
+    assert outcome.success is False
+    assert "/private/candidate/path" not in outcome.detail
+    assert "secret-digest" not in outcome.detail
+    assert store.load(state.collaboration_id) == before
 
 
 def test_run_check_rejects_unknown_id_without_starting_process(
