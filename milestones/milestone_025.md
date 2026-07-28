@@ -61,7 +61,8 @@
 
 ### 代码评审
 
-- [x] build 阶段已完成逐任务本地 review；最终标准 review 在 Comet verify 记录。
+- [x] build 阶段已完成逐任务本地 review；最终标准 review 已记录在
+  [`2026-07-28-m25-programming-mode-evaluation-verify.md`](../docs/superpowers/reports/2026-07-28-m25-programming-mode-evaluation-verify.md)。
 - [x] 两轮证据自审已修正状态口径与验证脚本假设，未发现需要改写 raw 的数据问题。
 - [x] 未发现未处理的 Critical/Important 正确性、安全或边界问题。
 
@@ -75,9 +76,10 @@
   `d39d7e0c5d4b76a24da1be3244b97ab925f95e1b2096bc72ec8a2da43a968430`；未保存 URL 或 credential。
 - [x] `uv run python scripts/m25_independent_recompute.py --protocol docs/evaluation/m25/protocol.json --output docs/evaluation/m25/runs/2026-07-27-haiku-4-5-gpt-5-4-mini` 输出
   `INDEPENDENT_RECOMPUTE_OK runs=270`。
-- [x] M23/M25 专项 `121 passed`；沙箱可执行离线回归 `2350 passed, 22 skipped`；packaging
+- [x] M23/M25 专项最终 `126 passed`；沙箱可执行离线回归 `2352 passed, 22 skipped`；packaging
   `3 passed`；Golden `20/20`；Ruff check/format、离线 wheel/sdist build、OpenSpec strict
-  `21 passed, 0 failed`、M23 byte lock 和 `git diff --check` 通过。
+  归档前 `21 passed, 0 failed`、归档后 `20 passed, 0 failed`，M23 byte lock 和
+  `git diff --check` 通过。
 - [x] 未把受限环境全量运行误报为通过：原命令为 `2353 passed, 22 skipped, 12 failed`；其中
   11 项均因沙箱禁止 loopback socket，1 项因沙箱 DNS 阻断 Hatchling。沙箱外重跑请求又因
   自动审批服务 403 无法执行；已用上述聚焦、排除环境限制的全套回归及离线 packaging 补证。
@@ -91,6 +93,6 @@
 
 ## 续接指引
 
-M25 的实现与 270-run 真实证据已完成，下一步由 Comet verify 运行完整门禁、写验证报告并处理
-分支；归档成功后把本文件和 ACTION_PLAN 状态更新为“已完成并归档”。任何新增任务、模型、
-provider 路由或重复次数都必须新建版本化评估 change，不能修改 M25 或 M23 历史 evidence。
+M25 的实现、270-run 真实证据、Comet verify、主 spec 同步与 change 归档均已完成。后续任何新增
+任务、模型、provider 路由或重复次数都必须新建版本化评估 change，不能修改 M25 或 M23 历史
+evidence；下一次会话从 `ACTION_PLAN.md` 与 `milestones/latest` 读取当前状态即可。

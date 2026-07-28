@@ -68,6 +68,11 @@ x 3 种模式 x 5 次重复，已形成 270/270 份 terminal raw；模型为 `cl
 
 证据只适用于记录日期、本机平台和当时的 provider 路由；provider 侧模型权重无法独立固定。
 报告不自动排名模式或模型，也不形成产品推荐。M23 的 tracked protocol 和正式证据保持字节不变。
+完整验证见
+[`2026-07-28-m25-programming-mode-evaluation-verify.md`](docs/superpowers/reports/2026-07-28-m25-programming-mode-evaluation-verify.md)，
+归档 change 见
+[`2026-07-28-m25-programming-mode-evaluation`](openspec/changes/archive/2026-07-28-m25-programming-mode-evaluation/)，
+里程碑收尾见 [`milestone_025.md`](milestones/milestone_025.md)。
 
 当前主线已完成 M17 Runtime Context Engineering、M18 Memory Runtime（含归档后两次
 人工复测 hotfix）、M19 Skills Runtime（程序性知识从 Memory 分流到可验证、快照化、渐进

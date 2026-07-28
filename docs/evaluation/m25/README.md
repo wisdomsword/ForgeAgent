@@ -8,6 +8,8 @@ bugfix、2 个 feature、2 个 refactor）x 2 个模型 x 3 种模式 x 5 次重
 - 机器汇总：[`summary.json`](runs/2026-07-27-haiku-4-5-gpt-5-4-mini/summary.json)
 - 中立报告：[`docs/evaluation/m25/runs/2026-07-27-haiku-4-5-gpt-5-4-mini/report.md`](runs/2026-07-27-haiku-4-5-gpt-5-4-mini/report.md)
 - 独立复算：[`scripts/m25_independent_recompute.py`](../../../scripts/m25_independent_recompute.py)
+- 验证报告：[`docs/superpowers/reports/2026-07-28-m25-programming-mode-evaluation-verify.md`](../../superpowers/reports/2026-07-28-m25-programming-mode-evaluation-verify.md)
+- 归档 change：[`openspec/changes/archive/2026-07-28-m25-programming-mode-evaluation`](../../../openspec/changes/archive/2026-07-28-m25-programming-mode-evaluation/)
 
 ## 命令
 

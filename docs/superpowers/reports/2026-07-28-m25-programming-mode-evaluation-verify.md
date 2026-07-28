@@ -42,7 +42,7 @@ PASS。实现、270 份真实终态证据、独立复算与公开文档符合 Op
 
 ## 分支处理
 
-经两轮自审选择保留 `codex/feature/20260727/m25-programming-mode-evaluation` 分支，不推送、不本地合并、不清理工作区。该选择避免扩大外部状态，同时保留完整证据和归档提交供后续处理。
+验证阶段先保留 `codex/feature/20260727/m25-programming-mode-evaluation` 分支；最终收尾按用户明确要求将全部提交合并到 `main`，在合并后的 `main` 重新验证，并删除本地功能分支。未执行 push。
 
 ## 最终评估
 
