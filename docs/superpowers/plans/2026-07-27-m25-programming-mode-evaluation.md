@@ -1501,7 +1501,7 @@ Audit 1, contract/data: compare all OpenSpec requirements with protocol/environm
 
 Audit 2, privacy/neutrality/history: recursively scan all M25 JSON and report text for sensitive values/absolute paths, scan summary keys and conclusion templates for forbidden ranking semantics, and rerun the M23 base-ref byte lock. Any correction requires rerunning the affected focused tests plus Step 5 before commit.
 
-- [ ] **Step 7: Commit documentation and milestone closure**
+- [x] **Step 7: Commit documentation and milestone closure**
 
 ```bash
 rtk git add README.md ACTION_PLAN.md docs/evaluation/m25/README.md milestones/milestone_025.md milestones/latest openspec/changes/m25-programming-mode-evaluation/tasks.md tests/test_m25_mode_evaluation.py
