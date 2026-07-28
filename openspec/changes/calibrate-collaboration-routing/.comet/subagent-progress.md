@@ -3,14 +3,14 @@
 - Change: calibrate-collaboration-routing
 - Review mode: thorough
 - TDD mode: tdd
-- Current plan task: Task 1: 路由策略与入口接线
-- OpenSpec mapping: 1.1, 1.2, 1.3 路由合同
+- Current plan task: Task 2: M25 冻结证据派生分析
+- OpenSpec mapping: 2.1, 2.2, 2.3 冻结 M25 派生分析
 - Stage: done
-- Review/fix round: 0/2
-- Brief: `.superpowers/sdd/task-1-brief.md`
-- Implementation commit: 04a2be3
-- Changed files: `src/forgeagent/cli.py`, `src/forgeagent/collaboration.py`, `tests/test_collaboration_routing.py`, `tests/test_collaboration_integrations.py`, `tests/test_http_task_service.py`
-- RED evidence: resolver `10 failed, 1 passed`; entry integration `5 failed, 39 passed`
-- GREEN evidence: `196 passed`; Ruff check/format and diff check passed
-- Risk signals: public API/behavior contract; multi-entry-point integration (coordinator override of implementer self-report)
-- Review status: approved; no Critical, Important, or Minor findings
+- Review/fix round: 1/2
+- Brief: `.superpowers/sdd/task-2-brief.md`
+- Implementation commit: ab8bb27
+- Changed files: `scripts/m27_m25_routing_analysis.py`, `tests/test_m27_m25_routing_analysis.py`, `docs/evaluation/m25/README.md`, `docs/evaluation/m25/derived/m27-collaboration-routing/analysis.json`, `docs/evaluation/m25/derived/m27-collaboration-routing/report.md`
+- RED evidence: `2 failed` because the derivation module did not exist
+- GREEN evidence: `9 passed`; real `runs=270 restored=none`; independent recompute and frozen hashes passed; Ruff/diff passed
+- Risk signals: evaluation schema and historical evidence integrity
+- Review status: approved after fix commit 399c8bb; no remaining findings

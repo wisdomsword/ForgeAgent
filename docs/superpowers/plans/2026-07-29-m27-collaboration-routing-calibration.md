@@ -161,7 +161,7 @@ git commit -m "feat: default collaboration routing to single"
 - Consumes: `scripts.m25_independent_recompute.verify_summary(protocol_path, run_dir)`、冻结 M25 raw 字段。
 - Produces: `derive(protocol_path: Path, run_dir: Path) -> dict[str, object]`、`render_report(analysis) -> str`、CLI `--protocol --run-dir --output-dir`。
 
-- [ ] **Step 1: 写派生分析 RED 测试**
+- [x] **Step 1: 写派生分析 RED 测试**
 
 复用 `tests/test_m25_independent_recompute.py::write_complete_evidence` 构造 270-run evidence，修改一条
 合法记录使 `runtime_completed=True`、checks/artifacts 不全通过、`solved=False`，并断言：
@@ -181,13 +181,13 @@ assert bucket["termination_reasons"][record["runtime_reason"]] >= 1
 `automatic_triad_restored_for == []`，且报告包含“M25 早于 M26”。添加负例：raw identity/summary
 篡改被既有复算拒绝；output-dir 位于 run-dir 内时拒绝；失败时不产生半成品。
 
-- [ ] **Step 2: 运行派生 RED**
+- [x] **Step 2: 运行派生 RED**
 
 Run: `UV_CACHE_DIR=/tmp/forgeagent-m27-uv-cache uv run pytest -q tests/test_m27_m25_routing_analysis.py`
 
 Expected: FAIL，因为脚本不存在。
 
-- [ ] **Step 3: 实现最小派生脚本**
+- [x] **Step 3: 实现最小派生脚本**
 
 脚本加载 sibling `m25_independent_recompute.py`，先调用 `verify_summary`。逐 raw 严格验证新增字段：
 布尔必须为 bool，整数非负，latency 为有限非负数，reason 为非空字符串。Bucket 保存计数与 sum，
@@ -200,13 +200,13 @@ Expected: FAIL，因为脚本不存在。
 策略裁决按 family 比较 Triad 与 Single solved rate；仅严格更高者进入 quality eligible。真实 M25
 结果应令 eligible 与 restored 均为空。
 
-- [ ] **Step 4: 运行派生 GREEN**
+- [x] **Step 4: 运行派生 GREEN**
 
 Run: `UV_CACHE_DIR=/tmp/forgeagent-m27-uv-cache uv run pytest -q tests/test_m27_m25_routing_analysis.py tests/test_m25_independent_recompute.py`
 
 Expected: 全部 PASS。
 
-- [ ] **Step 5: 对真实冻结 M25 生成派生产物**
+- [x] **Step 5: 对真实冻结 M25 生成派生产物**
 
 Run:
 
@@ -221,7 +221,7 @@ Expected: `M27_ROUTING_ANALYSIS_OK runs=270 restored=none`。
 
 更新 M25 README，仅增加派生目录链接与解释边界，不改原报告含义。
 
-- [ ] **Step 6: 独立复算并检查冻结输入未变**
+- [x] **Step 6: 独立复算并检查冻结输入未变**
 
 Run:
 
@@ -234,7 +234,7 @@ git diff --exit-code -- docs/evaluation/m25/protocol.json docs/evaluation/m25/ru
 
 Expected: `INDEPENDENT_RECOMPUTE_OK runs=270`；冻结路径无 diff。
 
-- [ ] **Step 7: 提交 Task 2**
+- [x] **Step 7: 提交 Task 2**
 
 ```bash
 git add scripts/m27_m25_routing_analysis.py tests/test_m27_m25_routing_analysis.py docs/evaluation/m25/README.md docs/evaluation/m25/derived/m27-collaboration-routing
