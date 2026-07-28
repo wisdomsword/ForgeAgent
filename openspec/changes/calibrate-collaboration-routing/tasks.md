@@ -22,3 +22,9 @@
 - [x] 4.2 运行全量 pytest、OpenSpec strict、Golden 20/20、Ruff check/format、打包和 diff 检查；loopback 与 packaging 依赖安装的环境例外如实记录
 - [x] 4.3 完成两轮最终自审与独立代码评审；修复 Task 4 复审确认的 2 项 Important 和 1 项 Minor，并重复受影响验证
 - [x] 4.4 完成 build-stage preparation/handoff：准备归档输入，确认 `milestones/latest` 当前指向 `milestone_027.md`，并记录分支收尾选择；delta spec 同步、change 归档、最终里程碑状态和实际 branch finish 留给后续 Comet archive/branch gates
+
+## 5. 最终独立评审修复
+
+- [x] 5.1 添加 RED/GREEN 测试并修复 M25 派生产物在备份创建失败时可能删除既有文件的问题
+- [x] 5.2 添加 RED/GREEN 集成测试，确保 CLI 与 REPL 的默认/显式 Single 路由均发出稳定 `collaboration.route` 审计事件
+- [x] 5.3 重新执行受影响验证、完整基线和两轮最终自审，并同步验证报告、公开基线与里程碑证据

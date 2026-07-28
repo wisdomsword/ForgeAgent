@@ -427,7 +427,7 @@ UV_CACHE_DIR=/tmp/forgeagent-m27-uv-cache uv run pytest -q \
 
 Expected: 全部 PASS。
 
-- [ ] **Step 5: 重新完整验证、更新证据并提交**
+- [x] **Step 5: 重新完整验证、更新证据并提交**
 
 重复 Task 4 的 pytest、OpenSpec、Golden、Ruff、离线打包和 diff 检查；用实际数字同步 README、
 platform-support、验证报告与 milestone，完成两轮自审和独立复审后提交。

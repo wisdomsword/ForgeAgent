@@ -13,7 +13,7 @@ auto_transition: true
 base_ref: 1273e90b00adeab0b85d3db7bdc0463c82e7dc2a
 design_doc: docs/superpowers/specs/2026-07-29-m27-collaboration-routing-calibration-design.md
 plan: docs/superpowers/plans/2026-07-29-m27-collaboration-routing-calibration.md
-verify_result: pending
+verify_result: fail
 verification_report: null
 branch_status: pending
 created_at: 2026-07-28

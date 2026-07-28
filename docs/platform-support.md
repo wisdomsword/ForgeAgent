@@ -23,9 +23,9 @@ The Linux job requires a privileged GitLab Docker executor tagged `docker-privil
 same-path bind-mount source through GitLab's shared build volume. A runner with a different
 executor or build-volume topology must prove that contract before being marked `verified`.
 
-Current offline repository baseline: `2309 passed, 22 skipped`; OpenSpec strict `21/21`;
+Current offline repository baseline: `2322 passed, 22 skipped`; OpenSpec strict `21/21`;
 Golden `20/20`. This pytest baseline excludes the loopback black-box file and the packaging file:
-the unexcluded run completed with `2312 passed, 22 skipped, 12 failed`, comprising eleven sandbox
+the unexcluded run completed with `2325 passed, 22 skipped, 12 failed`, comprising eleven sandbox
 loopback allocation failures and one offline build-dependency resolution failure. Those cases remain
 unverified in this environment rather than being counted as passes. The dated Linux runner evidence
 below is separate from this repository baseline.

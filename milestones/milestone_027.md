@@ -46,7 +46,7 @@ Triad；只允许可信宿主在本次任务已绑定非空冻结检查时自动
 - [x] `src/forgeagent/collaboration.py` — 默认 Single、显式模式优先、`bound_checks` 路由
 - [x] `src/forgeagent/cli.py` — CLI/REPL 移除编程文本自动 Triad 与弱模式确认
 - [x] `src/forgeagent/http_config.py`、`src/forgeagent/http_task_service.py` — 拒绝客户端伪造宿主证据
-- [x] `scripts/m27_m25_routing_analysis.py` — M25 冻结证据派生与原子配对发布
+- [x] `scripts/m27_m25_routing_analysis.py` — M25 冻结证据派生与显式事务发布/恢复证据
 - [x] `docs/evaluation/m25/derived/m27-collaboration-routing/` — 机器投影和人类报告
 - [x] `README.md`、`docs/http-task-service.md`、`docs/threat-model.md`、`docs/platform-support.md` — 公开合同
 - [x] `tests/test_collaboration_routing.py`、入口/HTTP/文档与派生分析测试 — 可执行回归合同
@@ -66,12 +66,14 @@ Triad；只允许可信宿主在本次任务已绑定非空冻结检查时自动
 - [x] 修复派生裁决一致性、配对发布回滚、公开宿主边界与 HTTP/YAML 拒绝语义
 - [x] Task 4 独立 review 的 2 项 Important 与 1 项 Minor 收尾问题已修复：ACTION_PLAN 权威状态与完整验证证据、OpenSpec 4.3/4.4 生命周期边界、Task 4 实际提交记录
 - [x] Task 4 复审发现的状态机死锁与审查证据缺口已修复，证据见独立审查工件；未虚构 reviewer agent ID 或重测结果
+- [x] Task 5 最终评审修复 CLI/REPL Single 审计缺口，以及 M25 派生输出 backup/restore 不确定状态的破坏风险
+- [x] 修复后独立复审均为 Approved；强制终止、文件系统损坏和外部并发改写不被误写为跨文件原子保证
 - [x] 两轮最终自审未发现剩余 Critical 或 Important 产品问题；active change 未被误写为已归档
 
 ### 验收评审
 
 - [x] 路由、派生分析和文档专项验证通过，证据见验证报告
-- [x] 当前沙箱可执行基线 `2309 passed, 22 skipped`；完整尝试的 12 项环境失败原样记录
+- [x] 当前沙箱可执行基线 `2322 passed, 22 skipped`；完整尝试 `12 failed, 2325 passed, 22 skipped`，环境失败原样记录
 - [x] Ruff check/format、OpenSpec `21/21`、Golden `20/20`、离线 wheel/sdist build 和 diff check 通过
 - [x] M25 冻结 protocol 与正式 run tree 无 diff；自动 Triad 恢复列表为空
 
