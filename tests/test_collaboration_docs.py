@@ -48,6 +48,17 @@ def test_readme_documents_collaboration_entry_points_routing_and_cost() -> None:
     assert "不需要额外 standalone `task_status`" in text
 
 
+def test_readme_keeps_explicit_modes_and_bound_checks_on_trusted_host_boundary() -> None:
+    text = _text("README.md")
+
+    for fragment in (
+        "显式模式优先于可信宿主已绑定的冻结检查",
+        "`has_bound_checks` 是可信宿主的内部事实",
+        "HTTP 请求、普通任务请求、服务器 YAML 或任务文本都不能提供或伪造它",
+    ):
+        assert fragment in text
+
+
 def test_readme_documents_memory_runtime_as_user_editable_and_atomic() -> None:
     text = _text("README.md")
 
@@ -61,6 +72,18 @@ def test_readme_documents_memory_runtime_as_user_editable_and_atomic() -> None:
     ):
         assert fragment in text
     assert "当前版本只读" not in text
+
+
+def test_readme_limits_session_memory_and_gates_project_persistence() -> None:
+    text = _text("README.md")
+
+    for fragment in (
+        "session scope 只在当前 REPL 进程内有效，绝不落盘",
+        "只有通过确定性准入的合法 project scope 候选",
+        "稳定本地锁",
+        "原子持久化",
+    ):
+        assert fragment in text
 
 
 def test_readme_documents_m22_candidate_readiness_without_weakening_confirmation() -> None:

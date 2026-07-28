@@ -1,101 +1,84 @@
-# Task 3 Report: CLI Loop command
+# M27 Task 3 Report: 文档合同与公开状态
 
-## Status
+## 状态
 
-DONE
+`DONE`
 
 ## RED
 
-The first focused test run failed during collection before the command existed:
+先修改 `tests/test_collaboration_docs.py` 与
+`tests/test_continuous_verification.py`，再运行：
 
 ```text
-ImportError: cannot import name 'run_loop_once' from 'forgeagent.cli'
+UV_CACHE_DIR=/tmp/forgeagent-m27-uv-cache uv run pytest -q \
+  tests/test_collaboration_docs.py tests/test_continuous_verification.py
+
+5 failed, 9 passed
 ```
+
+失败分别证明 README 仍要求编程任务强制 Triad、仍将 Memory 写为只读，HTTP 文档仍描述
+`needs_confirmation` 和 weaker override，Threat Model 未限制宿主检查事实，以及平台矩阵仍把
+未记录的 `amd64/arm64` 共同标为 verified 并遗留 Linux configured 结论。
 
 ## GREEN
 
 ```text
-UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run pytest -q tests/test_cli.py -k 'loop'
-14 passed, 249 deselected
+UV_CACHE_DIR=/tmp/forgeagent-m27-uv-cache uv run pytest -q \
+  tests/test_collaboration_docs.py tests/test_continuous_verification.py
 
-UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run pytest -q \
-  tests/test_cli.py tests/test_task.py tests/test_cli_startup_blackbox.py \
-  tests/test_loop_runner.py
-322 passed
-
-UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run ruff check \
-  src/forgeagent/cli.py tests/test_cli.py
-All checks passed!
-
-UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run ruff format --check \
-  src/forgeagent/cli.py tests/test_cli.py
-2 files already formatted
-
-git diff --check
-passed
+14 passed in 0.10s
 ```
 
-`tests/test_startup_information.py` from the plan is not present in this checkout;
-the equivalent existing startup regression file is `tests/test_cli_startup_blackbox.py`.
+文档合同现在要求 README 与 HTTP 文档表达默认 Single、显式模式优先、可信宿主的非空冻结检查才
+自动 Triad，且 `allow_weaker_override` 只保留配置兼容、没有路由或确认作用。README 还改正了
+M18 Memory：runtime 准入后的原子持久化、用户直接编辑、`--no-memory` 与 `--no-identity` 的边界。
 
-## Scope
+平台矩阵将 Pipeline 50 / Job 249 收窄为已执行的 Linux Docker runner topology，删除未记录
+架构的暗示与过期 configured 结论。README 和 platform-support 的当前基线保持相同的 M26
+已记录数字；M27 最终全量结果由 Task 4 统一更新。
 
-- `src/forgeagent/cli.py`
-- `tests/test_cli.py`
+ACTION_PLAN 增加未归档的 M27 条目，链接 M25 派生报告，并记录没有类别恢复自动 Triad。
 
-Committed as `798173e feat: expose loop CLI` and self-review correction
-`94782b2 fix: retain supplied loop console`.
+## 自审
 
-## Risk Signals
+- 路由文字没有把候选文件要求或任务文本重新当作自动 Triad 证据。
+- Memory 更新仅修正公开合同，没有触碰 M18 运行时或身份禁用语义。
+- Linux 仍为 verified，但仅针对 Pipeline 50 / Job 249 已记录 runner topology；不推断架构。
+- M25 派生报告只被引用，未修改冻结输入或派生产物。
 
-- CLI output deliberately renders only the `LoopReport` projection. It never renders
-  the frozen goal, checkpoint path/body, handoff, failure text, or model output.
-- The LoopRunner tool registry receives the existing MCP and skills snapshots through
-  the Task2 follow-up commit `0f8ecde`; no ordinary `run` or REPL code path creates a
-  checkpoint or imports the evaluator.
-- Self-review caught that a supplied empty `Console(record=True)` is falsey. The renderer
-  now checks explicitly for `None`, retaining the supplied console and its safe output.
+## 风险信号
 
-## Review Fix 1: Cooperative CLI Ctrl+C
+- 当前 pytest/OpenSpec/Golden 数字仍是 M26 已记录基线；Task 4 必须在最终全量验证后同步更新。
+- `has_bound_checks` 是可信宿主的内部事实；公开客户端不得提交或伪造该事实。
+
+## Reviewer 修复轮
 
 ### RED
 
-The deterministic SIGINT test invoked the active handler while a Loop Task was running.
-Before the fix, the combined cancellation signal passed to the Task remained unset:
+先补三项公开边界合同，再运行：
 
 ```text
-FAILED tests/test_cli.py::test_run_loop_once_sigint_requests_cancel_and_restores_handler
-E assert False
-E  + where False = cancel_event.is_set()
+UV_CACHE_DIR=/tmp/forgeagent-m27-uv-cache uv run pytest -q \
+  tests/test_collaboration_docs.py tests/test_continuous_verification.py
+
+3 failed, 13 passed
 ```
+
+三个失败分别证明：README 未明确显式模式优先于宿主冻结检查，未把
+`has_bound_checks` 限为不能由 HTTP/普通任务请求/服务器 YAML/任务文本伪造的可信宿主内部事实，
+也未明确 session scope 仅在当前 REPL 进程内且绝不落盘；首页还把 Linux verified 写得比
+`Linux Docker runner topology (Pipeline 50 / Job 249)` 更宽。
 
 ### GREEN
 
-`run_loop_once()` now installs a main-thread SIGINT handler for the duration of
-`LoopRunner.run()`. The first signal sets a `threading.Event` passed to the runner; a
-second signal delegates to the previous callable handler or raises `KeyboardInterrupt`.
-The previous handler is restored in `finally`. If signal installation raises `ValueError`
-outside the main thread, the existing behavior is preserved.
+README 现明确 session scope 仅当前 REPL、绝不落盘；只有确定性准入后的合法 project scope 候选
+才会在稳定本地锁内重读合并并原子持久化。路由段明确显式模式优先，并锁定
+`has_bound_checks` 的可信宿主内部来源与公开输入禁止项。首页仅声明已记录的 Linux Docker runner
+topology，不推断架构。
 
 ```text
-UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run pytest -q \
-  tests/test_cli.py tests/test_task.py tests/test_cli_startup_blackbox.py \
-  tests/test_loop_runner.py
-324 passed in 3.81s
+UV_CACHE_DIR=/tmp/forgeagent-m27-uv-cache uv run pytest -q \
+  tests/test_collaboration_docs.py tests/test_continuous_verification.py
 
-UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run ruff check \
-  src/forgeagent/cli.py tests/test_cli.py
-All checks passed!
-
-UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run ruff format --check \
-  src/forgeagent/cli.py tests/test_cli.py
-2 files already formatted
-
-git diff --check
-passed
+16 passed in 0.09s
 ```
-
-The test verifies CLI exit code 1, durable `cancelled` checkpoint status and stop reason,
-handler restoration, second-interrupt escalation, and the non-main-thread fallback. It
-does not claim an in-flight model/tool call is immediately interruptible; persistence
-occurs at the runner's next cooperative safe boundary.

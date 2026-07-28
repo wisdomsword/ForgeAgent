@@ -16,15 +16,17 @@ Docker Job 249 为 `10 passed`、零 skip；Golden: `20/20`。
 M24 已完成并归档，change 见
 [`2026-07-27-m24-continuous-verification-platform-matrix`](openspec/changes/archive/2026-07-27-m24-continuous-verification-platform-matrix/)；持续验证入口见 [`.gitlab-ci.yml`](.gitlab-ci.yml)，平台证据和排期见
 [`docs/platform-support.md`](docs/platform-support.md)。Linux Docker 是必需 CI 门禁；本机
-macOS Docker Desktop 结果只作为 supplemental 证据；Linux GitLab CI 已 verified（Pipeline 50 /
-Job 249），不外推为 Podman 或 Windows 支持。
+macOS Docker Desktop 结果只作为 supplemental 证据；仅 Linux Docker runner topology (Pipeline 50 / Job 249)
+已 verified，不推断未记录的 Linux 架构、Podman 或 Windows 支持。
 
 ## M27 协作路由校准（进行中）
 
 M27 已根据 M25 冻结协议完成路由裁决：默认 Single；用户显式选择 Single、Duo 或 Triad 时直接
-遵从；只有可信宿主已经为本次任务绑定**非空冻结检查**时，未显式选择的任务才自动使用 Triad。
-任务文本中的编程特征和候选文件就绪要求都不会自动升级模式。`allow_weaker_override` 仅为旧配置
-兼容保留，不再改变路由或要求确认。M25 派生报告新增误完成率和原样终止原因分类；没有任何任务
+遵从，显式模式优先于可信宿主已绑定的冻结检查；只有可信宿主已经为本次任务绑定**非空冻结检查**时，
+未显式选择的任务才自动使用 Triad。`has_bound_checks` 是可信宿主的内部事实，HTTP 请求、普通任务请求、服务器 YAML 或任务文本都不能提供或伪造它。
+任务文本中的编程特征和候选文件就绪要求都不会
+自动升级模式。`allow_weaker_override` 仅为旧配置兼容保留，不再改变路由或要求确认。M25 派生报告
+新增误完成率和原样终止原因分类；没有任何任务
 类别的 Triad solved rate 严格高于 Single，因此不恢复任何类别的自动 Triad。详见
 [`M27 派生报告`](docs/evaluation/m25/derived/m27-collaboration-routing/report.md)。
 
@@ -348,7 +350,9 @@ REPL 内输入 `/` 加回车查看指令菜单，或直接 `/help`。当前支�
 
 REPL 命令必须以 `/` 开头。裸 `models`、`reload`、`mcp` 和 `mcp ...` 都是普通任务目标；这与顶层 CLI 子命令 `forgeagent models` 无关，后者仍用于列出模型。
 
-Memory 只保存经过确定性准入的事实、偏好和决策。程序性做事方法会被拒绝并提示沉淀为 Skill；项目级更新使用稳定本地锁，在锁内重读并合并最新条目，相同 key 按后获得锁者替换，不同 key 不互相丢失。文件仍可直接编辑纠正，`--no-memory` 同时关闭两级记忆。
+Memory 只保存经过确定性准入的事实、偏好和决策。session scope 只在当前 REPL 进程内有效，绝不落盘；
+只有通过确定性准入的合法 project scope 候选才使用稳定本地锁，在锁内重读并合并最新条目后原子持久化。
+相同 key 按后获得锁者替换，不同 key 不互相丢失。文件仍可直接编辑纠正，`--no-memory` 同时关闭两级记忆。
 
 交互式终端中的 REPL 会在输入 `/` 时即时显示 slash 指令，并随继续输入过滤候选；可用键盘选择候选。上下方向键只回放当前进程内的会话输入，ForgeAgent 不会把 REPL 历史写入文件。测试注入 reader 和非 TTY 输入仍沿用普通输入路径。
 
