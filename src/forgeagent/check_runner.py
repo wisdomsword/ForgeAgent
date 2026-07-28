@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
 import signal
@@ -86,6 +87,7 @@ class CheckResult(BaseModel):
     duration_ms: int = 0
     stdout: str = ""
     stderr: str = ""
+    snapshot_digest: str = Field(default="", exclude=True, repr=False)
 
 
 def run_check(
@@ -111,6 +113,10 @@ def run_check(
             shutil.copytree(source_root, working_root, ignore=_ignore_entries)
         except (OSError, shutil.Error) as exc:
             return _result("copy_error", started, stderr=str(exc), secrets=secrets)
+        try:
+            snapshot_digest = candidate_snapshot_digest(working_root)
+        except (OSError, RuntimeError, ValueError) as exc:
+            return _result("copy_error", started, stderr=str(exc), secrets=secrets)
 
         check_tmp = working_root / ".check-tmp"
         check_tmp.mkdir()
@@ -125,7 +131,7 @@ def run_check(
             }
         )
         if cancel_event is not None and cancel_event.is_set():
-            return _result("cancelled", started, secrets=secrets)
+            return _result("cancelled", started, secrets=secrets, snapshot_digest=snapshot_digest)
         try:
             process = subprocess.Popen(
                 [sys.executable, "-I", "-m", "forgeagent._check_worker", *definition.argv[1:]],
@@ -137,7 +143,13 @@ def run_check(
                 start_new_session=os.name == "posix",
             )
         except OSError as exc:
-            return _result("start_error", started, stderr=str(exc), secrets=secrets)
+            return _result(
+                "start_error",
+                started,
+                stderr=str(exc),
+                secrets=secrets,
+                snapshot_digest=snapshot_digest,
+            )
 
         assert process.stdout is not None and process.stderr is not None
         stdout_capture = _BoundedCapture(process.stdout)
@@ -169,7 +181,49 @@ def run_check(
             stdout=stdout_capture.text(),
             stderr=stderr_capture.text(),
             secrets=secrets,
+            snapshot_digest=snapshot_digest,
         )
+
+
+def candidate_snapshot_digest(root: str | Path) -> str:
+    """Return a stable digest of the files that evaluator checks can observe."""
+    source_root = Path(root).resolve()
+    _validate_source_tree(source_root)
+    paths = [(".", source_root)]
+    pending = [source_root]
+    while pending:
+        directory = pending.pop()
+        with os.scandir(directory) as entries:
+            for entry in entries:
+                if _ignored(entry.name):
+                    continue
+                path = Path(entry.path)
+                relative_path = path.relative_to(source_root).as_posix()
+                paths.append((relative_path, path))
+                if entry.is_dir(follow_symlinks=False):
+                    pending.append(path)
+
+    digest = hashlib.sha256(b"forgeagent-candidate-snapshot-v1\0")
+    for relative_path, path in sorted(paths):
+        mode = path.stat(follow_symlinks=False).st_mode
+        encoded_path = relative_path.encode("utf-8", errors="surrogateescape")
+        if stat.S_ISDIR(mode):
+            marker = b"D"
+        elif stat.S_ISREG(mode):
+            marker = b"F"
+        else:
+            raise ValueError("project contains an unsupported special file")
+        digest.update(marker)
+        digest.update(len(encoded_path).to_bytes(8, "big"))
+        digest.update(encoded_path)
+        digest.update(stat.S_IMODE(mode).to_bytes(4, "big"))
+        if marker == b"F":
+            size = path.stat(follow_symlinks=False).st_size
+            digest.update(size.to_bytes(8, "big"))
+            with path.open("rb") as source:
+                while chunk := source.read(1024 * 1024):
+                    digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _validate_source_tree(source_root: Path) -> None:
@@ -277,6 +331,7 @@ def _result(
     stdout: str = "",
     stderr: str = "",
     secrets: set[str],
+    snapshot_digest: str = "",
 ) -> CheckResult:
     safe_stdout = str(mask_audit_data(stdout, secrets))
     safe_stderr = str(mask_audit_data(stderr, secrets))
@@ -286,4 +341,5 @@ def _result(
         duration_ms=max(0, int((time.monotonic() - started) * 1000)),
         stdout=_bounded_decode(safe_stdout.encode()),
         stderr=_bounded_decode(safe_stderr.encode()),
+        snapshot_digest=snapshot_digest,
     )

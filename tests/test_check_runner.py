@@ -20,6 +20,47 @@ def _python_check(check_id: str, code: str, *, timeout: float = 2.0) -> CheckDef
     return CheckDefinition(id=check_id, argv=(sys.executable, "-c", code), timeout_seconds=timeout)
 
 
+def test_candidate_snapshot_digest_tracks_candidate_semantics(tmp_path: Path):
+    source = tmp_path / "source"
+    source.mkdir()
+    candidate = source / "candidate.txt"
+    candidate.write_text("first", encoding="utf-8")
+    empty_directory = source / "empty"
+    empty_directory.mkdir()
+    (source / ".git").mkdir()
+    (source / ".forgeagent").mkdir()
+    (source / ".pytest_cache").mkdir()
+    (source / "__pycache__").mkdir()
+    (source / "ignored.pyc").write_bytes(b"first cache")
+
+    baseline = check_runner_module.candidate_snapshot_digest(source)
+
+    assert check_runner_module.candidate_snapshot_digest(source) == baseline
+    (source / ".git" / "HEAD").write_text("changed", encoding="utf-8")
+    (source / ".forgeagent" / "state.json").write_text("changed", encoding="utf-8")
+    (source / ".pytest_cache" / "cache").write_text("changed", encoding="utf-8")
+    (source / "__pycache__" / "module.pyc").write_bytes(b"changed")
+    (source / "ignored.pyc").write_bytes(b"changed cache")
+    assert check_runner_module.candidate_snapshot_digest(source) == baseline
+
+    candidate.write_text("second", encoding="utf-8")
+    assert check_runner_module.candidate_snapshot_digest(source) != baseline
+    candidate.write_text("first", encoding="utf-8")
+
+    renamed = candidate.with_name("renamed.txt")
+    candidate.rename(renamed)
+    assert check_runner_module.candidate_snapshot_digest(source) != baseline
+    renamed.rename(candidate)
+
+    empty_directory.rmdir()
+    assert check_runner_module.candidate_snapshot_digest(source) != baseline
+    empty_directory.mkdir()
+
+    original_mode = candidate.stat().st_mode
+    candidate.chmod(original_mode ^ 0o100)
+    assert check_runner_module.candidate_snapshot_digest(source) != baseline
+
+
 def test_check_runs_in_temporary_copy_and_preserves_real_project(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
@@ -59,6 +100,8 @@ def test_check_runs_in_temporary_copy_and_preserves_real_project(
     assert str(tmp_path) not in result.stdout
     assert REDACTED_PATH in result.stdout
     assert temporary_roots and all(not path.exists() for path in temporary_roots)
+    assert len(result.snapshot_digest) == 64
+    assert "snapshot_digest" not in result.model_dump()
 
 
 def test_check_receives_only_minimal_environment_and_definition_values(
