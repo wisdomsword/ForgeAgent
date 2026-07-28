@@ -1,0 +1,1 @@
+{"execution":"controlled","fallback_reason":"provider_unavailable","platform":"darwin","protocol_sha256":"704b2991603f63904f14ce3f297d842e392ea939aa3883a2f74846358931dfbd","python":"3.14.3","real_execution":false,"requested_model_id":"claude-haiku-4-5","schema":"forgeagent.m26.completion-evidence-run/v1"}

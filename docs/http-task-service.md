@@ -139,6 +139,9 @@ contains only `FileRead`, `FileList`, and `SubmitEvaluation`, and its tier is
 constrained by the server. The internal collaboration runner has a trusted-host-only
 seam for frozen `RunCheck` definitions, but the HTTP request/config schemas do not
 expose it; clients cannot submit a check ID, argv, environment, cwd, or timeout.
+When that internal seam is used, an all-pass verdict is accepted only after every
+frozen check has passed against the same current Candidate snapshot in the current
+Evaluator Task; HTTP resume cannot reuse prior process-local check evidence.
 Planner confirmation is separate from the HTTP FileWrite/WebFetch/MCP allowlist;
 `triad_plan_policy` cannot be supplied in a request.
 

@@ -12,6 +12,7 @@ import pytest
 from pydantic import ValidationError
 
 import forgeagent.collaboration as collaboration_module
+from forgeagent.audit import AuditEvent
 from forgeagent.check_runner import CheckDefinition, CheckResult
 from forgeagent.collaboration import (
     AcceptanceItem,
@@ -37,7 +38,16 @@ from forgeagent.runtime import Runtime
 from forgeagent.tools import CodeBlockStore, ToolContext, default_registry
 
 
-def _tool_context(root: Path) -> ToolContext:
+class _AuditSink:
+    def __init__(self) -> None:
+        self.events: list[AuditEvent] = []
+
+    def emit(self, event: AuditEvent) -> bool:
+        self.events.append(event)
+        return True
+
+
+def _tool_context(root: Path, *, audit_sink: _AuditSink | None = None) -> ToolContext:
     return ToolContext(
         blocks=CodeBlockStore(),
         backend=TrustedBackend(),
@@ -45,6 +55,9 @@ def _tool_context(root: Path) -> ToolContext:
         analyzer=CodeAnalyzer(),
         tier="trusted",
         allowed_root=str(root),
+        audit_sink=audit_sink,
+        task_id="task-123",
+        operation_id="operation-456",
     )
 
 
@@ -668,6 +681,49 @@ def test_run_check_reports_structured_host_check_result(
     assert "check=unit status=failed exit_code=3 duration_ms=12" in outcome.detail
     assert "stdout:\nout" in outcome.detail
     assert "stderr:\nerr" in outcome.detail
+
+
+def test_run_check_audits_only_safe_stable_fields(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    sink = _AuditSink()
+    expected = CheckResult(
+        status="failed",
+        exit_code=3,
+        duration_ms=12,
+        stdout="PRIVATE_STDOUT",
+        stderr="PRIVATE_STDERR",
+        snapshot_digest="PRIVATE_DIGEST",
+    )
+    definition = CheckDefinition(
+        id="unit",
+        argv=(sys.executable, "-c", "print('PRIVATE_ARGV')"),
+    )
+    monkeypatch.setattr("forgeagent.collaboration.run_check", lambda *args, **kwargs: expected)
+    tool = RunCheckTool({"unit": definition}, generator_attempt=7)
+
+    outcome = tool.run(
+        RunCheckArgs(check_id="unit"),
+        _tool_context(tmp_path, audit_sink=sink),
+    )
+
+    assert outcome.success is False
+    assert len(sink.events) == 1
+    event = sink.events[0]
+    assert event.event_type == "collaboration.check"
+    assert event.task_id == "task-123"
+    assert event.operation_id == "operation-456"
+    assert event.attempt == 7
+    assert event.parameters == {"check_id": "unit"}
+    assert event.result_status == "failed"
+    assert event.duration_ms == 12
+    rendered = repr(event)
+    for private_value in (
+        "PRIVATE_ARGV",
+        str(tmp_path),
+        "PRIVATE_STDOUT",
+        "PRIVATE_STDERR",
+        "PRIVATE_DIGEST",
+    ):
+        assert private_value not in rendered
 
 
 def test_run_check_rejects_invalid_direct_arguments_without_raising(tmp_path: Path):

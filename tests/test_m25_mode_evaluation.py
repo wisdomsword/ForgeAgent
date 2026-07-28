@@ -1413,7 +1413,10 @@ def test_m25_public_docs_and_milestone_publish_verified_evidence() -> None:
     assert "待 Comet verify/归档" not in combined
     assert "下一步由 Comet verify" not in combined
     assert "2026-07-28-m25-programming-mode-evaluation" in combined
-    assert (ROOT / "milestones" / "latest").read_text(encoding="utf-8") == ("milestone_025.md\n")
+    latest_name = (ROOT / "milestones" / "latest").read_text(encoding="utf-8").strip()
+    assert latest_name.startswith("milestone_") and latest_name.endswith(".md")
+    assert int(latest_name.removeprefix("milestone_").removesuffix(".md")) >= 25
+    assert (ROOT / "milestones" / latest_name).is_file()
     tasks = (
         ROOT
         / "openspec"

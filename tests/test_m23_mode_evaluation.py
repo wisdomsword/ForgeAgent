@@ -5,7 +5,6 @@ import importlib.util
 import json
 import subprocess
 import sys
-import tomllib
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -1026,31 +1025,24 @@ def test_m23_public_docs_link_valid_v2_and_disclose_invalid_batch() -> None:
 
 
 def test_m23_does_not_modify_product_runtime_or_dependencies() -> None:
-    protected_runtime = (
+    m23_base = "f6e0dda3c8a7f9c73400c240c0a999e20b12bbd6"
+    m23_archive = "2aaeec33ec797be73f1f91b2a8bf0ea9a7c61906"
+    protected = (
         "src/forgeagent/collaboration.py",
         "src/forgeagent/cli.py",
         "src/forgeagent/model_registry.py",
+        "pyproject.toml",
         "uv.lock",
     )
-    for path in protected_runtime:
+    for path in protected:
         before = subprocess.run(
-            [
-                "git",
-                "show",
-                f"f6e0dda3c8a7f9c73400c240c0a999e20b12bbd6:{path}",
-            ],
+            ["git", "show", f"{m23_base}:{path}"],
             check=True,
             capture_output=True,
         ).stdout
-        assert (ROOT / path).read_bytes() == before
-
-    before_pyproject = subprocess.run(
-        ["git", "show", "f6e0dda3c8a7f9c73400c240c0a999e20b12bbd6:pyproject.toml"],
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout
-    before_config = tomllib.loads(before_pyproject)
-    current_config = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    current_config["tool"]["pytest"]["ini_options"].pop("markers")
-    assert current_config == before_config
+        archived = subprocess.run(
+            ["git", "show", f"{m23_archive}:{path}"],
+            check=True,
+            capture_output=True,
+        ).stdout
+        assert archived == before

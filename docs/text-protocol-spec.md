@@ -188,6 +188,16 @@ completion response. Only a complete all-pass verdict makes the collaboration
 `completed`. A rejection starts a fresh Generator with bounded evidence until
 `max_rejections` is exhausted.
 
+When a trusted host registers frozen `RunCheck` definitions, an all-pass
+`SubmitEvaluation` additionally requires a latest passed result for every check from
+the current Evaluator Task. The host binds those results to the current Generator
+attempt and the same current Candidate snapshot; missing, failed, timed-out, stale,
+cross-snapshot, or post-check modified evidence is rejected without saving the
+verdict. A verdict containing a failed acceptance item may still reject early without
+running every check. Evidence is process-local and is intentionally reacquired after
+resuming an unevaluated Candidate. With no registered checks, the existing verdict
+contract is unchanged.
+
 Role tool registries are deliberately asymmetric:
 
 - Planner: `SubmitPlan` only.

@@ -1,0 +1,30 @@
+{
+  "schema": "forgeagent.m26.completion-evidence/v1",
+  "model_id": "claude-haiku-4-5",
+  "generation": {
+    "max_output_tokens": 2048,
+    "temperature": 0.0,
+    "thinking": "off",
+    "effort": null,
+    "timeout_seconds": 30.0
+  },
+  "fixture": {
+    "goal": "Keep the supplied increment fixture unchanged and verify that its pytest check passes.",
+    "files": {
+      "increment.py": "def increment(value):\n    return value + 1\n",
+      "test_increment.py": "from increment import increment\n\n\ndef test_increment():\n    assert increment(1) == 2\n"
+    },
+    "required_candidate_files": ["increment.py", "test_increment.py"]
+  },
+  "check": {
+    "id": "fixture-pytest",
+    "command": ["{python}", "-m", "pytest", "-q", "test_increment.py"],
+    "timeout_seconds": 30.0
+  },
+  "runs": [
+    {"mode": "duo", "scenario": "skip-check-first"},
+    {"mode": "duo", "scenario": "all-pass"},
+    {"mode": "triad", "scenario": "skip-check-first"},
+    {"mode": "triad", "scenario": "all-pass"}
+  ]
+}

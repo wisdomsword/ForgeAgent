@@ -6,6 +6,7 @@ import json
 import sys
 import threading
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -18,6 +19,8 @@ from forgeagent.collaboration import (
     CollaborationRunner,
     CollaborationStore,
     EvaluationItem,
+    RunCheckArgs,
+    build_evaluator_registry,
 )
 from forgeagent.models import AssistantMessage, ClientError, TokenUsage
 from forgeagent.task import Task
@@ -71,6 +74,27 @@ def _evaluation(*, passed: bool, observed: str = "observed", expected: str = "ex
         },
     }
     return _reply(f"<!-- ToolCall: {json.dumps(marker)} -->")
+
+
+def _checked_evaluation(*, passed: bool):
+    markers = [
+        {"name": "RunCheck", "arguments": {"check_id": "unit"}},
+        {
+            "name": "SubmitEvaluation",
+            "arguments": {
+                "results": [
+                    {
+                        "id": "goal",
+                        "passed": passed,
+                        "observed": "observed",
+                        "expected": "expected",
+                        "location": "artifact.txt",
+                    }
+                ]
+            },
+        },
+    ]
+    return _reply("\n".join(f"<!-- ToolCall: {json.dumps(marker)} -->" for marker in markers))
 
 
 class _RecordingClient(MockClient):
@@ -187,13 +211,14 @@ def _runner(tmp_path: Path, builder: _RoleBuilder, **kwargs) -> CollaborationRun
 
 
 def _reopened_duo_runner(
-    tmp_path: Path, builder: _RoleBuilder, collaboration_id: str
+    tmp_path: Path, builder: _RoleBuilder, collaboration_id: str, **kwargs
 ) -> CollaborationRunner:
     store = CollaborationStore(str(tmp_path))
     return CollaborationRunner(
         store=store,
         state=store.load(collaboration_id),
         role_task_builder=builder,
+        **kwargs,
     )
 
 
@@ -333,7 +358,7 @@ def test_duo_injects_host_checks_only_into_evaluator_registry(tmp_path: Path):
     builder = _RoleBuilder(
         {
             ("generator", 1): [_candidate()],
-            ("evaluator", 1): [_evaluation(passed=True)],
+            ("evaluator", 1): [_checked_evaluation(passed=True)],
         }
     )
 
@@ -346,6 +371,77 @@ def test_duo_injects_host_checks_only_into_evaluator_registry(tmp_path: Path):
     assert report.status == "completed"
     assert "RunCheck" not in builder.registries[0].arg_schemas()
     assert "RunCheck" in builder.registries[1].arg_schemas()
+
+
+def test_duo_resume_with_pending_evaluation_does_not_reuse_check_evidence(tmp_path: Path):
+    checks = {"unit": CheckDefinition(id="unit", argv=(sys.executable, "-c", "pass"))}
+    initial = _runner(tmp_path, _RoleBuilder({}), evaluator_checks=checks)
+    initial._state = initial._store.save(
+        initial._state.model_copy(update={"phase": "evaluator", "generator_attempts": 1}),
+        expected_revision=initial._state.revision,
+    )
+    old_registry = build_evaluator_registry(
+        store=initial._store,
+        state=initial._state,
+        checks=checks,
+    )
+    old_run_check = old_registry.get("RunCheck")
+    assert old_run_check is not None
+    assert old_run_check.run(
+        RunCheckArgs(check_id="unit"),
+        SimpleNamespace(
+            allowed_root=str(tmp_path),
+            cancel_event=None,
+            audit_sink=None,
+            task_id=None,
+            operation_id=None,
+        ),
+    ).success
+
+    builder = _RoleBuilder(
+        {
+            ("evaluator", 1): [
+                _evaluation(passed=True),
+                _reply(_done()),
+                _reply(_done()),
+            ]
+        }
+    )
+    reopened = _reopened_duo_runner(
+        tmp_path,
+        builder,
+        initial._state.collaboration_id,
+        evaluator_checks=checks,
+    )
+
+    report = reopened.run("write PRIVATE_GOAL artifact")
+
+    assert report.status == "failed"
+    assert report.stop_reason == "invalid_role_submission"
+    assert report.evaluator_attempts == 1
+
+
+def test_duo_new_generator_attempt_must_rerun_checks_before_passing(tmp_path: Path):
+    checks = {"unit": CheckDefinition(id="unit", argv=(sys.executable, "-c", "pass"))}
+    builder = _RoleBuilder(
+        {
+            ("generator", 1): [_candidate()],
+            ("evaluator", 1): [_checked_evaluation(passed=False)],
+            ("generator", 2): [_candidate()],
+            ("evaluator", 2): [
+                _evaluation(passed=True),
+                _checked_evaluation(passed=True),
+            ],
+        }
+    )
+
+    report = _runner(tmp_path, builder, evaluator_checks=checks).run("write PRIVATE_GOAL artifact")
+
+    assert report.status == "completed"
+    assert (report.generator_attempts, report.evaluator_attempts, report.rejections) == (2, 2, 1)
+    assert len(builder.clients[3].requests) == 2
+    feedback = str(builder.clients[3].requests[1][-1].content)
+    assert "missing checks unit" in feedback
 
 
 def test_duo_requires_generator_strict_completion(tmp_path: Path):

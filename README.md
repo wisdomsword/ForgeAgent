@@ -6,9 +6,10 @@
 
 ## 当前验证
 
-pytest: `2309 passed, 10 skipped`；OpenSpec strict: `20/20`.
+pytest: `2408 passed, 22 skipped`；OpenSpec strict: `21/21`.
 
-该 pytest 基线为 Docker CLI 不可见的完整离线套件。本机 Docker Desktop 专项为
+该 pytest 结果排除当前沙箱禁止 loopback socket 的 11 个 M16 黑盒测试和另行验证的
+packaging 测试；未把环境限制误报为通过。本机 Docker Desktop 专项为
 `10 passed`、零 skip；2026-07-28 手工 Linux runner 专项为 `10 passed`、零 skip；GitLab Linux
 Docker Job 249 为 `10 passed`、零 skip；Golden: `20/20`。
 
@@ -126,7 +127,10 @@ CLI/HTTP 请求不能定义或启用检查，默认 Evaluator 工具集保持不
   `FileList` 和 `SubmitEvaluation`，没有 Exec、写、编辑、Web、MCP、Skill 或 Survey 工具。
   可信宿主程序可额外注入固定 `RunCheck` ID；模型不能提供 argv/env/cwd/timeout，CLI/HTTP
   客户端也不能定义检查。检查只允许当前 Python 的固定入口并限制在一次性副本；它仍是
-  Python application-layer isolation，不承诺密封 OS sandbox。
+  Python application-layer isolation，不承诺密封 OS sandbox。宿主注入检查时，全通过
+  `SubmitEvaluation` 还必须具备当前 Evaluator Task 内对同一 Generator attempt、同一当前
+  Candidate 快照产生的全部最新通过证据；检查缺失、失败、超时、旧 attempt、快照变化或恢复后
+  未重跑都会 fail closed。包含失败项的 verdict 仍可提前提交；未注入检查时保持原行为。
 - 每次拒绝都会用有界、脱敏证据启动 fresh Generator。`--max-rejections` 默认 2、最大 10；
   达到上限以 `rejection_limit` 停止，不会无限重试。
 

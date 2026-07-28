@@ -1341,6 +1341,19 @@ class RunCheckTool(Tool):
             allowed_root=ctx.allowed_root,
             cancel_event=ctx.cancel_event,
         )
+        emit_audit(
+            getattr(ctx, "audit_sink", None),
+            AuditEvent(
+                event_type="collaboration.check",
+                task_id=getattr(ctx, "task_id", None),
+                operation_id=getattr(ctx, "operation_id", None) or uuid4().hex,
+                risk_level="low",
+                attempt=self._generator_attempt,
+                parameters={"check_id": validated.check_id},
+                result_status=result.status,
+                duration_ms=result.duration_ms,
+            ),
+        )
         if self._evidence is not None:
             self._evidence[validated.check_id] = _CheckEvidence(
                 status=result.status,
