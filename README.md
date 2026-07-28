@@ -6,7 +6,7 @@
 
 ## 当前验证
 
-pytest: `2408 passed, 22 skipped`；OpenSpec strict: `21/21`.
+pytest: `2408 passed, 22 skipped`；OpenSpec strict: `20/20`.
 
 该 pytest 结果排除当前沙箱禁止 loopback socket 的 11 个 M16 黑盒测试和另行验证的
 packaging 测试；未把环境限制误报为通过。本机 Docker Desktop 专项为

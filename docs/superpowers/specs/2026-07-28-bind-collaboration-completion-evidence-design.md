@@ -2,6 +2,8 @@
 comet_change: bind-collaboration-completion-evidence
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-07-28-bind-collaboration-completion-evidence
+status: final
 ---
 
 # M26 协作完成证据绑定技术设计
@@ -171,3 +173,4 @@ file marker      + relative path + permission mode + byte length + bytes
 ## 8. 双重设计审查结果
 
 第一轮从验收场景反推数据流，确认未运行、失败、旧 attempt、恢复、跨检查变化和提交前变化均有明确拒绝路径。第二轮专查过度设计与兼容性，删除了持久化 schema、自动检查和通用证据框架，只保留一个领域摘要函数与私有证据记录；无检查路径、失败 verdict 和既有 Runner 责任边界保持不变。
+
