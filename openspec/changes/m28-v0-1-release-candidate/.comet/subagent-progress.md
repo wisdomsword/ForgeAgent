@@ -31,3 +31,4 @@
 - Build completion: plan tasks and OpenSpec tasks are complete as archive preparation; authoritative `milestones/latest` switch and actual change move remain reserved for Comet archive.
 - Verify-fail round 1: first final Golden was 19/20 because G14's 0.2s scenario budget also timed out the independent later worker after full-suite load; isolated 5/5 and immediate full rerun passed, exposing scheduler sensitivity rather than a product diff.
 - Verify-fail correction: regression injects 0.3s inside the second real sandbox worker; old 0.2s RED failed, new 1.0s scenario budget GREEN passed; production sandbox unchanged; G14/default-core/offline-main 3 passed, Ruff/format/diff passed; re-review and full verify pending.
+- Verify-fail re-review: FIX_CONFIRMED; timeout failure/detail/feedback, later real worker success, two-worker count and reap assertions remain intact; no production timeout change and no unresolved Critical/Important.

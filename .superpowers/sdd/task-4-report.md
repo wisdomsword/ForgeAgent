@@ -142,3 +142,5 @@ credential/目标/绝对临时路径；merge-base diff 不含用户已有未跟�
 旧 `0.2s` 稳定 RED，G14 将场景专用预算提高到 `1.0s` 后 GREEN。生产 sandbox 默认与实现不变，
 无限循环仍真实 timeout/reap。G14/默认 20 场景/离线 main 定向合同 `3 passed, 85 deselected`，Ruff、
 format、diff 通过；最终 Golden 20/20 留给重新进入 verify 后的新鲜执行。
+原终审者定点复核后返回 `FIX_CONFIRMED`：核心 timeout/feedback/isolation/reap 合同未弱化，无生产
+sandbox 变更，也无未解决 Critical/Important。
