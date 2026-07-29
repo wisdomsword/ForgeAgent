@@ -2919,6 +2919,12 @@ def main(
                 console=console,
                 error_console=error_console,
             )
+        if audit_sink is None and args.command in {None, "run", "loop"}:
+            try:
+                audit_sink = JsonlAuditSink(Path.home() / ".forgeagent" / "audit.jsonl")
+            except OSError:
+                error_console.print("[red]audit startup error[/red]: audit log is unavailable")
+                return 2
         allowed_root = str(Path.cwd().resolve())
         interactive_identity = console.is_terminal and sys.stdin.isatty()
         identity_confirmer = (

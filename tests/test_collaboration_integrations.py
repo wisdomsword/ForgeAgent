@@ -534,6 +534,11 @@ def test_cli_single_routes_once_without_goal_or_invocation_data(
 ):
     _patch_single_run_dependencies(monkeypatch)
     audit_sink = _AuditSink()
+    monkeypatch.setattr(
+        cli_module,
+        "JsonlAuditSink",
+        lambda *_args, **_kwargs: pytest.fail("injected audit sink must take priority"),
+    )
 
     assert (
         cli_module.main(
@@ -555,6 +560,54 @@ def test_cli_single_routes_once_without_goal_or_invocation_data(
     rendered = routes[0].model_dump_json()
     for forbidden in ("PRIVATE_GOAL", "goal", "argv", "path"):
         assert forbidden not in rendered
+
+
+def test_cli_without_injected_sink_writes_default_route_audit(monkeypatch, tmp_path):
+    _patch_single_run_dependencies(monkeypatch)
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    assert (
+        cli_module.main(
+            ["--no-identity", "--no-memory", "run", "PRIVATE_GOAL"],
+            client_factory=lambda _model: SimpleNamespace(),
+        )
+        == 0
+    )
+
+    audit_path = tmp_path / ".forgeagent" / "audit.jsonl"
+    events = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
+    routes = [event for event in events if event["event_type"] == "collaboration.route"]
+    assert len(routes) == 1
+    assert routes[0]["parameters"] == {
+        "mode": "single",
+        "reason": "default",
+        "requested_mode": "default",
+        "override_required": False,
+    }
+    assert "PRIVATE_GOAL" not in json.dumps(routes)
+
+
+def test_cli_default_audit_startup_failure_stops_before_task(monkeypatch, capsys):
+    calls: list[str] = []
+    _patch_single_run_dependencies(monkeypatch)
+    monkeypatch.setattr(
+        cli_module,
+        "JsonlAuditSink",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("PRIVATE_PATH")),
+    )
+    monkeypatch.setattr(cli_module, "run_once", lambda goal, **_kwargs: calls.append(goal))
+
+    code = cli_module.main(
+        ["--no-identity", "--no-memory", "run", "PRIVATE_GOAL"],
+        client_factory=lambda _model: SimpleNamespace(),
+    )
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert calls == []
+    assert "audit startup error" in captured.err
+    assert "PRIVATE_PATH" not in captured.err
+    assert "PRIVATE_GOAL" not in captured.err
 
 
 def test_repl_default_single_routes_once_without_goal_or_invocation_data(monkeypatch):

@@ -31,6 +31,6 @@
 
 ## 6. 最终路由审计一致性修复
 
-- [x] 6.1 以 RED/GREEN 修复 CLI/REPL Single 路由复用实际 audit sink，并补齐 `/single <goal>` 帮助与补全合同
-- [x] 6.2 在 Loop checkpoint 中持久化默认/显式来源，create/resume 审计复用冻结来源并兼容旧 checkpoint
+- [x] 6.1 以 RED/GREEN 修复 CLI/REPL Single 路由复用实际 audit sink，生产 CLI 默认写入 `~/.forgeagent/audit.jsonl`，并补齐 `/single <goal>` 帮助与补全合同
+- [x] 6.2 在 Loop checkpoint 中持久化默认/显式来源，create/resume 审计复用冻结来源；旧 Duo/Triad 迁移为 explicit，旧 Single/缺 mode 迁移为 default
 - [x] 6.3 覆盖 CLI/HTTP 无模式为 default、显式 single/duo/triad 为 explicit，运行受影响测试、Ruff 与 diff 检查并完成两轮自审

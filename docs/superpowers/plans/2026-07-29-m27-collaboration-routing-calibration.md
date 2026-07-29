@@ -444,18 +444,22 @@ platform-support、验证报告与 milestone，完成两轮自审和独立复审
 
 **Interfaces:**
 - Preserves: Single/Duo/Triad 路由决策本身、旧 checkpoint 可加载性和 Duo/Triad 单次审计语义。
-- Produces: CLI/REPL Single 复用调用方 audit sink；REPL `/single <goal>`；Loop default/explicit 来源冻结与恢复。
+- Produces: CLI/REPL Single 复用调用方 audit sink；未注入时生产 CLI 写入
+  `~/.forgeagent/audit.jsonl`；REPL `/single <goal>`；Loop default/explicit 来源冻结与恢复。
 
 - [x] **Step 1: 写 RED 合同**
 
 CLI/REPL 测试注入真实 sink，断言 Single 只产生一个 `collaboration.route` 且不含 goal/argv/path；
-Loop create/resume 测试断言 default/explicit 来源；旧 checkpoint 缺字段时默认为 default；HTTP 无字段与
-显式 `single` 分别投影 default/explicit。
+Loop create/resume 测试断言 default/explicit 来源；旧 Duo/Triad 缺字段时迁移为 explicit，旧 Single/
+缺 mode 为 default；HTTP 无字段与显式 `single` 分别投影 default/explicit。真实 `main()` 无注入时
+必须创建默认 JSONL audit，初始化失败必须在任务前明确失败且不泄漏路径。
 
 - [x] **Step 2: 实现最小 GREEN**
 
-CLI main、REPL 和 Loop 复用既有 audit sink；新增 `/single` 命令元数据；checkpoint 新增带默认值的
-`collaboration_mode_source`，create 时冻结、resume 时复用，不从恢复请求重新推导。
+CLI main、REPL 和 Loop 复用既有 audit sink；`run`、`loop` 和 REPL 未注入时创建既有
+`JsonlAuditSink`，固定路径为 `~/.forgeagent/audit.jsonl`，初始化失败返回 2；serve/evaluate 保持原有
+路径。新增 `/single` 命令元数据；checkpoint 新增带默认值的 `collaboration_mode_source`，create 时
+冻结、resume 时复用，并在 model before validator 中迁移 legacy collaborative checkpoint。
 
 - [x] **Step 3: 受影响验证与两轮自审**
 
@@ -473,5 +477,6 @@ UV_CACHE_DIR=/tmp/forgeagent-m27-uv-cache uv run ruff check \
 git diff --check
 ```
 
-Result: `527 passed, 10 skipped`；Ruff 与 diff check 通过。第一轮修复 `/single` 帮助/补全遗漏；
-第二轮确认 Single 无重复审计、Loop 恢复不改变来源、旧 checkpoint 兼容，未发现剩余问题。
+Result: `532 passed, 10 skipped`；Ruff 与 diff check 通过。第一轮修复 `/single` 帮助/补全遗漏；
+第二轮复审继续修复生产 CLI 默认 audit 目的地与 legacy Duo/Triad 来源迁移，确认注入 sink 优先、
+serve/evaluate 不冲突、Single 无重复审计、Loop 恢复不改变来源。

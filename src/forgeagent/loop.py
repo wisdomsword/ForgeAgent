@@ -201,6 +201,19 @@ with warnings.catch_warnings():
         collaboration_id: str = ""
         plan_digest: str = ""
 
+        @model_validator(mode="before")
+        @classmethod
+        def _migrate_collaboration_mode_source(cls, value: Any) -> Any:
+            if not isinstance(value, dict) or "collaboration_mode_source" in value:
+                return value
+            migrated = dict(value)
+            migrated["collaboration_mode_source"] = (
+                "explicit"
+                if migrated.get("collaboration_mode") in {"duo", "triad"}
+                else "default"
+            )
+            return migrated
+
         @field_validator("loop_id")
         @classmethod
         def _validate_loop_id(cls, value: Any) -> str:

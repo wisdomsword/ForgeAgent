@@ -191,6 +191,30 @@ def test_old_checkpoint_defaults_to_single_collaboration_mode():
     assert loaded.plan_digest == ""
 
 
+@pytest.mark.parametrize("collaboration_mode", ["duo", "triad"])
+def test_legacy_collaborative_checkpoint_infers_explicit_source(collaboration_mode):
+    payload = _checkpoint(
+        collaboration_mode=collaboration_mode,
+        collaboration_mode_source="explicit",
+        collaboration_id="b" * 32,
+    ).model_dump(mode="json")
+    payload.pop("collaboration_mode_source", None)
+
+    loaded = LoopCheckpoint.model_validate(payload)
+
+    assert loaded.collaboration_mode == collaboration_mode
+    assert loaded.collaboration_mode_source == "explicit"
+
+
+def test_explicit_single_checkpoint_preserves_explicit_source():
+    loaded = _checkpoint(
+        collaboration_mode="single",
+        collaboration_mode_source="explicit",
+    )
+
+    assert loaded.collaboration_mode_source == "explicit"
+
+
 def test_collaborative_checkpoint_freezes_mode_id_and_digest():
     checkpoint = _checkpoint(
         collaboration_mode="triad",

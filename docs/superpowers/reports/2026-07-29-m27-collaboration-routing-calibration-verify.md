@@ -169,8 +169,15 @@ Task 6 最终审计复核又确认并修复三处一致性缺口：CLI/REPL Sing
 缺字段时安全默认为 default。CLI 与 HTTP 无模式输入投影 default，显式 single/duo/triad 投影
 explicit；Single 真实事件测试断言恰好一次且不含 goal、argv 或 path。
 
+后续复审又确认两个 Important：只修复注入 seam 仍使生产 CLI 无审计目的地；legacy Duo/Triad
+checkpoint 缺 source 时会误迁移为 default。现 `run`、`loop` 与 REPL 未注入 sink 时使用现有
+`JsonlAuditSink` 写入 `~/.forgeagent/audit.jsonl`；初始化失败在任务执行前返回 2，并只输出脱敏的
+`audit startup error`。注入 sink 始终优先，`serve` 与 `evaluate` 不创建该默认 sink。checkpoint 的
+before migration 把缺 source 的 Duo/Triad 识别为 explicit，把旧 Single 或缺 mode 识别为 default，
+而新显式 Single 的已持久化 explicit 不被改写。
+
 Task 6 的首轮受影响测试暴露 `/single` 元数据遗漏：`1 failed, 520 passed, 10 skipped`；补齐后同一
-测试集合为 `527 passed, 10 skipped`，定向 Ruff 与 `git diff --check` 通过。该修复未重写
+最终测试集合为 `532 passed, 10 skipped`，定向 Ruff 与 `git diff --check` 通过。该修复未重写
 上文完整仓库基线；完整基线仍以 Task 5 已记录的新鲜命令为准。
 
 ## 已知边界
