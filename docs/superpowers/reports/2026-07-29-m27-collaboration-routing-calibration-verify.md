@@ -9,9 +9,9 @@ Single；显式 Single/Duo/Triad 优先；只有可信宿主已
 Single，因此没有恢复自动类别。
 
 本轮没有把环境限制冒充为产品通过：完整 pytest 在当前沙箱得到
-`12 failed, 2325 passed, 22 skipped`，其中 11 项无法分配 loopback port，1 项无法在线解析隔离
+`12 failed, 2339 passed, 22 skipped`，其中 11 项无法分配 loopback port，1 项无法在线解析隔离
 构建依赖。排除这两个环境依赖测试文件后的当前沙箱可执行基线为
-`2322 passed, 22 skipped`。复用既有官方依赖缓存的离线 wheel/sdist 构建、Golden、Ruff、
+`2336 passed, 22 skipped`。复用既有官方依赖缓存的离线 wheel/sdist 构建、Golden、Ruff、
 OpenSpec strict 与 diff 检查均通过。
 
 ## 验证记分卡
@@ -21,7 +21,7 @@ OpenSpec strict 与 diff 检查均通过。
 | 路由合同 | PASS | 最终路由/HTTP/文档/派生组合专项 `98 passed`；Single CLI/REPL route audit 独立复审通过 |
 | M25 派生 | PASS | `M27_ROUTING_ANALYSIS_OK runs=270 restored=none`；派生/独立复算 `23 passed`；冻结输入无 diff |
 | 文档合同 | PASS | M27 文档合同最终 `16 passed`，HTTP 边界合同 `128 passed` |
-| 当前仓库 | PASS WITH ENVIRONMENT EXCEPTIONS | 沙箱可执行 `2322 passed, 22 skipped`；完整尝试的 12 项环境失败逐项保留 |
+| 当前仓库 | PASS WITH ENVIRONMENT EXCEPTIONS | 沙箱可执行 `2336 passed, 22 skipped`；完整尝试的 12 项环境失败逐项保留 |
 | 静态/规格/Golden | PASS | Ruff check；115 files format；OpenSpec `21/21`；Golden `20/20` |
 | 发布构建 | PASS WITH INSTALL EXCEPTION | 离线 wheel/sdist 构建通过；全依赖 wheel 安装受离线解析限制未完成 |
 
@@ -33,7 +33,7 @@ OpenSpec strict 与 diff 检查均通过。
 UV_CACHE_DIR=/tmp/forgeagent-m27-uv-cache uv run pytest -q
 ```
 
-结果：`12 failed, 2325 passed, 22 skipped in 114.16s`。
+结果：`12 failed, 2339 passed, 22 skipped in 110.03s`。
 
 - 11 项失败位于 `tests/test_m16_filewrite_allowlist_blackbox.py`，共同原因为
   `PermissionError: [Errno 1] Operation not permitted`，脚本未能分配 loopback port：
@@ -59,7 +59,7 @@ UV_CACHE_DIR=/tmp/forgeagent-m27-uv-cache uv run pytest -q \
   --ignore=tests/test_packaging.py
 ```
 
-结果：`2322 passed, 22 skipped in 101.99s`。README 与 platform-support 使用这一“当前沙箱可执行
+结果：`2336 passed, 22 skipped in 102.96s`。README 与 platform-support 使用这一“当前沙箱可执行
 基线”，并紧邻记录完整尝试的 12 项环境失败。
 
 ### Ruff、OpenSpec、Golden、构建与 diff
@@ -134,7 +134,7 @@ Task 1-3 均经过 thorough review 与修复轮。确认问题包括：派生裁
 Task 4 独立 review 另确认 2 项 Important 与 1 项 Minor，均属于收尾证据一致性而非产品代码：
 
 - Important：`ACTION_PLAN.md` 的权威摘要和 M27 行仍写“进行中”，且没有写入实际
-  `2322 passed, 22 skipped`、完整 12 项环境失败边界、OpenSpec `21/21`、Golden `20/20` 和
+  当时的 `2322 passed, 22 skipped`、完整 12 项环境失败边界、OpenSpec `21/21`、Golden `20/20` 和
   离线 build 结果。现已改为“已完成，待 Comet 归档”并补齐全部证据。
 - Important：OpenSpec 4.3/4.4 在独立 review 问题尚未修复、Comet archive/branch gate 尚未执行时
   提前混合完成边界。现 4.3 只在本轮修复和受影响复验后完成；4.4 改为后续归档、

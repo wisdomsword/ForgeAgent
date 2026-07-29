@@ -76,7 +76,7 @@ Triad；只允许可信宿主在本次任务已绑定非空冻结检查时自动
 ### 验收评审
 
 - [x] 路由、派生分析和文档专项验证通过，证据见验证报告
-- [x] 当前沙箱可执行基线 `2322 passed, 22 skipped`；完整尝试 `12 failed, 2325 passed, 22 skipped`，环境失败原样记录
+- [x] 当前沙箱可执行基线 `2336 passed, 22 skipped`；完整尝试 `12 failed, 2339 passed, 22 skipped`，环境失败原样记录
 - [x] Ruff check/format、OpenSpec `21/21`、Golden `20/20`、离线 wheel/sdist build 和 diff check 通过
 - [x] Task 6 受影响回归 `532 passed, 10 skipped`，定向 Ruff 与 diff check 通过
 - [x] M25 冻结 protocol 与正式 run tree 无 diff；自动 Triad 恢复列表为空
