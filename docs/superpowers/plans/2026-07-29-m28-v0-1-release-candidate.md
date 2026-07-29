@@ -39,7 +39,7 @@ base-ref: 49e0c05efba0bdbaf20387aee6bbbc77dfe568cd
 - Consumes: wheel path、output path、Python executable；现有 `MockClient`、`Task`、`HttpServiceConfig`、`TaskService`、`create_http_server`、`CollaborationRunner.create()`。
 - Produces: `SCHEMA = "forgeagent.release-candidate-smoke/v1"`、`CHECK_NAMES = ("clean-wheel", "cli", "http", "single", "duo", "triad")`；`clean_environment(source, home) -> dict[str, str]`；`wheel_identity(path) -> tuple[str, str]`；`write_report(path, report) -> None`；`run_parent(wheel, output, python) -> int`；`run_installed(output, wheel_sha256) -> int`；CLI `--wheel/--output/--python` 与私有 `--installed`。
 
-- [ ] **Step 1: 写 metadata、环境与报告 RED 合同**
+- [x] **Step 1: 写 metadata、环境与报告 RED 合同**
 
 按路径导入尚不存在的脚本，写入以下确定合同：
 
@@ -77,17 +77,17 @@ def test_write_report_is_complete_and_bounded(tmp_path):
 
 用最小 synthetic wheel ZIP 覆盖正确 `Name: forgeagent`/`Version: 0.1.0`、错误 name/version、非普通文件和 SHA-256 小写 64 hex。用 monkeypatch 让 `os.replace` 记录源/目标并断言同目录临时文件先 flush/fsync 后替换。
 
-- [ ] **Step 2: 运行基础合同确认 RED**
+- [x] **Step 2: 运行基础合同确认 RED**
 
 Run: `UV_CACHE_DIR=/tmp/forgeagent-m28-uv-cache uv run pytest -q tests/test_m28_release_candidate_smoke.py -k 'environment or report or wheel'`
 
 Expected: FAIL，因为 `scripts/m28_release_candidate_smoke.py` 不存在。
 
-- [ ] **Step 3: 实现最小 metadata、环境与报告核心**
+- [x] **Step 3: 实现最小 metadata、环境与报告核心**
 
 实现固定常量与纯函数。`wheel_identity()` 用 `zipfile.ZipFile` 找唯一 `.dist-info/METADATA`，用 `email.parser.Parser` 读取 Name/Version，拒绝多份或不匹配。`clean_environment()` 复制 allowlisted 普通环境但移除 `PYTHONHOME/PYTHONPATH` 及 `is_secret_name(name)` 命中的 key，设置临时 `HOME`。报告初态六项全 `not-run`；`finalize_report()` 只从六项状态计算 `passed`；`write_report()` 在 output 父目录用 `NamedTemporaryFile(delete=False)` 写 `sort_keys=True` JSON + 换行、flush/fsync 后 `os.replace()`，失败时删除临时文件。
 
-- [ ] **Step 4: 写 CLI/HTTP/Single/Duo/Triad RED 合同**
+- [x] **Step 4: 写 CLI/HTTP/Single/Duo/Triad RED 合同**
 
 增加五组真实入口测试：
 
@@ -105,15 +105,15 @@ def test_collaboration_checks_complete_without_provider(mode, tmp_path):
     assert report == {"mode": mode, "status": "completed"}
 ```
 
-HTTP 测试必须真实分配 socket；无 token `POST /tasks` 断言 401 且无 record；有 token提交后 GET，再 `POST /tasks/<id>/cancel`，最终状态 cancelled；退出后 server thread 不存活。协作固定 ToolCall JSON：Planner `SubmitPlan` 输入包含一项 `{id, description, acceptance}`；Generator `SubmitCandidate` 输入 `{}`；Evaluator `SubmitEvaluation` 输入包含相同 id 的 `{passed: true, evidence: "observed"}`。Single 使用现有完成 marker。
+HTTP 测试必须真实分配 socket；无 token `POST /tasks` 断言 401 且无 record；有 token提交后 GET，再 `POST /tasks/<id>/cancel`，最终状态 cancelled；退出后 server thread 不存活。协作固定 ToolCall JSON：Planner `SubmitPlan` 输入包含一项 `{id, behavior, acceptance}`；Generator `SubmitCandidate` 输入 `{}`；Evaluator `SubmitEvaluation` 输入包含相同 id 的 `{passed: true, observed: "observed", expected: "expected", location: "runtime"}`。Single 使用现有完成 marker。字段以当前 Pydantic 协议契约为准，不为 smoke 扩展产品接口。
 
-- [ ] **Step 5: 运行入口合同确认 RED**
+- [x] **Step 5: 运行入口合同确认 RED**
 
 Run: `UV_CACHE_DIR=/tmp/forgeagent-m28-uv-cache uv run pytest -q tests/test_m28_release_candidate_smoke.py -k 'cli or http or collaboration'`
 
 Expected: FAIL，因为入口检查函数尚未实现。
 
-- [ ] **Step 6: 实现最小入口与父/子流程**
+- [x] **Step 6: 实现最小入口与父/子流程**
 
 实现：
 
@@ -126,7 +126,7 @@ Expected: FAIL，因为入口检查函数尚未实现。
 
 任何失败只把当前项设为 `failed`，其后仍未运行项保持 `not-run`，写报告并返回 1；stderr 只输出 `M28 RC smoke failed: <fixed-check-name>`。
 
-- [ ] **Step 7: 运行 GREEN、相邻回归并提交**
+- [x] **Step 7: 运行 GREEN、相邻回归并提交**
 
 Run: `UV_CACHE_DIR=/tmp/forgeagent-m28-uv-cache uv run pytest -q tests/test_m28_release_candidate_smoke.py tests/test_http_server.py tests/test_http_task_service.py tests/test_collaboration_runner.py`
 
