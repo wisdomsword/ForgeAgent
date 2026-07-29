@@ -209,6 +209,15 @@ def test_http_check_uses_real_loopback_and_closes():
     ] == []
 
 
+def test_http_check_ignores_hostile_proxy_environment(monkeypatch):
+    monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:1")
+    monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:1")
+    monkeypatch.setenv("ALL_PROXY", "http://127.0.0.1:1")
+    monkeypatch.setenv("NO_PROXY", "")
+
+    smoke.check_http()
+
+
 @pytest.mark.parametrize("mode", ["single", "duo", "triad"])
 def test_collaboration_checks_complete_without_provider(mode, tmp_path):
     report = smoke.check_collaboration(mode, tmp_path)

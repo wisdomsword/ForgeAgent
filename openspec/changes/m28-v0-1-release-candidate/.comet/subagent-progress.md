@@ -22,3 +22,6 @@
 - Re-review fix strategy: rebuild the unique wheel/sdist from the current README, inspect embedded METADATA, rerun the Python 3.11 six-check harness, refresh every public SHA/evidence reference, and leave plan Step 3 open until final lifecycle closure.
 - Re-review correction: current-README wheel/sdist rebuilt; METADATA/PKG-INFO carry 2403/22/22 and M28 RC 42; Python 3.11.15 six-check report passed with SHA `e09507e4ea14023ba9833d7ecb9a57cd89de310d8070225429fcbc371d66492c`; focused four-file contracts 41 passed; public SHA refreshed; plan Step 3 remains pending.
 - Task 4 re-review result: FIX_CONFIRMED; both provenance and lifecycle-step findings are closed.
+- Final review round 1: NOT_READY, no Critical and one Important -- default `urlopen()` can honor hostile proxy environment variables during the loopback HTTP smoke, violating deterministic offline/loopback-only behavior.
+- Final review fix strategy: add a hostile-proxy RED regression, construct a stdlib opener with `ProxyHandler({})`, rerun focused/adjacent checks, and request a targeted re-review before the two controller consistency reviews.
+- Final review correction: hostile-proxy regression RED 1 failed; `ProxyHandler({})` fix GREEN 1 passed and adjacent HTTP/collaboration 184 passed; Ruff/format/diff passed; targeted re-review pending.

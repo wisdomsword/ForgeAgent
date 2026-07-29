@@ -112,3 +112,10 @@ wheel METADATA 会嵌入 README，因而该 artifact 仍携带旧 M27 基线，�
 focused 四文件合同复跑 `41 passed`。一次直接用裸 Python 3.11 启动父脚本因开发依赖不可导入而
 失败，确认是调用方式偏离实施计划，随后用计划命令成功重跑；未把该误调用记作候选失败。
 原复审者对 `6be9f6a` 做定点复核后返回 `FIX_CONFIRMED`；Task 4 review gate 已关闭。
+
+## Final Review Round 1
+
+整分支终审无 Critical，发现一项 Important：默认 `urlopen()` 会读取宿主代理变量，使 loopback HTTP
+smoke 可能经外部代理或因代理失败，违反离线确定性合同。新增 hostile-proxy 回归后 RED 为 `1 failed`
+（请求确实转向 `127.0.0.1:1`）；最小修复改用标准库 `build_opener(ProxyHandler({}))` 固定禁代理。
+GREEN 为 focused `1 passed`、HTTP/协作相邻 `184 passed`，Ruff、format 与 diff check 均通过。

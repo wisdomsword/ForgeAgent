@@ -20,7 +20,7 @@ from collections.abc import Mapping
 from email.parser import Parser
 from pathlib import Path
 from urllib.error import HTTPError
-from urllib.request import Request, urlopen
+from urllib.request import ProxyHandler, Request, build_opener
 
 import forgeagent
 from forgeagent import HttpServiceConfig, TaskService, create_http_server
@@ -151,7 +151,7 @@ def _http_request(
         method=method,
     )
     try:
-        with urlopen(request, timeout=3) as response:
+        with build_opener(ProxyHandler({})).open(request, timeout=3) as response:
             return response.status, json.loads(response.read())
     except HTTPError as error:
         return error.code, json.loads(error.read())
