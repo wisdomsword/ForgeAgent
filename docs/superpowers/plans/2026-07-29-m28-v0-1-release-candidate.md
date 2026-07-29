@@ -218,25 +218,25 @@ git commit -m "ci: gate Linux releases on installed-wheel smoke"
 - Consumes: 实际已运行验证结果、M24 历史 Linux container 证据、Task 2 configured M28 gate。
 - Produces: 单一 RC 发布入口和静态合同，明确 configured/verified/opt-in/known limitation 边界。
 
-- [ ] **Step 1: 写发布文档 RED 合同**
+- [x] **Step 1: 写发布文档 RED 合同**
 
 新增测试要求 RC 文档存在并包含唯一一级标题、`0.1.0`、wheel 安装命令、CLI/HTTP/Single/Duo/Triad、正式发布阻塞条件，以及五个固定已知限制标题：平台证据、真实模型、sandbox、HTTP、协作 v1。要求出现 `restricted 不是 OS 级密封沙箱`、loopback/default bind 边界、headless Triad 计划策略、真实 provider opt-in。要求不出现 `M28 Linux RC smoke 已通过`，除非同文档有真实 pipeline/job id 或本机 Linux Docker 命令证据。
 
 README 必须在“当前验证”附近链接 `docs/releases/0.1.0-rc.md` 并写“Release Candidate，不是正式发布”。平台文档必须把 M24 Job 249 标为 historical container-only evidence，并把 M28 installed-wheel gate 标为 configured 或附新证据，二者不得混写。
 
-- [ ] **Step 2: 运行文档合同确认 RED**
+- [x] **Step 2: 运行文档合同确认 RED**
 
 Run: `UV_CACHE_DIR=/tmp/forgeagent-m28-uv-cache uv run pytest -q tests/test_m28_release_docs.py`
 
 Expected: FAIL，因为 RC 发布说明与 README/platform 更新不存在。
 
-- [ ] **Step 3: 写最小发布说明与公开链接**
+- [x] **Step 3: 写最小发布说明与公开链接**
 
 创建 `docs/releases/0.1.0-rc.md`，章节固定为：状态、安装、已交付能力、验证证据、正式发布阻塞条件、已知限制。验证表把已实际完成的本机 clean-wheel/专项写为 verified；M28 required Linux job 在未运行前写 configured/pending，不得复用 Job 249。已知限制完整解释五类边界，不复制整份 README。
 
 README 只增加 1 个短 RC 段落和链接；`docs/platform-support.md` 增加 M28 gate 的 configured 状态、所需 `rc-smoke.json` 证据和下一触发条件，保留所有 M24 历史记录。
 
-- [ ] **Step 4: 运行 GREEN、相邻文档合同并提交**
+- [x] **Step 4: 运行 GREEN、相邻文档合同并提交**
 
 Run: `UV_CACHE_DIR=/tmp/forgeagent-m28-uv-cache uv run pytest -q tests/test_m28_release_docs.py tests/test_collaboration_docs.py tests/test_continuous_verification.py`
 

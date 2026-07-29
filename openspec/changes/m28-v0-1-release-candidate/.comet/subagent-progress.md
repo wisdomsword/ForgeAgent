@@ -1,19 +1,18 @@
 # M28 Subagent Progress
 
-- Plan task: Task 2: 真实 wheel packaging 与 Linux Docker 门禁
-- OpenSpec tasks: 2.3, 3.1, 3.2
+- Plan task: Task 3: RC 发布说明与限制合同
+- OpenSpec tasks: 4.1, 4.2
 - Phase: done
 - Review mode: thorough
 - Review/fix round: 1/2
-- Base commit: 08c9c64
-- Implementer: DONE_WITH_CONCERNS
-- Implementation commit: 6bc760a5a5b8fdcc18186a6b9b44749324776569
-- Changed files: `.gitlab-ci.yml`, `tests/test_packaging.py`, `tests/test_m28_release_ci.py`
-- RED/GREEN evidence: release CI/packaging RED on absent RC artifact/harness; GREEN 9 passed in 37.34s including real wheel harness and adjacent CI contracts; Ruff/diff passed.
-- Risk signals: cross-module CI/packaging, Linux container execution, configured-only live Docker evidence, DONE_WITH_CONCERNS
-- Review findings: Important -- the folded exact-one wheel assertion does not terminate on multiple matches; bootstrap pip failure skips the harness and leaves no bounded `rc-smoke.json` artifact.
-- Fix strategy: focused RED shell-contract tests; use explicit terminating wheel assertions; on bootstrap failure write the fixed bounded clean-wheel failure JSON from Python 3.11 stdlib and exit nonzero.
-- Fix commit: `00ad211`; focused RED 2 failed/2 passed, GREEN 8 passed; shell cardinality and fallback JSON directly executed; Ruff/diff passed.
-- Review result: Spec passed; no Critical, Important, or Minor findings. Both original findings closed. Live Docker remains an explicitly configured-only verification item for Task 4.
-- Requirements artifact: `.superpowers/sdd/task-2-brief.md`
-- Decision: packaging invokes the harness with `sys.executable`; the fixed `python:3.11-slim` non-root container is the minimum-version Linux evidence.
+- Base commit: 44125e5
+- Implementer: DONE
+- Implementation commit: 03e1983
+- RED/GREEN evidence: docs contract RED 4 failed; GREEN docs/adjacent 21 passed; Ruff/format/diff passed.
+- Changed files: `docs/releases/0.1.0-rc.md`, `README.md`, `docs/platform-support.md`, `tests/test_m28_release_docs.py`
+- Review findings: Important -- unqualified "no public resume API" contradicts public Loop resume request support; evidence tests do not bind configured/historical statuses to their exact M28/M24 rows and permit contradictory verified claims. Minor -- duplicate 0.1.0 RC entry is not rejected.
+- Fix strategy: narrow wording to no collaboration-specific resume endpoint; parse exact evidence rows/sections, forbid contradictory M28 verified/pass claims, and assert a single 0.1.0 RC entry file.
+- Fix commit: `887608e`; RED strict contracts 2 failed/2 passed; GREEN adjacent 21 passed; Ruff/format/diff passed.
+- Review result: Spec passed; no blocking finding. Resume wording, exact evidence rows, contradiction guard, and unique RC entry all approved.
+- Requirements artifact: `.superpowers/sdd/task-3-brief.md`
+- Evidence boundary: M24 Pipeline 50 / Job 249 is historical container-only evidence; M28 installed-wheel required job remains configured/pending until a new run exists.
