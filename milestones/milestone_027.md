@@ -9,6 +9,7 @@
 - OpenSpec change: [`calibrate-collaboration-routing`](../openspec/changes/calibrate-collaboration-routing/)
 - 验证报告: [2026-07-29-m27-collaboration-routing-calibration-verify](../docs/superpowers/reports/2026-07-29-m27-collaboration-routing-calibration-verify.md)
 - 独立审查: [2026-07-29-m27-task4-independent-review](../docs/superpowers/reports/2026-07-29-m27-task4-independent-review.md)
+- 最终整分支审查: [2026-07-29-m27-final-independent-review](../docs/superpowers/reports/2026-07-29-m27-final-independent-review.md)
 
 ## 目标与范围
 

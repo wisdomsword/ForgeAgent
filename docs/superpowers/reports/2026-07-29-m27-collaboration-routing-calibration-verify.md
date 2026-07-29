@@ -180,6 +180,9 @@ Task 6 的首轮受影响测试暴露 `/single` 元数据遗漏：`1 failed, 520
 最终测试集合为 `532 passed, 10 skipped`，定向 Ruff 与 `git diff --check` 通过。该修复未重写
 上文完整仓库基线；完整基线仍以 Task 5 已记录的新鲜命令为准。
 
+最终整分支 reviewer 复审上述 5 个 Important 后给出 Approved，无剩余 Critical 或 Important。
+可审计记录见 [M27 最终整分支独立审查](2026-07-29-m27-final-independent-review.md)。
+
 ## 已知边界
 
 - 当前沙箱不能绑定 loopback socket；M16 黑盒测试未在本轮环境完成。
