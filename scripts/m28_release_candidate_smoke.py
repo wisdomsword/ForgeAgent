@@ -7,6 +7,7 @@ import importlib.metadata
 import importlib.resources
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -427,8 +428,16 @@ def run_parent(wheel: Path, output: Path, python: str) -> int:
             write_report(output, report)
             print("M28 RC smoke failed: clean-wheel", file=sys.stderr)
             return 1
+        python_match = re.fullmatch(
+            r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)",
+            loaded.get("python", "") if isinstance(loaded, dict) else "",
+        )
         if (
-            loaded.get("schema") != SCHEMA
+            set(loaded) != {"schema", "version", "python", "wheel_sha256", "passed", "checks"}
+            or loaded.get("schema") != SCHEMA
+            or loaded.get("version") != VERSION
+            or python_match is None
+            or tuple(map(int, python_match.groups())) < (3, 11, 0)
             or loaded.get("wheel_sha256") != digest
             or loaded.get("passed") is not True
             or loaded.get("checks") != dict.fromkeys(CHECK_NAMES, "passed")
