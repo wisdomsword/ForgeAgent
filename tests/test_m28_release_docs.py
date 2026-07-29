@@ -31,7 +31,6 @@ def _assert_unique_release_candidate(candidates: list[Path]) -> None:
 
 
 def _assert_no_m28_linux_success_claim(text: str) -> None:
-    has_pipeline_evidence = re.search(r"M28 Pipeline \d+ / Job \d+", text)
     for line in text.splitlines():
         lowered = line.casefold()
         positive_context = lowered.replace("not verified", "").replace("not passed", "")
@@ -41,6 +40,7 @@ def _assert_no_m28_linux_success_claim(text: str) -> None:
             positive_context,
         )
         claims_success = re.search(r"\b(?:passed|verified)\b|已通过", positive_context)
+        has_pipeline_evidence = re.search(r"M28 Pipeline \d+ / Job \d+", line)
         assert not (identifies_gate and claims_success and not has_pipeline_evidence), line
 
 
@@ -91,7 +91,7 @@ def test_release_candidate_freezes_status_install_and_required_boundaries() -> N
         assert fragment in text
 
 
-def test_release_candidate_does_not_promote_configured_or_historical_evidence() -> None:
+def test_release_candidate_records_linux_gate_without_promoting_historical_evidence() -> None:
     text = RC_PATH.read_text(encoding="utf-8")
 
     local_row = _markdown_table_row(
@@ -102,7 +102,8 @@ def test_release_candidate_does_not_promote_configured_or_historical_evidence() 
     m24_row = _markdown_table_row(text, "M24 Pipeline 50 / Job 249")
 
     assert local_row[1] == "verified"
-    assert m28_row[1] == "configured/pending"
+    assert m28_row[1] == "verified"
+    assert "M28 Pipeline 57 / Job 263" in " | ".join(m28_row)
     assert "Job 249" not in " | ".join(m28_row)
     assert m24_row[1] == "historical container-only evidence"
     _assert_no_m28_linux_success_claim(text)
@@ -118,6 +119,7 @@ def test_readme_links_release_candidate_near_current_verification() -> None:
 
     assert "docs/releases/0.1.0-rc.md" in current
     assert "Release Candidate，不是正式发布" in current
+    assert "M28 Pipeline 57 / Job 263" in current
 
 
 def test_platform_matrix_separates_m28_gate_from_m24_historical_evidence() -> None:
@@ -126,8 +128,9 @@ def test_platform_matrix_separates_m28_gate_from_m24_historical_evidence() -> No
     m28_row = _markdown_table_row(text, "M28 installed-wheel gate on required Linux Docker job")
     m28_section = text.split("## M28 Release Candidate Gate", 1)[1].split("\n## ", 1)[0]
 
-    assert m28_row[2] == "configured"
+    assert m28_row[2] == "verified"
     assert "artifacts/ci/rc-smoke.json" in " | ".join(m28_row)
+    assert "Pipeline 57 / Job 263" in " | ".join(m28_row)
     assert "M24 Pipeline 50 / Job 249 remains historical container-only evidence" in (m28_section)
     normalized_section = " ".join(m28_section.split())
     assert "must not be represented as an M28 installed-wheel smoke result" in (normalized_section)

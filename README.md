@@ -20,14 +20,15 @@ MCP 关闭墙钟合同在当前宿主调度下超时；隔离复跑仍为 `2 fai
 确定性的预算转发合同，未修改生产 MCP 代码。随后 M28 新增 hostile-proxy 与 Golden 冷启动两项
 回归及四项 pip cache 安全合同；最终完整 pytest 为 `2409 passed, 10 skipped`。
 Docker client 29.2.1 可用，但 daemon socket 不可连接；本机
-十项 container integration 与 Linux container RC smoke 未执行。M28 required Linux job 仍是
-configured/pending；M24 Pipeline 50 / Job 249 的十项通过记录只作为历史 container 证据。
+十项 container integration 与 Linux container RC smoke 未执行。GitLab M28 Pipeline 57 / Job 263
+已在 required Linux Docker runner 上通过十项零 skip 容器测试及六项 installed-wheel RC smoke；
+M24 Pipeline 50 / Job 249 的十项通过记录只作为历史 container 证据。
 
 M24 已完成并归档，change 见
 [`2026-07-27-m24-continuous-verification-platform-matrix`](openspec/changes/archive/2026-07-27-m24-continuous-verification-platform-matrix/)；持续验证入口见 [`.gitlab-ci.yml`](.gitlab-ci.yml)，平台证据和排期见
 [`docs/platform-support.md`](docs/platform-support.md)。Linux Docker 是必需 CI 门禁；本机
-macOS Docker Desktop 结果只作为 supplemental 证据；仅 Linux Docker runner topology (Pipeline 50 / Job 249)
-已 verified，不推断未记录的 Linux 架构、Podman 或 Windows 支持。
+macOS Docker Desktop 结果只作为 supplemental 证据；M28 Pipeline 57 / Job 263 只验证记录的
+Linux Docker runner topology，不推断未记录的 Linux 架构、Podman 或 Windows 支持。
 
 ## M27 协作路由校准（已完成并归档）
 

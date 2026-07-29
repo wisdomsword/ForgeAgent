@@ -25,8 +25,10 @@ tag/push、真实 provider 请求或新平台支持。
 - Linux job 复用 M24 Docker topology，并将 RC JSON 与 JUnit 一起设为 required artifact。
 - 裁决 M28-1（2026-07-29）：本地 Docker 与首次完整 pytest 缺口不冒充通过；允许冻结 RC。随后
   `83ba892` 仅修正依赖宿主调度的测试合同，生产 MCP 代码不变，完整 pytest 门禁已关闭；M28 已按
-  “定义并接入 required job” 的工程范围归档，正式发布仍由当前 Linux required job 和另行授权的
-  tag/上传阻塞。
+  “定义并接入 required job” 的工程范围归档。归档后 Pipeline 55 发现 offline job 未路由到唯一
+  项目 runner，`6028f2a` 修正标签；Pipeline 56 进一步暴露 root、缺少 `curl`/`jq` 和测试启动竞态，
+  `46bb875` 以非 root CI 与 tests-only 同步修正关闭。Pipeline 57 两项 required job 均通过，正式
+  发布只剩另行授权的 tag/上传动作。
 
 ## 关键提交
 
@@ -35,6 +37,7 @@ tag/push、真实 provider 请求或新平台支持。
 - Task 3：`03e1983`（RC 文档）、`887608e`、`2b476d3`（公开证据边界加固）。
 - Task 4：`37365bd`（分层验证、验证报告与里程碑草案）；后续 review fix 保持 M28 lifecycle gate 开放。
 - 完整 pytest：`83ba892`（tests-only MCP 调度可移植性合同修正；生产代码不变）。
+- Linux CI 收口：`6028f2a`（offline runner 路由）、`46bb875`（非 root/依赖与 tests-only 稳定性）。
 
 ## 子任务清单
 
@@ -42,7 +45,7 @@ tag/push、真实 provider 请求或新平台支持。
 - [x] 将真实 wheel packaging 合同与 required Linux Docker CI 接入同一 harness
 - [x] 冻结 RC 发布说明、平台矩阵和五类已知限制
 - [x] 运行本机可执行的分层验证并保存实际失败/未验证项
-- [x] required Linux job 配置与失败关闭合同完成 — 当前 runner 实跑证据作为正式发布阻塞项续接
+- [x] required Linux job 配置、失败关闭与 runner 实跑完成 — Pipeline 57 / Job 263 十项零 skip及六项 RC smoke 全绿
 - [x] 完整 pytest 门禁关闭 — 保留首次 `2 failed, 2401 passed, 10 skipped` 历史；`83ba892` 修正 tests-only 合同后为 `2403 passed, 10 skipped`，全部新增回归后的最终基线为 `2409 passed, 10 skipped`
 
 ## 交付物清单
@@ -72,16 +75,15 @@ tag/push、真实 provider 请求或新平台支持。
 - [x] focused RC 合同 `47 passed`；唯一 wheel Python 3.11.15 六项全通过
 - [x] Ruff、Golden `20/20`、OpenSpec strict `22/22`、wheel/sdist build 通过
 - [x] 完整 pytest 全绿 — 首次 `2 failed, 2401 passed, 10 skipped`；全部修正与新增回归后最终为 `2409 passed, 10 skipped`
-- [x] M28 Linux Docker CI 合同 — daemon/image preflight、十项零 skip、唯一 wheel、六项 JSON 与 artifact 发布均已配置并由专项测试覆盖；当前运行证据仍是正式发布阻塞项
+- [x] M28 Linux Docker CI 合同 — Pipeline 57 / Job 263 通过 daemon/image preflight、十项零 skip、唯一 wheel、六项 JSON，并发布 JUnit/JSON；offline Job 262 同时通过
 
 ## 遗留问题
 
-- [ ] M28 required Linux job 未运行 — 影响：候选不能表示为 release-ready — 计划：在现有 privileged Linux runner 运行并保存 pipeline/job ID、JUnit 与 RC JSON
-- [ ] 正式发布未执行 — 影响：无 tag/PyPI 上传证据 — 计划：仅在上述门禁与最终审查通过后另行授权
+- [ ] 正式发布未执行 — 影响：无 tag/PyPI 上传证据 — 计划：仅在最终候选 required pipeline 与审查通过后另行授权
 
 ## 续接指引
 
 M28 已完成 Comet verify/archive，delta spec 已同步到主 specs，`milestones/latest` 已切换到 M28；
-这是 RC 工程冻结，不是正式发布。下一步在 required Linux runner 运行当前候选，保留 pipeline/job
-ID、十项 JUnit 与六项 `rc-smoke.json`，再另行授权 tag/PyPI 正式发布动作。用户原有未跟踪文件
-继续保留，不纳入提交。
+这是 RC 工程冻结，不是正式发布。Pipeline 57 已保留 offline Job 262、Linux Job 263、十项 JUnit
+与六项 `rc-smoke.json` 证据；后续候选提交仍须通过自身 required pipeline。下一步仅在另行授权后
+执行 tag/PyPI 正式发布动作。用户原有未跟踪文件继续保留，不纳入提交。

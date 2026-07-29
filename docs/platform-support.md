@@ -8,7 +8,7 @@ is evaluated independently.
 
 | Platform tuple | Priority | Status | Prerequisites | Current evidence | Limitations | Next Comet trigger |
 | --- | --- | --- | --- | --- | --- | --- |
-| M28 installed-wheel gate on required Linux Docker job | P0 | configured | Existing privileged Docker runner topology, Python 3.11 image, package-index access, non-root execution, exact candidate wheel, and both evidence artifacts | Job is configured to publish `artifacts/ci/rc-smoke.json`; no M28 pipeline/job run exists yet | Configured is not verified; local real-wheel success and M24 container evidence do not prove this current gate | Run the required job for the current RC; record pipeline/job identifiers and validate all six smoke checks |
+| M28 installed-wheel gate on required Linux Docker job | P0 | verified | Existing privileged Docker runner topology, Python 3.11 image, package-index access, non-root execution, exact candidate wheel, and both evidence artifacts | M28 Pipeline 57 / Job 263: 10 container tests and all six installed-wheel checks passed; JUnit and `artifacts/ci/rc-smoke.json` published | The record proves only this runner topology and candidate; every later candidate commit must pass its own required pipeline | Candidate, runner topology, image, or gate contract changes |
 | Linux Docker runner topology (Pipeline 50 / Job 249) | P0 | verified | Linux Docker runner with Docker daemon, shared build volume, non-root job execution, and the checked-in JUnit contract | GitLab Pipeline 50 / Job 249: 10 passed, 0 skipped, 0 failures, 0 errors; JUnit artifact generated | The record proves this runner topology only; it does not establish unrecorded Linux architectures, Podman, Windows, or every Linux executor | Any runner topology change, or a DinD/container contract failure |
 | Linux + rootless Podman | P1 | scheduled | Product decision to support Podman; compatible CLI/mount/network/pids/user/kill semantics | No execution evidence | Current backend commands and hardening flags target Docker | Podman becomes a release target or a compatibility spike is scheduled |
 | Windows native | P2 | deferred | Product decision to support Windows; path, locking, resource-limit, and container-tier design | No execution evidence | Drive-letter colons and Unix-specific isolation assumptions require design work | Windows becomes a release target |
@@ -26,11 +26,12 @@ executor or build-volume topology must prove that contract before being marked `
 
 ## M28 Release Candidate Gate
 
-The M28 installed-wheel gate is `configured`, not verified. It builds exactly one candidate wheel,
-runs the six clean-wheel/CLI/HTTP/Single/Duo/Triad checks in Python 3.11, and requires
-`artifacts/ci/rc-smoke.json` in addition to the existing container JUnit artifact. The next evidence
-trigger is a successful required GitLab job for the current candidate with recorded pipeline/job IDs
-and a complete six-pass report. Local real-wheel verification does not satisfy this Linux requirement.
+The M28 installed-wheel gate is verified by M28 Pipeline 57 / Job 263. It built exactly one candidate
+wheel, passed the ten container tests with zero skips, ran the six
+clean-wheel/CLI/HTTP/Single/Duo/Triad checks in Python 3.11.15, and published both
+`artifacts/ci/rc-smoke.json` and the container JUnit artifact. This result is commit-bound; a later
+candidate must pass its own required pipeline. Local real-wheel verification alone does not satisfy
+this Linux requirement.
 
 M24 Pipeline 50 / Job 249 remains historical container-only evidence. It verifies the ten marked
 container integration tests for that runner topology and must not be represented as an M28
@@ -47,9 +48,9 @@ forwarded budgets, left production MCP code unchanged, and that fresh full run p
 Golden cold-start, and private pip-cache regressions.
 
 The local Docker client is 29.2.1, but `docker info` could not connect to
-`/Users/admin/.docker/run/docker.sock`. Therefore neither the ten container integration tests nor a
-supplemental Linux-container RC smoke were run for M28. The dated Linux runner evidence below remains
-separate historical evidence.
+`/Users/admin/.docker/run/docker.sock`. Therefore no supplemental local container integration or
+Linux-container RC smoke was run for M28. This local limitation does not replace or weaken the
+required GitLab Linux result above.
 
 ## Linux Docker Runner Evidence
 

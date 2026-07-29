@@ -49,8 +49,9 @@ Docker client 29.2.1 存在，daemon preflight 返回：
 Cannot connect to the Docker daemon at unix:///Users/admin/.docker/run/docker.sock.
 ```
 
-按 brief 未启动 Docker Desktop。因此十项 container integration 和 Linux-container RC smoke
-未执行；M28 required GitLab job 保持 configured/pending。
+按 brief 未启动 Docker Desktop。因此在推送前历史快照中，十项 container integration 和
+Linux-container RC smoke 未在本机执行，M28 required GitLab job 尚无运行证据；归档后 CI 收口
+见本文 `Archive Closure`。
 
 ## 交付文件
 
@@ -80,7 +81,7 @@ OpenSpec 5.1-5.3 已按 build 工作完成勾选：本机验证、最终审查/�
 
 - 跨模块：YES；本任务只更新证据文档和 lifecycle checklist，未改产品代码。
 - 安全/API/并发：NO 新增；既有 harness 风险由 Task 1-3 review 覆盖。
-- 外部环境：YES；Docker daemon 不可用，Linux job 无当前执行证据。
+- 外部环境（推送前历史快照）：YES；Docker daemon 不可用，当时 Linux job 尚无运行证据。
 - 完整门禁：CLOSED；全部修正与新增回归后最终 full pytest `2409 passed, 10 skipped`。
 - 大 diff：YES；验证报告和 milestone 需要完整场景映射，但没有新增抽象或依赖。
 
@@ -168,11 +169,12 @@ packaging 为 `1 passed in 43.36s`。首版修正后的合并结果 JUnit 为
 `2415 tests, 0 failures, 0 errors, 10 skipped`（`2405 passed, 10 skipped`，161.412 秒），Ruff
 check/format 与 OpenSpec strict `22/22` 通过；随后安全 cache 修正后的最终全量也已通过。
 
-安全 cache 修正经原审查者定点复核返回 `FIX_CONFIRMED`，无剩余 Critical/Important。最终 full JUnit
+安全 cache 修正经原审查者定点复核返回 `FIX_CONFIRMED`，无剩余 Critical/Important。归档时 full JUnit
 为 `2419 tests, 0 failures, 0 errors, 10 skipped`（`2409 passed, 10 skipped`，160.623 秒），focused
 为 `47 passed`，Ruff check/format 与 OpenSpec strict `22/22` 通过。最终 README 基线重建的唯一
-wheel/sdist SHA 分别为 `516fcfbd5dfce141d102d038c1d82e3bf8df71f4d413f22483468387c489a198` 与
-`cd205327b4e7ef64672aa548bb1c380d0efc3cd273a2407a7ab70c4744db6444`；metadata 包含最终基线，
+wheel/sdist 在 Linux 证据口径冻结后再次重建，SHA 分别为
+`c0d977bf109a8317e354b07d23ae86e5dc90c0fce30613be6bb940b0067d187a` 与
+`2eac981bbc7bcb737e7e747a22c445e75cd75240385200846a990c05b4d2ecb2`；metadata 包含最终基线，
 Python 3.11.15 六项 harness 全通过。
 
 ## Archive Closure
@@ -180,4 +182,7 @@ Python 3.11.15 六项 harness 全通过。
 Comet verify guard 全部通过，分支已本地合并到 `main`，feature 分支已删除；归档脚本 `7/7` 成功，
 delta spec 已同步到主 specs，design/plan 已标注，change 已移动到
 `openspec/changes/archive/2026-07-29-m28-v0-1-release-candidate/`。`milestones/latest` 已切换到 M28。
-当前 Linux job 仍 configured/pending，仅阻塞正式 release-ready；未执行 push、tag 或 PyPI 上传。
+归档后为取得外部实证已正常 push。Pipeline 55 暴露 offline job 未路由到唯一项目 runner；Pipeline
+56 暴露 root、缺少 `curl`/`jq` 与两项测试启动竞态；修复后 M28 Pipeline 57 的 offline Job 262 和
+Linux Job 263 均为 required 且成功，后者十项零 skip、六项 RC smoke 全绿并发布 JUnit/JSON。
+未执行 tag 或 PyPI 上传，仍不是正式发布。

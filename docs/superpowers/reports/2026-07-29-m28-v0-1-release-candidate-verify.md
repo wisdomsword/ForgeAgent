@@ -4,17 +4,18 @@
 
 M28 的本地实现与 Comet verify 证据已通过，change 已归档。当前证据确认唯一 wheel 的
 Python 3.11 clean install、CLI、HTTP、Single、Duo、Triad 六项离线 smoke 通过，Linux required job
-已配置，发布说明和五类已知限制已冻结。两项依赖宿主调度的 MCP 墙钟测试合同已用确定性的预算
+已验证，发布说明和五类已知限制已冻结。两项依赖宿主调度的 MCP 墙钟测试合同已用确定性的预算
 转发断言修正，Golden G14 的场景预算也已用真实 worker 冷启动回归固定；生产 MCP 与 sandbox 代码
-均未变，最终完整 pytest 全绿。本机 Docker daemon 不可用，且没有当前 M28 GitLab pipeline/job
-证据，因此这些只构成 RC 工程冻结证据，不构成正式发布结论。
+均未变，最终完整 pytest 全绿。M28 Pipeline 57 的 offline Job 262 与 Linux Docker Job 263 均为
+required 且通过；Linux job 十项零 skip、六项 installed-wheel smoke 全绿并发布 JUnit/JSON。这些
+构成 RC 工程冻结证据，但没有 tag/PyPI 上传，仍不构成正式发布结论。
 
 ## 范围
 
 - 单一仓库级 RC harness、版本化 JSON 与失败关闭合同。
 - packaging 真实 wheel 安装合同及 required Linux Docker CI 配置。
 - `0.1.0` RC 说明、README、平台矩阵和已知限制冻结。
-- 不包含 PyPI 上传、tag、push、真实 provider 请求或平台支持扩张。
+- 不包含 PyPI 上传、tag、真实 provider 请求或平台支持扩张；仅正常 push 以执行 required CI。
 
 ## 新鲜验证
 
@@ -31,7 +32,9 @@ Python 3.11 clean install、CLI、HTTP、Single、Duo、Triad 六项离线 smoke
 | `uv run python -m tests.golden.runner --output-dir artifacts/m28/golden-final` | exit 0；`report.md` 为 `20/20 passed (100.0%)`，G14 为 `PASS` |
 | `openspec validate --all --strict` | `22 passed, 0 failed` |
 | `uv build --out-dir artifacts/m28/dist-final` | 最终唯一 wheel 与 sdist 构建成功；metadata 包含 `2409/10`、`22/22`、focused `47` |
-| `PIP_CACHE_DIR=$PWD/artifacts/m28/pip-cache uv run python scripts/m28_release_candidate_smoke.py --wheel artifacts/m28/dist-final/forgeagent-0.1.0-py3-none-any.whl --output artifacts/m28/rc-smoke-secure-final.json --python /Users/admin/.local/bin/python3.11` | exit 0；最终 SHA `516fcfbd...9a198` 六项全通过 |
+| `PIP_CACHE_DIR=$PWD/artifacts/m28/pip-cache uv run python scripts/m28_release_candidate_smoke.py --wheel artifacts/m28/dist-release-evidence-final/forgeagent-0.1.0-py3-none-any.whl --output artifacts/m28/rc-smoke-release-evidence-final.json --python /Users/admin/.local/bin/python3.11` | exit 0；最终 SHA `c0d977bf...d187a` 六项全通过 |
+| GitLab M28 Pipeline 57 / offline Job 262 | required，success；Ruff、完整 pytest、Golden `20/20`、OpenSpec strict `22/22` 与 wheel/sdist build 通过 |
+| GitLab M28 Pipeline 57 / Linux Job 263 | required，success；JUnit `10 tests, 0 failures, 0 errors, 0 skipped`；Python 3.11.15 六项 RC JSON 全通过 |
 
 首次完整 pytest 的失败为：
 
@@ -73,7 +76,7 @@ cache；默认不跨临时 HOME 共享。RED 单元合同先失败；首版共�
 - schema：`forgeagent.release-candidate-smoke/v1`
 - version：`0.1.0`
 - python：`3.11.15`
-- wheel SHA-256：`516fcfbd5dfce141d102d038c1d82e3bf8df71f4d413f22483468387c489a198`
+- wheel SHA-256：`c0d977bf109a8317e354b07d23ae86e5dc90c0fce30613be6bb940b0067d187a`
 - passed：`true`
 - checks：`clean-wheel`、`cli`、`http`、`single`、`duo`、`triad` 均为 `passed`
 
@@ -81,8 +84,9 @@ cache；默认不跨临时 HOME 共享。RED 单元合同先失败；首版共�
 
 早期候选的首次 clean-wheel 执行在 pip 下载依赖时超时，失败关闭且没有被记为通过。最终 README
 基线和 cache 安全合同收口后重建唯一 wheel/sdist；wheel/sdist metadata 均包含 `2409/10`、
-OpenSpec `22/22` 与 focused `47`。最终 `rc-smoke-secure-final.json` 使用 Python 3.11.15 对 SHA
-`516fcfbd...9a198` 的同一 wheel 完成六项全通过。
+OpenSpec `22/22` 与 focused `47`。Linux 证据口径冻结后，从当前 README 重建的
+`rc-smoke-release-evidence-final.json` 使用 Python 3.11.15 对 SHA `c0d977bf...d187a` 的同一 wheel
+完成六项全通过。
 
 ## Docker 与 Linux 证据
 
@@ -93,9 +97,9 @@ Cannot connect to the Docker daemon at unix:///Users/admin/.docker/run/docker.so
 ```
 
 因此没有执行本机十项 `container_integration`，也没有生成 supplemental Linux-container
-`linux-rc-smoke.json`。GitLab job 已配置为精确验证十项测试、唯一 wheel、六项 RC JSON 并始终发布
-JUnit/JSON；在当前候选的 required job 实际通过前，它仍是 configured/pending。M24 Pipeline 50 /
-Job 249 只作为历史 container-only 证据。
+`linux-rc-smoke.json`。GitLab M28 Pipeline 57 / Job 263 已精确验证十项测试、唯一 wheel、六项 RC
+JSON，并发布 JUnit/JSON；这证明记录的 required Linux Docker topology 和候选，不外推其他 Linux
+架构、Podman 或 Windows。M24 Pipeline 50 / Job 249 只作为历史 container-only 证据。
 
 ## Task Review 与修复
 
@@ -104,8 +108,8 @@ Job 249 只作为历史 container-only 证据。
   与 Python 版本合同。
 - Task 2 review 修复 GitLab folded-shell 非 fail-closed 以及 bootstrap 安装失败不产出 JSON 的问题；
   现在 wheel 数量异常和 bootstrap 失败均退出非零并留下有界失败报告。
-- Task 3 review 将证据测试从独立 token 升级为精确表格行绑定，拒绝 M28 Linux 成功夸大，并把
-  resume 限制精确到协作专用 endpoint。
+- Task 3 review 将证据测试从独立 token 升级为精确表格行绑定，仅在同一行含 M28 pipeline/job
+  实证时允许 Linux verified，并把 resume 限制精确到协作专用 endpoint。
 - Task 4 review 发现里程碑生命周期过早收口和完整 pytest 阻塞表述不一致；`e696737` 恢复进行中
   状态，`83ba892` 以 tests-only 可移植性合同关闭完整 pytest 门禁，生产 MCP 实现不变。
 - 最终整分支 review 发现默认 `urlopen()` 可能读取 ambient proxy，违反离线 loopback 合同；新增
@@ -119,9 +123,9 @@ Job 249 只作为历史 container-only 证据。
 
 ## OpenSpec 场景映射
 
-实现完整性为 `7/7` requirements；场景覆盖为 `17/17`。其中当前 Linux 执行场景通过 CI 配置与
-fail-closed 合同验证实现正确性，但没有被误记为本轮运行成功；因此它仍是正式发布证据缺口，而不是
-M28 “定义并接入 required job” 实现缺口。Tasks 为 `12/12`，未发现 Critical/Important 偏差。
+实现完整性为 `7/7` requirements；场景覆盖为 `17/17`。当前 Linux 执行场景由 Pipeline 57 / Job
+263 实际通过；Pipeline 55/56 的路由、root、依赖和竞态失败保留为审计链，并由最小修复关闭。Tasks
+为 `12/12`，未发现未解决 Critical/Important 偏差。
 
 ### release-candidate-verification
 
@@ -132,26 +136,26 @@ M28 “定义并接入 required job” 实现缺口。Tasks 为 `12/12`，未发
 | HTTP 生命周期 / 鉴权 | `http=passed`；真实 loopback submit/query/cancel、401 不创建任务和有界关闭合同 |
 | Single/Duo/Triad 完成 / 角色回归 | 三项均 `passed`；真实 runtime + MockClient 固定 structured submit，任一角色失败使后续非通过 |
 | JSON 全通过 / 检查失败 | schema v1 六项全通过；Task 1 fail-closed、精确字段、原子 replace 与脱敏负向合同 |
-| RC 发布说明 / 限制弱化 | 文档专项包含在 47 passed；五类限制、configured/historical 边界和反夸大 mutation 合同 |
+| RC 发布说明 / 限制弱化 | 文档专项；五类限制、current/historical 边界和 M28 pipeline/job 同行绑定合同 |
 
 ### continuous-verification
 
 | Scenario | 证据 |
 | --- | --- |
-| Docker ready | CI 配置保持 daemon/image preflight 与精确十项零 skip；本机未满足，未执行 |
+| Docker ready | Pipeline 57 / Job 263 通过 daemon/image preflight 与精确十项零 skip |
 | daemon/image unavailable | 当前 `docker info` 非零；按合同不进入 pytest，不产生成功结论 |
-| container skip/fail | CI/JUnit 合同测试包含在 focused 47 passed；没有本轮执行结果 |
-| installed-wheel RC smoke passes on Linux | job 配置、唯一 wheel 与六项 JSON 合同存在；无当前 pipeline，状态 configured/pending |
+| container skip/fail | CI/JUnit 合同失败关闭；Job 263 JUnit 为 10/0/0/0 |
+| installed-wheel RC smoke passes on Linux | M28 Pipeline 57 / Job 263：Python 3.11.15 六项全通过并发布 JSON |
 | installed-wheel incomplete/fails | wheel cardinality、bootstrap fallback、JSON exactness 均 fail closed；Task 2 review fix 验证 |
 
 ## 已知限制与正式发布阻塞
 
-- 平台：当前 M28 required Linux job 未执行；不外推 Podman、Windows 或其他 Linux topology。
+- 平台：M28 Pipeline 57 / Job 263 只验证记录的 Linux Docker topology；不外推 Podman、Windows 或其他 Linux topology。
 - 真实模型：harness 只用 MockClient，未读取凭据、外发请求或产生费用。
 - sandbox：restricted 是应用层边界；container 依赖 daemon/镜像/宿主，不是多租户密封边界。
 - HTTP：仅 loopback + bearer，无 TLS、公网反代或多租户承诺。
 - 协作 v1：没有协作专用 resume endpoint；headless Triad 默认不自动批准计划。
 - 完整 pytest：首次两个 MCP 墙钟测试失败已由 `83ba892` 的 tests-only 可移植性修正关闭；全部新增回归后的最终全量为 `2409 passed, 10 skipped`，生产 MCP 代码未变。
 
-本报告已完成 verify/archive 证据收口，不提前宣称正式发布。正式发布仍要求当前 M28 Linux
-required job 通过并保留 pipeline/job artifact，以及另行授权的 tag/上传动作。
+本报告已完成 verify/archive 证据收口，不提前宣称正式发布。required Linux 证据已由 M28 Pipeline
+57 / Job 263 保留；正式发布仍要求最终候选自身 required pipeline 通过，以及另行授权的 tag/上传动作。
