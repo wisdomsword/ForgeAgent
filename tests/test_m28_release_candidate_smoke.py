@@ -394,6 +394,36 @@ def test_run_parent_never_keeps_passed_report_after_child_failure(tmp_path, monk
     }
 
 
+def test_run_parent_rejects_contradictory_zero_exit_report(tmp_path, monkeypatch, capsys):
+    wheel = _wheel(tmp_path / "forgeagent-0.1.0-py3-none-any.whl")
+    output = tmp_path / "report.json"
+
+    def fake_run(argv, **_kwargs):
+        if "--installed" in argv:
+            report = smoke.new_report("a" * 64)
+            report["checks"] = dict.fromkeys(smoke.CHECK_NAMES, "passed")
+            report["checks"]["cli"] = "failed"
+            smoke.finalize_report(report)
+            smoke.write_report(output, report)
+        return subprocess.CompletedProcess(argv, 0, stdout=b"", stderr=b"")
+
+    monkeypatch.setattr(smoke, "wheel_identity", lambda _wheel: ("0.1.0", "a" * 64))
+    monkeypatch.setattr(smoke.subprocess, "run", fake_run)
+
+    assert smoke.run_parent(wheel, output, sys.executable) == 1
+    report = json.loads(output.read_text())
+    assert report["passed"] is False
+    assert report["checks"] == {
+        "clean-wheel": "failed",
+        "cli": "not-run",
+        "http": "not-run",
+        "single": "not-run",
+        "duo": "not-run",
+        "triad": "not-run",
+    }
+    assert capsys.readouterr().err == "M28 RC smoke failed: clean-wheel\n"
+
+
 def test_main_routes_public_and_private_modes(monkeypatch, tmp_path):
     wheel = tmp_path / "candidate.whl"
     output = tmp_path / "report.json"

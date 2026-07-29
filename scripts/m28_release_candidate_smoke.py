@@ -433,22 +433,10 @@ def run_parent(wheel: Path, output: Path, python: str) -> int:
             or loaded.get("passed") is not True
             or loaded.get("checks") != dict.fromkeys(CHECK_NAMES, "passed")
         ):
-            checks = loaded.get("checks")
-            bounded_report = new_report(digest)
-            bounded_checks = bounded_report["checks"]
-            assert isinstance(bounded_checks, dict)
-            if isinstance(checks, dict):
-                for name in CHECK_NAMES:
-                    if checks.get(name) in {"passed", "failed", "not-run"}:
-                        bounded_checks[name] = checks[name]
-            failed_check = next(
-                (name for name in CHECK_NAMES if bounded_checks.get(name) == "failed"),
-                "clean-wheel",
-            )
-            bounded_checks[failed_check] = "failed"
-            finalize_report(bounded_report)
-            write_report(output, bounded_report)
-            print(f"M28 RC smoke failed: {failed_check}", file=sys.stderr)
+            report = new_report(digest)
+            report["checks"]["clean-wheel"] = "failed"
+            write_report(output, report)
+            print("M28 RC smoke failed: clean-wheel", file=sys.stderr)
             return 1
         return 0
     except Exception:
