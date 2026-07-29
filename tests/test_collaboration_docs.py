@@ -60,6 +60,18 @@ def test_readme_keeps_explicit_modes_and_bound_checks_on_trusted_host_boundary()
     assert "任务文本" in text
 
 
+def test_readme_documents_default_cli_route_audit_destination() -> None:
+    text = _text("README.md")
+
+    for fragment in (
+        "`~/.forgeagent/audit.jsonl`",
+        "审计文件初始化失败",
+        "任务执行前停止",
+        "目标、命令参数或路径",
+    ):
+        assert fragment in text
+
+
 def test_readme_documents_memory_runtime_as_user_editable_and_atomic() -> None:
     text = _text("README.md")
 

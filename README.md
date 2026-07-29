@@ -33,6 +33,10 @@ M27 已根据 M25 冻结协议完成路由裁决：默认 Single；用户显式�
 类别的 Triad solved rate 严格高于 Single，因此不恢复任何类别的自动 Triad。详见
 [`M27 派生报告`](docs/evaluation/m25/derived/m27-collaboration-routing/report.md)。
 
+产品 CLI 的 `run`、`loop` 和 REPL 默认把路由事件写入 `~/.forgeagent/audit.jsonl`；嵌入宿主注入
+audit sink 时优先使用该 sink。审计文件初始化失败会在任务执行前停止并返回错误，固定诊断不包含
+目标、命令参数或路径。路由事件只保存稳定 mode、reason 和必要关联标识。
+
 2026-07-26 已完成 restricted worker bootstrap 加固与发布完整性收尾。sdist 采用显式输入
 allowlist，只包含包源码、`pyproject.toml`、`README.md`、`uv.lock`，另保留 Hatchling
 必需或生成的 `.gitignore`、`PKG-INFO`；agent/workflow/OpenSpec 开发目录和用户本地文件均由
