@@ -1,6 +1,6 @@
 workflow: full
 language: zh-CN
-phase: verify
+phase: archive
 context_compression: off
 build_mode: subagent-driven-development
 build_pause: null
@@ -13,11 +13,11 @@ auto_transition: true
 base_ref: 1273e90b00adeab0b85d3db7bdc0463c82e7dc2a
 design_doc: docs/superpowers/specs/2026-07-29-m27-collaboration-routing-calibration-design.md
 plan: docs/superpowers/plans/2026-07-29-m27-collaboration-routing-calibration.md
-verify_result: pending
-verification_report: null
-branch_status: pending
+verify_result: pass
+verification_report: docs/superpowers/reports/2026-07-29-m27-collaboration-routing-calibration-verify.md
+branch_status: handled
 created_at: 2026-07-28
-verified_at: null
+verified_at: 2026-07-29
 archived: false
 direct_override: null
 handoff_context: openspec/changes/calibrate-collaboration-routing/.comet/handoff/design-context.json
