@@ -208,9 +208,7 @@ with warnings.catch_warnings():
                 return value
             migrated = dict(value)
             migrated["collaboration_mode_source"] = (
-                "explicit"
-                if migrated.get("collaboration_mode") in {"duo", "triad"}
-                else "default"
+                "explicit" if migrated.get("collaboration_mode") in {"duo", "triad"} else "default"
             )
             return migrated
 
