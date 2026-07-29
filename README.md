@@ -8,6 +8,9 @@
 
 pytest: `2337 passed, 22 skipped`；OpenSpec strict: `21/21`.
 
+ForgeAgent `0.1.0` 当前是 Release Candidate，不是正式发布；安装、已验证范围、正式发布阻塞条件和
+冻结的已知限制见 [`docs/releases/0.1.0-rc.md`](docs/releases/0.1.0-rc.md)。
+
 该 pytest 结果是 2026-07-29 M27 当前沙箱可执行基线，排除当前沙箱禁止 loopback socket 的
 M16 黑盒测试文件和依赖安装受离线网络限制的 packaging 测试文件。未排除的完整 pytest 尝试为
 `2340 passed, 22 skipped, 12 failed`：11 项在分配 loopback port 时被操作系统拒绝，1 项在隔离
