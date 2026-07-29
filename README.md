@@ -6,11 +6,11 @@
 
 ## 当前验证
 
-pytest: `2336 passed, 22 skipped`；OpenSpec strict: `21/21`.
+pytest: `2337 passed, 22 skipped`；OpenSpec strict: `21/21`.
 
 该 pytest 结果是 2026-07-29 M27 当前沙箱可执行基线，排除当前沙箱禁止 loopback socket 的
 M16 黑盒测试文件和依赖安装受离线网络限制的 packaging 测试文件。未排除的完整 pytest 尝试为
-`2339 passed, 22 skipped, 12 failed`：11 项在分配 loopback port 时被操作系统拒绝，1 项在隔离
+`2340 passed, 22 skipped, 12 failed`：11 项在分配 loopback port 时被操作系统拒绝，1 项在隔离
 构建依赖解析时因 DNS 不可用失败；这些项目未被误报为通过。本机 Docker Desktop 专项为
 `10 passed`、零 skip；2026-07-28 手工 Linux runner 专项为 `10 passed`、零 skip；GitLab Linux
 Docker Job 249 为 `10 passed`、零 skip；Golden: `20/20`。

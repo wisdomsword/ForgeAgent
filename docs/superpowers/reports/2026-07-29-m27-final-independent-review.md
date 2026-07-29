@@ -26,8 +26,8 @@ Important finding。
 
 - 最终审查修复受影响集合：`532 passed, 10 skipped`。
 - 扩大 M27 回归：`582 passed, 10 skipped`。
-- 当前沙箱可执行仓库基线：`2336 passed, 22 skipped`。
-- 未排除完整尝试：`12 failed, 2339 passed, 22 skipped`；11 项 loopback 与 1 项隔离 packaging
+- 当前沙箱可执行仓库基线：`2337 passed, 22 skipped`。
+- 未排除完整尝试：`12 failed, 2340 passed, 22 skipped`；11 项 loopback 与 1 项隔离 packaging
   环境失败在主验证报告逐项保留。
 - Ruff check、115 files format、OpenSpec strict `21/21`、Golden `20/20`、离线 wheel/sdist build
   与 diff check 通过。
