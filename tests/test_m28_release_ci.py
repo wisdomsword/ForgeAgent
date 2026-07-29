@@ -2,12 +2,28 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+import platform
+import shlex
+import subprocess
+import sys
 from pathlib import Path
 
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 CHECKS = ("clean-wheel", "cli", "http", "single", "duo", "triad")
+
+
+def _wheel_selection_command() -> str:
+    ci = yaml.safe_load((ROOT / ".gitlab-ci.yml").read_text(encoding="utf-8"))
+    command = next(
+        item
+        for item in ci["linux-docker-container"]["script"]
+        if "set -- artifacts/ci/dist/forgeagent-0.1.0-*.whl" in item
+    )
+    return command.split("su-exec forgeagent mkdir", maxsplit=1)[0]
 
 
 def test_release_ci_runs_fixed_python_installed_wheel_smoke() -> None:
@@ -58,3 +74,68 @@ def test_release_ci_report_assertion_is_exact() -> None:
         'all(r["checks"][name] == "passed"',
     ):
         assert marker in script
+
+
+def test_release_ci_wheel_cardinality_fails_closed(tmp_path: Path) -> None:
+    command = _wheel_selection_command()
+    wheel_dir = tmp_path / "artifacts" / "ci" / "dist"
+    wheel_dir.mkdir(parents=True)
+
+    assert 'test "$#" -eq 1 || exit 1;' in command
+    assert 'test -f "$1" || exit 1;' in command
+    assert subprocess.run(["sh", "-c", command], cwd=tmp_path).returncode != 0
+
+    (wheel_dir / "forgeagent-0.1.0-one.whl").touch()
+    assert subprocess.run(["sh", "-c", command], cwd=tmp_path).returncode == 0
+
+    (wheel_dir / "forgeagent-0.1.0-two.whl").touch()
+    assert subprocess.run(["sh", "-c", command], cwd=tmp_path).returncode != 0
+
+
+def test_release_ci_bootstrap_failure_writes_bounded_report(tmp_path: Path) -> None:
+    ci = yaml.safe_load((ROOT / ".gitlab-ci.yml").read_text(encoding="utf-8"))
+    command = next(
+        item for item in ci["linux-docker-container"]["script"] if "docker run --rm" in item
+    )
+
+    for marker in (
+        "if python -m pip install",
+        "else python -c",
+        "hashlib",
+        "platform.python_version()",
+        '"clean-wheel":"failed"',
+        '"cli":"not-run"',
+        '"http":"not-run"',
+        '"single":"not-run"',
+        '"duo":"not-run"',
+        '"triad":"not-run"',
+        "os.replace(temp,output)",
+        "exit 1",
+    ):
+        assert marker in command
+
+    fallback = shlex.split(command)[-1]
+    wheel = tmp_path / "forgeagent-0.1.0-test.whl"
+    wheel.write_bytes(b"candidate wheel")
+    report_path = tmp_path / "rc-smoke.json"
+    subprocess.run(
+        [sys.executable, "-c", fallback, str(wheel), str(report_path)],
+        check=True,
+    )
+
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report == {
+        "schema": "forgeagent.release-candidate-smoke/v1",
+        "version": "0.1.0",
+        "python": platform.python_version(),
+        "wheel_sha256": hashlib.sha256(wheel.read_bytes()).hexdigest(),
+        "passed": False,
+        "checks": {
+            "clean-wheel": "failed",
+            "cli": "not-run",
+            "http": "not-run",
+            "single": "not-run",
+            "duo": "not-run",
+            "triad": "not-run",
+        },
+    }
