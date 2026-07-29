@@ -37,7 +37,7 @@ M24 Pipeline 50 / Job 249 remains historical container-only evidence. It verifie
 container integration tests for that runner topology and must not be represented as an M28
 installed-wheel smoke result.
 
-Current offline repository baseline: `2409 passed, 10 skipped`; OpenSpec strict `22/22`;
+Current offline repository baseline: `2410 passed, 10 skipped`; OpenSpec strict `23/23`;
 Golden `20/20`. M28 local RC evidence on 2026-07-29 is: focused release contracts `47 passed`,
 Ruff check/format and wheel/sdist build passed. The unique built wheel ran
 the six clean-wheel/CLI/HTTP/Single/Duo/Triad checks successfully with Python 3.11.15. The first full
