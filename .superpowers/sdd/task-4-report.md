@@ -10,17 +10,18 @@ review 与两轮一致性复审均已完成；OpenSpec verify/archive 留给 Com
 
 ## 新鲜证据
 
-- focused RC：`43 passed in 51.34s`
+- focused RC：JUnit `43 tests, 0 failures, 0 errors, 0 skipped`
 - Ruff check：`All checks passed!`
 - Ruff format：`119 files already formatted`
 - full pytest：`2 failed, 2401 passed, 10 skipped in 169.62s`
 - MCP timing 修正后 focused：`2 passed in 0.23s`；MCP suite：`216 passed in 9.28s`
-- 修正后 full pytest：`2403 passed, 10 skipped in 167.99s`
+- MCP tests-only 修正后 full pytest：`2403 passed, 10 skipped in 167.99s`
+- 最终 full pytest：JUnit `2415 tests, 0 failures, 0 errors, 10 skipped`，即 `2405 passed, 10 skipped`
 - Golden：exit 0，`20/20 passed (100.0%)`
 - OpenSpec strict：`22 passed, 0 failed`
 - build：唯一 `forgeagent-0.1.0-py3-none-any.whl` 与 sdist 成功
 - RC harness：exit 0；Python 3.11.15，最终 wheel SHA-256
-  `e09507e4ea14023ba9833d7ecb9a57cd89de310d8070225429fcbc371d66492c`，六项全 passed
+  `44c5123b6ccc64ef69e15c9aefb9b8151cab7aed4e39eb622fbf046a2f0c04ba`，六项全 passed
 - docs/continuous/collaboration 合同复跑：`21 passed in 0.09s`
 - final strict 复跑：`22 passed, 0 failed`
 
@@ -79,7 +80,7 @@ OpenSpec 5.1-5.3 已按 build 工作完成勾选：本机验证、最终审查/�
 - 跨模块：YES；本任务只更新证据文档和 lifecycle checklist，未改产品代码。
 - 安全/API/并发：NO 新增；既有 harness 风险由 Task 1-3 review 覆盖。
 - 外部环境：YES；Docker daemon 不可用，Linux job 无当前执行证据。
-- 完整门禁：CLOSED；tests-only 可移植性合同修正后 full pytest `2403 passed, 10 skipped`。
+- 完整门禁：CLOSED；MCP tests-only 修正及两项新增回归后最终 full pytest `2405 passed, 10 skipped`。
 - 大 diff：YES；验证报告和 milestone 需要完整场景映射，但没有新增抽象或依赖。
 
 ## Task Review Fix
@@ -93,7 +94,7 @@ pytest 条件收紧为全绿，或失败经已批准 change 明确裁决并关�
 ## MCP 修正后证据刷新
 
 提交 `521bb49`（`docs: refresh M28 verification baseline`）保留首次 full-suite 失败与复现历史，新增
-`83ba892` tests-only 修正 provenance 和新鲜 `2403 passed, 10 skipped` 基线。milestone 的完整
+`83ba892` tests-only 修正 provenance 和当时新鲜的 `2403 passed, 10 skipped` 基线。milestone 的完整
 pytest 项已关闭；M28 仍为进行中，current Linux required job、最终 review/archive 和另行授权的
 tag/上传仍开放。文档/continuous/collaboration 合同 `21 passed in 0.09s`，OpenSpec strict
 `22 passed, 0 failed`，`git diff --check` 通过。
@@ -109,7 +110,7 @@ wheel METADATA 会嵌入 README，因而该 artifact 仍携带旧 M27 基线，�
 按复审要求从 `e2e1255` 当前 README 重建 wheel/sdist；wheel METADATA 与 sdist PKG-INFO 均包含
 `2403 passed, 10 skipped`、OpenSpec `22/22` 与 M28 RC `43 passed`，不再携带旧 M27 基线。正确的父
 流程由开发环境 `uv run python` 驱动，并将 clean venv 解释器固定为 Python 3.11.15；六项 JSON
-全 passed，新 SHA 为 `e09507e4ea14023ba9833d7ecb9a57cd89de310d8070225429fcbc371d66492c`。
+全 passed，当时的 SHA 为 `e09507e4ea14023ba9833d7ecb9a57cd89de310d8070225429fcbc371d66492c`。
 focused 四文件合同复跑 `41 passed`。一次直接用裸 Python 3.11 启动父脚本因开发依赖不可导入而
 失败，确认是调用方式偏离实施计划，随后用计划命令成功重跑；未把该误调用记作候选失败。
 原复审者对 `6be9f6a` 做定点复核后返回 `FIX_CONFIRMED`；Task 4 review gate 已关闭。
@@ -126,7 +127,7 @@ GREEN 为 focused `1 passed`、HTTP/协作相邻 `184 passed`，Ruff、format �
 
 第一轮逐项核对 proposal、delta spec、Design Doc、计划、公开证据与 lifecycle。期间怀疑代理修复会
 改变 wheel SHA；重建后确认仓库级 `scripts/` harness 不进入 wheel/sdist，候选字节和 SHA 保持
-`e09507e4...66492c`。仍用修复后的 harness 对该候选重跑 Python 3.11.15 六项并全部通过。归档前
+`e09507e4...d66492c`。仍用修复后的 harness 对该候选重跑 Python 3.11.15 六项并全部通过。归档前
 `milestones/latest` 保持 M27；plan/OpenSpec 将 build 工作表述为准备完整归档输入，实际指针切换和
 change 移动留给 archive gate。
 
@@ -144,3 +145,13 @@ credential/目标/绝对临时路径；merge-base diff 不含用户已有未跟�
 format、diff 通过；最终 Golden 20/20 留给重新进入 verify 后的新鲜执行。
 原终审者定点复核后返回 `FIX_CONFIRMED`：核心 timeout/feedback/isolation/reap 合同未弱化，无生产
 sandbox 变更，也无未解决 Critical/Important。
+
+## Final Verify Round 2
+
+G14 修正后重新进入 verify：focused JUnit 为 `43/0/0/0`，完整 JUnit 为
+`2415 tests, 0 failures, 0 errors, 10 skipped`（`2405 passed, 10 skipped`），Golden 为 `20/20`，
+Ruff check/format、OpenSpec strict `22/22` 与 build 均通过。最终 README 增加两项回归说明后重建
+唯一 wheel/sdist，wheel SHA 为 `44c5123b6ccc64ef69e15c9aefb9b8151cab7aed4e39eb622fbf046a2f0c04ba`，
+sdist SHA 为 `c4633dc1efdcbadded25895f6648e9287ce52c1a30535d84de2fdf05064fada3`；两份 metadata 均携带
+`2405/10`、`22/22` 与 focused `43`。首次 clean-wheel 因依赖下载超时而失败关闭；同一 wheel 的
+新 venv 安装诊断通过，随后原 harness 重跑六项全通过。没有替换候选或隐藏失败历史。

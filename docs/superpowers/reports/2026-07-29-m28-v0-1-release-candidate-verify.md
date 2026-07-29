@@ -2,11 +2,12 @@
 
 ## 结论
 
-M28 仍在进行中。当前证据确认唯一 wheel 的 Python 3.11 clean install、CLI、HTTP、Single、Duo、
-Triad 六项离线 smoke 通过，Linux required job 已配置，发布说明和五类已知限制已冻结；这些只构成
-RC 工程冻结证据，不构成里程碑完成或正式发布结论。两项依赖宿主调度的 MCP 墙钟测试合同已用
-确定性的预算转发断言修正，生产 MCP 代码未变，修正后完整 pytest 全绿。本机 Docker daemon 不可用，
-且没有当前 M28 GitLab pipeline/job 证据。
+M28 的本地实现与 Comet verify 证据已通过，等待 archive 收口。当前证据确认唯一 wheel 的
+Python 3.11 clean install、CLI、HTTP、Single、Duo、Triad 六项离线 smoke 通过，Linux required job
+已配置，发布说明和五类已知限制已冻结。两项依赖宿主调度的 MCP 墙钟测试合同已用确定性的预算
+转发断言修正，Golden G14 的场景预算也已用真实 worker 冷启动回归固定；生产 MCP 与 sandbox 代码
+均未变，最终完整 pytest 全绿。本机 Docker daemon 不可用，且没有当前 M28 GitLab pipeline/job
+证据，因此这些只构成 RC 工程冻结证据，不构成正式发布结论。
 
 ## 范围
 
@@ -19,15 +20,16 @@ RC 工程冻结证据，不构成里程碑完成或正式发布结论。两项�
 
 | 命令 | 结果 |
 | --- | --- |
-| `uv run pytest -q tests/test_m28_release_candidate_smoke.py tests/test_m28_release_ci.py tests/test_m28_release_docs.py tests/test_packaging.py` | `43 passed in 51.34s` |
+| `uv run pytest -p no:terminal --junitxml=artifacts/m28/focused-final.xml tests/test_m28_release_candidate_smoke.py tests/test_m28_release_ci.py tests/test_m28_release_docs.py tests/test_packaging.py` | JUnit：`43 tests, 0 failures, 0 errors, 0 skipped` |
 | `uv run ruff check .` | `All checks passed!` |
 | `uv run ruff format --check .` | `119 files already formatted` |
 | 首次 `uv run pytest -q` | `2 failed, 2401 passed, 10 skipped in 169.62s` |
-| 修正后 `uv run pytest -q` | `2403 passed, 10 skipped in 167.99s` |
-| `uv run python -m tests.golden.runner --output-dir artifacts/m28/golden` | exit 0；`report.md` 为 `20/20 passed (100.0%)` |
+| MCP tests-only 修正后 `uv run pytest -q` | `2403 passed, 10 skipped in 167.99s` |
+| 最终 `uv run pytest -p no:terminal --junitxml=artifacts/m28/full-final.xml` | JUnit：`2415 tests, 0 failures, 0 errors, 10 skipped`，即 `2405 passed, 10 skipped` |
+| `uv run python -m tests.golden.runner --output-dir artifacts/m28/golden-final` | exit 0；`report.md` 为 `20/20 passed (100.0%)`，G14 为 `PASS` |
 | `openspec validate --all --strict` | `22 passed, 0 failed` |
 | `uv build --out-dir artifacts/m28/dist` | 唯一 wheel 与 sdist 构建成功 |
-| `uv run python scripts/m28_release_candidate_smoke.py --wheel artifacts/m28/dist/forgeagent-0.1.0-py3-none-any.whl --output artifacts/m28/rc-smoke.json --python /Users/admin/.local/bin/python3.11` | exit 0；六项全通过 |
+| `uv run python scripts/m28_release_candidate_smoke.py --wheel artifacts/m28/dist/forgeagent-0.1.0-py3-none-any.whl --output artifacts/m28/rc-smoke-final.json --python /Users/admin/.local/bin/python3.11` | exit 0；六项全通过 |
 
 首次完整 pytest 的失败为：
 
@@ -41,19 +43,32 @@ RC 工程冻结证据，不构成里程碑完成或正式发布结论。两项�
 提交 `83ba892` 只修改 `tests/test_mcp_manager.py`，以确定性 probe 断言 stderr reader 的固定 join
 请求，以及 shutdown future 和 loop-thread join 的转发预算；`src/forgeagent/mcp_manager.py` 保持不变。
 修正验证为 focused `2 passed`、MCP suite `216 passed`、完整 pytest
-`2403 passed, 10 skipped in 167.99s`，Ruff check/format 与 `git diff --check` 均通过。完整 pytest
-门禁因此关闭，而不是把首次失败重新分类为环境 pass。
+`2403 passed, 10 skipped in 167.99s`，Ruff check/format 与 `git diff --check` 均通过。随后新增 hostile
+proxy 与 Golden 冷启动两项回归，最终 JUnit 为 `2415 tests, 0 failures, 0 errors, 10 skipped`，即
+`2405 passed, 10 skipped`。完整 pytest 门禁因此关闭，而不是把首次失败重新分类为环境 pass。
+
+## Verify-Fail 与修复
+
+最终 verify 首轮 Golden 为 `19/20`：G14 的 runaway worker 正确超时，但后续独立 `print` worker
+也未在场景级 `0.2s` 预算内完成。场景隔离连续五次和 runner 立即复跑均通过，仍未将重跑成功直接
+当作关闭。新增回归在第二个真实 sandbox worker 内注入 `0.3s` 冷启动，旧预算稳定 RED；将 G14
+场景专用预算改为 `1.0s` 后 GREEN。最终 Golden 为 `20/20`，G14 的 timeout、反馈、后续 worker
+隔离、两个 worker 回收合同均保留，生产 sandbox 默认值与实现未改。
 
 ## RC JSON
 
 - schema：`forgeagent.release-candidate-smoke/v1`
 - version：`0.1.0`
 - python：`3.11.15`
-- wheel SHA-256：`e09507e4ea14023ba9833d7ecb9a57cd89de310d8070225429fcbc371d66492c`
+- wheel SHA-256：`44c5123b6ccc64ef69e15c9aefb9b8151cab7aed4e39eb622fbf046a2f0c04ba`
 - passed：`true`
 - checks：`clean-wheel`、`cli`、`http`、`single`、`duo`、`triad` 均为 `passed`
 
 报告不包含 provider secret、环境值、目标正文、模型回复或绝对临时路径。
+
+最终候选的首次 clean-wheel 执行在 pip 下载依赖时超时，失败关闭且没有被记为通过。随后使用同一
+Python 3.11 和同一 wheel 在新 venv 中完成安装诊断，再重跑原 harness；`rc-smoke-final.json` 六项
+全部通过。该过程没有替换 wheel，最终摘要与 wheel digest 均来自同一候选。
 
 ## Docker 与 Linux 证据
 
@@ -90,6 +105,10 @@ Job 249 只作为历史 container-only 证据。
 
 ## OpenSpec 场景映射
 
+实现完整性为 `7/7` requirements；场景覆盖为 `17/17`。其中当前 Linux 执行场景通过 CI 配置与
+fail-closed 合同验证实现正确性，但没有被误记为本轮运行成功；因此它仍是正式发布证据缺口，而不是
+M28 “定义并接入 required job” 实现缺口。Tasks 为 `12/12`，未发现 Critical/Important 偏差。
+
 ### release-candidate-verification
 
 | Requirement / Scenario | 证据 |
@@ -118,7 +137,7 @@ Job 249 只作为历史 container-only 证据。
 - sandbox：restricted 是应用层边界；container 依赖 daemon/镜像/宿主，不是多租户密封边界。
 - HTTP：仅 loopback + bearer，无 TLS、公网反代或多租户承诺。
 - 协作 v1：没有协作专用 resume endpoint；headless Triad 默认不自动批准计划。
-- 完整 pytest：首次两个 MCP 墙钟测试失败已由 `83ba892` 的 tests-only 可移植性修正关闭；新鲜全量为 `2403 passed, 10 skipped`，生产 MCP 代码未变。
+- 完整 pytest：首次两个 MCP 墙钟测试失败已由 `83ba892` 的 tests-only 可移植性修正关闭；新增两项回归后的最终全量为 `2405 passed, 10 skipped`，生产 MCP 代码未变。
 
-本报告仍等待最终 verify 与 archive 收口，不提前关闭 M28。正式发布仍要求当前 M28 Linux required
-job 通过并保留 pipeline/job artifact，以及另行授权的 tag/上传动作。
+本报告已完成 verify 证据收口，仍等待 archive，不提前宣称正式发布。正式发布仍要求当前 M28 Linux
+required job 通过并保留 pipeline/job artifact，以及另行授权的 tag/上传动作。

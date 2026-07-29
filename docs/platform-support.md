@@ -36,14 +36,15 @@ M24 Pipeline 50 / Job 249 remains historical container-only evidence. It verifie
 container integration tests for that runner topology and must not be represented as an M28
 installed-wheel smoke result.
 
-Current offline repository baseline: `2403 passed, 10 skipped`; OpenSpec strict `22/22`;
+Current offline repository baseline: `2405 passed, 10 skipped`; OpenSpec strict `22/22`;
 Golden `20/20`. M28 local RC evidence on 2026-07-29 is: focused release contracts `43 passed`,
 Ruff check/format and wheel/sdist build passed. The unique built wheel ran
 the six clean-wheel/CLI/HTTP/Single/Duo/Triad checks successfully with Python 3.11.15. The first full
 pytest attempt was `2 failed, 2401 passed, 10 skipped`; both scheduler-dependent MCP wall-clock
 assertions reproduced in isolation. Commit `83ba892` changed only the tests to assert deterministic
-forwarded budgets, left production MCP code unchanged, and the fresh full run passed with
-`2403 passed, 10 skipped`.
+forwarded budgets, left production MCP code unchanged, and that fresh full run passed with
+`2403 passed, 10 skipped`. The final baseline is `2405 passed, 10 skipped` after adding the hostile-proxy
+and Golden cold-start regressions.
 
 The local Docker client is 29.2.1, but `docker info` could not connect to
 `/Users/admin/.docker/run/docker.sock`. Therefore neither the ten container integration tests nor a
