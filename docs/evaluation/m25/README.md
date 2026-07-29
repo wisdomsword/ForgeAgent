@@ -8,6 +8,7 @@ bugfix、2 个 feature、2 个 refactor）x 2 个模型 x 3 种模式 x 5 次重
 - 机器汇总：[`summary.json`](runs/2026-07-27-haiku-4-5-gpt-5-4-mini/summary.json)
 - 中立报告：[`docs/evaluation/m25/runs/2026-07-27-haiku-4-5-gpt-5-4-mini/report.md`](runs/2026-07-27-haiku-4-5-gpt-5-4-mini/report.md)
 - 独立复算：[`scripts/m25_independent_recompute.py`](../../../scripts/m25_independent_recompute.py)
+- M27 派生路由分析：[`derived/m27-collaboration-routing/`](derived/m27-collaboration-routing/)
 - 验证报告：[`docs/superpowers/reports/2026-07-28-m25-programming-mode-evaluation-verify.md`](../../superpowers/reports/2026-07-28-m25-programming-mode-evaluation-verify.md)
 - 归档 change：[`openspec/changes/archive/2026-07-28-m25-programming-mode-evaluation`](../../../openspec/changes/archive/2026-07-28-m25-programming-mode-evaluation/)
 
@@ -40,3 +41,7 @@ uv run python scripts/m25_independent_recompute.py \
 Triad，不建立跨模型排名，也不输出产品推荐。M23 的
 `docs/evaluation/m23/protocol.json` 与正式历史证据没有修改；新增模型或任务必须建立新的版本化
 change 和证据根，不能改写 M25。
+
+M27 派生分析只读取上述冻结输入，额外报告误完成率、原始终止原因、质量、延迟和调用成本；它不
+改写 M25 中立报告。M25 早于 M26 的冻结检查绑定，因此派生结论不把历史误完成表述为当前
+evidence-bound Triad 的质量证明。

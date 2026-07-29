@@ -6,18 +6,32 @@
 
 ## 当前验证
 
-pytest: `2420 passed, 22 skipped`；OpenSpec strict: `20/20`.
+pytest: `2336 passed, 22 skipped`；OpenSpec strict: `21/21`.
 
-该 pytest 结果来自 2026-07-29 M26 归档后审计，排除当前沙箱禁止 loopback socket 的 11 个
-M16 黑盒测试和另行验证的 packaging 测试；未把环境限制误报为通过。本机 Docker Desktop 专项为
+该 pytest 结果是 2026-07-29 M27 当前沙箱可执行基线，排除当前沙箱禁止 loopback socket 的
+M16 黑盒测试文件和依赖安装受离线网络限制的 packaging 测试文件。未排除的完整 pytest 尝试为
+`2339 passed, 22 skipped, 12 failed`：11 项在分配 loopback port 时被操作系统拒绝，1 项在隔离
+构建依赖解析时因 DNS 不可用失败；这些项目未被误报为通过。本机 Docker Desktop 专项为
 `10 passed`、零 skip；2026-07-28 手工 Linux runner 专项为 `10 passed`、零 skip；GitLab Linux
 Docker Job 249 为 `10 passed`、零 skip；Golden: `20/20`。
 
 M24 已完成并归档，change 见
 [`2026-07-27-m24-continuous-verification-platform-matrix`](openspec/changes/archive/2026-07-27-m24-continuous-verification-platform-matrix/)；持续验证入口见 [`.gitlab-ci.yml`](.gitlab-ci.yml)，平台证据和排期见
 [`docs/platform-support.md`](docs/platform-support.md)。Linux Docker 是必需 CI 门禁；本机
-macOS Docker Desktop 结果只作为 supplemental 证据；Linux GitLab CI 已 verified（Pipeline 50 /
-Job 249），不外推为 Podman 或 Windows 支持。
+macOS Docker Desktop 结果只作为 supplemental 证据；仅 Linux Docker runner topology (Pipeline 50 / Job 249)
+已 verified，不推断未记录的 Linux 架构、Podman 或 Windows 支持。
+
+## M27 协作路由校准（已完成，待 Comet 归档）
+
+M27 已根据 M25 冻结协议完成路由裁决：默认 Single；用户显式选择 Single、Duo 或 Triad 时直接
+遵从，显式模式优先于可信宿主已绑定的冻结检查；只有可信宿主已经为本次任务绑定**非空冻结检查**时，
+未显式选择的任务才自动使用 Triad。`has_bound_checks` 是可信宿主的内部事实。HTTP 请求和普通任务请求中出现
+`has_bound_checks` 会被严格拒绝；服务器 YAML 中出现它也会被严格拒绝。任务文本不能提供或伪造该事实。
+任务文本中的编程特征和候选文件就绪要求都不会
+自动升级模式。`allow_weaker_override` 仅为旧配置兼容保留，不再改变路由或要求确认。M25 派生报告
+新增误完成率和原样终止原因分类；没有任何任务
+类别的 Triad solved rate 严格高于 Single，因此不恢复任何类别的自动 Triad。详见
+[`M27 派生报告`](docs/evaluation/m25/derived/m27-collaboration-routing/report.md)。
 
 2026-07-26 已完成 restricted worker bootstrap 加固与发布完整性收尾。sdist 采用显式输入
 allowlist，只包含包源码、`pyproject.toml`、`README.md`、`uv.lock`，另保留 Hatchling
@@ -194,11 +208,11 @@ ForgeAgent 子进程中冻结 `calc.py` 和 `test_calc.py` 的最小就绪要求
 REPL 提供 `/duo <goal>` 和 `/triad <goal>`，并复用 `/help`、completion 与历史路径。
 缺少 goal 时只显示 usage，不启动任务。
 
-路由优先级是：显式 triad > 编程任务强制 triad > 显式 duo/single > 默认 single。编程任务
-由有界、确定性的中英文动作词 + 代码产物/文件规则识别，不调用分类模型。显式较弱模式与
-编程强制 Triad 冲突时，交互 CLI 要求确认；确认后相当于
-`allow_weaker_override=true`。非 TTY CLI 无确认通道时拒绝；HTTP 只能由服务端配置
-`allow_weaker_override` 预授权，客户端不能提交该策略。
+路由规则是：**默认 Single**。用户显式选择 Single、Duo 或 Triad 时直接生效；只有可信宿主已为
+本次任务绑定非空冻结检查时，未显式选择的任务才使用 Triad。普通 CLI、REPL、Loop 和 HTTP 的
+初始路由没有这类检查，因而保持 Single；编程文本和候选文件就绪要求都不会触发自动升级。
+`allow_weaker_override` 仅为旧配置兼容保留，不再改变路由或要求确认，客户端也不能提交宿主检查
+事实。
 
 公开报告仅显示 collaboration ID、mode/status/reason/phase、计划/通过/失败数、角色尝试、
 rejections、rounds、归一化 usage、`usage_available` 与最多 8 条掩码后证据摘要；不显示完整
@@ -339,7 +353,9 @@ REPL 内输入 `/` 加回车查看指令菜单，或直接 `/help`。当前支�
 
 REPL 命令必须以 `/` 开头。裸 `models`、`reload`、`mcp` 和 `mcp ...` 都是普通任务目标；这与顶层 CLI 子命令 `forgeagent models` 无关，后者仍用于列出模型。
 
-Memory 只保存经过确定性准入的事实、偏好和决策。程序性做事方法会被拒绝并提示沉淀为 Skill；项目级更新使用稳定本地锁，在锁内重读并合并最新条目，相同 key 按后获得锁者替换，不同 key 不互相丢失。文件仍可直接编辑纠正，`--no-memory` 同时关闭两级记忆。
+Memory 只保存经过确定性准入的事实、偏好和决策。session scope 只在当前 REPL 进程内有效，绝不落盘；
+只有通过确定性准入的合法 project scope 候选才使用稳定本地锁，在锁内重读并合并最新条目后原子持久化。
+相同 key 按后获得锁者替换，不同 key 不互相丢失。文件仍可直接编辑纠正，`--no-memory` 同时关闭两级记忆。
 
 交互式终端中的 REPL 会在输入 `/` 时即时显示 slash 指令，并随继续输入过滤候选；可用键盘选择候选。上下方向键只回放当前进程内的会话输入，ForgeAgent 不会把 REPL 历史写入文件。测试注入 reader 和非 TTY 输入仍沿用普通输入路径。
 
@@ -505,7 +521,10 @@ ForgeAgent 的系统提示词由固定协议段（不可覆盖，见 [`docs/text
 - `~/.forgeagent/SOUL.md`：用户级 Agent 人格/身份描述，存在时**完全替换**内置中性默认人格，不与默认内容合并；缺失时保留该默认人格作为 SOUL 段。
 - `~/.forgeagent/USER.md`：用户级偏好说明（如“回答从简”“默认用中文”），随每次任务注入。
 - `<allowed_root>/.forgeagent/AGENTS.md`：项目级协作规则。**首次使用需终端确认**（有界、控制字符转义、secret 掩码后的内容预览 + 截断项目标签），确认结果原子写入 `~/.forgeagent/identity-trust.json`；内容变化会使旧确认失效并重新提示确认；无交互终端（headless）时默认拒绝，不会静默生效。
-- `<allowed_root>/.forgeagent/MEMORY.md`：项目级记忆，同 `AGENTS.md` 走确认门。当前版本只读——ForgeAgent 不会自动写入或提炼记忆内容，由用户手工维护。
+- `<allowed_root>/.forgeagent/MEMORY.md`：项目级记忆，同 `AGENTS.md` 走确认门。M18 的准入规则会把
+  合法的 `/remember` 输入或模型候选以原子方式持久化到该文件；用户可以直接编辑以更正或删除记忆，
+  下一个任务会重新读取。`--no-memory` 关闭两个记忆作用域；`--no-identity` 按身份合同同时关闭
+  SOUL、USER、AGENTS 和 MEMORY。
 
 所有身份文件都有 32 KiB 单文件上限，多个文件掩码后合计 96 KiB 上限，任何正文都不会被截断：SOUL/USER 超限时任务以身份配置错误停止；AGENTS/MEMORY 超限或使合计超限时，仅剥离相应项目段、输出脱敏诊断并继续。路径解析拒绝 `.forgeagent` 目录或身份文件通过 symlink 逃出 `home`/`allowed_root`。详见 [`docs/threat-model.md`](docs/threat-model.md) T12。
 

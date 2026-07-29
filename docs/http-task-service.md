@@ -50,10 +50,10 @@ allow_weaker_override: false
 The collaboration settings are also server-owned. Blank role model settings inherit
 the service's main model. `evaluator_tier` accepts `restricted` or `container` only;
 `max_rejections` is 1-10. `triad_plan_policy: deny` is the safe default: headless
-Triad stops with `needs_confirmation` after Planner submission and does not start the
-Generator. `preauthorize` approves the bounded submitted plan without a human channel.
-`allow_weaker_override` controls whether an explicit task/Duo request may bypass a
-deterministic programming-task Triad route. Clients cannot submit any of these fields.
+Triad stops after Planner submission without starting the Generator. `preauthorize`
+approves the bounded submitted plan without a human channel. `allow_weaker_override`
+is compatibility-only under M27: it remains accepted in existing server configuration
+but has no routing or confirmation behavior. Clients cannot submit any of these fields.
 
 The service uses four workers, a queue of 32, at most 256 retained records, and a
 one-hour terminal-result TTL by default. Limits are server-owned. Running tasks are
@@ -78,12 +78,14 @@ the four raw counts `input_tokens`, `output_tokens`, `cached_tokens`, and
 
 Every route requires exactly one `Authorization: Bearer <token>` header. The request
 body is JSON with `Content-Type: application/json`, a declared `Content-Length`, and
-a 64 KiB default limit. A plain non-empty `goal` remains an ordinary Task unless the
-deterministic programming rule selects Triad. Clients may select only the documented
-low-risk task/Loop mode fields; unknown fields and all security-sensitive options are
-rejected. The server, not the client, chooses `tier`, `backend`, `allowed_root`,
-`container_image`, identity/trust, credentials, confirmer, MCP policy, role model,
-Evaluator tier, rejection limit, Planner approval and weaker-mode override policy.
+a 64 KiB default limit. The default collaboration route is Single. Clients may
+select explicit modes (`single`, `duo`, or `triad`) through the documented low-risk
+task/Loop fields; unknown fields and all security-sensitive options are rejected. A
+trusted host that has already bound non-empty frozen checks may select Triad before
+routing, but HTTP requests and server YAML cannot supply that fact. The server, not the
+client, chooses `tier`, `backend`, `allowed_root`, `container_image`, identity/trust,
+credentials, confirmer, MCP policy, role model, Evaluator tier, rejection limit, and
+Planner approval policy.
 
 | Method | Route | Result |
 | --- | --- | --- |

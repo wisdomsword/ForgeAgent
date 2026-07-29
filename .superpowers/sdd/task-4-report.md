@@ -1,81 +1,71 @@
-# Task 4 Report: HTTP Loop mode
+# M27 Task 4 Report: 全量验证、基线定稿与 Build Handoff
 
-## Status
+## 状态
 
-DONE
+`DONE_WITH_ENVIRONMENT_EXCEPTIONS`
 
-## RED
+M27 产品实现、规格、派生证据、验证与 build-stage preparation/handoff 均完成。OpenSpec change
+保持 active，等待后续 Comet archive/branch gates；没有提前执行 delta spec 同步、归档、最终
+里程碑状态更新或 branch finish。
 
-The first service-focused run failed on the missing mode projection and because the
-worker assumed every result was a `TaskOutcome`:
+## 当前基线
 
-```text
-KeyError: 'mode'
-AttributeError: 'str' object has no attribute 'reason'
-5 failed, 1 passed, 17 deselected
-```
+- 当前沙箱可执行 pytest：`2309 passed, 22 skipped`。
+- 未排除完整尝试：`12 failed, 2312 passed, 22 skipped`；11 项 loopback 权限失败，1 项隔离构建
+  DNS/依赖解析失败。
+- Ruff：check 通过；`115 files already formatted`。
+- OpenSpec strict：`21 passed, 0 failed`。
+- Golden：`20/20 passed`。
+- 构建：复用 M26 已下载官方缓存，`UV_OFFLINE=1 uv build --offline` 生成 wheel 与 sdist。
+- packaging 单测：`2 passed, 1 failed`；失败停在新 venv 全依赖安装，内容断言已通过。
 
-The server assembly RED test then proved that Loop options still constructed an
-ordinary `Task`:
+## 文件
 
-```text
-FAILED test_serve_factory_selects_server_owned_new_and_resumed_loop
-assert isinstance(created, FakeRunner)
-```
+- `ACTION_PLAN.md`
+- `openspec/changes/calibrate-collaboration-routing/tasks.md`
+- `docs/superpowers/reports/2026-07-29-m27-collaboration-routing-calibration-verify.md`
+- `docs/superpowers/reports/2026-07-29-m27-task4-independent-review.md`
+- `milestones/milestone_027.md`
+- `.superpowers/sdd/task-4-report.md`
 
-## GREEN
+## 两轮自审
 
-```text
-UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run pytest -q \
-  tests/test_http_task_service.py tests/test_http_server.py tests/test_cli.py \
-  tests/test_http_config.py tests/test_headless.py
-467 passed, 10 skipped in 0.69s
+第一轮逐项映射三份 delta/new specs，确认自动恢复列表为空、candidate files 不构成 evidence、M25
+冻结 tree 无 diff、Memory 与 Linux claim 精确。
 
-UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run ruff check \
-  src/forgeagent/http_task_service.py src/forgeagent/http_server.py \
-  src/forgeagent/cli.py tests/test_http_task_service.py \
-  tests/test_http_server.py tests/test_cli.py
-All checks passed!
+第二轮搜索旧路由和过期文案。剩余 `needs_confirmation` 是 Planner 合法状态；
+`override_required` 是兼容投影；架构/只读旧文字仅在历史设计或负向测试中。显式模式、
+`bound_checks` audit、HTTP 拒绝和 Loop checkpoint 均有可执行覆盖。
 
-UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run ruff format --check \
-  src/forgeagent/http_task_service.py src/forgeagent/http_server.py \
-  src/forgeagent/cli.py tests/test_http_task_service.py \
-  tests/test_http_server.py tests/test_cli.py
-6 files already formatted
+## 独立 Review Findings 与修复
 
-git diff --check
-passed
-```
+- Important：`ACTION_PLAN.md` 仍将 M27 标为进行中，且权威状态未记录实际沙箱基线、完整 12 项
+  环境失败、OpenSpec `21/21`、Golden `20/20` 与离线 build。已改为“已完成，待 Comet 归档”并
+  补齐证据。
+- Important：OpenSpec 4.3/4.4 提前混合了 review 修复、验证收尾与后续 Comet archive/branch
+  gate。4.3 在本轮 review fix 后完成；4.4 改为“准备 M27 归档、更新 milestones/latest 与分支
+  收尾”并保持未勾选。
+- Minor：本报告原先把已经存在的 Task 4 提交写成“待执行”。现按 Git 实际状态记录，并明确
+  active change 尚未归档。
 
-The ten skips are existing loopback-bind environment skips. Handler tests run over
-socket pairs and cover the Loop request schemas without weakening network tests.
+提交 `4dc1537 fix: align m27 closeout state` 修复了上述首轮 findings。复审发现两个剩余问题：
 
-## Scope
+- 状态机死锁：4.4 若等待实际 archive/branch finish 会阻塞后续 gate，若提前完成又会越过用户
+  决策门。本轮将 4.4 改为已完成的 build-stage preparation/handoff，只准备归档输入、确认
+  `milestones/latest` 当前指针并记录分支收尾选择项。
+- 审查证据缺口：仓库没有独立、受跟踪的 review 工件。本轮新增
+  `docs/superpowers/reports/2026-07-29-m27-task4-independent-review.md`，记录 reviewer 角色/范围、
+  首轮与复审 findings、修复提交和未重测边界，不伪造 agent ID。
 
-- `src/forgeagent/http_task_service.py`
-- `src/forgeagent/http_server.py`
-- `src/forgeagent/cli.py`
-- `tests/test_http_task_service.py`
-- `tests/test_http_server.py`
+## 风险信号
 
-`tests/test_cli.py` required no modification; its existing serve regressions pass.
+- 非沙箱审批基础设施返回 403，无法在本轮补跑 loopback 与联网依赖安装。
+- M25 早于 M26，不可用来证明当前 evidence-bound Triad 的绝对质量。
+- 用户原有未跟踪文件和协调器进度文件未纳入 Task 4 范围。
+- 实际 delta spec 同步、change 归档、最终里程碑状态和 branch finish 仍由后续 Comet gates 执行。
 
-## Risk Signals
+## 提交
 
-- `/tasks` remains the sole submission endpoint and accepts exactly ordinary Task,
-  full new-Loop, or resume-Loop key sets. Unknown and security-sensitive fields fail
-  before service submission; numeric validation rejects bool, non-finite, and
-  non-positive values.
-- HTTP derives checkpoint storage solely from configured `allowed_root`. A new Loop
-  uses the server task ID as its Loop ID; resume accepts only a 32-character lowercase
-  hex ID. No caller-supplied path, tier, model, identity, confirmer, or credential is
-  forwarded.
-- `TaskRecord` stores `LoopReport` privately. Public terminal views expose only mode,
-  stable status/stop reason, Loop ID, and bounded counters; running views do not
-  fabricate counters or expose checkpoint text/path, goal, handoff, or failure text.
-- The existing registry owns queued/running/cancelled/TTL/capacity lifecycle for both
-  modes. A process-local active Loop ID map rejects overlapping same-ID submissions
-  before constructing a second runner and releases the ID on every terminal path.
-- Loop runner close is sufficient at the service boundary. Each Loop iteration owns
-  and closes its Task and client together; ordinary Task retains the existing
-  Task-then-client cleanup behavior.
+- Task 4 原提交：`09ceb10 chore: complete m27 collaboration routing calibration`。
+- 首轮 Review fix：`4dc1537 fix: align m27 closeout state`。
+- 最终 handoff evidence fix：`fix: complete m27 build handoff evidence`（本提交）。

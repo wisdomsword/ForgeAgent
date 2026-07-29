@@ -8,7 +8,7 @@ is evaluated independently.
 
 | Platform tuple | Priority | Status | Prerequisites | Current evidence | Limitations | Next Comet trigger |
 | --- | --- | --- | --- | --- | --- | --- |
-| Linux amd64/arm64 + Docker Engine | P0 | verified | Linux Docker runner with Docker daemon, shared build volume, non-root job execution, and the checked-in JUnit contract | GitLab Pipeline 50 / Job 249: 10 passed, 0 skipped, 0 failures, 0 errors; JUnit artifact generated | This evidence covers the recorded Linux runner topology only; it does not prove Podman, Windows, or every Linux executor | Any runner topology change, or a DinD/container contract failure |
+| Linux Docker runner topology (Pipeline 50 / Job 249) | P0 | verified | Linux Docker runner with Docker daemon, shared build volume, non-root job execution, and the checked-in JUnit contract | GitLab Pipeline 50 / Job 249: 10 passed, 0 skipped, 0 failures, 0 errors; JUnit artifact generated | The record proves this runner topology only; it does not establish unrecorded Linux architectures, Podman, Windows, or every Linux executor | Any runner topology change, or a DinD/container contract failure |
 | Linux + rootless Podman | P1 | scheduled | Product decision to support Podman; compatible CLI/mount/network/pids/user/kill semantics | No execution evidence | Current backend commands and hardening flags target Docker | Podman becomes a release target or a compatibility spike is scheduled |
 | Windows native | P2 | deferred | Product decision to support Windows; path, locking, resource-limit, and container-tier design | No execution evidence | Drive-letter colons and Unix-specific isolation assumptions require design work | Windows becomes a release target |
 | macOS arm64 + Docker Desktop Linux daemon | non-release | supplemental | Docker Desktop 29.2.1 and local `python:3.11-slim` | Dated local JUnit 10/10 below | Linux VM daemon evidence does not prove native Linux runners, Podman, or Windows | Regression in local evidence or a change to the non-release smoke environment |
@@ -23,8 +23,12 @@ The Linux job requires a privileged GitLab Docker executor tagged `docker-privil
 same-path bind-mount source through GitLab's shared build volume. A runner with a different
 executor or build-volume topology must prove that contract before being marked `verified`.
 
-Current offline repository baseline: `2309 passed, 10 skipped`; OpenSpec strict `20/20`;
-Golden `20/20`. The dated Linux runner evidence below is separate from this offline baseline.
+Current offline repository baseline: `2336 passed, 22 skipped`; OpenSpec strict `21/21`;
+Golden `20/20`. This pytest baseline excludes the loopback black-box file and the packaging file:
+the unexcluded run completed with `2339 passed, 22 skipped, 12 failed`, comprising eleven sandbox
+loopback allocation failures and one offline build-dependency resolution failure. Those cases remain
+unverified in this environment rather than being counted as passes. The dated Linux runner evidence
+below is separate from this repository baseline.
 
 ## Linux Docker Runner Evidence
 
@@ -56,5 +60,5 @@ On 2026-07-27, macOS 26.5.1 arm64 with Docker Desktop client/server 29.2.1 ran:
 The JUnit record reported `tests=10`, `failures=0`, `errors=0`, `skipped=0` in 11.79s.
 The daemon was Linux arm64 and `python:3.11-slim` resolved to
 `sha256:db3ff2e1800a8581e2c48a27c3995339d47bdf046da21c7627accd3d51053a93`.
-This is supplemental macOS Docker Desktop evidence only; the Linux runner remains
-`configured` until its required GitLab job publishes equivalent evidence.
+This is supplemental macOS Docker Desktop evidence only; it does not expand the verified
+Linux Docker runner topology to another architecture, Podman, or Windows.

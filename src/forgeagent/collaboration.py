@@ -60,56 +60,6 @@ _HOW_ONLY_RE = re.compile(
     r"使用\s*(?:某库|.*库)|调用\s*(?:某\s*)?api|按.*算法实现)",
     re.IGNORECASE,
 )
-_CLAUSE_SPLIT = re.compile(
-    r"[,，;；!?。！？\n]+|\.(?=\s|$)|\b(?:and\s+)?then\b|(?:然后|随后)",
-    re.IGNORECASE,
-)
-_REQUEST_PREFIX = re.compile(
-    r"^\s*(?:(?:please|kindly)\s+|(?:can|could|would|will)\s+you\s+|"
-    r"i\s+(?:need|want)\s+you\s+to\s+|(?:请帮我|请(?:你)?|帮我|麻烦你|劳烦你|先|再|只)\s*)*",
-    re.IGNORECASE,
-)
-_NEGATED_REQUEST = re.compile(
-    r"^(?:do\s+not|don't|dont|never|without|no\s+need\s+to|need\s+not|avoid|"
-    r"refrain\s+from)\b|^(?:不要|无需|不需要|别|禁止|不应|不用|避免)",
-    re.IGNORECASE,
-)
-_NON_PROGRAMMING_FRAMING = re.compile(
-    r"^(?:(?:explain|review|read|summarize|describe|discuss|analyze|inspect)\b|"
-    r"tell\s+me\s+(?:why|how)\b|(?:how\s+to|why\b)|"
-    r"(?:解释|说明|审查|审阅|阅读|查看|总结|描述|讨论|分析)|"
-    r"告诉我(?:为什么|如何|怎么|怎样)|(?:如何|怎么|怎样|为什么))",
-    re.IGNORECASE,
-)
-_PROGRAM_ACTION = re.compile(
-    r"^(?:add|remove|delete|rename|write|create|modify|edit|update|implement|fix|"
-    r"refactor|test|build)\b",
-    re.IGNORECASE,
-)
-_PROGRAM_ACTION_ZH = re.compile(
-    r"^(?:添加|新增|移除|删除|重命名|编写|写|创建|修改|编辑|更新|实现|修复|重构|测试|构建)"
-)
-_NON_PROGRAM_TARGET = re.compile(
-    r"^(?:(?:an?|the|some|new|old|existing)\s+){0,3}"
-    r"(?:examples?|documentation|docs?|instructions?|explanations?|descriptions?|"
-    r"summar(?:y|ies)|reports?|polic(?:y|ies)|messages?|prompts?|prose)\b",
-    re.IGNORECASE,
-)
-_QUOTED_TEXT = re.compile(r'`[^`\n]*`|"[^"\n]*"|\'[^\'\n]*\'|“[^”\n]*”|‘[^’\n]*’')
-_PROGRAM_ARTIFACT = re.compile(
-    r"\b(?:source\s+code|unit\s+tests?|integration\s+tests?|code|programs?|scripts?|"
-    r"apis?|class(?:es)?|functions?|modules?|files?|source|tests?|packages?|projects?|"
-    r"build\s+(?:configuration|config))\b|"
-    r"(?:源代码|源码|单元测试|集成测试|软件包|构建配置|代码|程序|脚本|接口|类|函数|"
-    r"模块|文件|测试|包|项目)",
-    re.IGNORECASE,
-)
-_PROGRAM_FILE = re.compile(
-    r"(?<![\w.-])(?:[\w./-]+\.(?:py|ts|tsx|js|jsx|rs|go|java|kt|rb|php|swift|c|cc|"
-    r"cpp|h|hpp|cs|sh|bash|zsh)|pyproject\.toml|package\.json|cargo\.toml|go\.mod|"
-    r"build\.gradle|settings\.gradle|pom\.xml|makefile)(?![\w.-])",
-    re.IGNORECASE,
-)
 _WINDOWS_ABSOLUTE_PATH = re.compile(
     r"(?i)(?<![a-z0-9])[a-z]:[\\/](?:[^\\/\s\x00-\x1f]+[\\/])*[^\\/\s\x00-\x1f]*"
 )
@@ -207,46 +157,6 @@ def _safe_evaluation_item(item: EvaluationItem) -> EvaluationItem:
         expected=_public_text(item.expected),
         location=_public_text(item.location, maximum=MAX_ITEM_TEXT_CHARS),
     )
-
-
-def _direct_programming_clause(value: str) -> bool:
-    clause = value.strip()
-    clause = clause[_REQUEST_PREFIX.match(clause).end() :].strip()
-    if not clause or _NEGATED_REQUEST.match(clause) or _NON_PROGRAMMING_FRAMING.match(clause):
-        return False
-    action = _PROGRAM_ACTION.match(clause) or _PROGRAM_ACTION_ZH.match(clause)
-    if action is None:
-        return False
-    target = clause[action.end() :].strip()
-    if not target or _NON_PROGRAM_TARGET.match(target):
-        return False
-    unquoted = _QUOTED_TEXT.sub(" ", target)
-    quoted_file = any(
-        _PROGRAM_FILE.search(match.group()) for match in _QUOTED_TEXT.finditer(target)
-    )
-    return (
-        _PROGRAM_ARTIFACT.search(unquoted) is not None
-        or _PROGRAM_FILE.search(unquoted) is not None
-        or quoted_file
-    )
-
-
-def _programming_clauses(value: str) -> tuple[str, ...]:
-    masked = list(value)
-    for match in _QUOTED_TEXT.finditer(value):
-        masked[match.start() : match.end()] = " " * (match.end() - match.start())
-    projected = "".join(masked)
-    clauses: list[str] = []
-    start = 0
-    for separator in _CLAUSE_SPLIT.finditer(projected):
-        clauses.append(value[start : separator.start()])
-        start = separator.end()
-    clauses.append(value[start:])
-    return tuple(clauses)
-
-
-def _programming_signal(value: str) -> bool:
-    return any(_direct_programming_clause(clause) for clause in _programming_clauses(value))
 
 
 class AcceptanceItem(BaseModel):
@@ -2206,7 +2116,7 @@ class CollaborationRunner:
 class ModeDecision(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
     mode: CollaborationMode
-    reason: Literal["explicit", "programming", "default", "override_required"]
+    reason: Literal["explicit", "bound_checks", "default", "override_required"]
     override_required: bool = False
 
     @field_validator("override_required", mode="before")
@@ -2246,18 +2156,15 @@ def emit_collaboration_route(
 
 
 def resolve_collaboration_mode(
-    goal: str, requested_mode: CollaborationMode | None, *, allow_weaker_override: bool = False
+    goal: str,
+    requested_mode: CollaborationMode | None,
+    *,
+    has_bound_checks: bool = False,
+    allow_weaker_override: bool = False,
 ) -> ModeDecision:
-    normalized = unicodedata.normalize("NFKC", goal).lower()[:MAX_GOAL_CHARS]
-    programming = _programming_signal(normalized)
-    if requested_mode == "triad":
-        return ModeDecision(mode="triad", reason="explicit")
-    if programming and requested_mode in {"single", "duo"}:
-        if allow_weaker_override:
-            return ModeDecision(mode=requested_mode, reason="explicit")
-        return ModeDecision(mode="triad", reason="override_required", override_required=True)
-    if programming:
-        return ModeDecision(mode="triad", reason="programming")
+    del goal, allow_weaker_override
     if requested_mode is not None:
         return ModeDecision(mode=requested_mode, reason="explicit")
+    if has_bound_checks:
+        return ModeDecision(mode="triad", reason="bound_checks")
     return ModeDecision(mode="single", reason="default")

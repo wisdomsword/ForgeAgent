@@ -749,8 +749,13 @@ def test_audit_emits_lifecycle_events_without_private_loop_text(tmp_path: Path):
     runner.close()
 
 
-@pytest.mark.parametrize("collaboration_mode", ["single", "triad"])
-def test_loop_audits_route_with_loop_correlation(tmp_path: Path, collaboration_mode: str):
+@pytest.mark.parametrize(
+    ("collaboration_mode", "collaboration_mode_source"),
+    [("single", "default"), ("single", "explicit"), ("triad", "explicit")],
+)
+def test_loop_audits_route_with_loop_correlation(
+    tmp_path: Path, collaboration_mode: str, collaboration_mode_source: str
+):
     sink = _AuditSink()
     runner = LoopRunner.create(
         allowed_root=str(tmp_path),
@@ -765,6 +770,7 @@ def test_loop_audits_route_with_loop_correlation(tmp_path: Path, collaboration_m
             )
         ),
         collaboration_mode=collaboration_mode,
+        collaboration_mode_source=collaboration_mode_source,
         collaboration_id="b" * 32 if collaboration_mode != "single" else "",
         goal="private goal",
         budgets=_budgets(),
@@ -778,13 +784,43 @@ def test_loop_audits_route_with_loop_correlation(tmp_path: Path, collaboration_m
     assert route.task_id == "c" * 32
     assert route.parameters == {
         "mode": collaboration_mode,
-        "reason": "explicit",
-        "requested_mode": collaboration_mode,
+        "reason": collaboration_mode_source,
+        "requested_mode": (
+            "default" if collaboration_mode_source == "default" else collaboration_mode
+        ),
         "override_required": False,
         "loop_id": runner._checkpoint.loop_id,
     }
     assert "private goal" not in repr(route)
     runner.close()
+
+
+def test_loop_resume_reuses_checkpoint_collaboration_mode_source(tmp_path: Path):
+    sink = _AuditSink()
+    created = LoopRunner.create(
+        allowed_root=str(tmp_path),
+        task_builder=_Builder([]),
+        collaboration_mode="single",
+        collaboration_mode_source="default",
+        goal="private goal",
+        budgets=_budgets(),
+        trigger="test",
+    )
+    loop_id = created._checkpoint.loop_id
+    created.close()
+
+    resumed = LoopRunner.resume(
+        allowed_root=str(tmp_path),
+        task_builder=_Builder([]),
+        loop_id=loop_id,
+        trigger="test",
+        audit_sink=sink,
+    )
+
+    route = next(event for event in sink.events if event.event_type == "collaboration.route")
+    assert route.parameters["reason"] == "default"
+    assert route.parameters["requested_mode"] == "default"
+    resumed.close()
 
 
 def test_runner_preserves_checkpoint_committed_by_its_fresh_task(tmp_path: Path):

@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from rich.console import Console
 
 import forgeagent.cli as cli_module
+from forgeagent.audit import AuditEvent
 from forgeagent.cli import build_parser, repl, run_collaboration_once
 from forgeagent.client import MockClient
 from forgeagent.collaboration import (
@@ -81,10 +82,53 @@ def test_run_parser_accepts_collaboration_policy_flags():
 
 
 def test_repl_collaboration_commands_share_help_and_completion_metadata():
+    assert "/single" in cli_module._SLASH_COMMAND_USAGE
     assert "/duo" in cli_module._SLASH_COMMAND_USAGE
     assert "/triad" in cli_module._SLASH_COMMAND_USAGE
     assert "cost" in cli_module._SLASH_COMMAND_USAGE["/duo"].lower()
     assert "planner" in cli_module._SLASH_COMMAND_USAGE["/triad"].lower()
+
+
+class _AuditSink:
+    def __init__(self) -> None:
+        self.events: list[AuditEvent] = []
+
+    def emit(self, event: AuditEvent) -> bool:
+        self.events.append(event)
+        return True
+
+
+def test_repl_single_command_emits_explicit_route_once_without_goal_data(monkeypatch):
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: None)
+    monkeypatch.setattr(
+        cli_module,
+        "run_once",
+        lambda _goal, **_kwargs: SimpleNamespace(status=SimpleNamespace(solved=True)),
+    )
+    sink = _AuditSink()
+    inputs = iter(["/single PRIVATE_GOAL", "quit"])
+
+    repl(
+        tier="restricted",
+        model="mock",
+        client_factory=lambda _model: SimpleNamespace(),
+        read_line=lambda _prompt: next(inputs),
+        confirmation_available=False,
+        no_identity=True,
+        no_memory=True,
+        use_registry_snapshot=False,
+        audit_sink=sink,
+    )
+
+    routes = [event for event in sink.events if event.event_type == "collaboration.route"]
+    assert len(routes) == 1
+    assert routes[0].parameters == {
+        "mode": "single",
+        "reason": "explicit",
+        "requested_mode": "single",
+        "override_required": False,
+    }
+    assert "PRIVATE_GOAL" not in routes[0].model_dump_json()
 
 
 def test_repl_missing_collaboration_goal_prints_usage_without_running(monkeypatch):
@@ -136,13 +180,21 @@ def test_repl_duo_dispatches_only_the_goal(monkeypatch):
     assert calls == [("verify the report", "duo")]
 
 
-def test_repl_programming_goal_auto_routes_to_triad(monkeypatch):
-    calls: list[tuple[str, str]] = []
+def test_repl_programming_goal_uses_single(monkeypatch):
+    single_calls: list[str] = []
+    collaboration_calls: list[object] = []
     monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: None)
     monkeypatch.setattr(
         cli_module,
+        "run_once",
+        lambda goal, **kwargs: (
+            single_calls.append(goal) or SimpleNamespace(status=SimpleNamespace(solved=True))
+        ),
+    )
+    monkeypatch.setattr(
+        cli_module,
         "run_collaboration_once",
-        lambda goal, **kwargs: calls.append((goal, kwargs["mode"])) or _report(mode="triad"),
+        lambda *args, **kwargs: collaboration_calls.append((args, kwargs)),
     )
     console = Console(record=True, force_terminal=False, file=__import__("io").StringIO())
     inputs = iter(["Add a unit test", "quit"])
@@ -159,11 +211,12 @@ def test_repl_programming_goal_auto_routes_to_triad(monkeypatch):
         use_registry_snapshot=False,
     )
 
-    assert calls == [("Add a unit test", "triad")]
-    assert "mode: triad (programming task)" in console.export_text()
+    assert single_calls == ["Add a unit test"]
+    assert collaboration_calls == []
+    assert "programming task" not in console.export_text()
 
 
-def test_repl_duo_programming_goal_requires_and_honors_interactive_confirmation(monkeypatch):
+def test_repl_explicit_duo_does_not_read_override_confirmation(monkeypatch):
     calls: list[tuple[str, str]] = []
     monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: None)
     monkeypatch.setattr(
@@ -171,7 +224,7 @@ def test_repl_duo_programming_goal_requires_and_honors_interactive_confirmation(
         "run_collaboration_once",
         lambda goal, **kwargs: calls.append((goal, kwargs["mode"])) or _report(),
     )
-    inputs = iter(["/duo Add a unit test", "yes", "quit"])
+    inputs = iter(["/duo Add a unit test", "quit"])
 
     repl(
         tier="restricted",
@@ -185,51 +238,6 @@ def test_repl_duo_programming_goal_requires_and_honors_interactive_confirmation(
     )
 
     assert calls == [("Add a unit test", "duo")]
-
-
-def test_repl_duo_programming_goal_rejection_does_not_run(monkeypatch):
-    calls: list[object] = []
-    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: None)
-    monkeypatch.setattr(cli_module, "run_collaboration_once", lambda *a, **k: calls.append((a, k)))
-    console = Console(record=True, force_terminal=False, file=__import__("io").StringIO())
-    inputs = iter(["/duo Add a unit test", "no", "quit"])
-
-    repl(
-        tier="restricted",
-        model="mock",
-        client_factory=lambda _model: SimpleNamespace(),
-        console=console,
-        read_line=lambda _prompt: next(inputs),
-        confirmation_available=True,
-        no_identity=True,
-        no_memory=True,
-        use_registry_snapshot=False,
-    )
-
-    assert calls == []
-
-
-def test_repl_duo_programming_goal_non_tty_rejects_without_reading_confirmation(monkeypatch):
-    calls: list[object] = []
-    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: None)
-    monkeypatch.setattr(cli_module, "run_collaboration_once", lambda *a, **k: calls.append((a, k)))
-    console = Console(record=True, force_terminal=False, file=__import__("io").StringIO())
-    inputs = iter(["/duo Add a unit test", "quit"])
-
-    repl(
-        tier="restricted",
-        model="mock",
-        client_factory=lambda _model: SimpleNamespace(),
-        console=console,
-        read_line=lambda _prompt: next(inputs),
-        confirmation_available=False,
-        no_identity=True,
-        no_memory=True,
-        use_registry_snapshot=False,
-    )
-
-    assert calls == []
-    assert "collaboration override requires confirmation" in console.export_text()
 
 
 def test_run_collaboration_wraps_role_client_configuration_errors(tmp_path, monkeypatch):
@@ -289,6 +297,55 @@ def test_run_collaboration_wraps_role_client_configuration_errors(tmp_path, monk
             console=Console(record=True, force_terminal=False),
         )
     assert built >= 1
+
+
+@pytest.mark.parametrize("mode", ["duo", "triad"])
+def test_run_collaboration_emits_route_once_without_private_data(tmp_path, monkeypatch, mode):
+    class ProbeClient:
+        def close(self) -> None:
+            pass
+
+    class FakeRunner:
+        @classmethod
+        def create(cls, **_kwargs):
+            return cls()
+
+        def run(self, _goal, *, cancel_event=None):
+            del cancel_event
+            return _report(mode=mode)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(cli_module, "CollaborationRunner", FakeRunner)
+    monkeypatch.setattr(cli_module, "_validate_client_context_policy", lambda *_args: None)
+    sink = _AuditSink()
+
+    run_collaboration_once(
+        "PRIVATE_GOAL",
+        mode=mode,
+        tier="trusted",
+        model="mock",
+        planner_model=None,
+        evaluator_model=None,
+        max_rejections=2,
+        client_factory=lambda _model: ProbeClient(),
+        allowed_root=str(tmp_path),
+        console=Console(record=True, force_terminal=False),
+        audit_sink=sink,
+    )
+
+    routes = [event for event in sink.events if event.event_type == "collaboration.route"]
+    assert len(routes) == 1
+    assert routes[0].parameters == {
+        "mode": mode,
+        "reason": "explicit",
+        "requested_mode": mode,
+        "override_required": False,
+    }
+    rendered = routes[0].model_dump_json()
+    for forbidden in ("PRIVATE_GOAL", "goal", "argv", "path", str(tmp_path)):
+        assert forbidden not in rendered
 
 
 def test_collaboration_renderer_omits_private_goal_and_absolute_path(monkeypatch, tmp_path):
@@ -410,15 +467,17 @@ def test_loop_context_is_untrusted_role_data_and_checkpoint_only_extends_generat
     assert "Checkpoint" not in role_tools["evaluator"]
 
 
-def test_cli_run_auto_routes_programming_goal_to_triad(monkeypatch):
-    calls: list[tuple[str, str]] = []
+def test_cli_programming_goal_uses_run_once(monkeypatch):
+    calls: list[str] = []
     monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: None)
     monkeypatch.setattr(cli_module, "resolve_cli_identity", lambda **kwargs: None)
     monkeypatch.setattr(cli_module, "_load_skill_registry", lambda **kwargs: None)
     monkeypatch.setattr(
         cli_module,
-        "run_collaboration_once",
-        lambda goal, **kwargs: calls.append((goal, kwargs["mode"])) or _report(mode="triad"),
+        "run_once",
+        lambda goal, **kwargs: (
+            calls.append(goal) or SimpleNamespace(status=SimpleNamespace(solved=True))
+        ),
     )
 
     code = cli_module.main(
@@ -427,7 +486,7 @@ def test_cli_run_auto_routes_programming_goal_to_triad(monkeypatch):
     )
 
     assert code == 0
-    assert calls == [("Add a unit test", "triad")]
+    assert calls == ["Add a unit test"]
 
 
 def test_cli_run_single_nonprogramming_uses_unchanged_run_once(monkeypatch):
@@ -450,3 +509,137 @@ def test_cli_run_single_nonprogramming_uses_unchanged_run_once(monkeypatch):
 
     assert code == 0
     assert calls == ["Summarize this report"]
+
+
+def _patch_single_run_dependencies(monkeypatch) -> None:
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: None)
+    monkeypatch.setattr(cli_module, "resolve_cli_identity", lambda **kwargs: None)
+    monkeypatch.setattr(cli_module, "_load_skill_registry", lambda **kwargs: None)
+    monkeypatch.setattr(
+        cli_module,
+        "run_once",
+        lambda _goal, **_kwargs: SimpleNamespace(status=SimpleNamespace(solved=True)),
+    )
+
+
+@pytest.mark.parametrize(
+    ("mode_args", "expected_reason", "expected_requested_mode"),
+    [([], "default", "default"), (["--mode", "single"], "explicit", "single")],
+)
+def test_cli_single_routes_once_without_goal_or_invocation_data(
+    monkeypatch,
+    mode_args,
+    expected_reason,
+    expected_requested_mode,
+):
+    _patch_single_run_dependencies(monkeypatch)
+    audit_sink = _AuditSink()
+    monkeypatch.setattr(
+        cli_module,
+        "JsonlAuditSink",
+        lambda *_args, **_kwargs: pytest.fail("injected audit sink must take priority"),
+    )
+
+    assert (
+        cli_module.main(
+            ["--no-identity", "--no-memory", "run", "PRIVATE_GOAL", *mode_args],
+            client_factory=lambda _model: SimpleNamespace(),
+            audit_sink=audit_sink,
+        )
+        == 0
+    )
+
+    routes = [event for event in audit_sink.events if event.event_type == "collaboration.route"]
+    assert len(routes) == 1
+    assert routes[0].parameters == {
+        "mode": "single",
+        "reason": expected_reason,
+        "requested_mode": expected_requested_mode,
+        "override_required": False,
+    }
+    rendered = routes[0].model_dump_json()
+    for forbidden in ("PRIVATE_GOAL", "goal", "argv", "path"):
+        assert forbidden not in rendered
+
+
+def test_cli_without_injected_sink_writes_default_route_audit(monkeypatch, tmp_path):
+    _patch_single_run_dependencies(monkeypatch)
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    assert (
+        cli_module.main(
+            ["--no-identity", "--no-memory", "run", "PRIVATE_GOAL"],
+            client_factory=lambda _model: SimpleNamespace(),
+        )
+        == 0
+    )
+
+    audit_path = tmp_path / ".forgeagent" / "audit.jsonl"
+    events = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
+    routes = [event for event in events if event["event_type"] == "collaboration.route"]
+    assert len(routes) == 1
+    assert routes[0]["parameters"] == {
+        "mode": "single",
+        "reason": "default",
+        "requested_mode": "default",
+        "override_required": False,
+    }
+    assert "PRIVATE_GOAL" not in json.dumps(routes)
+
+
+def test_cli_default_audit_startup_failure_stops_before_task(monkeypatch, capsys):
+    calls: list[str] = []
+    _patch_single_run_dependencies(monkeypatch)
+    monkeypatch.setattr(
+        cli_module,
+        "JsonlAuditSink",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("PRIVATE_PATH")),
+    )
+    monkeypatch.setattr(cli_module, "run_once", lambda goal, **_kwargs: calls.append(goal))
+
+    code = cli_module.main(
+        ["--no-identity", "--no-memory", "run", "PRIVATE_GOAL"],
+        client_factory=lambda _model: SimpleNamespace(),
+    )
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert calls == []
+    assert "audit startup error" in captured.err
+    assert "PRIVATE_PATH" not in captured.err
+    assert "PRIVATE_GOAL" not in captured.err
+
+
+def test_repl_default_single_routes_once_without_goal_or_invocation_data(monkeypatch):
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: None)
+    monkeypatch.setattr(
+        cli_module,
+        "run_once",
+        lambda _goal, **_kwargs: SimpleNamespace(status=SimpleNamespace(solved=True)),
+    )
+    audit_sink = _AuditSink()
+    inputs = iter(["PRIVATE_GOAL", "quit"])
+
+    repl(
+        tier="restricted",
+        model="mock",
+        client_factory=lambda _model: SimpleNamespace(),
+        read_line=lambda _prompt: next(inputs),
+        confirmation_available=False,
+        no_identity=True,
+        no_memory=True,
+        use_registry_snapshot=False,
+        audit_sink=audit_sink,
+    )
+
+    routes = [event for event in audit_sink.events if event.event_type == "collaboration.route"]
+    assert len(routes) == 1
+    assert routes[0].parameters == {
+        "mode": "single",
+        "reason": "default",
+        "requested_mode": "default",
+        "override_required": False,
+    }
+    rendered = routes[0].model_dump_json()
+    for forbidden in ("PRIVATE_GOAL", "goal", "argv", "path"):
+        assert forbidden not in rendered

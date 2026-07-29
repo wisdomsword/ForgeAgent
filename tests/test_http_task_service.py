@@ -182,7 +182,7 @@ def test_collaboration_record_projects_running_and_terminal_safe_fields():
     assert "goal" not in terminal
 
 
-def test_programming_submission_is_publicly_routed_to_triad_before_worker_runs():
+def test_programming_submission_is_publicly_routed_to_single_before_worker_runs():
     started = threading.Event()
     release = threading.Event()
 
@@ -197,14 +197,14 @@ def test_programming_submission_is_publicly_routed_to_triad_before_worker_runs()
     )
     view = service.submit_view("Add a unit test", {})
 
-    assert view["mode"] == "triad"
-    assert view["phase"] == "planning"
+    assert view["mode"] == "task"
+    assert "phase" not in view
     release.set()
     service.wait(view["task_id"])
     service.shutdown(1.0)
 
 
-def test_programming_submission_audits_safe_route_before_worker_runs():
+def test_programming_submission_audits_safe_single_route_before_worker_runs():
     sink = _AuditSink()
     service = TaskService(factory=_instant_factory, config=CONFIG, audit_sink=sink)
 
@@ -214,14 +214,31 @@ def test_programming_submission_audits_safe_route_before_worker_runs():
 
     route = next(event for event in sink.events if event.event_type == "collaboration.route")
     assert route.task_id == view["task_id"]
-    assert route.result_status == "programming"
+    assert route.result_status == "default"
     assert route.parameters == {
-        "mode": "triad",
-        "reason": "programming",
+        "mode": "single",
+        "reason": "default",
         "requested_mode": "default",
         "override_required": False,
     }
     assert "PRIVATE_GOAL" not in repr(route)
+
+
+def test_client_bound_checks_option_cannot_select_triad_or_enter_worker_record():
+    observed: list[Mapping[str, object]] = []
+
+    def factory(record: TaskRecord) -> _FakeTask:
+        observed.append(record.options)
+        return _instant_factory(record)
+
+    service = TaskService(factory=factory, config=CONFIG)
+    try:
+        with pytest.raises(TypeError, match="has_bound_checks"):
+            service.submit("Add a unit test", {"has_bound_checks": True})
+        assert observed == []
+        assert service.records == {}
+    finally:
+        service.shutdown(1.0)
 
 
 class _Clock:
