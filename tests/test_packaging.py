@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
+import sys
 import tarfile
 from pathlib import Path
 
@@ -95,44 +97,35 @@ def test_wheel_and_sdist_release_contents(tmp_path):
     for suffix in required_suffixes:
         assert any(name.endswith(suffix) for name in names), f"{suffix} missing from sdist"
 
-    venv_dir = tmp_path / "install-venv"
-    subprocess.run(
-        ["uv", "venv", str(venv_dir), "--python", "3.11"],
-        check=True,
-        capture_output=True,
-        env=uv_env,
-    )
-    venv_python = venv_dir / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
-    subprocess.run(
-        ["uv", "pip", "install", "--python", str(venv_python), str(wheels[0])],
-        check=True,
-        capture_output=True,
-        env=uv_env,
-    )
     probe_dir = tmp_path / "wheel-probe"
     probe_dir.mkdir()
-    result = subprocess.run(
+    report = probe_dir / "rc-smoke.json"
+    subprocess.run(
         [
-            str(venv_python),
-            "-I",
-            "-c",
-            "from pathlib import Path\n"
-            "import sys\n"
-            "import forgeagent\n"
-            "from forgeagent.identity import ApprovedIdentity, compose_system_prompt\n"
-            "module_path = Path(forgeagent.__file__).resolve()\n"
-            "venv_path = Path(sys.prefix).resolve()\n"
-            "assert module_path.is_relative_to(venv_path), (module_path, venv_path)\n"
-            "rendered = compose_system_prompt(ApprovedIdentity(soul=None, user=None, "
-            "project_agents=None, memory=None))\n"
-            "assert 'No custom Agent Identity (SOUL)' in rendered\n"
-            "assert 'This conversation is driven by ForgeAgent' in rendered\n"
-            "print('OK')\n",
+            sys.executable,
+            str(repo_root / "scripts/m28_release_candidate_smoke.py"),
+            "--wheel",
+            str(wheels[0]),
+            "--output",
+            str(report),
+            "--python",
+            sys.executable,
         ],
         cwd=probe_dir,
         check=True,
         capture_output=True,
-        text=True,
-        env=_clean_python_environment(os.environ),
+        env=_clean_python_environment(uv_env),
     )
-    assert result.stdout.strip() == "OK"
+    result = json.loads(report.read_text(encoding="utf-8"))
+    assert set(result) == {
+        "schema",
+        "version",
+        "python",
+        "wheel_sha256",
+        "passed",
+        "checks",
+    }
+    assert result["passed"] is True
+    assert result["checks"] == dict.fromkeys(
+        ("clean-wheel", "cli", "http", "single", "duo", "triad"), "passed"
+    )
