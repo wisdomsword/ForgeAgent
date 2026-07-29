@@ -920,6 +920,7 @@ def run_loop_once(
     evaluator_model: str | None = None,
     max_rejections: int | None = None,
     plan_confirmer: Callable[[str], bool] | None = None,
+    audit_sink: AuditSink | None = None,
 ) -> LoopReport:
     """Run one durable Loop through the same Task assembly as the CLI run command."""
     if resume is None:
@@ -956,6 +957,7 @@ def run_loop_once(
         raise ValueError("resume cannot override the frozen Loop configuration")
 
     resolved_collaboration_mode = collaboration_mode or "single"
+    collaboration_mode_source = "explicit" if collaboration_mode is not None else "default"
     resolved_max_rejections = 2 if max_rejections is None else max_rejections
 
     root = str(Path.cwd().resolve()) if allowed_root is None else allowed_root
@@ -1134,7 +1136,9 @@ def run_loop_once(
                 build_collaboration if resolved_collaboration_mode != "single" else None
             ),
             collaboration_mode=resolved_collaboration_mode,
+            collaboration_mode_source=collaboration_mode_source,
             collaboration_id=(uuid4().hex if resolved_collaboration_mode != "single" else ""),
+            audit_sink=audit_sink,
         )
     else:
         runner = LoopRunner.resume(
@@ -1145,6 +1149,7 @@ def run_loop_once(
             with_mcp=mcp is not None,
             skills=skills,
             collaboration_builder=build_collaboration,
+            audit_sink=audit_sink,
         )
     cancel_event = threading.Event()
     previous_sigint = None
@@ -1335,6 +1340,7 @@ def _handle_image_command(goal: str, console: Console) -> tuple[list[ImageItem] 
 # Usage lines for every `/`-prefixed command — the single source `/help` and the bare
 # `/` auto-menu (design doc §3.5) both render from, so the two never drift apart.
 _SLASH_COMMAND_USAGE: dict[str, str] = {
+    "/single": "/single <goal> — Force the standard single-agent route",
     "/duo": "/duo <goal> — Generator plus independent Evaluator (higher cost)",
     "/triad": "/triad <goal> — Planner confirmation, Generator, and Evaluator (highest cost)",
     "/model": "/model [id-or-alias] — list models, or switch this session's model",
@@ -1595,6 +1601,7 @@ def repl(
     registry: Registry | None = None,
     use_registry_snapshot: bool | None = None,
     skills: SkillRegistry | None = None,
+    audit_sink: AuditSink | None = None,
 ) -> None:
     """Interactive loop: read a goal, run it, repeat. Blank line or EOF/quit exits.
 
@@ -1796,7 +1803,9 @@ def repl(
                 _handle_help_command(goal, console)
                 continue
             if (
-                goal == "/duo"
+                goal == "/single"
+                or goal.startswith("/single ")
+                or goal == "/duo"
                 or goal.startswith("/duo ")
                 or goal == "/triad"
                 or goal.startswith("/triad ")
@@ -1814,6 +1823,26 @@ def repl(
                     console=console,
                 )
                 if decision is None:
+                    continue
+                if decision.mode == "single":
+                    emit_collaboration_route(audit_sink, decision, "single")
+                    run_once(
+                        collaboration_goal,
+                        tier=tier,
+                        model=model,
+                        client_factory=task_client_factory,
+                        console=console,
+                        asker=asker,
+                        mcp=mcp,
+                        confirmer=confirmer,
+                        identity=identity,
+                        container_image=container_image,
+                        usage_total=usage_total,
+                        stream=stream,
+                        context_config=current_context,
+                        memory_manager=memory_manager,
+                        skills=current_skills,
+                    )
                     continue
                 run_collaboration_once(
                     collaboration_goal,
@@ -1840,6 +1869,7 @@ def repl(
                     context_config=current_context,
                     memory_manager=memory_manager,
                     skills=current_skills,
+                    audit_sink=audit_sink,
                 )
                 continue
             if goal.startswith("/"):
@@ -1848,7 +1878,7 @@ def repl(
                 continue
             decision = resolve_collaboration_mode(goal, None)
             if decision.mode == "single":
-                emit_collaboration_route(None, decision, None)
+                emit_collaboration_route(audit_sink, decision, None)
                 run_once(
                     goal,
                     tier=tier,
@@ -2480,6 +2510,9 @@ def serve_http(
                     budgets=budgets,
                     loop_id=record.task_id,
                     collaboration_mode=collaboration_mode,
+                    collaboration_mode_source=(
+                        "explicit" if "collaboration_mode" in options else "default"
+                    ),
                     collaboration_id=(uuid4().hex if collaboration_mode != "single" else ""),
                     **common,
                 )
@@ -2848,6 +2881,7 @@ def main(
     argv: list[str] | None = None,
     *,
     client_factory: ClientFactory = build_real_client,
+    audit_sink: AuditSink | None = None,
 ) -> int:
     """CLI entry point. Returns a process exit code.
 
@@ -2945,7 +2979,7 @@ def main(
                     return 1 if interactive_identity else 2
                 if decision.mode == "single":
                     emit_collaboration_route(
-                        None,
+                        audit_sink,
                         decision,
                         cast(CollaborationMode | None, args.mode),
                     )
@@ -2996,6 +3030,7 @@ def main(
                         memory_manager=memory_manager,
                         skills=skills,
                         required_candidate_files=required_candidate_files,
+                        audit_sink=audit_sink,
                     )
             finally:
                 if mcp is not None:
@@ -3062,6 +3097,7 @@ def main(
                     evaluator_model=args.evaluator_model,
                     max_rejections=args.max_rejections,
                     plan_confirmer=headless_plan_confirmer("deny"),
+                    audit_sink=audit_sink,
                 )
             finally:
                 if mcp is not None:
@@ -3096,6 +3132,7 @@ def main(
             context_config=context_config,
             registry=runtime_registry,
             use_registry_snapshot=client_factory is build_real_client,
+            audit_sink=audit_sink,
         )
         return 0
     except RegistryError as exc:

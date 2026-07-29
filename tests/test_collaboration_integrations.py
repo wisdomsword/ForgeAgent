@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from rich.console import Console
 
 import forgeagent.cli as cli_module
+from forgeagent.audit import AuditEvent
 from forgeagent.cli import build_parser, repl, run_collaboration_once
 from forgeagent.client import MockClient
 from forgeagent.collaboration import (
@@ -81,10 +82,53 @@ def test_run_parser_accepts_collaboration_policy_flags():
 
 
 def test_repl_collaboration_commands_share_help_and_completion_metadata():
+    assert "/single" in cli_module._SLASH_COMMAND_USAGE
     assert "/duo" in cli_module._SLASH_COMMAND_USAGE
     assert "/triad" in cli_module._SLASH_COMMAND_USAGE
     assert "cost" in cli_module._SLASH_COMMAND_USAGE["/duo"].lower()
     assert "planner" in cli_module._SLASH_COMMAND_USAGE["/triad"].lower()
+
+
+class _AuditSink:
+    def __init__(self) -> None:
+        self.events: list[AuditEvent] = []
+
+    def emit(self, event: AuditEvent) -> bool:
+        self.events.append(event)
+        return True
+
+
+def test_repl_single_command_emits_explicit_route_once_without_goal_data(monkeypatch):
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: None)
+    monkeypatch.setattr(
+        cli_module,
+        "run_once",
+        lambda _goal, **_kwargs: SimpleNamespace(status=SimpleNamespace(solved=True)),
+    )
+    sink = _AuditSink()
+    inputs = iter(["/single PRIVATE_GOAL", "quit"])
+
+    repl(
+        tier="restricted",
+        model="mock",
+        client_factory=lambda _model: SimpleNamespace(),
+        read_line=lambda _prompt: next(inputs),
+        confirmation_available=False,
+        no_identity=True,
+        no_memory=True,
+        use_registry_snapshot=False,
+        audit_sink=sink,
+    )
+
+    routes = [event for event in sink.events if event.event_type == "collaboration.route"]
+    assert len(routes) == 1
+    assert routes[0].parameters == {
+        "mode": "single",
+        "reason": "explicit",
+        "requested_mode": "single",
+        "override_required": False,
+    }
+    assert "PRIVATE_GOAL" not in routes[0].model_dump_json()
 
 
 def test_repl_missing_collaboration_goal_prints_usage_without_running(monkeypatch):
@@ -253,6 +297,55 @@ def test_run_collaboration_wraps_role_client_configuration_errors(tmp_path, monk
             console=Console(record=True, force_terminal=False),
         )
     assert built >= 1
+
+
+@pytest.mark.parametrize("mode", ["duo", "triad"])
+def test_run_collaboration_emits_route_once_without_private_data(tmp_path, monkeypatch, mode):
+    class ProbeClient:
+        def close(self) -> None:
+            pass
+
+    class FakeRunner:
+        @classmethod
+        def create(cls, **_kwargs):
+            return cls()
+
+        def run(self, _goal, *, cancel_event=None):
+            del cancel_event
+            return _report(mode=mode)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(cli_module, "CollaborationRunner", FakeRunner)
+    monkeypatch.setattr(cli_module, "_validate_client_context_policy", lambda *_args: None)
+    sink = _AuditSink()
+
+    run_collaboration_once(
+        "PRIVATE_GOAL",
+        mode=mode,
+        tier="trusted",
+        model="mock",
+        planner_model=None,
+        evaluator_model=None,
+        max_rejections=2,
+        client_factory=lambda _model: ProbeClient(),
+        allowed_root=str(tmp_path),
+        console=Console(record=True, force_terminal=False),
+        audit_sink=sink,
+    )
+
+    routes = [event for event in sink.events if event.event_type == "collaboration.route"]
+    assert len(routes) == 1
+    assert routes[0].parameters == {
+        "mode": mode,
+        "reason": "explicit",
+        "requested_mode": mode,
+        "override_required": False,
+    }
+    rendered = routes[0].model_dump_json()
+    for forbidden in ("PRIVATE_GOAL", "goal", "argv", "path", str(tmp_path)):
+        assert forbidden not in rendered
 
 
 def test_collaboration_renderer_omits_private_goal_and_absolute_path(monkeypatch, tmp_path):
@@ -440,29 +533,26 @@ def test_cli_single_routes_once_without_goal_or_invocation_data(
     expected_requested_mode,
 ):
     _patch_single_run_dependencies(monkeypatch)
-    route_calls: list[tuple[object, object, object]] = []
-    monkeypatch.setattr(
-        cli_module,
-        "emit_collaboration_route",
-        lambda sink, decision, requested_mode: route_calls.append((sink, decision, requested_mode)),
-    )
+    audit_sink = _AuditSink()
 
     assert (
         cli_module.main(
             ["--no-identity", "--no-memory", "run", "PRIVATE_GOAL", *mode_args],
             client_factory=lambda _model: SimpleNamespace(),
+            audit_sink=audit_sink,
         )
         == 0
     )
 
-    assert len(route_calls) == 1
-    sink, decision, requested_mode = route_calls[0]
-    assert sink is None
-    assert decision.mode == "single"
-    assert decision.reason == expected_reason
-    assert decision.override_required is False
-    assert requested_mode == (None if expected_requested_mode == "default" else "single")
-    rendered = repr(route_calls)
+    routes = [event for event in audit_sink.events if event.event_type == "collaboration.route"]
+    assert len(routes) == 1
+    assert routes[0].parameters == {
+        "mode": "single",
+        "reason": expected_reason,
+        "requested_mode": expected_requested_mode,
+        "override_required": False,
+    }
+    rendered = routes[0].model_dump_json()
     for forbidden in ("PRIVATE_GOAL", "goal", "argv", "path"):
         assert forbidden not in rendered
 
@@ -474,12 +564,7 @@ def test_repl_default_single_routes_once_without_goal_or_invocation_data(monkeyp
         "run_once",
         lambda _goal, **_kwargs: SimpleNamespace(status=SimpleNamespace(solved=True)),
     )
-    route_calls: list[tuple[object, object, object]] = []
-    monkeypatch.setattr(
-        cli_module,
-        "emit_collaboration_route",
-        lambda sink, decision, requested_mode: route_calls.append((sink, decision, requested_mode)),
-    )
+    audit_sink = _AuditSink()
     inputs = iter(["PRIVATE_GOAL", "quit"])
 
     repl(
@@ -491,15 +576,17 @@ def test_repl_default_single_routes_once_without_goal_or_invocation_data(monkeyp
         no_identity=True,
         no_memory=True,
         use_registry_snapshot=False,
+        audit_sink=audit_sink,
     )
 
-    assert len(route_calls) == 1
-    sink, decision, requested_mode = route_calls[0]
-    assert sink is None
-    assert decision.mode == "single"
-    assert decision.reason == "default"
-    assert decision.override_required is False
-    assert requested_mode is None
-    rendered = repr(route_calls)
+    routes = [event for event in audit_sink.events if event.event_type == "collaboration.route"]
+    assert len(routes) == 1
+    assert routes[0].parameters == {
+        "mode": "single",
+        "reason": "default",
+        "requested_mode": "default",
+        "override_required": False,
+    }
+    rendered = routes[0].model_dump_json()
     for forbidden in ("PRIVATE_GOAL", "goal", "argv", "path"):
         assert forbidden not in rendered

@@ -163,6 +163,16 @@ Task 5 最终独立评审继续发现并修复两类 Important 产品缺陷：
 探测状态不确定时不冒充成功，并保留恢复证据。`tests/test_m27_m25_routing_analysis.py` 与独立复算
 共 `23 passed`，最终组合专项共 `98 passed`。
 
+Task 6 最终审计复核又确认并修复三处一致性缺口：CLI/REPL Single 现在复用调用方实际 audit sink，
+而不是在分支内硬编码 `None`；REPL 提供有帮助与补全元数据的 `/single <goal>`；Loop checkpoint
+冻结 `collaboration_mode_source`，create/resume 均按 default/explicit 产生相同审计，旧 checkpoint
+缺字段时安全默认为 default。CLI 与 HTTP 无模式输入投影 default，显式 single/duo/triad 投影
+explicit；Single 真实事件测试断言恰好一次且不含 goal、argv 或 path。
+
+Task 6 的首轮受影响测试暴露 `/single` 元数据遗漏：`1 failed, 520 passed, 10 skipped`；补齐后同一
+测试集合为 `527 passed, 10 skipped`，定向 Ruff 与 `git diff --check` 通过。该修复未重写
+上文完整仓库基线；完整基线仍以 Task 5 已记录的新鲜命令为准。
+
 ## 已知边界
 
 - 当前沙箱不能绑定 loopback socket；M16 黑盒测试未在本轮环境完成。

@@ -39,6 +39,7 @@ Triad；只允许可信宿主在本次任务已绑定非空冻结检查时自动
 - [x] 修正 Memory、Linux、路由和 HTTP 公开文档合同
 - [x] 完成全量可执行验证、两轮最终自审、验证报告与里程碑记录
 - [x] 完成 build-stage preparation/handoff：归档输入就绪，`milestones/latest` 当前指向 M27，分支收尾选择留给后续 gate
+- [x] 完成最终路由审计一致性修复：CLI/REPL Single audit sink、`/single`、Loop default/explicit checkpoint 来源
 - [ ] Comet delta spec 归档和分支收尾 — 后续 archive 阶段执行，不在 active change 内提前完成
 
 ## 交付物清单
@@ -50,6 +51,7 @@ Triad；只允许可信宿主在本次任务已绑定非空冻结检查时自动
 - [x] `docs/evaluation/m25/derived/m27-collaboration-routing/` — 机器投影和人类报告
 - [x] `README.md`、`docs/http-task-service.md`、`docs/threat-model.md`、`docs/platform-support.md` — 公开合同
 - [x] `tests/test_collaboration_routing.py`、入口/HTTP/文档与派生分析测试 — 可执行回归合同
+- [x] `src/forgeagent/loop.py` 与 Loop/入口测试 — default/explicit 来源持久化、恢复和旧 checkpoint 兼容合同
 - [x] `docs/superpowers/reports/2026-07-29-m27-collaboration-routing-calibration-verify.md` — 完整验证证据
 
 ## 三次评审
@@ -67,6 +69,7 @@ Triad；只允许可信宿主在本次任务已绑定非空冻结检查时自动
 - [x] Task 4 独立 review 的 2 项 Important 与 1 项 Minor 收尾问题已修复：ACTION_PLAN 权威状态与完整验证证据、OpenSpec 4.3/4.4 生命周期边界、Task 4 实际提交记录
 - [x] Task 4 复审发现的状态机死锁与审查证据缺口已修复，证据见独立审查工件；未虚构 reviewer agent ID 或重测结果
 - [x] Task 5 最终评审修复 CLI/REPL Single 审计缺口，以及 M25 派生输出 backup/restore 不确定状态的破坏风险
+- [x] Task 6 复核修复实际 audit sink 复用、`/single` 帮助/补全和 Loop create/resume 来源冻结；真实事件断言无重复和敏感字段
 - [x] 修复后独立复审均为 Approved；强制终止、文件系统损坏和外部并发改写不被误写为跨文件原子保证
 - [x] 两轮最终自审未发现剩余 Critical 或 Important 产品问题；active change 未被误写为已归档
 
@@ -75,6 +78,7 @@ Triad；只允许可信宿主在本次任务已绑定非空冻结检查时自动
 - [x] 路由、派生分析和文档专项验证通过，证据见验证报告
 - [x] 当前沙箱可执行基线 `2322 passed, 22 skipped`；完整尝试 `12 failed, 2325 passed, 22 skipped`，环境失败原样记录
 - [x] Ruff check/format、OpenSpec `21/21`、Golden `20/20`、离线 wheel/sdist build 和 diff check 通过
+- [x] Task 6 受影响回归 `527 passed, 10 skipped`，定向 Ruff 与 diff check 通过
 - [x] M25 冻结 protocol 与正式 run tree 无 diff；自动 Triad 恢复列表为空
 
 ## 遗留问题

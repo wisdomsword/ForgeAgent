@@ -858,6 +858,8 @@ def test_serve_factory_selects_server_owned_new_and_resumed_loop(monkeypatch, tm
     assert create_kwargs["goal"] == "durable"
     assert create_kwargs["task_id"] == task_id
     assert create_kwargs["trigger"] == "http"
+    assert create_kwargs["collaboration_mode"] == "single"
+    assert create_kwargs["collaboration_mode_source"] == "default"
     assert create_kwargs["budgets"].model_dump() == {
         "max_rounds": 12,
         "token_budget": 200,
@@ -869,6 +871,26 @@ def test_serve_factory_selects_server_owned_new_and_resumed_loop(monkeypatch, tm
     assert loop_calls[1][1]["loop_id"] == "a" * 32
     assert "goal" not in loop_calls[1][1]
     assert "budgets" not in loop_calls[1][1]
+
+    for index, collaboration_mode in enumerate(("single", "duo", "triad"), start=2):
+        explicit = captured["factory"](
+            SimpleNamespace(
+                task_id="d" * 32,
+                goal=f"explicit {collaboration_mode}",
+                options={
+                    "mode": "loop",
+                    "collaboration_mode": collaboration_mode,
+                    "token_budget": 200,
+                    "max_rounds": 12,
+                    "wall_clock_seconds": 30.5,
+                    "max_consecutive_failures": 2,
+                },
+            )
+        )
+        assert isinstance(explicit, FakeRunner)
+        explicit_kwargs = loop_calls[index][1]
+        assert explicit_kwargs["collaboration_mode"] == collaboration_mode
+        assert explicit_kwargs["collaboration_mode_source"] == "explicit"
 
 
 def test_unknown_task_and_unknown_route_use_safe_errors(running_server):

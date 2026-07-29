@@ -1382,6 +1382,46 @@ def test_run_loop_once_closes_runner_and_reuses_cli_assembly(monkeypatch, tmp_pa
     assert report.tokens_used == 1
 
 
+@pytest.mark.parametrize(
+    ("collaboration_mode", "expected_source"),
+    [(None, "default"), ("single", "explicit"), ("duo", "explicit"), ("triad", "explicit")],
+)
+def test_run_loop_once_projects_default_and_explicit_collaboration_source(
+    monkeypatch, tmp_path, collaboration_mode, expected_source
+):
+    captured: dict[str, object] = {}
+
+    class FakeRunner:
+        @classmethod
+        def create(cls, **kwargs):
+            captured.update(kwargs)
+            return cls()
+
+        def run(self, *, cancel_event=None):
+            del cancel_event
+            return SimpleNamespace(status="completed")
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(cli_module, "LoopRunner", FakeRunner)
+    monkeypatch.setattr(cli_module, "_render_loop_report", lambda _report, _console: None)
+
+    run_loop_once(
+        "finish the work",
+        tier="trusted",
+        model="mock",
+        client_factory=_factory([]),
+        allowed_root=str(tmp_path),
+        console=_console(),
+        token_budget=5,
+        collaboration_mode=collaboration_mode,
+    )
+
+    assert captured["collaboration_mode"] == (collaboration_mode or "single")
+    assert captured["collaboration_mode_source"] == expected_source
+
+
 def test_collaborative_loop_shares_remaining_rounds_and_forwards_loop_context(
     monkeypatch, tmp_path
 ):

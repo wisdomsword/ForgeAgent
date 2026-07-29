@@ -431,3 +431,47 @@ Expected: 全部 PASS。
 
 重复 Task 4 的 pytest、OpenSpec、Golden、Ruff、离线打包和 diff 检查；用实际数字同步 README、
 platform-support、验证报告与 milestone，完成两轮自审和独立复审后提交。
+
+### Task 6: 最终路由审计一致性修复
+
+**Files:**
+- Modify: `src/forgeagent/cli.py`
+- Modify: `src/forgeagent/loop.py`
+- Modify: `tests/test_collaboration_integrations.py`
+- Modify: `tests/test_loop_checkpoint.py`
+- Modify: `tests/test_loop_runner.py`
+- Modify: `tests/test_http_server.py`
+
+**Interfaces:**
+- Preserves: Single/Duo/Triad 路由决策本身、旧 checkpoint 可加载性和 Duo/Triad 单次审计语义。
+- Produces: CLI/REPL Single 复用调用方 audit sink；REPL `/single <goal>`；Loop default/explicit 来源冻结与恢复。
+
+- [x] **Step 1: 写 RED 合同**
+
+CLI/REPL 测试注入真实 sink，断言 Single 只产生一个 `collaboration.route` 且不含 goal/argv/path；
+Loop create/resume 测试断言 default/explicit 来源；旧 checkpoint 缺字段时默认为 default；HTTP 无字段与
+显式 `single` 分别投影 default/explicit。
+
+- [x] **Step 2: 实现最小 GREEN**
+
+CLI main、REPL 和 Loop 复用既有 audit sink；新增 `/single` 命令元数据；checkpoint 新增带默认值的
+`collaboration_mode_source`，create 时冻结、resume 时复用，不从恢复请求重新推导。
+
+- [x] **Step 3: 受影响验证与两轮自审**
+
+Run:
+
+```bash
+UV_CACHE_DIR=/tmp/forgeagent-m27-uv-cache uv run pytest -q \
+  tests/test_collaboration_integrations.py tests/test_loop_checkpoint.py \
+  tests/test_loop_runner.py tests/test_cli.py tests/test_http_server.py \
+  tests/test_http_task_service.py
+UV_CACHE_DIR=/tmp/forgeagent-m27-uv-cache uv run ruff check \
+  src/forgeagent/cli.py src/forgeagent/loop.py \
+  tests/test_collaboration_integrations.py tests/test_loop_checkpoint.py \
+  tests/test_loop_runner.py tests/test_http_server.py
+git diff --check
+```
+
+Result: `527 passed, 10 skipped`；Ruff 与 diff check 通过。第一轮修复 `/single` 帮助/补全遗漏；
+第二轮确认 Single 无重复审计、Loop 恢复不改变来源、旧 checkpoint 兼容，未发现剩余问题。

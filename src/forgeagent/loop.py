@@ -197,6 +197,7 @@ with warnings.catch_warnings():
         handoff: str = ""
         last_failure: str = ""
         collaboration_mode: Literal["single", "duo", "triad"] = "single"
+        collaboration_mode_source: Literal["default", "explicit"] = "default"
         collaboration_id: str = ""
         plan_digest: str = ""
 
@@ -544,6 +545,7 @@ class LoopCheckpointStore:
         *,
         loop_id: str | None = None,
         collaboration_mode: Literal["single", "duo", "triad"] = "single",
+        collaboration_mode_source: Literal["default", "explicit"] = "default",
         collaboration_id: str = "",
         plan_digest: str = "",
     ) -> LoopCheckpoint:
@@ -555,6 +557,7 @@ class LoopCheckpointStore:
                     goal=goal,
                     budgets=budgets,
                     collaboration_mode=collaboration_mode,
+                    collaboration_mode_source=collaboration_mode_source,
                     collaboration_id=collaboration_id,
                     plan_digest=plan_digest,
                 )
@@ -779,6 +782,7 @@ class LoopRunner:
         task_builder: TaskBuilder,
         collaboration_builder: CollaborationBuilder | None = None,
         collaboration_mode: Literal["single", "duo", "triad"] = "single",
+        collaboration_mode_source: Literal["default", "explicit"] = "default",
         collaboration_id: str = "",
         plan_digest: str = "",
         goal: str,
@@ -797,6 +801,7 @@ class LoopRunner:
                 budgets,
                 loop_id=loop_id,
                 collaboration_mode=collaboration_mode,
+                collaboration_mode_source=collaboration_mode_source,
                 collaboration_id=collaboration_id,
                 plan_digest=plan_digest,
             )
@@ -822,8 +827,12 @@ class LoopRunner:
                 risk_level="low",
                 parameters={
                     "mode": checkpoint.collaboration_mode,
-                    "reason": "explicit",
-                    "requested_mode": checkpoint.collaboration_mode,
+                    "reason": checkpoint.collaboration_mode_source,
+                    "requested_mode": (
+                        "default"
+                        if checkpoint.collaboration_mode_source == "default"
+                        else checkpoint.collaboration_mode
+                    ),
                     "override_required": False,
                     "loop_id": checkpoint.loop_id,
                 },
@@ -881,8 +890,12 @@ class LoopRunner:
                 risk_level="low",
                 parameters={
                     "mode": checkpoint.collaboration_mode,
-                    "reason": "explicit",
-                    "requested_mode": checkpoint.collaboration_mode,
+                    "reason": checkpoint.collaboration_mode_source,
+                    "requested_mode": (
+                        "default"
+                        if checkpoint.collaboration_mode_source == "default"
+                        else checkpoint.collaboration_mode
+                    ),
                     "override_required": False,
                     "loop_id": checkpoint.loop_id,
                 },

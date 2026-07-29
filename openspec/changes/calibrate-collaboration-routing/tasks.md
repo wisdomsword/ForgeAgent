@@ -28,3 +28,9 @@
 - [x] 5.1 添加 RED/GREEN 测试并修复 M25 派生产物在备份创建失败时可能删除既有文件的问题
 - [x] 5.2 添加 RED/GREEN 集成测试，确保 CLI 与 REPL 的默认/显式 Single 路由均发出稳定 `collaboration.route` 审计事件
 - [x] 5.3 重新执行受影响验证、完整基线和两轮最终自审，并同步验证报告、公开基线与里程碑证据
+
+## 6. 最终路由审计一致性修复
+
+- [x] 6.1 以 RED/GREEN 修复 CLI/REPL Single 路由复用实际 audit sink，并补齐 `/single <goal>` 帮助与补全合同
+- [x] 6.2 在 Loop checkpoint 中持久化默认/显式来源，create/resume 审计复用冻结来源并兼容旧 checkpoint
+- [x] 6.3 覆盖 CLI/HTTP 无模式为 default、显式 single/duo/triad 为 explicit，运行受影响测试、Ruff 与 diff 检查并完成两轮自审
