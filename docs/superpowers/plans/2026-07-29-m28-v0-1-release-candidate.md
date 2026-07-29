@@ -302,9 +302,11 @@ UV_CACHE_DIR=/tmp/forgeagent-m28-uv-cache uv run pytest -q tests/test_container_
 
 从命令输出和 JSON/JUnit 读取实际计数，不手抄预期值。更新 README 当前验证、平台矩阵和 RC 文档：full pytest、skip/fail、OpenSpec N/N、Golden 20/20、clean-wheel 六项、Docker 10 项、Linux RC smoke。没有真实 required GitLab pipeline 时，M28 CI 仍写 configured；本机 Linux container 只写 supplemental local evidence。
 
-- [x] **Step 3: 生成验证报告与 milestone**
+- [ ] **Step 3: 生成验证报告与 milestone**
 
 验证报告包含：scope、逐命令结果、RC JSON 字段摘要、代码审查发现/修复、环境限制、已知限制、OpenSpec scenario 映射。`milestone_028.md` 按 `MILESTONE_GUIDE.md` 包含范围、提交、实证、未验证项和续接指引；`milestones/latest` 只写 `milestone_028.md`；ACTION_PLAN 新增 M28 行并只使用实际结果。
+
+当前报告、milestone 与 ACTION_PLAN 草案已经生成；`milestones/latest` 在最终审查和 archive 完成前仍指向 M27，因此本步骤留待生命周期收口时勾选。
 
 - [x] **Step 4: 复跑文档/strict 合同并提交**
 

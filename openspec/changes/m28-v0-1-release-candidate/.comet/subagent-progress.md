@@ -1,18 +1,22 @@
 # M28 Subagent Progress
 
-- Plan task: Task 3: RC 发布说明与限制合同
-- OpenSpec tasks: 4.1, 4.2
-- Phase: done
+- Plan task: Task 4: 全量验证、证据定稿与 M28 里程碑
+- OpenSpec tasks: 5.1, 5.2, 5.3
+- Phase: task-review
 - Review mode: thorough
-- Review/fix round: 1/2
-- Base commit: 44125e5
-- Implementer: DONE
-- Implementation commit: 03e1983
-- RED/GREEN evidence: docs contract RED 4 failed; GREEN docs/adjacent 21 passed; Ruff/format/diff passed.
-- Changed files: `docs/releases/0.1.0-rc.md`, `README.md`, `docs/platform-support.md`, `tests/test_m28_release_docs.py`
-- Review findings: Important -- unqualified "no public resume API" contradicts public Loop resume request support; evidence tests do not bind configured/historical statuses to their exact M28/M24 rows and permit contradictory verified claims. Minor -- duplicate 0.1.0 RC entry is not rejected.
-- Fix strategy: narrow wording to no collaboration-specific resume endpoint; parse exact evidence rows/sections, forbid contradictory M28 verified/pass claims, and assert a single 0.1.0 RC entry file.
-- Fix commit: `887608e`; RED strict contracts 2 failed/2 passed; GREEN adjacent 21 passed; Ruff/format/diff passed.
-- Review result: Spec passed; no blocking finding. Resume wording, exact evidence rows, contradiction guard, and unique RC entry all approved.
-- Requirements artifact: `.superpowers/sdd/task-3-brief.md`
-- Evidence boundary: M24 Pipeline 50 / Job 249 is historical container-only evidence; M28 installed-wheel required job remains configured/pending until a new run exists.
+- Review/fix round: 2/2
+- Base commit: 2b476d3
+- Implementer: DONE_WITH_CONCERNS
+- Implementation commit: 37365bd
+- Changed files: verification report, milestone 028/latest, ACTION_PLAN, README, platform/release docs, OpenSpec tasks
+- Verification evidence: focused 42 passed; Ruff/format passed; full pytest 2 failed/2401 passed/10 skipped; Golden 20/20; strict 22/22; build passed; Python 3.11.15 RC JSON six passed; docs 21 passed.
+- Risk signals: cross-document evidence consistency, full-suite failure, Docker unavailable, diff > 200, DONE_WITH_CONCERNS
+- Review findings: Important -- milestone/latest/ACTION_PLAN claim completion before final review and full-suite closure; formal-release blocker wording permits merely recording failures. Minor -- milestone lacks commit provenance and Task 4 plan steps remain unchecked.
+- Fix strategy: restore in-progress/RC-engineering-frozen status and prior latest pointer; require full pytest green or explicit closure; add commit provenance; check only completed Task 4 plan steps. Then handle the stable MCP timing failures as a bounded M28 completion-gate portability correction before final completion.
+- Documentation fix: `e696737` restores in-progress lifecycle gates, strengthens formal-release blockers, adds commit provenance, and checks completed plan steps; docs 21 passed and strict 22/22.
+- Full-suite portability correction: `83ba892` replaces scheduler-dependent wall-clock tests with deterministic forwarded-budget contracts; production MCP code unchanged; focused 2 passed, MCP 216 passed, full 2403 passed/10 skipped, Ruff/format/diff passed.
+- Requirements artifact: `.superpowers/sdd/task-4-brief.md`
+- Preflight evidence: Python 3.11.15 available; Docker client 29.2.1 but daemon unavailable; OpenSpec strict 22/22 before final artifacts.
+- Evidence rule: Docker integration and Linux container RC smoke remain unverified due to daemon connection failure; configured M28 GitLab job is not promoted to verified.
+- Task 4 re-review: NOT_READY -- public wheel SHA predates the final README metadata baseline, so candidate provenance must be rebuilt from current HEAD; plan Step 3 also cannot remain checked while `milestones/latest` correctly points to M27.
+- Re-review fix strategy: rebuild the unique wheel/sdist from the current README, inspect embedded METADATA, rerun the Python 3.11 six-check harness, refresh every public SHA/evidence reference, and leave plan Step 3 open until final lifecycle closure.
