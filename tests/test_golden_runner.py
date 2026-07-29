@@ -690,6 +690,32 @@ def test_default_runner_completes_all_twenty_cases():
     assert suite.pass_rate == 100.0
 
 
+def test_g14_allows_cold_worker_start_after_timeout(tmp_path, monkeypatch):
+    original_run = cases.subprocess.run
+    worker_count = 0
+
+    def delayed_second_worker(command, *args, **kwargs):
+        nonlocal worker_count
+        if "forgeagent._sandbox_worker" in " ".join(str(part) for part in command):
+            worker_count += 1
+            if worker_count == 2:
+                command = [
+                    command[0],
+                    "-I",
+                    "-c",
+                    "import runpy,time; time.sleep(0.3); "
+                    "runpy.run_module('forgeagent._sandbox_worker', run_name='__main__')",
+                ]
+        return original_run(command, *args, **kwargs)
+
+    monkeypatch.setattr(cases.subprocess, "run", delayed_second_worker)
+
+    evidence = cases.run_g14_offline(tmp_path)
+
+    assert worker_count == 2
+    assert evidence.evidence["successful_round"] == 2
+
+
 def test_offline_main_runs_unpatched_twenty_case_core_and_writes_shared_summary(tmp_path):
     output_dir = tmp_path / "offline-core"
 

@@ -133,3 +133,12 @@ change 移动留给 archive gate。
 第二轮检查安全、失败路径与范围克制：没有新增依赖、产品 API、运行时配置或 `src/forgeagent`
 变更；HTTP client 明确禁用 ambient proxy，CI wheel 数量/bootstrap/JSON 均 fail-closed，报告无
 credential/目标/绝对临时路径；merge-base diff 不含用户已有未跟踪路径。没有新发现。
+
+## Verify-Fail Round 1: Golden G14
+
+最终 verify 首次 Golden 为 `19/20`，G14 的 runaway 正确超时，但随后独立 `print` worker 也在
+`0.2s` 内未完成。该场景单独连续 5 次与完整 runner 立即复跑均通过，说明旧预算受全量测试后宿主
+调度影响。没有把重跑成功直接当作关闭：新增回归在第二个真实 sandbox worker 内注入 `0.3s` 冷启动；
+旧 `0.2s` 稳定 RED，G14 将场景专用预算提高到 `1.0s` 后 GREEN。生产 sandbox 默认与实现不变，
+无限循环仍真实 timeout/reap。G14/默认 20 场景/离线 main 定向合同 `3 passed, 85 deselected`，Ruff、
+format、diff 通过；最终 Golden 20/20 留给重新进入 verify 后的新鲜执行。

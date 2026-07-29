@@ -1128,9 +1128,10 @@ def run_g06_offline(workdir: Path) -> GoldenEvidence:
 
 def run_g14_offline(workdir: Path) -> GoldenEvidence:
     workdir.mkdir(parents=True, exist_ok=True)
+    timeout_seconds = 1.0
     backend = RestrictedBackend(
         allowed_root=str(workdir),
-        timeout_seconds=0.2,
+        timeout_seconds=timeout_seconds,
         cpu_seconds=0,
         secret_values=set(),
     )
@@ -1165,7 +1166,7 @@ def run_g14_offline(workdir: Path) -> GoldenEvidence:
         len(timed_out.outcomes) == 1 and not timed_out.outcomes[0].success,
         "G14 runaway block did not fail",
     )
-    timeout_detail = "execution timed out after 0.2s (process killed)"
+    timeout_detail = f"execution timed out after {timeout_seconds}s (process killed)"
     require(timed_out.outcomes[0].detail == timeout_detail, "G14 timeout detail differs")
     require(len(client.messages_by_call) >= 2, "G14 timeout feedback was not returned")
     timeout_feedback = [
