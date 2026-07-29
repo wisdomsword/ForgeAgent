@@ -267,7 +267,7 @@ git commit -m "docs: freeze ForgeAgent 0.1 release candidate"
 - Consumes: Tasks 1-3 实现、RC JSON、测试/build/OpenSpec/Docker 原始输出。
 - Produces: 只陈述实际执行结果的验证报告、公开基线与 M28 续接指引。
 
-- [ ] **Step 1: 运行分层验证并保存原始结论**
+- [x] **Step 1: 运行分层验证并保存原始结论**
 
 依次运行，任一意外失败先按 systematic-debugging 根因调查，不得先改文档：
 
@@ -298,15 +298,15 @@ UV_CACHE_DIR=/tmp/forgeagent-m28-uv-cache uv run pytest -q tests/test_container_
 
 再在 `python:3.11-slim` Linux 容器内运行同一 wheel smoke并输出独立 `artifacts/m28/linux-rc-smoke.json`。若本机环境不能运行某项，记录固定阻塞原因和未验证，不得写 pass。
 
-- [ ] **Step 2: 用实际数字定稿公开证据**
+- [x] **Step 2: 用实际数字定稿公开证据**
 
 从命令输出和 JSON/JUnit 读取实际计数，不手抄预期值。更新 README 当前验证、平台矩阵和 RC 文档：full pytest、skip/fail、OpenSpec N/N、Golden 20/20、clean-wheel 六项、Docker 10 项、Linux RC smoke。没有真实 required GitLab pipeline 时，M28 CI 仍写 configured；本机 Linux container 只写 supplemental local evidence。
 
-- [ ] **Step 3: 生成验证报告与 milestone**
+- [x] **Step 3: 生成验证报告与 milestone**
 
 验证报告包含：scope、逐命令结果、RC JSON 字段摘要、代码审查发现/修复、环境限制、已知限制、OpenSpec scenario 映射。`milestone_028.md` 按 `MILESTONE_GUIDE.md` 包含范围、提交、实证、未验证项和续接指引；`milestones/latest` 只写 `milestone_028.md`；ACTION_PLAN 新增 M28 行并只使用实际结果。
 
-- [ ] **Step 4: 复跑文档/strict 合同并提交**
+- [x] **Step 4: 复跑文档/strict 合同并提交**
 
 Run: `UV_CACHE_DIR=/tmp/forgeagent-m28-uv-cache uv run pytest -q tests/test_m28_release_docs.py tests/test_continuous_verification.py tests/test_collaboration_docs.py`
 

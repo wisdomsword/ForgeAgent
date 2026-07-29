@@ -2,10 +2,10 @@
 
 ## 结论
 
-M28 的 RC 工程范围已完成：唯一 wheel 的 Python 3.11 clean install、CLI、HTTP、Single、Duo、
-Triad 六项离线 smoke 均通过，Linux required job 已配置，发布说明和五类已知限制已冻结。这不是
-正式发布结论：完整 pytest 有两个稳定复现的 MCP 墙钟失败，本机 Docker daemon 不可用，且没有
-当前 M28 GitLab pipeline/job 证据。
+M28 仍在进行中。当前证据确认唯一 wheel 的 Python 3.11 clean install、CLI、HTTP、Single、Duo、
+Triad 六项离线 smoke 通过，Linux required job 已配置，发布说明和五类已知限制已冻结；这些只构成
+RC 工程冻结证据，不构成里程碑完成或正式发布结论。完整 pytest 有两个稳定复现的 MCP 墙钟失败，
+本机 Docker daemon 不可用，且没有当前 M28 GitLab pipeline/job 证据。
 
 ## 范围
 
@@ -73,6 +73,10 @@ Job 249 只作为历史 container-only 证据。
 - Task 1-3 task-level review 的发现均已修复；最终整分支 review 与两轮一致性复审仍属于后续 verify
   gate，本报告不提前宣称完成。
 
+关键提交 provenance：Task 1 为 `9586c70`、`31eff32`、`426e234`、`2eaab53`；Task 2 为
+`6bc760a`、`00ad211`、`44125e5`；Task 3 为 `03e1983`、`887608e`、`2b476d3`；Task 4 验证与
+证据草案为 `37365bd`。这些提交证明实施和 review fix 的来源，不替代仍开放的 lifecycle gate。
+
 ## OpenSpec 场景映射
 
 ### release-candidate-verification
@@ -103,7 +107,8 @@ Job 249 只作为历史 container-only 证据。
 - sandbox：restricted 是应用层边界；container 依赖 daemon/镜像/宿主，不是多租户密封边界。
 - HTTP：仅 loopback + bearer，无 TLS、公网反代或多租户承诺。
 - 协作 v1：没有协作专用 resume endpoint；headless Triad 默认不自动批准计划。
-- 完整 pytest：两个 MCP 墙钟测试仍失败，正式发布前需要在稳定 runner 复验并决定是否修复测试/实现。
+- 完整 pytest：两个 MCP 墙钟测试仍失败；正式发布前必须达到全量 pytest 全绿，或由已批准 change 明确裁决并关闭失败后重跑验证。
 
-正式发布还要求当前 M28 Linux required job 通过并保留 pipeline/job artifact、完整验证无未处理失败、
-最终 review/两轮复审通过，以及另行授权的 tag/上传动作。
+本报告是进行中证据快照，不关闭 M28。正式发布还要求当前 M28 Linux required job 通过并保留
+pipeline/job artifact、完整验证门禁按上述规则关闭、最终 review/两轮复审通过，以及另行授权的
+tag/上传动作。
