@@ -274,8 +274,8 @@ def test_capture_entry_failure_is_closed_and_marks_holder_unavailable(monkeypatc
 
     async def run() -> None:
         ready = manager._start_holder("github")
-        await asyncio.wait_for(ready.wait(), timeout=0.2)
         generation, holder, _stop = manager._holders["github"]
+        await asyncio.wait_for(ready.wait(), timeout=0.2)
         await holder
         assert generation == manager._states["github"].generation
 

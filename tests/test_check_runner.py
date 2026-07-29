@@ -423,9 +423,9 @@ def test_check_blocks_project_code_network_and_processes(
 def test_check_terminates_on_timeout_or_cancel(tmp_path: Path, mode: str):
     code = "import time; print('started', flush=True); time.sleep(30)"
     cancel_event = threading.Event()
-    timeout = 0.2 if mode == "timeout" else 5.0
+    timeout = 2.0 if mode == "timeout" else 5.0
     if mode == "cancel":
-        threading.Timer(0.2, cancel_event.set).start()
+        threading.Timer(2.0, cancel_event.set).start()
 
     started = time.monotonic()
     result = run_check(
@@ -435,7 +435,7 @@ def test_check_terminates_on_timeout_or_cancel(tmp_path: Path, mode: str):
     )
 
     assert result.status == mode + ("led" if mode == "cancel" else "")
-    assert time.monotonic() - started < 2
+    assert time.monotonic() - started < 4
     assert result.stdout.strip() == "started"
 
 

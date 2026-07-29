@@ -21,18 +21,19 @@ offline-verification:
   tags:
     - docker-privileged
   before_script:
-    - apt-get update && apt-get install -y --no-install-recommends python3 python3-pip python3-venv git ca-certificates
+    - apt-get update && apt-get install -y --no-install-recommends python3 python3-pip python3-venv git ca-certificates curl jq gosu
     - python3 -m pip install --break-system-packages --no-cache-dir uv==0.11.1
     - npm install --global @fission-ai/openspec@1.4.1
-    - uv sync --locked
+    - chown -R node:node "$CI_PROJECT_DIR"
+    - gosu node uv sync --locked
   script:
-    - mkdir -p artifacts/ci/golden dist
-    - uv run ruff check .
-    - uv run ruff format --check .
-    - uv run pytest -q
-    - uv run python -m tests.golden.runner --output-dir artifacts/ci/golden
-    - openspec validate --all --strict
-    - uv build --out-dir dist
+    - gosu node mkdir -p artifacts/ci/golden dist
+    - gosu node uv run ruff check .
+    - gosu node uv run ruff format --check .
+    - gosu node uv run pytest -q
+    - gosu node uv run python -m tests.golden.runner --output-dir artifacts/ci/golden
+    - gosu node openspec validate --all --strict
+    - gosu node uv build --out-dir dist
   artifacts:
     when: always
     paths:
