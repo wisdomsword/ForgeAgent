@@ -1,131 +1,94 @@
-# M27 Task 3 Report: 文档合同与公开状态
+# Task 3 Report: M28 RC Release Documentation
 
-## 状态
+## Outcome
 
-`DONE`
+DONE. The repository now has a single `0.1.0` Release Candidate entry point,
+a short README link near current verification, and an explicit separation
+between the configured M28 installed-wheel Linux gate and historical M24
+container-only evidence.
 
-## RED
+## Changed Product Files
 
-先修改 `tests/test_collaboration_docs.py` 与
-`tests/test_continuous_verification.py`，再运行：
+- `docs/releases/0.1.0-rc.md`
+- `README.md`
+- `docs/platform-support.md`
+- `tests/test_m28_release_docs.py`
 
-```text
-UV_CACHE_DIR=/tmp/forgeagent-m27-uv-cache uv run pytest -q \
-  tests/test_collaboration_docs.py tests/test_continuous_verification.py
+## TDD Evidence
 
-5 failed, 9 passed
-```
-
-失败分别证明 README 仍要求编程任务强制 Triad、仍将 Memory 写为只读，HTTP 文档仍描述
-`needs_confirmation` 和 weaker override，Threat Model 未限制宿主检查事实，以及平台矩阵仍把
-未记录的 `amd64/arm64` 共同标为 verified 并遗留 Linux configured 结论。
-
-## GREEN
+RED:
 
 ```text
-UV_CACHE_DIR=/tmp/forgeagent-m27-uv-cache uv run pytest -q \
-  tests/test_collaboration_docs.py tests/test_continuous_verification.py
-
-14 passed in 0.10s
+UV_CACHE_DIR=/tmp/forgeagent-m28-uv-cache uv run pytest -q tests/test_m28_release_docs.py
+4 failed in 0.03s
 ```
 
-文档合同现在要求 README 与 HTTP 文档表达默认 Single、显式模式优先、可信宿主的非空冻结检查才
-自动 Triad，且 `allow_weaker_override` 只保留配置兼容、没有路由或确认作用。README 还改正了
-M18 Memory：runtime 准入后的原子持久化、用户直接编辑、`--no-memory` 与 `--no-identity` 的边界。
+The failures showed the absent RC file, missing README link, and missing M24/M28
+evidence separation in the platform matrix.
 
-平台矩阵将 Pipeline 50 / Job 249 收窄为已执行的 Linux Docker runner topology，删除未记录
-架构的暗示与过期 configured 结论。README 和 platform-support 的当前基线保持相同的 M26
-已记录数字；M27 最终全量结果由 Task 4 统一更新。
-
-ACTION_PLAN 增加未归档的 M27 条目，链接 M25 派生报告，并记录没有类别恢复自动 Triad。
-
-## 自审
-
-- 路由文字没有把候选文件要求或任务文本重新当作自动 Triad 证据。
-- Memory 更新仅修正公开合同，没有触碰 M18 运行时或身份禁用语义。
-- Linux 仍为 verified，但仅针对 Pipeline 50 / Job 249 已记录 runner topology；不推断架构。
-- M25 派生报告只被引用，未修改冻结输入或派生产物。
-
-## 风险信号
-
-- 当前 pytest/OpenSpec/Golden 数字仍是 M26 已记录基线；Task 4 必须在最终全量验证后同步更新。
-- `has_bound_checks` 是可信宿主的内部事实；公开客户端不得提交或伪造该事实。
-
-## Reviewer 修复轮
-
-### RED
-
-先补三项公开边界合同，再运行：
+GREEN:
 
 ```text
-UV_CACHE_DIR=/tmp/forgeagent-m27-uv-cache uv run pytest -q \
-  tests/test_collaboration_docs.py tests/test_continuous_verification.py
-
-3 failed, 13 passed
+UV_CACHE_DIR=/tmp/forgeagent-m28-uv-cache uv run pytest -q \
+  tests/test_m28_release_docs.py tests/test_collaboration_docs.py \
+  tests/test_continuous_verification.py
+21 passed in 0.10s
 ```
 
-三个失败分别证明：README 未明确显式模式优先于宿主冻结检查，未把
-`has_bound_checks` 限为不能由 HTTP/普通任务请求/服务器 YAML/任务文本伪造的可信宿主内部事实，
-也未明确 session scope 仅在当前 REPL 进程内且绝不落盘；首页还把 Linux verified 写得比
-`Linux Docker runner topology (Pipeline 50 / Job 249)` 更宽。
-
-### GREEN
-
-README 现明确 session scope 仅当前 REPL、绝不落盘；只有确定性准入后的合法 project scope 候选
-才会在稳定本地锁内重读合并并原子持久化。路由段明确显式模式优先，并锁定
-`has_bound_checks` 的可信宿主内部来源与公开输入禁止项。首页仅声明已记录的 Linux Docker runner
-topology，不推断架构。
+## Quality Evidence
 
 ```text
-UV_CACHE_DIR=/tmp/forgeagent-m27-uv-cache uv run pytest -q \
-  tests/test_collaboration_docs.py tests/test_continuous_verification.py
-
-16 passed in 0.09s
+ruff check tests/test_m28_release_docs.py: All checks passed!
+ruff format --check tests/test_m28_release_docs.py: 1 file already formatted
+git diff --check: passed
 ```
 
-## Reviewer 最后修复轮
+## Evidence Boundaries
 
-### RED
+- Local real-wheel packaging and the complete offline harness are recorded as
+  verified from Task 2's nine-test run; no final full-suite count is frozen.
+- The M28 installed-wheel Linux job is `configured/pending`: the local Docker
+  daemon is unavailable and no new GitLab pipeline/job evidence exists.
+- M24 Pipeline 50 / Job 249 is labeled historical container-only evidence and
+  is not used to claim an M28 RC smoke pass.
+- The page states Release Candidate status only; it does not claim publication,
+  a formal tag, or an uploaded package.
 
-先增加 HTTP 配置、任务服务和 README 的可执行边界合同，再运行：
+## Risks
+
+- Formal release remains blocked until the current candidate's required Linux
+  job and final repository verification complete.
+- Real-provider smoke stays opt-in and was not executed by this task.
+
+## Review Fix Round 1
+
+Root cause: the original documentation tests searched for independent tokens, so
+they did not bind status values to the M28/M24 evidence rows and could not reject
+contradictory success prose. The collaboration limitation also described the
+whole public API instead of the collaboration-specific endpoint boundary.
+
+RED:
 
 ```text
-UV_CACHE_DIR=/tmp/forgeagent-m27-uv-cache uv run pytest -q \
-  tests/test_http_config.py tests/test_http_task_service.py tests/test_collaboration_docs.py
-
-3 failed, 125 passed
+tests/test_m28_release_docs.py: 2 failed, 2 passed
 ```
 
-失败证明 `HttpServiceConfig.from_sources()` 会静默忽略服务器 YAML 中的
-`has_bound_checks`，`TaskService` 会保留普通 options 中的该字段，而 README 还没有将
-HTTP/普通任务/服务器 YAML 的拒绝语义拆成稳定的公开合同。
+The stricter contracts rejected the over-broad resume statement and the missing
+explicit M24/M28 separation assertion. Mutation checks additionally prove the
+success-claim and duplicate-RC guards reject their targeted contradictions.
 
-### GREEN
-
-HTTP 配置现在严格拒绝所有未知字段，因此服务器 YAML 中的 `has_bound_checks` 无法成为宿主
-证据。任务服务也在复制 options、创建记录和调度 worker 前拒绝该键；它不会触发 Triad，也不会
-进入 worker record。HTTP POST schema 原本已使用精确字段集，继续在解析前拒绝该未公开字段。
-README 改用独立语义句，避免整句匹配脆弱性。
+GREEN:
 
 ```text
-UV_CACHE_DIR=/tmp/forgeagent-m27-uv-cache uv run pytest -q \
-  tests/test_http_config.py tests/test_http_task_service.py tests/test_collaboration_docs.py
-
-128 passed in 0.13s
-
-UV_CACHE_DIR=/tmp/forgeagent-m27-uv-cache uv run ruff check \
-  src/forgeagent/http_config.py src/forgeagent/http_task_service.py \
-  tests/test_http_config.py tests/test_http_task_service.py tests/test_collaboration_docs.py
-
-All checks passed!
-
-UV_CACHE_DIR=/tmp/forgeagent-m27-uv-cache uv run ruff format --check \
-  src/forgeagent/http_config.py src/forgeagent/http_task_service.py \
-  tests/test_http_config.py tests/test_http_task_service.py tests/test_collaboration_docs.py
-
-5 files already formatted
-
-git diff --check
+tests/test_m28_release_docs.py tests/test_collaboration_docs.py
+tests/test_continuous_verification.py: 21 passed
+ruff check: passed
+ruff format --check: passed
+git diff --check: passed
 ```
 
-全部通过。
+The release page now limits the gap to a collaboration-specific resume endpoint
+and names the existing Loop `resume_loop_id` task submission field. Tests parse
+the exact release/platform evidence rows, preserve `configured/pending` versus
+historical evidence, reject unsupported M28 Linux success claims, and require a
+single `0.1.0*rc*.md` release entry.

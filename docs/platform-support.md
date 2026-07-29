@@ -8,6 +8,7 @@ is evaluated independently.
 
 | Platform tuple | Priority | Status | Prerequisites | Current evidence | Limitations | Next Comet trigger |
 | --- | --- | --- | --- | --- | --- | --- |
+| M28 installed-wheel gate on required Linux Docker job | P0 | configured | Existing privileged Docker runner topology, Python 3.11 image, package-index access, non-root execution, exact candidate wheel, and both evidence artifacts | Job is configured to publish `artifacts/ci/rc-smoke.json`; no M28 pipeline/job run exists yet | Configured is not verified; local real-wheel success and M24 container evidence do not prove this current gate | Run the required job for the current RC; record pipeline/job identifiers and validate all six smoke checks |
 | Linux Docker runner topology (Pipeline 50 / Job 249) | P0 | verified | Linux Docker runner with Docker daemon, shared build volume, non-root job execution, and the checked-in JUnit contract | GitLab Pipeline 50 / Job 249: 10 passed, 0 skipped, 0 failures, 0 errors; JUnit artifact generated | The record proves this runner topology only; it does not establish unrecorded Linux architectures, Podman, Windows, or every Linux executor | Any runner topology change, or a DinD/container contract failure |
 | Linux + rootless Podman | P1 | scheduled | Product decision to support Podman; compatible CLI/mount/network/pids/user/kill semantics | No execution evidence | Current backend commands and hardening flags target Docker | Podman becomes a release target or a compatibility spike is scheduled |
 | Windows native | P2 | deferred | Product decision to support Windows; path, locking, resource-limit, and container-tier design | No execution evidence | Drive-letter colons and Unix-specific isolation assumptions require design work | Windows becomes a release target |
@@ -23,12 +24,32 @@ The Linux job requires a privileged GitLab Docker executor tagged `docker-privil
 same-path bind-mount source through GitLab's shared build volume. A runner with a different
 executor or build-volume topology must prove that contract before being marked `verified`.
 
-Current offline repository baseline: `2337 passed, 22 skipped`; OpenSpec strict `21/21`;
-Golden `20/20`. This pytest baseline excludes the loopback black-box file and the packaging file:
-the unexcluded run completed with `2340 passed, 22 skipped, 12 failed`, comprising eleven sandbox
-loopback allocation failures and one offline build-dependency resolution failure. Those cases remain
-unverified in this environment rather than being counted as passes. The dated Linux runner evidence
-below is separate from this repository baseline.
+## M28 Release Candidate Gate
+
+The M28 installed-wheel gate is `configured`, not verified. It builds exactly one candidate wheel,
+runs the six clean-wheel/CLI/HTTP/Single/Duo/Triad checks in Python 3.11, and requires
+`artifacts/ci/rc-smoke.json` in addition to the existing container JUnit artifact. The next evidence
+trigger is a successful required GitLab job for the current candidate with recorded pipeline/job IDs
+and a complete six-pass report. Local real-wheel verification does not satisfy this Linux requirement.
+
+M24 Pipeline 50 / Job 249 remains historical container-only evidence. It verifies the ten marked
+container integration tests for that runner topology and must not be represented as an M28
+installed-wheel smoke result.
+
+Current offline repository baseline: `2405 passed, 10 skipped`; OpenSpec strict `22/22`;
+Golden `20/20`. M28 local RC evidence on 2026-07-29 is: focused release contracts `43 passed`,
+Ruff check/format and wheel/sdist build passed. The unique built wheel ran
+the six clean-wheel/CLI/HTTP/Single/Duo/Triad checks successfully with Python 3.11.15. The first full
+pytest attempt was `2 failed, 2401 passed, 10 skipped`; both scheduler-dependent MCP wall-clock
+assertions reproduced in isolation. Commit `83ba892` changed only the tests to assert deterministic
+forwarded budgets, left production MCP code unchanged, and that fresh full run passed with
+`2403 passed, 10 skipped`. The final baseline is `2405 passed, 10 skipped` after adding the hostile-proxy
+and Golden cold-start regressions.
+
+The local Docker client is 29.2.1, but `docker info` could not connect to
+`/Users/admin/.docker/run/docker.sock`. Therefore neither the ten container integration tests nor a
+supplemental Linux-container RC smoke were run for M28. The dated Linux runner evidence below remains
+separate historical evidence.
 
 ## Linux Docker Runner Evidence
 

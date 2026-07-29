@@ -1,99 +1,112 @@
-# Task 2 Report: M25 Frozen Evidence Derivation
+# Task 2 Report: M28 Wheel Packaging and Linux Docker Gate
 
-## Scope
+## Outcome
 
-Implemented the M27 additive derivation only in the approved Task 2 files:
+DONE_WITH_CONCERNS. The packaging contract now runs the single M28 release-candidate harness against the
+real built wheel from a non-repository directory. The GitLab Linux Docker job builds exactly one
+`forgeagent-0.1.0-*.whl`, runs the harness with Python 3.11 as UID/GID 1000, checks the exact six-pass JSON
+contract, and always publishes `artifacts/ci/rc-smoke.json` alongside the existing JUnit report.
 
-- `scripts/m27_m25_routing_analysis.py`
-- `tests/test_m27_m25_routing_analysis.py`
-- `docs/evaluation/m25/derived/m27-collaboration-routing/analysis.json`
-- `docs/evaluation/m25/derived/m27-collaboration-routing/report.md`
-- `docs/evaluation/m25/README.md`
+## Changed Product Files
 
-The script imports the sibling independent recompute module, validates the frozen M25 summary before
-reading metrics, validates the newly consumed raw fields, and writes JSON plus Markdown from temporary
-files. It rejects output directories inside the frozen run directory.
+- `.gitlab-ci.yml`
+- `tests/test_packaging.py`
+- `tests/test_m28_release_ci.py`
 
-## RED / GREEN
+## TDD Evidence
 
-- RED: `UV_CACHE_DIR=/tmp/forgeagent-m27-uv-cache rtk uv run pytest -q tests/test_m27_m25_routing_analysis.py`
-  failed as expected because `scripts/m27_m25_routing_analysis.py` did not exist (`2 failed`).
-- GREEN: `UV_CACHE_DIR=/tmp/forgeagent-m27-uv-cache rtk uv run pytest -q tests/test_m27_m25_routing_analysis.py tests/test_m25_independent_recompute.py`
-  passed (`9 passed`).
-
-The new tests exercise a legal terminal record that completed runtime work but failed a check, verify both
-false-completion denominators and raw termination reasons, verify model/family cost aggregates, reject raw
-identity and summary tampering, reject an output directory nested in the frozen run directory, and remove
-any partially published output if replacing the paired report fails.
-
-## Real Frozen Evidence
+RED command:
 
 ```text
-M27_ROUTING_ANALYSIS_OK runs=270 restored=none
-INDEPENDENT_RECOMPUTE_OK runs=270
+UV_CACHE_DIR=/tmp/forgeagent-m28-uv-cache uv run pytest -q tests/test_m28_release_ci.py tests/test_packaging.py -k 'release_ci or wheel_and_sdist'
 ```
 
-The derived report records the decision: no task family has a Triad solved rate strictly above Single.
-Baseline ties; bugfix, feature, and refactor are lower. Therefore no automatic Triad category is restored.
-The report explicitly states that M25 predates M26 frozen-check binding.
+Failed as expected. The first failure showed that `artifacts/ci/rc-smoke.json` was absent from the Linux
+job artifacts; the job also lacked the harness and exact report checks.
 
-## Frozen Input Evidence
-
-`git diff --exit-code -- docs/evaluation/m25/protocol.json docs/evaluation/m25/runs/2026-07-27-haiku-4-5-gpt-5-4-mini`
-returned success. SHA-256 checks also remained unchanged:
+GREEN command:
 
 ```text
-docs/evaluation/m25/protocol.json: OK
-docs/evaluation/m25/runs/2026-07-27-haiku-4-5-gpt-5-4-mini/environment.json: OK
-docs/evaluation/m25/runs/2026-07-27-haiku-4-5-gpt-5-4-mini/summary.json: OK
-docs/evaluation/m25/runs/2026-07-27-haiku-4-5-gpt-5-4-mini/report.md: OK
+UV_CACHE_DIR=/tmp/forgeagent-m28-uv-cache uv run pytest -q tests/test_m28_release_ci.py tests/test_packaging.py tests/test_continuous_verification.py
+9 passed in 37.34s
 ```
 
-## Quality Checks
+This includes a real wheel build, clean harness install, offline CLI/HTTP/Single/Duo/Triad execution, and
+the adjacent M24 CI contracts that preserve DinD, preflight, non-root execution, and exact 10-test/no-skip
+JUnit assertions.
+
+## Quality Evidence
 
 ```text
-ruff check scripts/m27_m25_routing_analysis.py tests/test_m27_m25_routing_analysis.py: passed
-ruff format --check scripts/m27_m25_routing_analysis.py tests/test_m27_m25_routing_analysis.py: passed
+ruff check tests/test_packaging.py tests/test_m28_release_ci.py: All checks passed!
+ruff format --check tests/test_packaging.py tests/test_m28_release_ci.py: 2 files already formatted
 git diff --check: passed
 ```
 
-## Self-review
+## Implementation Notes
 
-1. The initial synthetic fixture made Triad quality-eligible in several families, so its assertion that no
-   family was eligible was invalid. The assertion was removed; the frozen M25 run, rather than synthetic
-   fixture shape, proves the real decision.
-2. The generated analysis contains the required model/mode and family/mode aggregates, two false-completion
-   rates, raw reasons, totals/means for calls, attempts, latency, and tokens. It does not modify or reinterpret
-   frozen M25 artifacts.
+The fixed `python:3.11-slim` container performs a non-editable bootstrap install of the exact candidate
+wheel so the parent harness module can import its driver dependencies. The harness then independently
+creates its own clean venv, installs the snapshotted wheel, and proves that every product import comes from
+that venv. The Docker invocation forwards only project-local `HOME` and `TMPDIR`; it does not pass provider
+credentials or use source/editable imports.
+
+## Risks
+
+- Live Docker execution is configured-only in this local run because `docker info` reported:
+  `Cannot connect to the Docker daemon at unix:///Users/admin/.docker/run/docker.sock.` The full GitLab
+  runner execution remains Task 4 evidence.
+- The container bootstrap requires package-index access for wheel dependencies, as does the harness clean
+  venv install. The CI image and candidate wheel itself are fixed; dependency hashes remain governed by the
+  project lock for the host build, while isolated wheel installation exercises published metadata.
 
 ## Commit
 
-Pending at time of report generation. The Task 2 files are ready for the scoped commit
-`feat: derive m25 collaboration routing evidence`.
+Pending at report generation; intended message: `ci: gate Linux releases on installed-wheel smoke`.
 
-## Risk Signals
+## Review Fix Round 1
 
-- M25 is a finite historical sample and predates M26 evidence binding; its false-completion statistics must
-  not be read as a measurement of the current bound-check Triad path.
-- The compatibility dependency is intentionally local: the derivation imports only the independent M25
-  recompute script, not the M25 generation or aggregation harness.
+### Root Cause
 
-## Review Fix: Decision Consistency and Paired Publication
+- The folded shell command used `test ... && test ...;` without an explicit terminating guard. In a GitLab script item, a false intermediate command did not prevent the subsequent wheel assignment and Docker invocation.
+- The bootstrap used `pip install && harness`, so a pip failure bypassed the only report writer and contradicted the `artifacts: when: always` evidence contract.
 
-### RED
+### RED Evidence
 
-`UV_CACHE_DIR=/tmp/forgeagent-m27-uv-cache uv run pytest -q tests/test_m27_m25_routing_analysis.py`
-failed with the two intended regressions: synthetic quality-eligible families were not copied to
-`automatic_triad_restored_for`, and a simulated failure while replacing `report.md` deleted a pre-existing
-`analysis.json`.
+```text
+UV_CACHE_DIR=/tmp/forgeagent-m28-uv-cache uv run pytest -q tests/test_m28_release_ci.py
+2 failed, 2 passed in 0.03s
+```
 
-### GREEN
+The failures specifically reported the missing `|| exit 1` wheel guards and missing explicit bootstrap fallback.
 
-The derived decision now restores exactly the strictly quality-eligible families and constructs both the
-machine `decision.reason` and report conclusion from that same restored list. For the real M25 evidence the
-list remains empty, so the generated result is still `restored=none`.
+### Fix
 
-`write_outputs` now moves any existing output member to a same-directory temporary backup before publishing
-the replacement pair. If either publication fails, it removes newly published members and restores exactly
-the prior state, including a complete pair and the one-file-present states. On success it removes backups.
-Tests cover complete, analysis-only, and report-only pre-existing states plus normal successful replacement.
+- Replaced the wheel cardinality/file checks with explicit `|| exit 1` guards.
+- Wrapped bootstrap installation in `if ...; then ...; else ...; exit 1; fi`.
+- On bootstrap failure, Python 3.11 stdlib writes the exact bounded schema atomically: `clean-wheel=failed`, all five downstream checks `not-run`, `passed=false`, and the candidate wheel SHA-256.
+- Added actual shell cardinality execution for zero/one/two wheels and direct execution/assertion of the stdlib fallback report.
+
+### GREEN Evidence
+
+```text
+UV_CACHE_DIR=/tmp/forgeagent-m28-uv-cache uv run pytest -q tests/test_m28_release_ci.py tests/test_continuous_verification.py
+8 passed in 0.12s
+
+UV_CACHE_DIR=/tmp/forgeagent-m28-uv-cache uv run ruff check tests/test_m28_release_ci.py
+All checks passed!
+
+UV_CACHE_DIR=/tmp/forgeagent-m28-uv-cache uv run ruff format --check tests/test_m28_release_ci.py
+1 file already formatted
+
+git diff --check
+passed
+```
+
+### Residual Risk
+
+The Docker daemon remains unavailable locally, so the whole container command is contract-tested rather than executed end to end. The shell cardinality fragment and bootstrap fallback program are executed directly by focused tests.
+
+### Fix Commit
+
+`00ad2115c32aecf9e067be9dac4c1e6ed416a6c2` (`fix: fail closed in release candidate CI`)

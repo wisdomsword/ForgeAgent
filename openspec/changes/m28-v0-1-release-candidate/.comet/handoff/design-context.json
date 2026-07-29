@@ -1,0 +1,15 @@
+{
+  "change": "m28-v0-1-release-candidate",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "4c4d92e556546787ed03843a4094c345b1bb8e116d288796728d3ef22a960521",
+  "files": [
+    { "path": "openspec/changes/m28-v0-1-release-candidate/proposal.md", "sha256": "c1cb64b9993db645cefc2fce966cfe0587d73b677c798085f22ddcada1ceaf64" },
+    { "path": "openspec/changes/m28-v0-1-release-candidate/design.md", "sha256": "963c5f5aafe590e2e42dc9998f35e7b67b2c338d7303ab54c01a0fd58f175b70" },
+    { "path": "openspec/changes/m28-v0-1-release-candidate/tasks.md", "sha256": "fa5fca78dea62a9da67a3e0dfb6d677227ecb65236ae3c7281f5d23782454566" },
+    { "path": "openspec/changes/m28-v0-1-release-candidate/specs/continuous-verification/spec.md", "sha256": "ba96398eefc2e7478d226faa80a8b69ae5e7824ea43a884f39603cbabc552f50" },
+    { "path": "openspec/changes/m28-v0-1-release-candidate/specs/release-candidate-verification/spec.md", "sha256": "b6fd57671351391668062b71b2512eb4962821acf911ac3794891b189b11cd7e" }
+  ]
+}

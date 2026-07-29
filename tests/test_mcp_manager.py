@@ -44,19 +44,18 @@ class _FutureProbe:
         result: set[str] | None = None,
         error: BaseException | None = None,
         cancel_error: BaseException | None = None,
-        wait_for_timeout: bool = False,
+        timeout_on_result: bool = False,
     ):
         self._result = set() if result is None else result
         self._error = error
         self._cancel_error = cancel_error
-        self._wait_for_timeout = wait_for_timeout
+        self._timeout_on_result = timeout_on_result
         self.result_timeouts: list[float] = []
         self.cancel_calls = 0
 
     def result(self, timeout: float) -> set[str]:
         self.result_timeouts.append(timeout)
-        if self._wait_for_timeout:
-            time.sleep(timeout)
+        if self._timeout_on_result:
             raise concurrent.futures.TimeoutError
         if self._error is not None:
             raise self._error
@@ -115,19 +114,15 @@ class _ThreadProbe:
         *,
         alive: bool,
         alive_results: list[bool] | None = None,
-        wait_for_timeout: bool = False,
         join_error: Exception | None = None,
     ):
         self.alive = alive
         self._alive_results = iter(alive_results or [])
-        self._wait_for_timeout = wait_for_timeout
         self._join_error = join_error
         self.join_timeouts: list[float] = []
 
     def join(self, timeout: float) -> None:
         self.join_timeouts.append(timeout)
-        if self._wait_for_timeout and self.alive:
-            time.sleep(timeout)
         if self._join_error is not None:
             raise self._join_error
 
@@ -623,19 +618,31 @@ def test_capture_clear_and_close_are_idempotent_and_reader_is_daemon():
     assert reader.is_alive() is False
 
 
-def test_capture_close_returns_before_duplicated_writer_reaches_eof():
+def test_capture_close_bounds_reader_join_and_retains_live_resources():
     capture = _BoundedStderrCapture()
     capture.__enter__()
     assert capture.stream is not None
     duplicate_writer = os.dup(capture.stream.fileno())
     reader = capture._reader
     assert reader is not None
+
+    class ReaderProbe:
+        def __init__(self) -> None:
+            self.join_timeouts: list[float] = []
+
+        def join(self, timeout: float) -> None:
+            self.join_timeouts.append(timeout)
+
+        def is_alive(self) -> bool:
+            return True
+
+    reader_probe = ReaderProbe()
+    capture._reader = reader_probe
     try:
-        close_started = time.monotonic()
         capture.close()
 
-        assert time.monotonic() - close_started < 0.2
-        assert reader.is_alive() is True
+        assert reader_probe.join_timeouts == pytest.approx([0.1])
+        assert reader_probe.is_alive() is True
         assert capture._read_fd is not None
     finally:
         os.close(duplicate_writer)
@@ -2543,11 +2550,11 @@ def test_close_uses_single_deadline_for_facade_and_join(monkeypatch):
     assert thread.join_timeouts == pytest.approx([0.1])
 
 
-def test_close_wall_clock_is_bounded_by_shutdown_and_join_budgets(monkeypatch):
+def test_close_forwards_bounded_shutdown_and_join_budgets(monkeypatch):
     mgr = MCPManager({}, shutdown_timeout=0.03, thread_join_timeout=0.02)
     loop = _LoopProbe()
-    thread = _ThreadProbe(alive=True, wait_for_timeout=True)
-    future = _FutureProbe(wait_for_timeout=True)
+    thread = _ThreadProbe(alive=True)
+    future = _FutureProbe(timeout_on_result=True)
     mgr._loop = loop
     mgr._thread = thread
     mgr._shutdown_complete.set()
@@ -2559,11 +2566,16 @@ def test_close_wall_clock_is_bounded_by_shutdown_and_join_budgets(monkeypatch):
 
     monkeypatch.setattr(mcp_manager_module.asyncio, "run_coroutine_threadsafe", submit)
 
-    started = time.monotonic()
     assert mgr.close() is None
-    elapsed = time.monotonic() - started
 
-    assert elapsed <= mgr._shutdown_timeout + mgr._thread_join_timeout + 0.03
+    assert len(future.result_timeouts) == 1
+    assert len(thread.join_timeouts) == 1
+    assert 0 < future.result_timeouts[0] <= mgr._shutdown_timeout
+    assert 0 < thread.join_timeouts[0] <= mgr._thread_join_timeout
+    assert (
+        future.result_timeouts[0] + thread.join_timeouts[0]
+        <= mgr._shutdown_timeout + mgr._thread_join_timeout
+    )
 
 
 @pytest.mark.parametrize(

@@ -1,0 +1,8 @@
+{
+  "openspec_proposal": "openspec/changes/m28-v0-1-release-candidate/proposal.md",
+  "openspec_design": "openspec/changes/m28-v0-1-release-candidate/design.md",
+  "openspec_tasks": "openspec/changes/m28-v0-1-release-candidate/tasks.md",
+  "openspec_delta_spec": "openspec/changes/m28-v0-1-release-candidate/specs/continuous-verification/spec.md",
+  "handoff_context": "openspec/changes/m28-v0-1-release-candidate/.comet/handoff/design-context.json",
+  "handoff_markdown": "openspec/changes/m28-v0-1-release-candidate/.comet/handoff/design-context.md"
+}
