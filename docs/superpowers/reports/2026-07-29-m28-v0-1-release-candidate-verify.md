@@ -4,8 +4,9 @@
 
 M28 仍在进行中。当前证据确认唯一 wheel 的 Python 3.11 clean install、CLI、HTTP、Single、Duo、
 Triad 六项离线 smoke 通过，Linux required job 已配置，发布说明和五类已知限制已冻结；这些只构成
-RC 工程冻结证据，不构成里程碑完成或正式发布结论。完整 pytest 有两个稳定复现的 MCP 墙钟失败，
-本机 Docker daemon 不可用，且没有当前 M28 GitLab pipeline/job 证据。
+RC 工程冻结证据，不构成里程碑完成或正式发布结论。两项依赖宿主调度的 MCP 墙钟测试合同已用
+确定性的预算转发断言修正，生产 MCP 代码未变，修正后完整 pytest 全绿。本机 Docker daemon 不可用，
+且没有当前 M28 GitLab pipeline/job 证据。
 
 ## 范围
 
@@ -21,21 +22,27 @@ RC 工程冻结证据，不构成里程碑完成或正式发布结论。完整 p
 | `uv run pytest -q tests/test_m28_release_candidate_smoke.py tests/test_m28_release_ci.py tests/test_m28_release_docs.py tests/test_packaging.py` | `42 passed in 51.34s` |
 | `uv run ruff check .` | `All checks passed!` |
 | `uv run ruff format --check .` | `119 files already formatted` |
-| `uv run pytest -q` | `2 failed, 2401 passed, 10 skipped in 169.62s` |
+| 首次 `uv run pytest -q` | `2 failed, 2401 passed, 10 skipped in 169.62s` |
+| 修正后 `uv run pytest -q` | `2403 passed, 10 skipped in 167.99s` |
 | `uv run python -m tests.golden.runner --output-dir artifacts/m28/golden` | exit 0；`report.md` 为 `20/20 passed (100.0%)` |
 | `openspec validate --all --strict` | `22 passed, 0 failed` |
 | `uv build --out-dir artifacts/m28/dist` | 唯一 wheel 与 sdist 构建成功 |
 | `uv run python scripts/m28_release_candidate_smoke.py --wheel artifacts/m28/dist/forgeagent-0.1.0-py3-none-any.whl --output artifacts/m28/rc-smoke.json --python /Users/admin/.local/bin/python3.11` | exit 0；六项全通过 |
 
-完整 pytest 的失败为：
+首次完整 pytest 的失败为：
 
 - `test_capture_close_returns_before_duplicated_writer_reaches_eof`：`0.25006s < 0.2s` 断言失败。
 - `test_close_wall_clock_is_bounded_by_shutdown_and_join_budgets`：`0.11171s <= 0.08s` 断言失败。
 
 两个测试隔离复跑两次均为 `2 failed`；实测本机 `sleep(0.01)` 为 0.0238-0.0901 秒，说明当前
-宿主调度不能满足这些绝对墙钟 slack。M28 从 merge-base 到 HEAD 对
-`src/forgeagent/mcp_manager.py` 和 `tests/test_mcp_manager.py` 的 diff 为空。该证据解释根因，但不把
-失败改写为 pass。
+宿主调度不能满足这些绝对墙钟 slack。失败出现时，M28 从 merge-base 到 HEAD 对
+`src/forgeagent/mcp_manager.py` 和 `tests/test_mcp_manager.py` 的 diff 为空；该历史失败没有被改写为 pass。
+
+提交 `83ba892` 只修改 `tests/test_mcp_manager.py`，以确定性 probe 断言 stderr reader 的固定 join
+请求，以及 shutdown future 和 loop-thread join 的转发预算；`src/forgeagent/mcp_manager.py` 保持不变。
+修正验证为 focused `2 passed`、MCP suite `216 passed`、完整 pytest
+`2403 passed, 10 skipped in 167.99s`，Ruff check/format 与 `git diff --check` 均通过。完整 pytest
+门禁因此关闭，而不是把首次失败重新分类为环境 pass。
 
 ## RC JSON
 
@@ -70,12 +77,15 @@ Job 249 只作为历史 container-only 证据。
   现在 wheel 数量异常和 bootstrap 失败均退出非零并留下有界失败报告。
 - Task 3 review 将证据测试从独立 token 升级为精确表格行绑定，拒绝 M28 Linux 成功夸大，并把
   resume 限制精确到协作专用 endpoint。
+- Task 4 review 发现里程碑生命周期过早收口和完整 pytest 阻塞表述不一致；`e696737` 恢复进行中
+  状态，`83ba892` 以 tests-only 可移植性合同关闭完整 pytest 门禁，生产 MCP 实现不变。
 - Task 1-3 task-level review 的发现均已修复；最终整分支 review 与两轮一致性复审仍属于后续 verify
   gate，本报告不提前宣称完成。
 
 关键提交 provenance：Task 1 为 `9586c70`、`31eff32`、`426e234`、`2eaab53`；Task 2 为
 `6bc760a`、`00ad211`、`44125e5`；Task 3 为 `03e1983`、`887608e`、`2b476d3`；Task 4 验证与
-证据草案为 `37365bd`。这些提交证明实施和 review fix 的来源，不替代仍开放的 lifecycle gate。
+证据草案为 `37365bd`，lifecycle 修正为 `e696737`，MCP 测试合同修正为 `83ba892`。这些提交证明
+实施和 review fix 的来源，不替代仍开放的 lifecycle gate。
 
 ## OpenSpec 场景映射
 
@@ -107,8 +117,7 @@ Job 249 只作为历史 container-only 证据。
 - sandbox：restricted 是应用层边界；container 依赖 daemon/镜像/宿主，不是多租户密封边界。
 - HTTP：仅 loopback + bearer，无 TLS、公网反代或多租户承诺。
 - 协作 v1：没有协作专用 resume endpoint；headless Triad 默认不自动批准计划。
-- 完整 pytest：两个 MCP 墙钟测试仍失败；正式发布前必须达到全量 pytest 全绿，或由已批准 change 明确裁决并关闭失败后重跑验证。
+- 完整 pytest：首次两个 MCP 墙钟测试失败已由 `83ba892` 的 tests-only 可移植性修正关闭；新鲜全量为 `2403 passed, 10 skipped`，生产 MCP 代码未变。
 
-本报告是进行中证据快照，不关闭 M28。正式发布还要求当前 M28 Linux required job 通过并保留
-pipeline/job artifact、完整验证门禁按上述规则关闭、最终 review/两轮复审通过，以及另行授权的
-tag/上传动作。
+本报告是进行中证据快照，不关闭 M28。正式发布仍要求当前 M28 Linux required job 通过并保留
+pipeline/job artifact、最终 review/两轮复审及 archive 完成，以及另行授权的 tag/上传动作。

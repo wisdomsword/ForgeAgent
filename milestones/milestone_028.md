@@ -22,8 +22,9 @@ tag/push、真实 provider 请求或新平台支持。
 - CLI 使用 console script，HTTP 使用真实 loopback，协作使用真实 runtime + MockClient。
 - JSON 只保存固定 schema、版本、Python、wheel digest 与六项状态，失败关闭且原子发布。
 - Linux job 复用 M24 Docker topology，并将 RC JSON 与 JUnit 一起设为 required artifact。
-- 裁决 M28-1（2026-07-29）：本地 Docker 与完整 pytest 缺口不冒充通过；允许冻结 RC，但正式发布
-  继续被这些证据阻塞。
+- 裁决 M28-1（2026-07-29）：本地 Docker 与首次完整 pytest 缺口不冒充通过；允许冻结 RC。随后
+  `83ba892` 仅修正依赖宿主调度的测试合同，生产 MCP 代码不变，完整 pytest 门禁已关闭；正式发布
+  仍由当前 Linux required job、最终审查/归档和另行授权的 tag/上传阻塞。
 
 ## 关键提交
 
@@ -31,6 +32,7 @@ tag/push、真实 provider 请求或新平台支持。
 - Task 2：`6bc760a`（Linux gate）、`00ad211`、`44125e5`（CI fail-closed 与证据合同加固）。
 - Task 3：`03e1983`（RC 文档）、`887608e`、`2b476d3`（公开证据边界加固）。
 - Task 4：`37365bd`（分层验证、验证报告与里程碑草案）；后续 review fix 保持 M28 lifecycle gate 开放。
+- 完整 pytest：`83ba892`（tests-only MCP 调度可移植性合同修正；生产代码不变）。
 
 ## 子任务清单
 
@@ -39,7 +41,7 @@ tag/push、真实 provider 请求或新平台支持。
 - [x] 冻结 RC 发布说明、平台矩阵和五类已知限制
 - [x] 运行本机可执行的分层验证并保存实际失败/未验证项
 - [ ] 当前 M28 required Linux job 实际通过 — 本机 daemon 不可用且尚无新 pipeline/job；正式发布前补证
-- [ ] 完整 pytest 门禁关闭 — 当前两个既有 MCP 墙钟预算测试稳定失败；需全量 pytest 全绿，或由已批准 change 明确裁决并关闭失败后重跑验证
+- [x] 完整 pytest 门禁关闭 — 保留首次 `2 failed, 2401 passed, 10 skipped` 历史；`83ba892` 修正 tests-only 合同后为 `2403 passed, 10 skipped`
 
 ## 交付物清单
 
@@ -67,18 +69,17 @@ tag/push、真实 provider 请求或新平台支持。
 
 - [x] focused RC 合同 `42 passed`；唯一 wheel Python 3.11.15 六项全通过
 - [x] Ruff、Golden `20/20`、OpenSpec strict `22/22`、wheel/sdist build 通过
-- [ ] 完整 pytest 全绿 — 实际为 `2 failed, 2401 passed, 10 skipped`，失败已隔离复现并记录
+- [x] 完整 pytest 全绿 — 首次 `2 failed, 2401 passed, 10 skipped`；tests-only 修正后 `2403 passed, 10 skipped`
 - [ ] M28 Linux Docker 运行证据 — daemon 不可连接，CI 仅 configured/pending
 
 ## 遗留问题
 
 - [ ] M28 required Linux job 未运行 — 影响：候选不能表示为 release-ready — 计划：在现有 privileged Linux runner 运行并保存 pipeline/job ID、JUnit 与 RC JSON
-- [ ] 两个 MCP 墙钟测试失败 — 影响：完整 pytest 门禁不绿 — 计划：稳定 runner 复验；要求全量 pytest 全绿，或通过已批准 change 明确裁决并关闭失败后重跑验证
 - [ ] 正式发布未执行 — 影响：无 tag/PyPI 上传证据 — 计划：仅在上述门禁与最终审查通过后另行授权
 
 ## 续接指引
 
-M28 的 RC 工程内容已冻结，但里程碑仍在进行中，且不是正式发布。下一步先完成 Comet 最终整分支 review、两轮一致性复审、
-delta spec 同步与 change 归档；随后在 required Linux runner 运行当前候选，保留 pipeline/job ID、十项
-JUnit 与六项 `rc-smoke.json`。完整 pytest 必须全绿，或两个 MCP 墙钟失败经已批准 change 明确裁决并关闭后完成重跑验证，才可
-开启 tag/PyPI 正式发布动作。用户原有未跟踪文件继续保留，不纳入提交。
+M28 的 RC 工程内容已冻结，完整 pytest 已关闭为 `2403 passed, 10 skipped`，但里程碑仍在进行中，
+且不是正式发布。下一步先完成 Comet 最终整分支 review、两轮一致性复审、delta spec 同步与 change
+归档；随后在 required Linux runner 运行当前候选，保留 pipeline/job ID、十项 JUnit 与六项
+`rc-smoke.json`，再另行授权 tag/PyPI 正式发布动作。用户原有未跟踪文件继续保留，不纳入提交。
