@@ -42,6 +42,10 @@ def test_wheel_and_sdist_release_contents(tmp_path):
     dist_dir = tmp_path / "dist"
     uv_env = os.environ.copy()
     uv_env.setdefault("UV_CACHE_DIR", str(tmp_path / "uv-cache"))
+    pip_cache = repo_root / "artifacts" / "m28" / "pip-cache"
+    pip_cache.mkdir(parents=True, mode=0o700, exist_ok=True)
+    pip_cache.chmod(0o700)
+    uv_env["PIP_CACHE_DIR"] = str(pip_cache)
     subprocess.run(
         ["uv", "build", "--out-dir", str(dist_dir)],
         cwd=repo_root,

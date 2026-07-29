@@ -46,6 +46,25 @@ def clean_environment(source: Mapping[str, str], home: Path) -> dict[str, str]:
     return cleaned
 
 
+def validate_pip_cache(environment: Mapping[str, str]) -> None:
+    value = environment.get("PIP_CACHE_DIR")
+    if value is None:
+        return
+    path = Path(value)
+    try:
+        info = path.lstat()
+    except OSError as error:
+        raise ValueError("pip cache must be a private owned directory") from error
+    get_effective_user_id = getattr(os, "geteuid", None)
+    if (
+        not path.is_absolute()
+        or not stat.S_ISDIR(info.st_mode)
+        or stat.S_IMODE(info.st_mode) != 0o700
+        or (get_effective_user_id is not None and info.st_uid != get_effective_user_id())
+    ):
+        raise ValueError("pip cache must be a private owned directory")
+
+
 def wheel_identity(path: Path) -> tuple[str, str]:
     try:
         mode = path.lstat().st_mode
@@ -386,6 +405,7 @@ def run_parent(wheel: Path, output: Path, python: str) -> int:
             probe.mkdir()
             home.mkdir()
             environment = clean_environment(os.environ, home)
+            validate_pip_cache(environment)
             subprocess.run(
                 [python, "-m", "venv", str(venv)],
                 env=environment,
@@ -399,7 +419,7 @@ def run_parent(wheel: Path, output: Path, python: str) -> int:
                 [str(venv_python), "-m", "pip", "install", str(snapshot)],
                 env=environment,
                 shell=False,
-                timeout=180,
+                timeout=600,
                 check=True,
                 capture_output=True,
             )

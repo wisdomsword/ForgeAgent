@@ -26,6 +26,7 @@ Python 3.11 clean install、CLI、HTTP、Single、Duo、Triad 六项离线 smoke
 | 首次 `uv run pytest -q` | `2 failed, 2401 passed, 10 skipped in 169.62s` |
 | MCP tests-only 修正后 `uv run pytest -q` | `2403 passed, 10 skipped in 167.99s` |
 | 最终 `uv run pytest -p no:terminal --junitxml=artifacts/m28/full-final.xml` | JUnit：`2415 tests, 0 failures, 0 errors, 10 skipped`，即 `2405 passed, 10 skipped` |
+| 安全 cache 修正后 `uv run pytest -p no:terminal --junitxml=artifacts/m28/full-merged-main-secure-final.xml` | JUnit：`2419 tests, 0 failures, 0 errors, 10 skipped`，即 `2409 passed, 10 skipped` |
 | `uv run python -m tests.golden.runner --output-dir artifacts/m28/golden-final` | exit 0；`report.md` 为 `20/20 passed (100.0%)`，G14 为 `PASS` |
 | `openspec validate --all --strict` | `22 passed, 0 failed` |
 | `uv build --out-dir artifacts/m28/dist` | 唯一 wheel 与 sdist 构建成功 |
@@ -55,20 +56,32 @@ proxy 与 Golden 冷启动两项回归，最终 JUnit 为 `2415 tests, 0 failure
 场景专用预算改为 `1.0s` 后 GREEN。最终 Golden 为 `20/20`，G14 的 timeout、反馈、后续 worker
 隔离、两个 worker 回收合同均保留，生产 sandbox 默认值与实现未改。
 
+本地合并到 `main` 后的首次全量复验为 `1 failed, 2404 passed, 10 skipped`：唯一失败是 packaging
+合同在 clean venv 的 pip 依赖下载达到旧 `180s` 上限。该用例隔离复跑再次在约 186 秒失败，确认
+不是合并冲突。修复保持 venv、临时 HOME、源码隔离、secret 清洗和失败关闭不变，把网络安装步骤的
+有界预算提高到 `600s`，并允许调用者显式提供经绝对路径、owner、非 symlink、`0700` 校验的私有
+cache；默认不跨临时 HOME 共享。RED 单元合同先失败；首版共享临时 cache 的真实 cold/warm packaging
+为 449.38/26.14 秒，但独立 review 指出多用户污染风险，遂加入安全校验和 relative/symlink/0755
+拒绝合同；最终项目内私有 cache 的真实 packaging 为 `1 passed in 43.36s`。
+最终合并结果 JUnit 为 `2415 tests, 0 failures, 0 errors, 10 skipped`（`2405 passed, 10 skipped`，
+161.412 秒）。安全 cache 修正后的最终 JUnit 为 `2419 tests, 0 failures, 0 errors, 10 skipped`，即
+`2409 passed, 10 skipped`（160.623 秒）；focused 为 `47 passed`。首次非绿历史不改写。
+
 ## RC JSON
 
 - schema：`forgeagent.release-candidate-smoke/v1`
 - version：`0.1.0`
 - python：`3.11.15`
-- wheel SHA-256：`44c5123b6ccc64ef69e15c9aefb9b8151cab7aed4e39eb622fbf046a2f0c04ba`
+- wheel SHA-256：`516fcfbd5dfce141d102d038c1d82e3bf8df71f4d413f22483468387c489a198`
 - passed：`true`
 - checks：`clean-wheel`、`cli`、`http`、`single`、`duo`、`triad` 均为 `passed`
 
 报告不包含 provider secret、环境值、目标正文、模型回复或绝对临时路径。
 
-最终候选的首次 clean-wheel 执行在 pip 下载依赖时超时，失败关闭且没有被记为通过。随后使用同一
-Python 3.11 和同一 wheel 在新 venv 中完成安装诊断，再重跑原 harness；`rc-smoke-final.json` 六项
-全部通过。该过程没有替换 wheel，最终摘要与 wheel digest 均来自同一候选。
+早期候选的首次 clean-wheel 执行在 pip 下载依赖时超时，失败关闭且没有被记为通过。最终 README
+基线和 cache 安全合同收口后重建唯一 wheel/sdist；wheel/sdist metadata 均包含 `2409/10`、
+OpenSpec `22/22` 与 focused `47`。最终 `rc-smoke-secure-final.json` 使用 Python 3.11.15 对 SHA
+`516fcfbd...9a198` 的同一 wheel 完成六项全通过。
 
 ## Docker 与 Linux 证据
 
@@ -113,12 +126,12 @@ M28 “定义并接入 required job” 实现缺口。Tasks 为 `12/12`，未发
 
 | Requirement / Scenario | 证据 |
 | --- | --- |
-| 干净 wheel 安装成功 / 源码树遮蔽安装缺陷 | focused packaging + RC suite 43 passed；唯一 wheel harness 的 `clean-wheel=passed`；snapshot/import provenance 负向合同 |
+| 干净 wheel 安装成功 / 源码树遮蔽安装缺陷 | focused packaging + RC suite 47 passed；唯一 wheel harness 的 `clean-wheel=passed`；snapshot/import provenance 与私有 cache 负向合同 |
 | CLI 离线确定 / entry point 或资源缺失 | `cli=passed`；console script 与包内模型信息由安装环境运行；缺失入口/资源使 harness 非零 |
 | HTTP 生命周期 / 鉴权 | `http=passed`；真实 loopback submit/query/cancel、401 不创建任务和有界关闭合同 |
 | Single/Duo/Triad 完成 / 角色回归 | 三项均 `passed`；真实 runtime + MockClient 固定 structured submit，任一角色失败使后续非通过 |
 | JSON 全通过 / 检查失败 | schema v1 六项全通过；Task 1 fail-closed、精确字段、原子 replace 与脱敏负向合同 |
-| RC 发布说明 / 限制弱化 | 文档专项包含在 43 passed；五类限制、configured/historical 边界和反夸大 mutation 合同 |
+| RC 发布说明 / 限制弱化 | 文档专项包含在 47 passed；五类限制、configured/historical 边界和反夸大 mutation 合同 |
 
 ### continuous-verification
 
@@ -126,7 +139,7 @@ M28 “定义并接入 required job” 实现缺口。Tasks 为 `12/12`，未发
 | --- | --- |
 | Docker ready | CI 配置保持 daemon/image preflight 与精确十项零 skip；本机未满足，未执行 |
 | daemon/image unavailable | 当前 `docker info` 非零；按合同不进入 pytest，不产生成功结论 |
-| container skip/fail | CI/JUnit 合同测试包含在 focused 43 passed；没有本轮执行结果 |
+| container skip/fail | CI/JUnit 合同测试包含在 focused 47 passed；没有本轮执行结果 |
 | installed-wheel RC smoke passes on Linux | job 配置、唯一 wheel 与六项 JSON 合同存在；无当前 pipeline，状态 configured/pending |
 | installed-wheel incomplete/fails | wheel cardinality、bootstrap fallback、JSON exactness 均 fail closed；Task 2 review fix 验证 |
 
@@ -137,7 +150,7 @@ M28 “定义并接入 required job” 实现缺口。Tasks 为 `12/12`，未发
 - sandbox：restricted 是应用层边界；container 依赖 daemon/镜像/宿主，不是多租户密封边界。
 - HTTP：仅 loopback + bearer，无 TLS、公网反代或多租户承诺。
 - 协作 v1：没有协作专用 resume endpoint；headless Triad 默认不自动批准计划。
-- 完整 pytest：首次两个 MCP 墙钟测试失败已由 `83ba892` 的 tests-only 可移植性修正关闭；新增两项回归后的最终全量为 `2405 passed, 10 skipped`，生产 MCP 代码未变。
+- 完整 pytest：首次两个 MCP 墙钟测试失败已由 `83ba892` 的 tests-only 可移植性修正关闭；全部新增回归后的最终全量为 `2409 passed, 10 skipped`，生产 MCP 代码未变。
 
 本报告已完成 verify 证据收口，仍等待 archive，不提前宣称正式发布。正式发布仍要求当前 M28 Linux
 required job 通过并保留 pipeline/job artifact，以及另行授权的 tag/上传动作。

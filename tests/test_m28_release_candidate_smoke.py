@@ -50,6 +50,31 @@ def test_clean_environment_removes_import_and_provider_secrets(tmp_path):
     )
 
 
+def test_validate_pip_cache_accepts_private_owned_directory(tmp_path):
+    cache = tmp_path / "pip-cache"
+    cache.mkdir(mode=0o700)
+
+    smoke.validate_pip_cache({"PIP_CACHE_DIR": str(cache)})
+
+
+@pytest.mark.parametrize("kind", ["relative", "symlink", "permissive"])
+def test_validate_pip_cache_rejects_unsafe_directory(tmp_path, kind):
+    cache = tmp_path / "pip-cache"
+    cache.mkdir(mode=0o700)
+    value = str(cache)
+    if kind == "relative":
+        value = "relative-cache"
+    elif kind == "symlink":
+        link = tmp_path / "pip-cache-link"
+        link.symlink_to(cache, target_is_directory=True)
+        value = str(link)
+    else:
+        cache.chmod(0o755)
+
+    with pytest.raises(ValueError, match="pip cache must be a private owned directory"):
+        smoke.validate_pip_cache({"PIP_CACHE_DIR": value})
+
+
 def test_wheel_identity_validates_metadata_and_returns_sha256(tmp_path):
     wheel = _wheel(tmp_path / "forgeagent-0.1.0-py3-none-any.whl")
 
@@ -260,12 +285,14 @@ def test_run_parent_uses_bounded_isolated_subprocesses(tmp_path, monkeypatch):
     monkeypatch.setenv("PYTHONHOME", "/source/python")
     monkeypatch.setenv("PYTHONPATH", "/source/src")
     monkeypatch.setenv("OPENAI_API_KEY", "private")
+    monkeypatch.delenv("PIP_CACHE_DIR", raising=False)
 
     def fake_run(argv, **kwargs):
         calls.append((argv, kwargs))
         assert kwargs["shell"] is False
-        assert kwargs["timeout"] == 180
         assert kwargs["capture_output"] is True
+        expected_timeout = 600 if argv[1:4] == ["-m", "pip", "install"] else 180
+        assert kwargs["timeout"] == expected_timeout
         if "--installed" in argv:
             child_output = Path(argv[argv.index("--output") + 1])
             report = smoke.new_report(argv[argv.index("--wheel-sha256") + 1])
@@ -293,6 +320,7 @@ def test_run_parent_uses_bounded_isolated_subprocesses(tmp_path, monkeypatch):
     for _argv, kwargs in calls:
         assert kwargs["env"]["HOME"] == expected_home
         assert not ({"PYTHONHOME", "PYTHONPATH", "OPENAI_API_KEY"} & kwargs["env"].keys())
+    assert "PIP_CACHE_DIR" not in calls[1][1]["env"]
 
 
 def test_run_parent_installs_the_validated_snapshot(tmp_path, monkeypatch):

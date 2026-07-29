@@ -17,6 +17,7 @@ review 与两轮一致性复审均已完成；OpenSpec verify/archive 留给 Com
 - MCP timing 修正后 focused：`2 passed in 0.23s`；MCP suite：`216 passed in 9.28s`
 - MCP tests-only 修正后 full pytest：`2403 passed, 10 skipped in 167.99s`
 - 最终 full pytest：JUnit `2415 tests, 0 failures, 0 errors, 10 skipped`，即 `2405 passed, 10 skipped`
+- 安全 cache 修正后最终 full pytest：JUnit `2419 tests, 0 failures, 0 errors, 10 skipped`，即 `2409 passed, 10 skipped`
 - Golden：exit 0，`20/20 passed (100.0%)`
 - OpenSpec strict：`22 passed, 0 failed`
 - build：唯一 `forgeagent-0.1.0-py3-none-any.whl` 与 sdist 成功
@@ -80,7 +81,7 @@ OpenSpec 5.1-5.3 已按 build 工作完成勾选：本机验证、最终审查/�
 - 跨模块：YES；本任务只更新证据文档和 lifecycle checklist，未改产品代码。
 - 安全/API/并发：NO 新增；既有 harness 风险由 Task 1-3 review 覆盖。
 - 外部环境：YES；Docker daemon 不可用，Linux job 无当前执行证据。
-- 完整门禁：CLOSED；MCP tests-only 修正及两项新增回归后最终 full pytest `2405 passed, 10 skipped`。
+- 完整门禁：CLOSED；全部修正与新增回归后最终 full pytest `2409 passed, 10 skipped`。
 - 大 diff：YES；验证报告和 milestone 需要完整场景映射，但没有新增抽象或依赖。
 
 ## Task Review Fix
@@ -155,3 +156,21 @@ Ruff check/format、OpenSpec strict `22/22` 与 build 均通过。最终 README 
 sdist SHA 为 `c4633dc1efdcbadded25895f6648e9287ce52c1a30535d84de2fdf05064fada3`；两份 metadata 均携带
 `2405/10`、`22/22` 与 focused `43`。首次 clean-wheel 因依赖下载超时而失败关闭；同一 wheel 的
 新 venv 安装诊断通过，随后原 harness 重跑六项全通过。没有替换候选或隐藏失败历史。
+
+## Merged-Main Verify-Fail: Packaging Bootstrap
+
+本地合并后 full JUnit 为 `2415 tests, 1 failure, 0 errors, 10 skipped`；失败仅来自 packaging 的
+clean-venv pip 安装达到旧 `180s` 预算。隔离复跑同样在约 186 秒失败。最小修复没有复用开发环境或
+site-packages，而是保留 clean venv 与临时 HOME，把唯一网络安装步骤预算提高到 `600s`，并仅接受
+调用者显式提供的绝对、当前 owner、非 symlink、`0700` 私有 cache。首版共享临时 cache 被独立 review
+以多用户污染风险退回；relative/symlink/0755 拒绝合同 RED/GREEN 后，最终项目内私有 cache 的真实
+packaging 为 `1 passed in 43.36s`。首版修正后的合并结果 JUnit 为
+`2415 tests, 0 failures, 0 errors, 10 skipped`（`2405 passed, 10 skipped`，161.412 秒），Ruff
+check/format 与 OpenSpec strict `22/22` 通过；安全 cache 修正后将再跑最终全量。
+
+安全 cache 修正经原审查者定点复核返回 `FIX_CONFIRMED`，无剩余 Critical/Important。最终 full JUnit
+为 `2419 tests, 0 failures, 0 errors, 10 skipped`（`2409 passed, 10 skipped`，160.623 秒），focused
+为 `47 passed`，Ruff check/format 与 OpenSpec strict `22/22` 通过。最终 README 基线重建的唯一
+wheel/sdist SHA 分别为 `516fcfbd5dfce141d102d038c1d82e3bf8df71f4d413f22483468387c489a198` 与
+`cd205327b4e7ef64672aa548bb1c380d0efc3cd273a2407a7ab70c4744db6444`；metadata 包含最终基线，
+Python 3.11.15 六项 harness 全通过。
