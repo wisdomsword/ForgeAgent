@@ -2,6 +2,8 @@
 comet_change: m28-v0-1-release-candidate
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-07-29-m28-v0-1-release-candidate
+status: final
 ---
 
 # M28 v0.1 Release Candidate 技术设计
@@ -152,3 +154,4 @@ README 只增加显著链接和当前 RC 状态，不复制长限制。`docs/pla
 第一轮检查需求映射、非目标和最小性：每个 OpenSpec requirement 都有组件和验证入口；没有新增产品命令、依赖、抽象层或 provider 行为。
 
 第二轮检查歧义、错误路径和证据真实性：明确了 Python 3.11、console script 来源、真实 loopback、三种协作结构化完成、失败报告、零 skip 以及 M24 历史证据不能替代 M28。未发现需回写 delta spec 的缺口。
+

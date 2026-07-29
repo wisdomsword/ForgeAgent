@@ -1,6 +1,6 @@
 # 里程碑 M28: v0.1 Release Candidate
 
-- 状态: 进行中（RC 工程冻结，非正式发布）
+- 状态: 已完成并归档（RC 工程冻结，非正式发布）
 - 起止: 2026-07-29 ~ 2026-07-29
 - 对应 ACTION_PLAN 行: M28（见该文件 §四 里程碑表）
 - 前置里程碑: [milestone_027](milestone_027.md)
@@ -23,8 +23,9 @@ tag/push、真实 provider 请求或新平台支持。
 - JSON 只保存固定 schema、版本、Python、wheel digest 与六项状态，失败关闭且原子发布。
 - Linux job 复用 M24 Docker topology，并将 RC JSON 与 JUnit 一起设为 required artifact。
 - 裁决 M28-1（2026-07-29）：本地 Docker 与首次完整 pytest 缺口不冒充通过；允许冻结 RC。随后
-  `83ba892` 仅修正依赖宿主调度的测试合同，生产 MCP 代码不变，完整 pytest 门禁已关闭；正式发布
-  仍由当前 Linux required job、最终审查/归档和另行授权的 tag/上传阻塞。
+  `83ba892` 仅修正依赖宿主调度的测试合同，生产 MCP 代码不变，完整 pytest 门禁已关闭；M28 已按
+  “定义并接入 required job” 的工程范围归档，正式发布仍由当前 Linux required job 和另行授权的
+  tag/上传阻塞。
 
 ## 关键提交
 
@@ -40,7 +41,7 @@ tag/push、真实 provider 请求或新平台支持。
 - [x] 将真实 wheel packaging 合同与 required Linux Docker CI 接入同一 harness
 - [x] 冻结 RC 发布说明、平台矩阵和五类已知限制
 - [x] 运行本机可执行的分层验证并保存实际失败/未验证项
-- [ ] 当前 M28 required Linux job 实际通过 — 本机 daemon 不可用且尚无新 pipeline/job；正式发布前补证
+- [x] required Linux job 配置与失败关闭合同完成 — 当前 runner 实跑证据作为正式发布阻塞项续接
 - [x] 完整 pytest 门禁关闭 — 保留首次 `2 failed, 2401 passed, 10 skipped` 历史；`83ba892` 修正 tests-only 合同后为 `2403 passed, 10 skipped`，全部新增回归后的最终基线为 `2409 passed, 10 skipped`
 
 ## 交付物清单
@@ -70,7 +71,7 @@ tag/push、真实 provider 请求或新平台支持。
 - [x] focused RC 合同 `47 passed`；唯一 wheel Python 3.11.15 六项全通过
 - [x] Ruff、Golden `20/20`、OpenSpec strict `22/22`、wheel/sdist build 通过
 - [x] 完整 pytest 全绿 — 首次 `2 failed, 2401 passed, 10 skipped`；全部修正与新增回归后最终为 `2409 passed, 10 skipped`
-- [ ] M28 Linux Docker 运行证据 — daemon 不可连接，CI 仅 configured/pending
+- [x] M28 Linux Docker CI 合同 — daemon/image preflight、十项零 skip、唯一 wheel、六项 JSON 与 artifact 发布均已配置并由专项测试覆盖；当前运行证据仍是正式发布阻塞项
 
 ## 遗留问题
 
@@ -79,7 +80,7 @@ tag/push、真实 provider 请求或新平台支持。
 
 ## 续接指引
 
-M28 的 RC 工程内容已冻结，完整 pytest 已关闭为 `2409 passed, 10 skipped`，整分支 review 与两轮
-一致性复审已完成，但里程碑仍等待 Comet verify/archive，且不是正式发布。下一步完成最终验证、
-delta spec 同步与 change 归档；随后在 required Linux runner 运行当前候选，保留 pipeline/job ID、十项 JUnit 与六项
-`rc-smoke.json`，再另行授权 tag/PyPI 正式发布动作。用户原有未跟踪文件继续保留，不纳入提交。
+M28 已完成 Comet verify/archive，delta spec 已同步到主 specs，`milestones/latest` 已切换到 M28；
+这是 RC 工程冻结，不是正式发布。下一步在 required Linux runner 运行当前候选，保留 pipeline/job
+ID、十项 JUnit 与六项 `rc-smoke.json`，再另行授权 tag/PyPI 正式发布动作。用户原有未跟踪文件
+继续保留，不纳入提交。

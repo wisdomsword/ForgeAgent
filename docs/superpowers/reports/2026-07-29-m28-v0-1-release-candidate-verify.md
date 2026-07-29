@@ -2,7 +2,7 @@
 
 ## 结论
 
-M28 的本地实现与 Comet verify 证据已通过，等待 archive 收口。当前证据确认唯一 wheel 的
+M28 的本地实现与 Comet verify 证据已通过，change 已归档。当前证据确认唯一 wheel 的
 Python 3.11 clean install、CLI、HTTP、Single、Duo、Triad 六项离线 smoke 通过，Linux required job
 已配置，发布说明和五类已知限制已冻结。两项依赖宿主调度的 MCP 墙钟测试合同已用确定性的预算
 转发断言修正，Golden G14 的场景预算也已用真实 worker 冷启动回归固定；生产 MCP 与 sandbox 代码
@@ -21,6 +21,7 @@ Python 3.11 clean install、CLI、HTTP、Single、Duo、Triad 六项离线 smoke
 | 命令 | 结果 |
 | --- | --- |
 | `uv run pytest -p no:terminal --junitxml=artifacts/m28/focused-final.xml tests/test_m28_release_candidate_smoke.py tests/test_m28_release_ci.py tests/test_m28_release_docs.py tests/test_packaging.py` | JUnit：`43 tests, 0 failures, 0 errors, 0 skipped` |
+| 安全 cache 修正后 focused 四文件合同 | `47 passed in 19.07s` |
 | `uv run ruff check .` | `All checks passed!` |
 | `uv run ruff format --check .` | `119 files already formatted` |
 | 首次 `uv run pytest -q` | `2 failed, 2401 passed, 10 skipped in 169.62s` |
@@ -29,8 +30,8 @@ Python 3.11 clean install、CLI、HTTP、Single、Duo、Triad 六项离线 smoke
 | 安全 cache 修正后 `uv run pytest -p no:terminal --junitxml=artifacts/m28/full-merged-main-secure-final.xml` | JUnit：`2419 tests, 0 failures, 0 errors, 10 skipped`，即 `2409 passed, 10 skipped` |
 | `uv run python -m tests.golden.runner --output-dir artifacts/m28/golden-final` | exit 0；`report.md` 为 `20/20 passed (100.0%)`，G14 为 `PASS` |
 | `openspec validate --all --strict` | `22 passed, 0 failed` |
-| `uv build --out-dir artifacts/m28/dist` | 唯一 wheel 与 sdist 构建成功 |
-| `uv run python scripts/m28_release_candidate_smoke.py --wheel artifacts/m28/dist/forgeagent-0.1.0-py3-none-any.whl --output artifacts/m28/rc-smoke-final.json --python /Users/admin/.local/bin/python3.11` | exit 0；六项全通过 |
+| `uv build --out-dir artifacts/m28/dist-final` | 最终唯一 wheel 与 sdist 构建成功；metadata 包含 `2409/10`、`22/22`、focused `47` |
+| `PIP_CACHE_DIR=$PWD/artifacts/m28/pip-cache uv run python scripts/m28_release_candidate_smoke.py --wheel artifacts/m28/dist-final/forgeagent-0.1.0-py3-none-any.whl --output artifacts/m28/rc-smoke-secure-final.json --python /Users/admin/.local/bin/python3.11` | exit 0；最终 SHA `516fcfbd...9a198` 六项全通过 |
 
 首次完整 pytest 的失败为：
 
@@ -114,7 +115,7 @@ Job 249 只作为历史 container-only 证据。
 关键提交 provenance：Task 1 为 `9586c70`、`31eff32`、`426e234`、`2eaab53`；Task 2 为
 `6bc760a`、`00ad211`、`44125e5`；Task 3 为 `03e1983`、`887608e`、`2b476d3`；Task 4 验证与
 证据草案为 `37365bd`，lifecycle 修正为 `e696737`，MCP 测试合同修正为 `83ba892`。这些提交证明
-实施和 review fix 的来源，不替代仍开放的 lifecycle gate。
+实施和 review fix 的来源；最终 lifecycle gate 已由 Comet verify/archive 关闭。
 
 ## OpenSpec 场景映射
 
@@ -152,5 +153,5 @@ M28 “定义并接入 required job” 实现缺口。Tasks 为 `12/12`，未发
 - 协作 v1：没有协作专用 resume endpoint；headless Triad 默认不自动批准计划。
 - 完整 pytest：首次两个 MCP 墙钟测试失败已由 `83ba892` 的 tests-only 可移植性修正关闭；全部新增回归后的最终全量为 `2409 passed, 10 skipped`，生产 MCP 代码未变。
 
-本报告已完成 verify 证据收口，仍等待 archive，不提前宣称正式发布。正式发布仍要求当前 M28 Linux
+本报告已完成 verify/archive 证据收口，不提前宣称正式发布。正式发布仍要求当前 M28 Linux
 required job 通过并保留 pipeline/job artifact，以及另行授权的 tag/上传动作。

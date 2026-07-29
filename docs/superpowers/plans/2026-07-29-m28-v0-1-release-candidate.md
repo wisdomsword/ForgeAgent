@@ -2,6 +2,7 @@
 change: m28-v0-1-release-candidate
 design-doc: docs/superpowers/specs/2026-07-29-m28-v0-1-release-candidate-design.md
 base-ref: 49e0c05efba0bdbaf20387aee6bbbc77dfe568cd
+archived-with: 2026-07-29-m28-v0-1-release-candidate
 ---
 
 # M28 v0.1 Release Candidate 实施计划
@@ -27,6 +28,7 @@ base-ref: 49e0c05efba0bdbaf20387aee6bbbc77dfe568cd
 - M24 Pipeline 50 / Job 249 只能作为历史 container 证据，不能冒充 M28 installed-wheel smoke 通过。
 - 保留并不提交用户已有未跟踪文件；不修改 M23/M25 冻结输入。
 
+archived-with: 2026-07-29-m28-v0-1-release-candidate
 ---
 
 ### Task 1: RC harness 合同与离线入口
@@ -323,3 +325,4 @@ git add README.md ACTION_PLAN.md docs/platform-support.md docs/releases/0.1.0-rc
   openspec/changes/m28-v0-1-release-candidate/tasks.md
 git commit -m "chore: close M28 release candidate milestone"
 ```
+

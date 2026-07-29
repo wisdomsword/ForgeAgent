@@ -5,8 +5,8 @@
 DONE_WITH_CONCERNS
 
 M28 RC 证据、公开基线、验证报告和 milestone 已生成。Task 1-4 的 task-level review、最终整分支
-review 与两轮一致性复审均已完成；OpenSpec verify/archive 留给 Comet lifecycle gate。完整 pytest
-的初始失败已由 tests-only 可移植性合同修正关闭；Docker/Linux 证据未执行，未写成 pass。
+review 与两轮一致性复审均已完成；OpenSpec verify/archive 已完成。完整 pytest 的初始失败已由
+tests-only 可移植性合同修正关闭；Docker/Linux 证据未执行，未写成 pass。
 
 ## 新鲜证据
 
@@ -166,7 +166,7 @@ site-packages，而是保留 clean venv 与临时 HOME，把唯一网络安装�
 以多用户污染风险退回；relative/symlink/0755 拒绝合同 RED/GREEN 后，最终项目内私有 cache 的真实
 packaging 为 `1 passed in 43.36s`。首版修正后的合并结果 JUnit 为
 `2415 tests, 0 failures, 0 errors, 10 skipped`（`2405 passed, 10 skipped`，161.412 秒），Ruff
-check/format 与 OpenSpec strict `22/22` 通过；安全 cache 修正后将再跑最终全量。
+check/format 与 OpenSpec strict `22/22` 通过；随后安全 cache 修正后的最终全量也已通过。
 
 安全 cache 修正经原审查者定点复核返回 `FIX_CONFIRMED`，无剩余 Critical/Important。最终 full JUnit
 为 `2419 tests, 0 failures, 0 errors, 10 skipped`（`2409 passed, 10 skipped`，160.623 秒），focused
@@ -174,3 +174,10 @@ check/format 与 OpenSpec strict `22/22` 通过；安全 cache 修正后将再�
 wheel/sdist SHA 分别为 `516fcfbd5dfce141d102d038c1d82e3bf8df71f4d413f22483468387c489a198` 与
 `cd205327b4e7ef64672aa548bb1c380d0efc3cd273a2407a7ab70c4744db6444`；metadata 包含最终基线，
 Python 3.11.15 六项 harness 全通过。
+
+## Archive Closure
+
+Comet verify guard 全部通过，分支已本地合并到 `main`，feature 分支已删除；归档脚本 `7/7` 成功，
+delta spec 已同步到主 specs，design/plan 已标注，change 已移动到
+`openspec/changes/archive/2026-07-29-m28-v0-1-release-candidate/`。`milestones/latest` 已切换到 M28。
+当前 Linux job 仍 configured/pending，仅阻塞正式 release-ready；未执行 push、tag 或 PyPI 上传。
