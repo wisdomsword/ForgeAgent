@@ -49,7 +49,7 @@ RC 工程冻结证据，不构成里程碑完成或正式发布结论。两项�
 - schema：`forgeagent.release-candidate-smoke/v1`
 - version：`0.1.0`
 - python：`3.11.15`
-- wheel SHA-256：`d497df6a507adc7654c80b9042e4f96c838277bbabdeb031e1ca9c7f72bd4bdf`
+- wheel SHA-256：`e09507e4ea14023ba9833d7ecb9a57cd89de310d8070225429fcbc371d66492c`
 - passed：`true`
 - checks：`clean-wheel`、`cli`、`http`、`single`、`duo`、`triad` 均为 `passed`
 

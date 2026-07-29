@@ -19,8 +19,8 @@ M28 RC 证据、公开基线、验证报告和 milestone 已生成。Task 1-3 �
 - Golden：exit 0，`20/20 passed (100.0%)`
 - OpenSpec strict：`22 passed, 0 failed`
 - build：唯一 `forgeagent-0.1.0-py3-none-any.whl` 与 sdist 成功
-- RC harness：exit 0；Python 3.11.15，wheel SHA-256
-  `d497df6a507adc7654c80b9042e4f96c838277bbabdeb031e1ca9c7f72bd4bdf`，六项全 passed
+- RC harness：exit 0；Python 3.11.15，最终 wheel SHA-256
+  `e09507e4ea14023ba9833d7ecb9a57cd89de310d8070225429fcbc371d66492c`，六项全 passed
 - docs/continuous/collaboration 合同复跑：`21 passed in 0.09s`
 - final strict 复跑：`22 passed, 0 failed`
 
@@ -104,3 +104,10 @@ wheel METADATA 会嵌入 README，因而该 artifact 仍携带旧 M27 基线，�
 从当前 README 重建唯一 wheel/sdist、检查嵌入 metadata、用 Python 3.11 重跑六项 harness 并刷新
 公开 SHA。复审同时指出 Task 4 plan Step 3 要求 `milestones/latest` 指向 M28，在最终 lifecycle
 收口前不得提前勾选；现已恢复为 pending。
+
+按复审要求从 `e2e1255` 当前 README 重建 wheel/sdist；wheel METADATA 与 sdist PKG-INFO 均包含
+`2403 passed, 10 skipped`、OpenSpec `22/22` 与 M28 RC `42 passed`，不再携带旧 M27 基线。正确的父
+流程由开发环境 `uv run python` 驱动，并将 clean venv 解释器固定为 Python 3.11.15；六项 JSON
+全 passed，新 SHA 为 `e09507e4ea14023ba9833d7ecb9a57cd89de310d8070225429fcbc371d66492c`。
+focused 四文件合同复跑 `41 passed`。一次直接用裸 Python 3.11 启动父脚本因开发依赖不可导入而
+失败，确认是调用方式偏离实施计划，随后用计划命令成功重跑；未把该误调用记作候选失败。
