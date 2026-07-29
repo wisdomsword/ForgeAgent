@@ -111,3 +111,4 @@ wheel METADATA 会嵌入 README，因而该 artifact 仍携带旧 M27 基线，�
 全 passed，新 SHA 为 `e09507e4ea14023ba9833d7ecb9a57cd89de310d8070225429fcbc371d66492c`。
 focused 四文件合同复跑 `41 passed`。一次直接用裸 Python 3.11 启动父脚本因开发依赖不可导入而
 失败，确认是调用方式偏离实施计划，随后用计划命令成功重跑；未把该误调用记作候选失败。
+原复审者对 `6be9f6a` 做定点复核后返回 `FIX_CONFIRMED`；Task 4 review gate 已关闭。
