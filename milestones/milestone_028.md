@@ -6,6 +6,7 @@
 - 前置里程碑: [milestone_027](milestone_027.md)
 - 技术设计: [2026-07-29-m28-v0-1-release-candidate-design](../docs/superpowers/specs/2026-07-29-m28-v0-1-release-candidate-design.md)
 - 实施计划: [2026-07-29-m28-v0-1-release-candidate](../docs/superpowers/plans/2026-07-29-m28-v0-1-release-candidate.md)
+- OpenSpec change: [2026-07-29-m28-v0-1-release-candidate](../openspec/changes/archive/2026-07-29-m28-v0-1-release-candidate/)
 - 验证报告: [2026-07-29-m28-v0-1-release-candidate-verify](../docs/superpowers/reports/2026-07-29-m28-v0-1-release-candidate-verify.md)
 
 ## 目标与范围
