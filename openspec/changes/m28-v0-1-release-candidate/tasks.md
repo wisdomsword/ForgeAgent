@@ -21,6 +21,6 @@
 
 ## 5. 验证与收尾
 
-- [ ] 5.1 运行 RC/packaging/CLI/HTTP/协作专项、Ruff、完整 pytest、Golden 20/20、OpenSpec strict、build 与本机可用的 Docker 门禁。
-- [ ] 5.2 完成独立代码审查与两轮最终一致性复审，修复全部发现并记录无法执行的环境证据。
-- [ ] 5.3 生成 M28 验证报告与 milestone，更新 `ACTION_PLAN.md` 和 `milestones/latest`，归档 change。
+- [x] 5.1 运行 RC/packaging/CLI/HTTP/协作专项、Ruff、完整 pytest、Golden 20/20、OpenSpec strict、build 与本机可用的 Docker 门禁。
+- [ ] 5.2 完成独立代码审查与两轮最终一致性复审，修复全部发现并记录无法执行的环境证据。— Task 1-3 独立 task review 与修复已完成；最终整分支审查和两轮一致性复审由后续 verify gate 执行。
+- [ ] 5.3 生成 M28 验证报告与 milestone，更新 `ACTION_PLAN.md` 和 `milestones/latest`，归档 change。— 报告、milestone 和台账已生成；实际同步与归档由后续 archive gate 执行。

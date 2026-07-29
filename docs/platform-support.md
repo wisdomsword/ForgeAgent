@@ -36,12 +36,19 @@ M24 Pipeline 50 / Job 249 remains historical container-only evidence. It verifie
 container integration tests for that runner topology and must not be represented as an M28
 installed-wheel smoke result.
 
-Current offline repository baseline: `2337 passed, 22 skipped`; OpenSpec strict `21/21`;
-Golden `20/20`. This pytest baseline excludes the loopback black-box file and the packaging file:
-the unexcluded run completed with `2340 passed, 22 skipped, 12 failed`, comprising eleven sandbox
-loopback allocation failures and one offline build-dependency resolution failure. Those cases remain
-unverified in this environment rather than being counted as passes. The dated Linux runner evidence
-below is separate from this repository baseline.
+Current offline repository baseline: `2401 passed, 10 skipped`; OpenSpec strict `22/22`;
+Golden `20/20`. The complete pytest run also had `2 failed`, so this is a completed-test count, not a
+green-suite claim. M28 local RC evidence on 2026-07-29 is: focused release contracts `42 passed`,
+Ruff check/format and wheel/sdist build passed. The unique built wheel ran
+the six clean-wheel/CLI/HTTP/Single/Duo/Triad checks successfully with Python 3.11.15. The complete
+pytest attempt was not green: `2 failed, 2401 passed, 10 skipped`. Both failures are pre-existing MCP
+wall-clock timeout assertions that reproduce in isolation on this host; M28 does not modify the MCP
+source or tests. They remain failures, not passes.
+
+The local Docker client is 29.2.1, but `docker info` could not connect to
+`/Users/admin/.docker/run/docker.sock`. Therefore neither the ten container integration tests nor a
+supplemental Linux-container RC smoke were run for M28. The dated Linux runner evidence below remains
+separate historical evidence.
 
 ## Linux Docker Runner Evidence
 

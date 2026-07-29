@@ -6,17 +6,20 @@
 
 ## 当前验证
 
-pytest: `2337 passed, 22 skipped`；OpenSpec strict: `21/21`.
+pytest: `2401 passed, 10 skipped`；OpenSpec strict: `22/22`.
+
+完整 pytest 同时有 `2 failed`，不是全绿。M28 RC 专项：`42 passed`；Golden: `20/20`；Ruff 与
+wheel/sdist build 通过。Python 3.11.15 clean-wheel harness 的 `clean-wheel`、`cli`、
+`http`、`single`、`duo`、`triad` 六项均通过。
 
 ForgeAgent `0.1.0` 当前是 Release Candidate，不是正式发布；安装、已验证范围、正式发布阻塞条件和
 冻结的已知限制见 [`docs/releases/0.1.0-rc.md`](docs/releases/0.1.0-rc.md)。
 
-该 pytest 结果是 2026-07-29 M27 当前沙箱可执行基线，排除当前沙箱禁止 loopback socket 的
-M16 黑盒测试文件和依赖安装受离线网络限制的 packaging 测试文件。未排除的完整 pytest 尝试为
-`2340 passed, 22 skipped, 12 failed`：11 项在分配 loopback port 时被操作系统拒绝，1 项在隔离
-构建依赖解析时因 DNS 不可用失败；这些项目未被误报为通过。本机 Docker Desktop 专项为
-`10 passed`、零 skip；2026-07-28 手工 Linux runner 专项为 `10 passed`、零 skip；GitLab Linux
-Docker Job 249 为 `10 passed`、零 skip；Golden: `20/20`。
+2026-07-29 的 M28 完整 pytest 尝试为 `2 failed, 2401 passed, 10 skipped`。两个失败都是既有
+MCP 关闭墙钟合同在当前宿主调度下超时；隔离复跑仍为 `2 failed`，本里程碑没有修改 MCP 源码或
+测试，因此没有把它们记为通过。Docker client 29.2.1 可用，但 daemon socket 不可连接；本机
+十项 container integration 与 Linux container RC smoke 未执行。M28 required Linux job 仍是
+configured/pending；M24 Pipeline 50 / Job 249 的十项通过记录只作为历史 container 证据。
 
 M24 已完成并归档，change 见
 [`2026-07-27-m24-continuous-verification-platform-matrix`](openspec/changes/archive/2026-07-27-m24-continuous-verification-platform-matrix/)；持续验证入口见 [`.gitlab-ci.yml`](.gitlab-ci.yml)，平台证据和排期见
