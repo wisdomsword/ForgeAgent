@@ -12,8 +12,9 @@ pytest: `2409 passed, 10 skipped`；OpenSpec strict: `22/22`.
 wheel/sdist build 通过。Python 3.11.15 clean-wheel harness 的 `clean-wheel`、`cli`、
 `http`、`single`、`duo`、`triad` 六项均通过。
 
-ForgeAgent `0.1.0` 当前是 Release Candidate，不是正式发布；安装、已验证范围、正式发布阻塞条件和
-冻结的已知限制见 [`docs/releases/0.1.0-rc.md`](docs/releases/0.1.0-rc.md)。
+ForgeAgent `0.1.0` 是正式版本，安装命令为 `pip install forgeagent==0.1.0`，对应源码 tag 为
+`v0.1.0`。发布门禁、已验证范围和冻结的已知限制见
+[`docs/releases/0.1.0.md`](docs/releases/0.1.0.md)；历史 RC 证据保持不变。
 
 2026-07-29 的 M28 首次完整 pytest 为 `2 failed, 2401 passed, 10 skipped`。两个失败都是既有
 MCP 关闭墙钟合同在当前宿主调度下超时；隔离复跑仍为 `2 failed`。提交 `83ba892` 仅将测试改为

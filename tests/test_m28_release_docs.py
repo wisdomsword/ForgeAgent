@@ -1,4 +1,4 @@
-"""Static contracts for the ForgeAgent 0.1.0 release candidate."""
+"""Static contracts for the ForgeAgent 0.1.0 candidate and formal release."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 RC_PATH = ROOT / "docs/releases/0.1.0-rc.md"
+RELEASE_PATH = ROOT / "docs/releases/0.1.0.md"
 
 
 def _text(relative_path: str) -> str:
@@ -113,13 +114,58 @@ def test_release_candidate_records_linux_gate_without_promoting_historical_evide
         _assert_no_m28_linux_success_claim(contradictory)
 
 
-def test_readme_links_release_candidate_near_current_verification() -> None:
+def test_formal_release_freezes_install_status_and_known_limitations() -> None:
+    assert RELEASE_PATH.is_file()
+    text = RELEASE_PATH.read_text(encoding="utf-8")
+
+    assert len(re.findall(r"^# ", text, flags=re.MULTILINE)) == 1
+    for fragment in (
+        "ForgeAgent 0.1.0",
+        "## 状态",
+        "正式版本",
+        "## 安装",
+        "pip install forgeagent==0.1.0",
+        "v0.1.0",
+        "## 已交付能力",
+        "## 发布门禁",
+        "required Linux Docker job",
+        "## 已知限制",
+        "### 平台证据",
+        "### 真实模型",
+        "### sandbox",
+        "### HTTP",
+        "### 协作 v1",
+        "restricted 不是 OS 级密封沙箱",
+        "loopback",
+        "Bearer token",
+        "不提供 TLS",
+        "headless Triad",
+        "preauthorize",
+        "opt-in",
+        "没有协作专用 resume endpoint",
+        "resume_loop_id",
+    ):
+        assert fragment in text
+
+    for obsolete in (
+        "Release Candidate",
+        "不是正式发布",
+        "尚未发布到包索引",
+        "pip install dist/forgeagent-0.1.0-",
+    ):
+        assert obsolete not in text
+
+
+def test_readme_links_formal_release_near_current_verification() -> None:
     text = _text("README.md")
     current = text.split("## 当前验证", 1)[1].split("\n## ", 1)[0]
 
-    assert "docs/releases/0.1.0-rc.md" in current
-    assert "Release Candidate，不是正式发布" in current
+    assert "docs/releases/0.1.0.md" in current
+    assert "正式版本" in current
+    assert "pip install forgeagent==0.1.0" in current
+    assert "v0.1.0" in current
     assert "M28 Pipeline 57 / Job 263" in current
+    assert "Release Candidate，不是正式发布" not in current
 
 
 def test_platform_matrix_separates_m28_gate_from_m24_historical_evidence() -> None:
