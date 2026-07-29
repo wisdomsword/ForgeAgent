@@ -90,6 +90,15 @@ def test_wheel_identity_rejects_non_regular_file(tmp_path):
         smoke.wheel_identity(candidate)
 
 
+def test_wheel_identity_rejects_symlink(tmp_path):
+    wheel = _wheel(tmp_path / "candidate.whl")
+    link = tmp_path / "linked.whl"
+    link.symlink_to(wheel)
+
+    with pytest.raises(ValueError, match="wheel must be a regular file"):
+        smoke.wheel_identity(link)
+
+
 def test_write_report_is_complete_and_bounded(tmp_path):
     report = smoke.new_report("a" * 64)
     report["checks"] = dict.fromkeys(smoke.CHECK_NAMES, "passed")
@@ -239,6 +248,9 @@ def test_run_parent_uses_bounded_isolated_subprocesses(tmp_path, monkeypatch):
     wheel = _wheel(tmp_path / "forgeagent-0.1.0-py3-none-any.whl")
     output = tmp_path / "report.json"
     calls = []
+    monkeypatch.setenv("PYTHONHOME", "/source/python")
+    monkeypatch.setenv("PYTHONPATH", "/source/src")
+    monkeypatch.setenv("OPENAI_API_KEY", "private")
 
     def fake_run(argv, **kwargs):
         calls.append((argv, kwargs))
@@ -262,14 +274,43 @@ def test_run_parent_uses_bounded_isolated_subprocesses(tmp_path, monkeypatch):
     assert len(calls) == 3
     assert calls[0][0][:3] == [sys.executable, "-m", "venv"]
     venv_python = calls[1][0][0]
-    assert calls[1][0] == [venv_python, "-m", "pip", "install", str(wheel.resolve())]
+    assert calls[1][0][:4] == [venv_python, "-m", "pip", "install"]
     child_argv, child_kwargs = calls[2]
     assert child_argv[:2] == [venv_python, "-I"]
     assert child_argv[2] == str(SCRIPT.resolve())
     assert "--installed" in child_argv
     assert Path(child_kwargs["cwd"]).name == "probe"
-    assert child_kwargs["env"]["HOME"] == str(Path(child_kwargs["cwd"]).parent / "home")
-    assert "PYTHONPATH" not in child_kwargs["env"]
+    expected_home = str(Path(child_kwargs["cwd"]).parent / "home")
+    for _argv, kwargs in calls:
+        assert kwargs["env"]["HOME"] == expected_home
+        assert not ({"PYTHONHOME", "PYTHONPATH", "OPENAI_API_KEY"} & kwargs["env"].keys())
+
+
+def test_run_parent_installs_the_validated_snapshot(tmp_path, monkeypatch):
+    wheel = _wheel(tmp_path / "forgeagent-0.1.0-py3-none-any.whl")
+    _, expected_digest = smoke.wheel_identity(wheel)
+    output = tmp_path / "report.json"
+
+    def fake_run(argv, **_kwargs):
+        if argv[1:3] == ["-m", "venv"]:
+            _wheel(wheel, name="replaced")
+        elif argv[1:4] == ["-m", "pip", "install"]:
+            installed_wheel = Path(argv[4])
+            assert installed_wheel != wheel.resolve()
+            assert installed_wheel.parent.name.startswith("forgeagent-m28-rc-")
+            assert smoke.wheel_identity(installed_wheel) == ("0.1.0", expected_digest)
+        elif "--installed" in argv:
+            assert argv[argv.index("--wheel-sha256") + 1] == expected_digest
+            report = smoke.new_report(expected_digest)
+            report["checks"] = dict.fromkeys(smoke.CHECK_NAMES, "passed")
+            smoke.finalize_report(report)
+            smoke.write_report(output, report)
+        return subprocess.CompletedProcess(argv, 0)
+
+    monkeypatch.setattr(smoke.subprocess, "run", fake_run)
+
+    assert smoke.run_parent(wheel, output, sys.executable) == 0
+    assert json.loads(output.read_text())["wheel_sha256"] == expected_digest
 
 
 def test_run_parent_rejects_invalid_wheel_with_bounded_report(tmp_path, capsys):
@@ -293,7 +334,7 @@ def test_run_parent_rejects_invalid_wheel_with_bounded_report(tmp_path, capsys):
     assert capsys.readouterr().err == "M28 RC smoke failed: clean-wheel\n"
 
 
-def test_run_parent_reports_only_failed_child_check(tmp_path, monkeypatch, capsys):
+def test_run_parent_bounds_nonzero_child_as_clean_wheel_failure(tmp_path, monkeypatch, capsys):
     wheel = _wheel(tmp_path / "forgeagent-0.1.0-py3-none-any.whl")
     output = tmp_path / "report.json"
 
@@ -313,8 +354,15 @@ def test_run_parent_reports_only_failed_child_check(tmp_path, monkeypatch, capsy
     status = smoke.run_parent(wheel, output, sys.executable)
 
     assert status == 1
-    assert json.loads(output.read_text())["checks"]["cli"] == "failed"
-    assert capsys.readouterr().err == "M28 RC smoke failed: cli\n"
+    assert json.loads(output.read_text())["checks"] == {
+        "clean-wheel": "failed",
+        "cli": "not-run",
+        "http": "not-run",
+        "single": "not-run",
+        "duo": "not-run",
+        "triad": "not-run",
+    }
+    assert capsys.readouterr().err == "M28 RC smoke failed: clean-wheel\n"
 
 
 def test_run_parent_never_keeps_passed_report_after_child_failure(tmp_path, monkeypatch):
@@ -336,7 +384,14 @@ def test_run_parent_never_keeps_passed_report_after_child_failure(tmp_path, monk
     assert smoke.run_parent(wheel, output, sys.executable) == 1
     report = json.loads(output.read_text())
     assert report["passed"] is False
-    assert report["checks"]["clean-wheel"] == "failed"
+    assert report["checks"] == {
+        "clean-wheel": "failed",
+        "cli": "not-run",
+        "http": "not-run",
+        "single": "not-run",
+        "duo": "not-run",
+        "triad": "not-run",
+    }
 
 
 def test_main_routes_public_and_private_modes(monkeypatch, tmp_path):

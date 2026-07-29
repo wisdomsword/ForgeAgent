@@ -7,6 +7,7 @@ import importlib.metadata
 import importlib.resources
 import json
 import os
+import shutil
 import stat
 import subprocess
 import sys
@@ -46,7 +47,7 @@ def clean_environment(source: Mapping[str, str], home: Path) -> dict[str, str]:
 
 def wheel_identity(path: Path) -> tuple[str, str]:
     try:
-        mode = path.stat().st_mode
+        mode = path.lstat().st_mode
     except OSError as error:
         raise ValueError("wheel must be a regular file") from error
     if not stat.S_ISREG(mode):
@@ -359,24 +360,34 @@ def run_installed(output: Path, wheel_sha256: str) -> int:
 def run_parent(wheel: Path, output: Path, python: str) -> int:
     digest = "0" * 64
     try:
-        _, digest = wheel_identity(wheel)
-    except Exception:
-        report = new_report(digest)
-        report["checks"]["clean-wheel"] = "failed"
-        write_report(output, report)
-        print("M28 RC smoke failed: clean-wheel", file=sys.stderr)
-        return 1
-
-    try:
         with tempfile.TemporaryDirectory(prefix="forgeagent-m28-rc-") as temporary:
             temporary_root = Path(temporary)
             venv = temporary_root / "venv"
             probe = temporary_root / "probe"
             home = temporary_root / "home"
+            snapshot = temporary_root / "forgeagent-0.1.0-py3-none-any.whl"
+            source_stat = wheel.lstat()
+            if not stat.S_ISREG(source_stat.st_mode):
+                raise ValueError("wheel must be a regular file")
+            open_flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+            with (
+                os.fdopen(os.open(wheel, open_flags), "rb") as source,
+                snapshot.open("xb") as target,
+            ):
+                opened_stat = os.fstat(source.fileno())
+                if (source_stat.st_dev, source_stat.st_ino) != (
+                    opened_stat.st_dev,
+                    opened_stat.st_ino,
+                ):
+                    raise ValueError("wheel changed before snapshot")
+                shutil.copyfileobj(source, target)
+            _, digest = wheel_identity(snapshot)
             probe.mkdir()
             home.mkdir()
+            environment = clean_environment(os.environ, home)
             subprocess.run(
                 [python, "-m", "venv", str(venv)],
+                env=environment,
                 shell=False,
                 timeout=180,
                 check=True,
@@ -384,7 +395,8 @@ def run_parent(wheel: Path, output: Path, python: str) -> int:
             )
             venv_python = venv / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
             subprocess.run(
-                [str(venv_python), "-m", "pip", "install", str(wheel.resolve())],
+                [str(venv_python), "-m", "pip", "install", str(snapshot)],
+                env=environment,
                 shell=False,
                 timeout=180,
                 check=True,
@@ -402,16 +414,21 @@ def run_parent(wheel: Path, output: Path, python: str) -> int:
                     digest,
                 ],
                 cwd=probe,
-                env=clean_environment(os.environ, home),
+                env=environment,
                 shell=False,
                 timeout=180,
                 check=False,
                 capture_output=True,
             )
         loaded = json.loads(output.read_text())
+        if result.returncode != 0:
+            report = new_report(digest)
+            report["checks"]["clean-wheel"] = "failed"
+            write_report(output, report)
+            print("M28 RC smoke failed: clean-wheel", file=sys.stderr)
+            return 1
         if (
-            result.returncode != 0
-            or loaded.get("schema") != SCHEMA
+            loaded.get("schema") != SCHEMA
             or loaded.get("wheel_sha256") != digest
             or loaded.get("passed") is not True
             or loaded.get("checks") != dict.fromkeys(CHECK_NAMES, "passed")
