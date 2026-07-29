@@ -21,7 +21,7 @@ M24 已完成并归档，change 见
 macOS Docker Desktop 结果只作为 supplemental 证据；仅 Linux Docker runner topology (Pipeline 50 / Job 249)
 已 verified，不推断未记录的 Linux 架构、Podman 或 Windows 支持。
 
-## M27 协作路由校准（已完成，待 Comet 归档）
+## M27 协作路由校准（已完成并归档）
 
 M27 已根据 M25 冻结协议完成路由裁决：默认 Single；用户显式选择 Single、Duo 或 Triad 时直接
 遵从，显式模式优先于可信宿主已绑定的冻结检查；只有可信宿主已经为本次任务绑定**非空冻结检查**时，

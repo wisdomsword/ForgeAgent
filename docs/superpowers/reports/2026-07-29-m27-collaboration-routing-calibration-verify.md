@@ -3,7 +3,7 @@
 ## 结论
 
 M27 的路由、M25 派生分析、Memory 文档、当前验证基线与 Linux evidence claim 已完成验证；
-build-stage preparation/handoff 已完成，等待后续 Comet archive/branch gates。默认路由现在是
+分支已合并到 `main`，delta specs 已合并主 specs，change 已归档。默认路由现在是
 Single；显式 Single/Duo/Triad 优先；只有可信宿主已
 绑定非空冻结检查时才自动 Triad。M25 冻结证据没有任务类别的 Triad solved rate 严格高于
 Single，因此没有恢复自动类别。
@@ -191,5 +191,5 @@ Task 6 的首轮受影响测试暴露 `/single` 元数据遗漏：`1 failed, 520
   独立 change 支撑。
 - M25 派生输出事务不承诺进程被强制终止、文件系统损坏或外部并发改写时的跨文件原子性；这些情况
   通过非零退出和保留恢复证据收敛，而不是被计为成功。
-- OpenSpec change 仍处于 active path；本报告不提前宣称已归档。
-- delta spec 同步、最终归档状态和实际 branch finish 仍须经过后续 Comet gates。
+- OpenSpec change 已归档到 `openspec/changes/archive/2026-07-29-calibrate-collaboration-routing`；
+  归档后 OpenSpec strict 仍为 `21/21`，且无 active change。

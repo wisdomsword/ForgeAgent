@@ -3,7 +3,6 @@
 ## Purpose
 Define mandatory offline and Linux Docker verification gates, release-artifact boundaries,
 and evidence-based platform status rules for ForgeAgent changes.
-
 ## Requirements
 ### Requirement: Mandatory offline verification pipeline
 The repository SHALL define a GitLab CI job that runs Ruff lint and format checks, the complete offline pytest suite, the twenty-case Golden runner, OpenSpec strict validation, wheel and sdist builds, and the release-content boundary contract without model credentials.
@@ -43,11 +42,15 @@ The repository SHALL define a required Linux Docker CI job that proves daemon av
 - **THEN** the required Docker job fails and the platform cannot be recorded as verified
 
 ### Requirement: Evidence-driven platform matrix
-The repository SHALL maintain a platform matrix that records release priority, current support state, evidence, prerequisites, limitations, and the next validation trigger for Linux Docker, Linux Podman, Windows, and local macOS Docker evidence.
+The repository SHALL maintain a platform matrix that records release priority, current support state, evidence, prerequisites, limitations, and the next validation trigger for Linux Docker, Linux Podman, Windows, and local macOS Docker evidence. A `verified` claim MUST be limited to the operating system, architecture when recorded, runtime, and runner topology established by the cited execution, and the document MUST NOT contain a conflicting status for that same evidence.
 
 #### Scenario: Platform has complete evidence
-- **WHEN** the required commands pass on the named operating system, architecture, and runtime
-- **THEN** the matrix may record that exact platform tuple as verified with a dated evidence reference
+- **WHEN** the required commands pass on the named operating system, recorded architecture, runtime, and runner topology
+- **THEN** the matrix may record only that proven platform tuple as verified with a dated evidence reference
+
+#### Scenario: Evidence does not record every advertised architecture
+- **WHEN** a successful platform run does not establish every architecture named by a broader matrix row
+- **THEN** the verified row is narrowed to the recorded runner tuple rather than implying unverified architectures
 
 #### Scenario: Platform has no complete evidence
 - **WHEN** a platform is only planned, partially exercised, or blocked by known runtime assumptions
@@ -56,3 +59,14 @@ The repository SHALL maintain a platform matrix that records release priority, c
 #### Scenario: Release target changes
 - **WHEN** maintainers promote Podman or Windows to a release target
 - **THEN** a separate Comet change MUST define and verify the required compatibility work before the matrix status becomes verified
+
+### Requirement: Public verification baseline reflects the latest completed run
+README and the platform support document MUST state the latest completed full pytest, OpenSpec strict, and Golden results as the current repository baseline, MUST distinguish environment-dependent skips from passes, and MUST NOT present a historical milestone count as current.
+
+#### Scenario: M27 verification completes
+- **WHEN** the final M27 full verification commands finish
+- **THEN** public baseline statements are updated from those command results and agree with each other
+
+#### Scenario: Historical evidence remains referenced
+- **WHEN** a milestone-specific older count is retained for audit history
+- **THEN** it is labeled as historical and is not represented as the current repository baseline

@@ -2,6 +2,8 @@
 comet_change: calibrate-collaboration-routing
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-07-29-calibrate-collaboration-routing
+status: final
 ---
 
 # M27 协作路由校准技术设计

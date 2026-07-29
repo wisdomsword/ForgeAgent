@@ -15,7 +15,7 @@ ForgeAgent SHALL 提供 `single`、`duo` 和 `triad` 三种运行模式。Duo MU
 - **THEN** Planner 完成且计划确认后才创建 Generator，Generator 提交后才创建 Evaluator，v1 不并行运行角色
 
 #### Scenario: 单角色兼容
-- **WHEN** 任务选择 single 且未命中强制 Triad 路由
+- **WHEN** 任务选择 single
 - **THEN** 系统沿用既有单 Task 路径，不创建 Planner、Evaluator 或协作状态
 
 ### Requirement: Planner 生成冻结且不可降级的验收清单
@@ -62,19 +62,23 @@ Evaluator 失败 SHALL 把有界、脱敏、逐项证据返回新的 Generator T
 - **THEN** 下一 Generator Task 的系统提示明确要求先成功创建对应文件、禁止原样调用 `SubmitCandidate`，且逐项拒绝证据继续作为有界 task data 提供
 
 ### Requirement: 编程任务使用确定性路由且显式模式可审计
-系统 MUST 使用有界、表驱动的产物类型与动作规则识别直接要求创建或修改代码、测试、构建配置或软件项目的任务，并将其路由到 Triad。用户显式 `/duo`、`/triad` 或 `--mode` MUST 被识别；显式 single 与强制 Triad 冲突时 MUST 提示确认，headless 无确认且无预授权时 MUST 拒绝。该规则不得调用额外模型或充当通用意图路由器。
+系统 MUST 在不调用额外模型或通用意图分类器的前提下确定协作模式。用户显式 `/single`、`/duo`、`/triad` 或 `--mode` MUST 直接生效；用户未显式选择且宿主为本次任务绑定非空冻结检查定义时 MUST 使用 Triad；其余任务，包括编程任务，MUST 默认使用 Single。候选文件就绪要求或任务文本分类不得单独触发自动 Triad。路由审计 MUST 记录稳定模式与原因，但不得记录目标、检查命令、路径或检查内容。
 
-#### Scenario: 编程任务强制 Triad
-- **WHEN** 普通入口收到确定性规则明确识别的编程任务且用户未显式选择更强模式
-- **THEN** 系统选择 Triad 并在 Planner 确认后执行
+#### Scenario: 编程任务默认 Single
+- **WHEN** 普通入口收到编程任务，用户未显式选择模式且宿主未绑定冻结检查
+- **THEN** 系统选择 Single，不创建 Planner 或 Evaluator，也不为分类额外调用模型
 
-#### Scenario: 非编程任务默认 single
-- **WHEN** 任务不匹配编程规则且用户未显式选择 Duo/Triad
-- **THEN** 系统保持 single，不为分类额外调用模型
+#### Scenario: 宿主冻结检查触发 Triad
+- **WHEN** 用户未显式选择模式且可信宿主为本次任务绑定至少一个冻结检查定义
+- **THEN** 系统选择 Triad，并以不含检查内容的稳定原因记录该路由
 
-#### Scenario: 显式 single 冲突
-- **WHEN** 用户显式要求 single 但任务匹配强制 Triad
-- **THEN** 交互入口要求明确确认风险；headless 入口仅在服务端预授权该覆盖时允许，否则拒绝
+#### Scenario: 显式模式直接生效
+- **WHEN** 用户显式选择 Single、Duo 或 Triad
+- **THEN** 系统直接使用该模式，不要求较弱模式覆盖确认，且显式选择优先于宿主证据默认值
+
+#### Scenario: 候选文件要求不是完成证据
+- **WHEN** 任务只配置候选文件就绪要求而没有冻结检查定义
+- **THEN** 该配置不得触发自动 Triad
 
 ### Requirement: 协作报告稳定、有界且兼容
 协作执行 MUST 返回加法式稳定报告，包含 mode、终态、稳定原因、角色尝试计数、计划项计数、通过/失败计数、打回次数、累计轮次与 normalized usage。报告 MUST NOT 包含完整目标、计划正文、模型回复、工具参数、文件内容、绝对路径、credential 或未掩码证据。普通 `TaskOutcome` 的既有字段与语义 MUST 保持兼容。

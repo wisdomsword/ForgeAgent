@@ -18,7 +18,7 @@ verification_report: docs/superpowers/reports/2026-07-29-m27-collaboration-routi
 branch_status: handled
 created_at: 2026-07-28
 verified_at: 2026-07-29
-archived: false
+archived: true
 direct_override: null
 handoff_context: openspec/changes/calibrate-collaboration-routing/.comet/handoff/design-context.json
 handoff_hash: 83a8175d1178722e75df2cc4fc9f9acdb12d1d4f4018dcd6e6cad3828975179b

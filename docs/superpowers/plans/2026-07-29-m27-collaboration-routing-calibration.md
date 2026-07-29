@@ -2,6 +2,7 @@
 change: calibrate-collaboration-routing
 design-doc: docs/superpowers/specs/2026-07-29-m27-collaboration-routing-calibration-design.md
 base-ref: 1273e90b00adeab0b85d3db7bdc0463c82e7dc2a
+archived-with: 2026-07-29-calibrate-collaboration-routing
 ---
 
 # M27 协作路由校准实施计划
@@ -28,6 +29,7 @@ base-ref: 1273e90b00adeab0b85d3db7bdc0463c82e7dc2a
 - Linux verified 仅覆盖 Pipeline 50 / Job 249 已记录的 runner topology，不宣称未经记录的架构。
 - 保留并不提交用户已有未跟踪文件。
 
+archived-with: 2026-07-29-calibrate-collaboration-routing
 ---
 
 ### Task 1: 路由策略与入口接线
