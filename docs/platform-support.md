@@ -37,7 +37,7 @@ container integration tests for that runner topology and must not be represented
 installed-wheel smoke result.
 
 Current offline repository baseline: `2403 passed, 10 skipped`; OpenSpec strict `22/22`;
-Golden `20/20`. M28 local RC evidence on 2026-07-29 is: focused release contracts `42 passed`,
+Golden `20/20`. M28 local RC evidence on 2026-07-29 is: focused release contracts `43 passed`,
 Ruff check/format and wheel/sdist build passed. The unique built wheel ran
 the six clean-wheel/CLI/HTTP/Single/Duo/Triad checks successfully with Python 3.11.15. The first full
 pytest attempt was `2 failed, 2401 passed, 10 skipped`; both scheduler-dependent MCP wall-clock

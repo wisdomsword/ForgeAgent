@@ -63,11 +63,11 @@ tag/push、真实 provider 请求或新平台支持。
 ### 代码评审
 
 - [x] Task 1-3 已完成独立 task-level review，并修复 report 信任、环境清洗、wheel snapshot、CI fail-closed 和文档证据绑定问题
-- [ ] 最终整分支 review 与两轮一致性复审 — 由后续 Comet verify gate 执行，未提前宣称通过
+- [x] 最终整分支 review 与两轮一致性复审 — hostile proxy Important 已用 RED/GREEN 修复并由原审查者确认；无未解决 Critical/Important
 
 ### 验收评审
 
-- [x] focused RC 合同 `42 passed`；唯一 wheel Python 3.11.15 六项全通过
+- [x] focused RC 合同 `43 passed`；唯一 wheel Python 3.11.15 六项全通过
 - [x] Ruff、Golden `20/20`、OpenSpec strict `22/22`、wheel/sdist build 通过
 - [x] 完整 pytest 全绿 — 首次 `2 failed, 2401 passed, 10 skipped`；tests-only 修正后 `2403 passed, 10 skipped`
 - [ ] M28 Linux Docker 运行证据 — daemon 不可连接，CI 仅 configured/pending
@@ -79,7 +79,7 @@ tag/push、真实 provider 请求或新平台支持。
 
 ## 续接指引
 
-M28 的 RC 工程内容已冻结，完整 pytest 已关闭为 `2403 passed, 10 skipped`，但里程碑仍在进行中，
-且不是正式发布。下一步先完成 Comet 最终整分支 review、两轮一致性复审、delta spec 同步与 change
-归档；随后在 required Linux runner 运行当前候选，保留 pipeline/job ID、十项 JUnit 与六项
+M28 的 RC 工程内容已冻结，完整 pytest 已关闭为 `2403 passed, 10 skipped`，整分支 review 与两轮
+一致性复审已完成，但里程碑仍等待 Comet verify/archive，且不是正式发布。下一步完成最终验证、
+delta spec 同步与 change 归档；随后在 required Linux runner 运行当前候选，保留 pipeline/job ID、十项 JUnit 与六项
 `rc-smoke.json`，再另行授权 tag/PyPI 正式发布动作。用户原有未跟踪文件继续保留，不纳入提交。

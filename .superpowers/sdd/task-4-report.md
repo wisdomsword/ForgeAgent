@@ -4,13 +4,13 @@
 
 DONE_WITH_CONCERNS
 
-M28 RC 证据、公开基线、验证报告和 milestone 已生成。Task 1-3 的 task-level review 已完成；
-最终整分支 review、两轮一致性复审和 OpenSpec archive 留给 controller gate。完整 pytest 的初始
-失败已由 tests-only 可移植性合同修正关闭；Docker/Linux 证据未执行，未写成 pass。
+M28 RC 证据、公开基线、验证报告和 milestone 已生成。Task 1-4 的 task-level review、最终整分支
+review 与两轮一致性复审均已完成；OpenSpec verify/archive 留给 Comet lifecycle gate。完整 pytest
+的初始失败已由 tests-only 可移植性合同修正关闭；Docker/Linux 证据未执行，未写成 pass。
 
 ## 新鲜证据
 
-- focused RC：`42 passed in 51.34s`
+- focused RC：`43 passed in 51.34s`
 - Ruff check：`All checks passed!`
 - Ruff format：`119 files already formatted`
 - full pytest：`2 failed, 2401 passed, 10 skipped in 169.62s`
@@ -61,8 +61,9 @@ Cannot connect to the Docker daemon at unix:///Users/admin/.docker/run/docker.so
 - `docs/releases/0.1.0-rc.md`
 - `openspec/changes/m28-v0-1-release-candidate/tasks.md`
 
-OpenSpec 5.1 已勾选，因为全部本机可执行命令均已运行并如实记录结果。5.2 和 5.3 保持未勾选，
-分别等待 controller 最终审查/两轮复审和实际 change archive。
+OpenSpec 5.1-5.3 已按 build 工作完成勾选：本机验证、最终审查/两轮复审、报告/milestone/台账与
+归档输入均已就绪。实际 spec 同步、`milestones/latest` 切换和 change 移动仍由 Comet archive gate
+执行，未在 build 阶段冒充归档完成。
 
 提交：`37365bd`（`chore: close M28 release candidate milestone`），精确包含上述八个允许的
 证据/台账文件；本报告与 Comet progress 未纳入提交。
@@ -106,7 +107,7 @@ wheel METADATA 会嵌入 README，因而该 artifact 仍携带旧 M27 基线，�
 收口前不得提前勾选；现已恢复为 pending。
 
 按复审要求从 `e2e1255` 当前 README 重建 wheel/sdist；wheel METADATA 与 sdist PKG-INFO 均包含
-`2403 passed, 10 skipped`、OpenSpec `22/22` 与 M28 RC `42 passed`，不再携带旧 M27 基线。正确的父
+`2403 passed, 10 skipped`、OpenSpec `22/22` 与 M28 RC `43 passed`，不再携带旧 M27 基线。正确的父
 流程由开发环境 `uv run python` 驱动，并将 clean venv 解释器固定为 Python 3.11.15；六项 JSON
 全 passed，新 SHA 为 `e09507e4ea14023ba9833d7ecb9a57cd89de310d8070225429fcbc371d66492c`。
 focused 四文件合同复跑 `41 passed`。一次直接用裸 Python 3.11 启动父脚本因开发依赖不可导入而
@@ -119,3 +120,16 @@ focused 四文件合同复跑 `41 passed`。一次直接用裸 Python 3.11 启�
 smoke 可能经外部代理或因代理失败，违反离线确定性合同。新增 hostile-proxy 回归后 RED 为 `1 failed`
 （请求确实转向 `127.0.0.1:1`）；最小修复改用标准库 `build_opener(ProxyHandler({}))` 固定禁代理。
 GREEN 为 focused `1 passed`、HTTP/协作相邻 `184 passed`，Ruff、format 与 diff check 均通过。
+原终审者对 `001a6fa` 定点复核后返回 `FIX_CONFIRMED`；整分支无未解决 Critical/Important。
+
+## 两轮最终一致性复审
+
+第一轮逐项核对 proposal、delta spec、Design Doc、计划、公开证据与 lifecycle。期间怀疑代理修复会
+改变 wheel SHA；重建后确认仓库级 `scripts/` harness 不进入 wheel/sdist，候选字节和 SHA 保持
+`e09507e4...66492c`。仍用修复后的 harness 对该候选重跑 Python 3.11.15 六项并全部通过。归档前
+`milestones/latest` 保持 M27；plan/OpenSpec 将 build 工作表述为准备完整归档输入，实际指针切换和
+change 移动留给 archive gate。
+
+第二轮检查安全、失败路径与范围克制：没有新增依赖、产品 API、运行时配置或 `src/forgeagent`
+变更；HTTP client 明确禁用 ambient proxy，CI wheel 数量/bootstrap/JSON 均 fail-closed，报告无
+credential/目标/绝对临时路径；merge-base diff 不含用户已有未跟踪路径。没有新发现。

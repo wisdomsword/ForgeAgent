@@ -8,7 +8,7 @@
 
 pytest: `2403 passed, 10 skipped`；OpenSpec strict: `22/22`.
 
-完整 pytest 全绿。M28 RC 专项：`42 passed`；Golden: `20/20`；Ruff 与
+完整 pytest 全绿。M28 RC 专项：`43 passed`；Golden: `20/20`；Ruff 与
 wheel/sdist build 通过。Python 3.11.15 clean-wheel harness 的 `clean-wheel`、`cli`、
 `http`、`single`、`duo`、`triad` 六项均通过。
 

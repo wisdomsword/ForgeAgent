@@ -9,7 +9,7 @@
 - Implementer: DONE_WITH_CONCERNS
 - Implementation commit: 37365bd
 - Changed files: verification report, milestone 028/latest, ACTION_PLAN, README, platform/release docs, OpenSpec tasks
-- Verification evidence: focused 42 passed; Ruff/format passed; full pytest 2 failed/2401 passed/10 skipped; Golden 20/20; strict 22/22; build passed; Python 3.11.15 RC JSON six passed; docs 21 passed.
+- Verification evidence: focused 43 passed; Ruff/format passed; full pytest 2 failed/2401 passed/10 skipped; Golden 20/20; strict 22/22; build passed; Python 3.11.15 RC JSON six passed; docs 21 passed.
 - Risk signals: cross-document evidence consistency, full-suite failure, Docker unavailable, diff > 200, DONE_WITH_CONCERNS
 - Review findings: Important -- milestone/latest/ACTION_PLAN claim completion before final review and full-suite closure; formal-release blocker wording permits merely recording failures. Minor -- milestone lacks commit provenance and Task 4 plan steps remain unchecked.
 - Fix strategy: restore in-progress/RC-engineering-frozen status and prior latest pointer; require full pytest green or explicit closure; add commit provenance; check only completed Task 4 plan steps. Then handle the stable MCP timing failures as a bounded M28 completion-gate portability correction before final completion.
@@ -20,8 +20,12 @@
 - Evidence rule: Docker integration and Linux container RC smoke remain unverified due to daemon connection failure; configured M28 GitLab job is not promoted to verified.
 - Task 4 re-review: NOT_READY -- public wheel SHA predates the final README metadata baseline, so candidate provenance must be rebuilt from current HEAD; plan Step 3 also cannot remain checked while `milestones/latest` correctly points to M27.
 - Re-review fix strategy: rebuild the unique wheel/sdist from the current README, inspect embedded METADATA, rerun the Python 3.11 six-check harness, refresh every public SHA/evidence reference, and leave plan Step 3 open until final lifecycle closure.
-- Re-review correction: current-README wheel/sdist rebuilt; METADATA/PKG-INFO carry 2403/22/22 and M28 RC 42; Python 3.11.15 six-check report passed with SHA `e09507e4ea14023ba9833d7ecb9a57cd89de310d8070225429fcbc371d66492c`; focused four-file contracts 41 passed; public SHA refreshed; plan Step 3 remains pending.
+- Re-review correction: current-README wheel/sdist rebuilt; METADATA/PKG-INFO carry 2403/22/22 and M28 RC 43; Python 3.11.15 six-check report passed with SHA `e09507e4ea14023ba9833d7ecb9a57cd89de310d8070225429fcbc371d66492c`; focused four-file contracts 41 passed; public SHA refreshed; plan Step 3 remains pending.
 - Task 4 re-review result: FIX_CONFIRMED; both provenance and lifecycle-step findings are closed.
 - Final review round 1: NOT_READY, no Critical and one Important -- default `urlopen()` can honor hostile proxy environment variables during the loopback HTTP smoke, violating deterministic offline/loopback-only behavior.
 - Final review fix strategy: add a hostile-proxy RED regression, construct a stdlib opener with `ProxyHandler({})`, rerun focused/adjacent checks, and request a targeted re-review before the two controller consistency reviews.
 - Final review correction: hostile-proxy regression RED 1 failed; `ProxyHandler({})` fix GREEN 1 passed and adjacent HTTP/collaboration 184 passed; Ruff/format/diff passed; targeted re-review pending.
+- Final review result: FIX_CONFIRMED; no unresolved Critical or Important findings.
+- Controller consistency review 1: requirements/evidence/lifecycle mapping passed after confirming the repository harness is not packaged and therefore does not change the current wheel SHA; the fixed harness reran the Python 3.11.15 six-check candidate successfully.
+- Controller consistency review 2: security/failure-path/scope audit passed; no dependency or product API growth, proxy bypass is explicit, reports/CI remain fail-closed, no credential pattern or user-owned untracked path entered the branch diff.
+- Build completion: plan tasks and OpenSpec tasks are complete as archive preparation; authoritative `milestones/latest` switch and actual change move remain reserved for Comet archive.

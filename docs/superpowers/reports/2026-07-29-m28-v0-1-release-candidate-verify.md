@@ -19,7 +19,7 @@ RC 工程冻结证据，不构成里程碑完成或正式发布结论。两项�
 
 | 命令 | 结果 |
 | --- | --- |
-| `uv run pytest -q tests/test_m28_release_candidate_smoke.py tests/test_m28_release_ci.py tests/test_m28_release_docs.py tests/test_packaging.py` | `42 passed in 51.34s` |
+| `uv run pytest -q tests/test_m28_release_candidate_smoke.py tests/test_m28_release_ci.py tests/test_m28_release_docs.py tests/test_packaging.py` | `43 passed in 51.34s` |
 | `uv run ruff check .` | `All checks passed!` |
 | `uv run ruff format --check .` | `119 files already formatted` |
 | 首次 `uv run pytest -q` | `2 failed, 2401 passed, 10 skipped in 169.62s` |
@@ -79,8 +79,9 @@ Job 249 只作为历史 container-only 证据。
   resume 限制精确到协作专用 endpoint。
 - Task 4 review 发现里程碑生命周期过早收口和完整 pytest 阻塞表述不一致；`e696737` 恢复进行中
   状态，`83ba892` 以 tests-only 可移植性合同关闭完整 pytest 门禁，生产 MCP 实现不变。
-- Task 1-3 task-level review 的发现均已修复；最终整分支 review 与两轮一致性复审仍属于后续 verify
-  gate，本报告不提前宣称完成。
+- 最终整分支 review 发现默认 `urlopen()` 可能读取 ambient proxy，违反离线 loopback 合同；新增
+  hostile-proxy 回归先失败，再以 `ProxyHandler({})` 固定直连。focused GREEN、相邻 184 项与
+  Ruff/format/diff 均通过，原审查者返回 `FIX_CONFIRMED`；两轮 controller 一致性复审无剩余发现。
 
 关键提交 provenance：Task 1 为 `9586c70`、`31eff32`、`426e234`、`2eaab53`；Task 2 为
 `6bc760a`、`00ad211`、`44125e5`；Task 3 为 `03e1983`、`887608e`、`2b476d3`；Task 4 验证与
@@ -93,12 +94,12 @@ Job 249 只作为历史 container-only 证据。
 
 | Requirement / Scenario | 证据 |
 | --- | --- |
-| 干净 wheel 安装成功 / 源码树遮蔽安装缺陷 | focused packaging + RC suite 42 passed；唯一 wheel harness 的 `clean-wheel=passed`；snapshot/import provenance 负向合同 |
+| 干净 wheel 安装成功 / 源码树遮蔽安装缺陷 | focused packaging + RC suite 43 passed；唯一 wheel harness 的 `clean-wheel=passed`；snapshot/import provenance 负向合同 |
 | CLI 离线确定 / entry point 或资源缺失 | `cli=passed`；console script 与包内模型信息由安装环境运行；缺失入口/资源使 harness 非零 |
 | HTTP 生命周期 / 鉴权 | `http=passed`；真实 loopback submit/query/cancel、401 不创建任务和有界关闭合同 |
 | Single/Duo/Triad 完成 / 角色回归 | 三项均 `passed`；真实 runtime + MockClient 固定 structured submit，任一角色失败使后续非通过 |
 | JSON 全通过 / 检查失败 | schema v1 六项全通过；Task 1 fail-closed、精确字段、原子 replace 与脱敏负向合同 |
-| RC 发布说明 / 限制弱化 | 文档专项包含在 42 passed；五类限制、configured/historical 边界和反夸大 mutation 合同 |
+| RC 发布说明 / 限制弱化 | 文档专项包含在 43 passed；五类限制、configured/historical 边界和反夸大 mutation 合同 |
 
 ### continuous-verification
 
@@ -106,7 +107,7 @@ Job 249 只作为历史 container-only 证据。
 | --- | --- |
 | Docker ready | CI 配置保持 daemon/image preflight 与精确十项零 skip；本机未满足，未执行 |
 | daemon/image unavailable | 当前 `docker info` 非零；按合同不进入 pytest，不产生成功结论 |
-| container skip/fail | CI/JUnit 合同测试包含在 focused 42 passed；没有本轮执行结果 |
+| container skip/fail | CI/JUnit 合同测试包含在 focused 43 passed；没有本轮执行结果 |
 | installed-wheel RC smoke passes on Linux | job 配置、唯一 wheel 与六项 JSON 合同存在；无当前 pipeline，状态 configured/pending |
 | installed-wheel incomplete/fails | wheel cardinality、bootstrap fallback、JSON exactness 均 fail closed；Task 2 review fix 验证 |
 
@@ -119,5 +120,5 @@ Job 249 只作为历史 container-only 证据。
 - 协作 v1：没有协作专用 resume endpoint；headless Triad 默认不自动批准计划。
 - 完整 pytest：首次两个 MCP 墙钟测试失败已由 `83ba892` 的 tests-only 可移植性修正关闭；新鲜全量为 `2403 passed, 10 skipped`，生产 MCP 代码未变。
 
-本报告是进行中证据快照，不关闭 M28。正式发布仍要求当前 M28 Linux required job 通过并保留
-pipeline/job artifact、最终 review/两轮复审及 archive 完成，以及另行授权的 tag/上传动作。
+本报告仍等待最终 verify 与 archive 收口，不提前关闭 M28。正式发布仍要求当前 M28 Linux required
+job 通过并保留 pipeline/job artifact，以及另行授权的 tag/上传动作。
