@@ -152,14 +152,14 @@ git commit -m "feat: add installed-wheel release candidate smoke"
 - Consumes: Task 1 CLI `python scripts/m28_release_candidate_smoke.py --wheel PATH --output PATH --python PATH` 和固定 JSON schema/check names。
 - Produces: packaging 真实 wheel smoke；GitLab artifact `artifacts/ci/rc-smoke.json`；结构化 CI 合同测试。
 
-- [ ] **Step 1: 写 packaging/CI RED 合同**
+- [x] **Step 1: 写 packaging/CI RED 合同**
 
 把 `test_wheel_and_sdist_release_contents()` 的现有 sdist allowlist 保持不变，新增调用记录或真实调用断言，要求其最终运行：
 
 ```python
 subprocess.run(
     [sys.executable, str(repo_root / "scripts/m28_release_candidate_smoke.py"),
-     "--wheel", str(wheels[0]), "--output", str(report), "--python", "3.11"],
+     "--wheel", str(wheels[0]), "--output", str(report), "--python", sys.executable],
     cwd=probe_dir,
     check=True,
     env=_clean_python_environment(uv_env),
@@ -169,29 +169,29 @@ assert json.loads(report.read_text())["passed"] is True
 
 新建 `tests/test_m28_release_ci.py`，用 PyYAML 读取 `.gitlab-ci.yml`，要求 `linux-docker-container` script 同时包含 `uv build --wheel`、M28 harness、`python:3.11-slim`、JSON 六项校验；artifact paths 同时包含 `container-junit.xml` 和 `rc-smoke.json`；旧 `tests == 10`/`skipped == 0` 原样保留，且 job 无 `allow_failure: true`。
 
-- [ ] **Step 2: 运行合同确认 RED**
+- [x] **Step 2: 运行合同确认 RED**
 
 Run: `UV_CACHE_DIR=/tmp/forgeagent-m28-uv-cache uv run pytest -q tests/test_m28_release_ci.py tests/test_packaging.py -k 'release_ci or wheel_and_sdist'`
 
 Expected: FAIL，因为 GitLab job 尚未调用 RC harness，packaging 仍使用旧手写 probe。
 
-- [ ] **Step 3: 复用 harness 完成 packaging GREEN**
+- [x] **Step 3: 复用 harness 完成 packaging GREEN**
 
 在 `tests/test_packaging.py` 导入 `json`、`sys`，删除重复的 venv/install/`-c` probe 块，改为从非仓库 `probe_dir` 调用 Task 1 的唯一 harness。保留 `_clean_python_environment()`、全部 sdist allowed/forbidden 路径和 prompt suffix 断言。断言报告 schema、passed 和六项状态；不得从 `tests/` 注入 wheel 环境。
 
-- [ ] **Step 4: 接入 Linux Docker job**
+- [x] **Step 4: 接入 Linux Docker job**
 
 在既有 10 项 JUnit 断言后：
 
 1. `su-exec forgeagent uv build --wheel --out-dir artifacts/ci/dist`。
 2. 断言恰有一个 `forgeagent-0.1.0-*.whl`。
-3. 以 `su-exec forgeagent uv run python scripts/m28_release_candidate_smoke.py --wheel ... --output artifacts/ci/rc-smoke.json --python python3.11` 执行 clean venv smoke；不传 credential，不使用 editable install。
+3. 以固定 `python:3.11-slim` 启动一次性容器，挂载同路径项目卷、`--user 1000:1000`、项目内 `HOME/TMPDIR`，从非仓库工作目录执行 `python scripts/m28_release_candidate_smoke.py --wheel ... --output artifacts/ci/rc-smoke.json --python python`；不传 credential，不使用 editable install。
 4. 标准库 one-liner 读取 JSON，要求 schema 精确匹配、`passed is True`、六项集合和值全为 `passed`。
 5. artifact paths 增加 `artifacts/ci/rc-smoke.json`，`when: always` 保持不变。
 
 不要删除 DinD、`docker-privileged`、non-root `su-exec`、`TMPDIR` same-path、image preflight 或 JUnit 精确门禁。
 
-- [ ] **Step 5: 运行 GREEN 与真实 wheel smoke并提交**
+- [x] **Step 5: 运行 GREEN 与真实 wheel smoke并提交**
 
 Run: `UV_CACHE_DIR=/tmp/forgeagent-m28-uv-cache uv run pytest -q tests/test_m28_release_ci.py tests/test_packaging.py`
 

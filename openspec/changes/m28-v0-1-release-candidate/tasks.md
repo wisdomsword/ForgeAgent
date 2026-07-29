@@ -7,12 +7,12 @@
 
 - [x] 2.1 实现单一 `0.1.0` RC smoke harness：构建/接收 wheel、创建 Python 3.11 venv、安装并验证模块与 console script 来源。
 - [x] 2.2 实现 CLI/HTTP/Single/Duo/Triad 子检查和原子、版本化 JSON 报告，不新增运行时依赖或产品命令。
-- [ ] 2.3 让 packaging 合同调用同一 harness，并保留现有 wheel/sdist 内容负向边界。
+- [x] 2.3 让 packaging 合同调用同一 harness，并保留现有 wheel/sdist 内容负向边界。
 
 ## 3. Linux Docker CI
 
-- [ ] 3.1 在既有 required Linux Docker job 中构建候选 wheel、以非 root 用户运行 RC smoke，并校验六类证据全部通过。
-- [ ] 3.2 发布 RC JSON 与既有 container JUnit artifact；保持十项 container integration 精确计数、零 skip 约束。
+- [x] 3.1 在既有 required Linux Docker job 中构建候选 wheel、以非 root 用户运行 RC smoke，并校验六类证据全部通过。
+- [x] 3.2 发布 RC JSON 与既有 container JUnit artifact；保持十项 container integration 精确计数、零 skip 约束。
 
 ## 4. 发布冻结
 
