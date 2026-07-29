@@ -5,7 +5,7 @@
 
 ## 2. 精确候选验证
 
-- [ ] 2.1 完成本地 Ruff、全量 pytest、Golden、OpenSpec strict、build、制品元数据/内容和 clean-wheel 发布冒烟
+- [x] 2.1 完成本地 Ruff、全量 pytest、Golden、OpenSpec strict、build、制品元数据/内容和 clean-wheel 发布冒烟
 - [ ] 2.2 提交并推送发布准备改动，验证该精确提交的 required Linux pipeline 全部成功
 
 ## 3. 生产发布与回读
