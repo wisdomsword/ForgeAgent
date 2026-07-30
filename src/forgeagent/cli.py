@@ -61,7 +61,7 @@ from .collaboration import (
 )
 from .context import ContextConfig, SlidingWindowContextPolicy, load_context_config
 from .executor import ContainerRuntimeError
-from .external_actions import ExternalActionReceiptStore
+from .external_actions import ExternalActionReceiptStore, ReceiptError
 from .headless import HeadlessConfirmer
 from .http_config import HttpServiceConfig
 from .http_task_service import TaskRecord, TaskService
@@ -2700,6 +2700,19 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="allow mid-task Survey questions (prompts on the terminal)",
     )
+    receipts_p = sub.add_parser("receipts", help="inspect and reconcile external action receipts")
+    receipts_sub = receipts_p.add_subparsers(dest="receipts_command", required=True)
+    list_p = receipts_sub.add_parser("list", help="list bounded receipt metadata")
+    list_p.add_argument("--loop-id", default=None)
+    list_p.add_argument("--task-id", default=None)
+    resolve_p = receipts_sub.add_parser("resolve", help="resolve one receipt explicitly")
+    resolve_p.add_argument("action_id")
+    decision = resolve_p.add_mutually_exclusive_group(required=True)
+    decision.add_argument("--confirmed", action="store_true")
+    decision.add_argument("--abandon", action="store_true")
+    decision.add_argument("--retry", action="store_true")
+    resolve_p.add_argument("--revision", type=int, required=True)
+    resolve_p.add_argument("--evidence", default="")
     run_p.add_argument(
         "--image",
         default=None,
@@ -2907,6 +2920,29 @@ def main(
         if args.command == "models":
             print_models(console)
             return 0
+        if args.command == "receipts":
+            try:
+                store = ExternalActionReceiptStore(str(Path.cwd().resolve()))
+                if args.receipts_command == "list":
+                    for receipt in store.list_pending(loop_id=args.loop_id, task_id=args.task_id):
+                        console.print(
+                            json.dumps(
+                                receipt.model_dump(mode="json"), ensure_ascii=True, sort_keys=True
+                            )
+                        )
+                    return 0
+                decision = (
+                    "confirmed"
+                    if args.confirmed
+                    else "abandoned"
+                    if args.abandon
+                    else "retry_approved"
+                )
+                store.resolve(args.action_id, args.revision, decision, args.evidence)
+                return 0
+            except (ReceiptError, OSError, ValueError):
+                error_console.print("[red]receipt command error[/red]: operation rejected")
+                return 2
         if args.command == "serve":
             if _serve_has_cli_policy_override(raw_argv):
                 error_console.print(
