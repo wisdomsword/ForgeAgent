@@ -1,4 +1,4 @@
-"""Static contracts for the ForgeAgent 0.1.0 candidate and formal release."""
+"""Static contracts for the ForgeAgent 0.1.0 release candidate."""
 
 from __future__ import annotations
 
@@ -114,7 +114,7 @@ def test_release_candidate_records_linux_gate_without_promoting_historical_evide
         _assert_no_m28_linux_success_claim(contradictory)
 
 
-def test_formal_release_freezes_install_status_and_known_limitations() -> None:
+def test_deferred_release_records_human_practice_gate_and_known_limitations() -> None:
     assert RELEASE_PATH.is_file()
     text = RELEASE_PATH.read_text(encoding="utf-8")
 
@@ -122,10 +122,11 @@ def test_formal_release_freezes_install_status_and_known_limitations() -> None:
     for fragment in (
         "ForgeAgent 0.1.0",
         "## 状态",
-        "正式版本",
-        "## 安装",
-        "pip install forgeagent==0.1.0",
-        "v0.1.0",
+        "正式发布暂缓",
+        "人类实践",
+        "易用性",
+        "未上传 PyPI",
+        "未创建 `v0.1.0` tag",
         "## 已交付能力",
         "## 发布门禁",
         "required Linux Docker job",
@@ -147,25 +148,26 @@ def test_formal_release_freezes_install_status_and_known_limitations() -> None:
     ):
         assert fragment in text
 
-    for obsolete in (
-        "Release Candidate",
-        "不是正式发布",
-        "尚未发布到包索引",
-        "pip install dist/forgeagent-0.1.0-",
+    for premature in (
+        "ForgeAgent `0.1.0` 是首个正式版本",
+        "pip install forgeagent==0.1.0",
+        "对应源码 tag 为",
     ):
-        assert obsolete not in text
+        assert premature not in text
 
 
-def test_readme_links_formal_release_near_current_verification() -> None:
+def test_readme_keeps_release_candidate_status_until_human_gate_passes() -> None:
     text = _text("README.md")
     current = text.split("## 当前验证", 1)[1].split("\n## ", 1)[0]
 
-    assert "docs/releases/0.1.0.md" in current
-    assert "正式版本" in current
-    assert "pip install forgeagent==0.1.0" in current
-    assert "v0.1.0" in current
+    assert "docs/releases/0.1.0-rc.md" in current
+    assert "Release Candidate" in current
+    assert "正式发布暂缓" in current
+    assert "人类实践" in current
+    assert "易用性" in current
     assert "M28 Pipeline 57 / Job 263" in current
-    assert "Release Candidate，不是正式发布" not in current
+    assert "pip install forgeagent==0.1.0" not in current
+    assert "对应源码 tag 为" not in current
 
 
 def test_platform_matrix_separates_m28_gate_from_m24_historical_evidence() -> None:

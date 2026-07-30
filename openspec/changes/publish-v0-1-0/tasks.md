@@ -6,11 +6,12 @@
 ## 2. 精确候选验证
 
 - [x] 2.1 完成本地 Ruff、全量 pytest、Golden、OpenSpec strict、build、制品元数据/内容和 clean-wheel 发布冒烟
-- [ ] 2.2 提交并推送发布准备改动，验证该精确提交的 required Linux pipeline 全部成功
+- [x] 2.2 提交并推送发布准备改动，验证该精确提交的 required Linux pipeline 全部成功
+- [ ] 2.3 完成人类候选实践，记录阻塞问题，完成必要的易用性优化与回归验证，并明确接受正式发布
 
 ## 3. 生产发布与回读
 
-- [ ] 3.1 安全确认生产 PyPI 名称/版本和凭据，创建本地 annotated `v0.1.0` tag，并上传唯一 wheel/sdist
+- [ ] 3.1 人类使用门禁通过后，安全确认生产 PyPI 名称/版本和凭据，创建本地 annotated `v0.1.0` tag，并上传唯一 wheel/sdist
 - [ ] 3.2 回读 PyPI JSON 和文件摘要、从 PyPI 下载 clean-wheel 冒烟，并推送/回读远端 tag 到同一提交
 
 ## 4. 证据与收尾
