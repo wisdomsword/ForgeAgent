@@ -2,6 +2,7 @@
 change: external-action-receipts
 design-doc: docs/superpowers/specs/2026-07-30-external-action-receipts-design.md
 base-ref: 1645e889962739b24afc5becae3675388500b2f6
+archived-with: 2026-07-30-external-action-receipts
 ---
 
 # External Action Receipts Implementation Plan
@@ -38,6 +39,7 @@ base-ref: 1645e889962739b24afc5becae3675388500b2f6
 - Modify: `tests/test_loop_runner.py`, `tests/test_loop_checkpoint.py`, `tests/test_cli.py`, `tests/test_http_task_service.py` — Loop gate、入口装配和 CLI/HTTP 兼容测试。
 - Modify: `docs/threat-model.md`, `docs/m7-tools-mcp-survey.md`, `docs/http-task-service.md` — unknown/reconciliation/禁止重放用户契约。
 
+archived-with: 2026-07-30-external-action-receipts
 ---
 
 ### Task 1: 收据模型、ID 兼容决策与安全持久化
@@ -312,3 +314,4 @@ Execute Tasks 1–3 first because the model/store and certainty contract are pre
 - **Storage trust boundary:** Audit is not the receipt authority. Any receipt transition failure blocks protected dispatch; malformed or replaced directories fail closed.
 - **Loop ordering:** The pending gate must run before Task/model construction and before a subsequent iteration; a prompt instruction is insufficient.
 - **Scope creep:** No local tool receipts, distributed idempotency, compensating transactions, browser/desktop platform work, or PyPI actions belong in this change.
+

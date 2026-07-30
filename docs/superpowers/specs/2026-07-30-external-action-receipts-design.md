@@ -2,6 +2,8 @@
 comet_change: external-action-receipts
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-07-30-external-action-receipts
+status: final
 ---
 
 # 外部动作收据与未知状态恢复：技术设计
@@ -175,3 +177,4 @@ task_id（若有）/ source_operation_id（若有，限长脱敏）
 - `unknown` reconciliation 依赖用户或受信任宿主的外部核实；ForgeAgent 不拥有远端查询或补偿能力。
 - 收据锁依赖本地文件系统 advisory locking；恶意绕过锁的进程和不可靠网络文件系统不在保证范围内。
 - 收据只保护纳入本 change 的 MCP 路径；本地代码、可信宿主和未纳入的远端工具仍由现有威胁模型约束。
+
