@@ -61,6 +61,7 @@ from .collaboration import (
 )
 from .context import ContextConfig, SlidingWindowContextPolicy, load_context_config
 from .executor import ContainerRuntimeError
+from .external_actions import ExternalActionReceiptStore
 from .headless import HeadlessConfirmer
 from .http_config import HttpServiceConfig
 from .http_task_service import TaskRecord, TaskService
@@ -84,7 +85,6 @@ from .loop import (
     LoopReport,
     LoopRunner,
 )
-from .external_actions import ExternalActionReceiptStore
 from .mcp_manager import MCPManager, MCPServerDiagnostic, load_mcp_config
 from .memory import MemoryManager
 from .model_registry import (
@@ -791,7 +791,7 @@ def run_collaboration_once(
                 memory_manager=memory_manager if role == "generator" else None,
                 skills=skills if role == "generator" else None,
                 tool_registry=registry,
-                receipt_store=receipt_store,
+                receipt_store=None,
                 audit_sink=audit_sink,
                 task_id=task_id,
             )
@@ -964,9 +964,7 @@ def run_loop_once(
 
     root = str(Path.cwd().resolve()) if allowed_root is None else allowed_root
     receipt_store = (
-        ExternalActionReceiptStore(root, audit_sink=audit_sink)
-        if mcp is not None
-        else None
+        ExternalActionReceiptStore(root, audit_sink=audit_sink) if mcp is not None else None
     )
     resolved_context_config = context_config or ContextConfig()
 
