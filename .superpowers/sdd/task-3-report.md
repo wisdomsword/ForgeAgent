@@ -1,4 +1,22 @@
-# Task 3 Report: M28 RC Release Documentation
+# Task 3 Report: MCPTool receipt state machine
+
+## Status
+
+DONE_WITH_CONCERNS. Implemented receipt threading and protected MCP transitions in commit `01129a8`.
+
+## Verification
+
+RED: new receipt tests initially failed because `ToolContext.receipt_store` was absent.
+GREEN: `uv run pytest tests/test_tools.py tests/test_task.py tests/test_step.py -q` -> `141 passed, 1 warning`.
+
+The Pydantic `schema` field shadowing warning remains known. Full suite and Ruff for this task were not run.
+
+## Risk signals
+
+- Cross-module, security-sensitive external dispatch, public context API, and diff over 200 lines: YES.
+- No PyPI or release files changed.
+
+<!-- Legacy stale report content below intentionally retained for audit history. -->
 
 ## Outcome
 
