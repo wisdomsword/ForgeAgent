@@ -9,6 +9,14 @@ symlink-safe descriptor-relative 读写、原子临时文件替换、私有权�
 bounded/masked 字段已完成。receipt 自行生成 `uuid4().hex` action ID；既有任意格式的
 `ToolCall.id` 保持兼容。
 
+## Review Fix Round 1
+
+修复了审查发现：创建工厂不再允许覆盖 action ID、phase、resolution、revision 或时间戳；模型拒绝不一致的 phase/certainty/remote_ok/evidence 组合；创建输入的边界错误统一转换为 `ReceiptError`；补充了创建覆盖、状态组合、越界输入、目录替换、CAS 并发和畸形记录测试。
+
+验证：`uv run pytest tests/test_external_actions.py -q` -> `18 passed, 1 warning`；`uv run ruff check src/forgeagent/external_actions.py tests/test_external_actions.py` -> `All checks passed!`；`uv run ruff format --check src/forgeagent/external_actions.py tests/test_external_actions.py` -> `2 files already formatted`。
+
+修复提交：`50b65c2`。剩余 warning 是 Pydantic 对字段名 `schema` 的兼容提示，未改变行为。
+
 ## TDD 证据
 
 ### RED
