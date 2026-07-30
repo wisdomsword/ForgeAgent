@@ -14,12 +14,12 @@
 
 - [x] 3.1 在 Loop resume 和迭代前加入未决收据检查，使用稳定的 `external_action_pending` 停止语义；阻断时不得创建 Task 或模型调用。
 - [x] 3.2 在 CLI、HTTP 和 collaboration Task 装配中传递 receipt store、Task/Loop 关联，不改变无 MCP Task 行为。
-- [ ] 3.3 增加 resume 阻断、下一迭代阻断、reconciliation 后继续、新动作 ID 和普通无收据 Loop 的确定性测试。
+- [x] 3.3 增加 resume 阻断、下一迭代阻断、reconciliation 后继续、新动作 ID 和普通无收据 Loop 的确定性测试。
 
 ## 4. 显式 reconciliation 接口
 
 - [x] 4.1 增加有界的 `forgeagent receipts list` 和 `forgeagent receipts resolve` CLI 命令，要求互斥决策并校验证据。
-- [ ] 4.2 增加列举、确认、放弃、重试授权、stale revision、脱敏和不自动 dispatch 的 CLI 测试。
+- [x] 4.2 增加列举、确认、放弃、重试授权、stale revision、脱敏和不自动 dispatch 的 CLI 测试。
 
 ## 5. 文档与验证
 

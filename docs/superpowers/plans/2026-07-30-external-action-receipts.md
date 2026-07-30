@@ -136,29 +136,29 @@ Expected: PASS with no changes to existing `ok`/`text`, masking, lifecycle, gene
 - `MCPTool.run()` creates a receipt only for non-auto-approved, approved MCP calls; rejected confirmation creates no receipt; auto-approved calls retain their direct compatibility path and create no receipt.
 - Receipt audit events use `event_type="external_action.receipt"`; parameters contain action ID, phase, resolution, certainty, masked server/tool labels, bounded evidence code, task ID, and source operation ID where needed. No raw arguments, credentials, full exception, or absolute path.
 
-- [ ] **Step 1: Add failing MCPTool tests for gate ordering and four phases.**
+- [x] **Step 1: Add failing MCPTool tests for gate ordering and four phases.**
 
 Use a fake manager returning each certainty and a temporary store. Assert: missing store denies protected dispatch; store create/transition failure denies manager entry; confirmation denial creates no receipt; auto-approve creates no receipt; response creates `confirmed`; protocol error creates `confirmed` + `remote_ok=False`; timeout/exception creates `unknown` and fixed `result unknown` feedback; `ToolOutcome.success` remains the manager `ok` value.
 
-- [ ] **Step 2: Add operation-ID regression tests.**
+- [x] **Step 2: Add operation-ID regression tests.**
 
 Dispatch an MCP `ToolCall` with IDs such as `t1`, `missing-call`, and `model-generated-id`; assert the call succeeds through existing audit/tool dispatch without requiring a 32-hex ID. Assert the receipt has its own valid hex ID and the receipt audit parameters carry the bounded source operation correlation.
 
-- [ ] **Step 3: Run the red focused tests.**
+- [x] **Step 3: Run the red focused tests.**
 
 Run: `uv run pytest tests/test_tools.py tests/test_step.py tests/test_task.py -q`
 
 Expected: new receipt assertions fail while existing tool/step/task tests show the compatibility surface.
 
-- [ ] **Step 4: Thread the optional store through Task → Step → ToolContext.**
+- [x] **Step 4: Thread the optional store through Task → Step → ToolContext.**
 
 Pass the exact object without creating a store in ordinary no-MCP Tasks. In `MCPTool.run`, perform confirmation first, then `create_prepared`, then `mark_dispatched`; call manager; map certainty to `mark_confirmed` or `mark_unknown`; on receipt transition errors return a stable failed outcome and never continue an unrecorded protected action. Keep the existing confirmation event and tool operation audit events.
 
-- [ ] **Step 5: Add receipt audit emission after each successful transition.**
+- [x] **Step 5: Add receipt audit emission after each successful transition.**
 
 Emit only bounded projections. Audit failure must not change pending receipt state; receipt transition failure must fail closed. Use `action_id` as the receipt event operation ID and preserve the original ToolCall operation ID as a masked correlation parameter.
 
-- [ ] **Step 6: Run the focused integration suite.**
+- [x] **Step 6: Run the focused integration suite.**
 
 Run: `uv run pytest tests/test_external_actions.py tests/test_tools.py tests/test_step.py tests/test_task.py tests/test_mcp_manager.py -q`
 
