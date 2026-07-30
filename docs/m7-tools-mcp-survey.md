@@ -275,6 +275,18 @@ spike 代码在 `scratch/m7_mcp_spike/`（echo_server.py + spike.py，throwaway 
 3. `connect_all` 用 per-server `wait_for(ready, connect_timeout)`，某 server 卡在 `initialize()` 不拖垮其他 server 的就绪等待。
 4. 关闭走 stop-event（`loop.call_soon_threadsafe(loop.stop)` 收尾），不要直接 `loop.close()` 抢占 in-flight。
 
+## External action receipts
+
+Non-read-only MCP calls are protected by a durable receipt in the canonical allowed
+root. The delivery phases are `prepared`, `dispatched`, `confirmed`, and `unknown`;
+`unknown` means the host cannot prove whether dispatch completed. Loop resume and the
+next iteration stop with `external_action_pending` while resolution is open. Use the
+bounded `forgeagent receipts list` and explicit `forgeagent receipts resolve` commands
+to confirm with evidence, abandon, or authorize a separately identified new attempt.
+`retry_approved` never silently replays the original call. `autoApprove` remains the
+read-only compatibility allowlist and does not create receipts; HTTP headless
+allowlists remain independent. Receipt audit events are masked projections only.
+
 ## 九、Phase 6 三评审记录（2026-07-11）
 
 **技术方案评审（主 Agent）**：8 项裁决逐一对照实现代码确认落地（D1-D2 stdio+官方 SDK、D3 Survey headless→need_info、D4 确认门 `if not auto_approved: if confirmer is None or not confirmer(): refuse`、D5 单 MCP 工具 `{server,tool}`、D6 Survey 内联、D7 常驻 loop+holder+隔离、D8 eager 建连+tools_prompt 注入）。无方案偏离。

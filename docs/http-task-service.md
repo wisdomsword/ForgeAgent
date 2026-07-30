@@ -155,6 +155,17 @@ already-terminal results unchanged.
 
 ## Allowlist and audit boundary
 
+## External action receipts
+
+HTTP tasks use the same allowed-root receipt store for approved non-read-only MCP
+actions. A receipt is durably prepared before dispatch; protocol responses become
+`confirmed`, while timeout/cancel/exception uncertainty becomes `unknown`. An open
+receipt blocks Loop resume/next iteration with `external_action_pending`. HTTP does
+not expose an automatic replay or reconciliation endpoint: operators use the bounded
+local receipt commands, and any new attempt receives a new action ID. MCP `autoApprove`
+is not inherited by HTTP, and receipt audit entries remain masked projections rather
+than authoritative delivery records.
+
 Headless HTTP confirmation uses exact typed keys only:
 
 * `mcp/<server>/<tool>` for one MCP operation;
