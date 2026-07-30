@@ -31,6 +31,7 @@ from pydantic import BaseModel
 
 from .audit import AuditEvent, AuditSink, emit_audit
 from .executor import ExecResult, ExecutorBackend
+from .external_actions import ExternalActionReceiptStore, ReceiptError, canonical_request_digest
 from .policy import CodeAnalyzer
 from .protocol import (
     EditArgs,
@@ -65,6 +66,8 @@ _FILE_READ_CONTINUATION = "可使用 FileRead 读取其他路径，或使用 Exe
 _FILE_LIST_CONTINUATION = "可缩小目录路径后重新调用 FileList"
 _EXEC_CONTINUATION = "请缩小输出范围，或将工作分片执行后重试"
 _MCP_CONTINUATION = "此工具不保留游标；如需更多结果，请缩小查询参数后重新调用"
+_MCP_RECEIPT_UNAVAILABLE = "MCP receipt unavailable"
+_MCP_RESULT_UNKNOWN = "MCP result unknown; reconcile the external action before retrying"
 _SURVEY_CONTINUATION = "此工具不保留游标；如需更多结果，请重新提问"
 _WEBFETCH_RETRY_CONTINUATION = "此工具不保留游标；可缩小请求范围后重新调用 WebFetch"
 
@@ -163,6 +166,7 @@ class ToolContext:
     # their explicit headless allowlist is the only non-interactive pre-approval.
     allow_auto_approve: bool = True
     cancel_event: threading.Event | None = None
+    receipt_store: ExternalActionReceiptStore | None = None
 
 
 class Tool(ABC):
@@ -253,6 +257,38 @@ def _denial_detail(ctx: ToolContext, default: str) -> str:
     if getattr(ctx.confirmer, "is_headless", False):
         return "rejected: operation is not in the headless allowlist"
     return default
+
+
+def _audit_receipt_transition(
+    ctx: ToolContext, receipt: object, source_operation_id: str | None
+) -> None:
+    """Emit only a bounded receipt projection; store state remains authoritative."""
+    action_id = getattr(receipt, "action_id", "")
+    emit_audit(
+        ctx.audit_sink,
+        AuditEvent(
+            event_type="external_action.receipt",
+            task_id=ctx.task_id,
+            operation_id=action_id,
+            risk_level="high",
+            parameters={
+                "action_id": action_id,
+                "phase": getattr(receipt, "phase", "unknown"),
+                "resolution": getattr(receipt, "resolution", "open"),
+                "dispatch_certainty": getattr(receipt, "dispatch_certainty", None),
+                "remote_ok": getattr(receipt, "remote_ok", None),
+                "server_label": getattr(receipt, "server_label", "")[:200],
+                "tool_label": getattr(receipt, "tool_label", "")[:200],
+                "evidence_code": getattr(receipt, "evidence_ref", "")[:64],
+                **(
+                    {"source_operation_id": str(source_operation_id)[:128]}
+                    if source_operation_id
+                    else {}
+                ),
+            },
+            result_status=getattr(receipt, "phase", "unknown"),
+        ),
+    )
 
 
 def _apply_edit(current_code: str, args: EditArgs) -> tuple[str | None, str | None]:
@@ -444,7 +480,10 @@ class MCPTool(Tool):
                 truncation_mode="head",
             )
         parameters = {"server": args.server, "operation": args.tool}
-        if ctx.allow_auto_approve and ctx.mcp.is_auto_approved(args.server, args.tool):
+        auto_approved = bool(
+            ctx.allow_auto_approve and ctx.mcp.is_auto_approved(args.server, args.tool)
+        )
+        if auto_approved:
             _audit_confirmation(ctx, tool="MCP", decision="preapproved", parameters=parameters)
         elif not _confirm(ctx, args, tool="MCP", parameters=parameters):
             if ctx.confirmer is None:
@@ -464,12 +503,80 @@ class MCPTool(Tool):
                 continuation=_MCP_CONTINUATION,
                 truncation_mode="head",
             )
-        result = ctx.mcp.call_tool(args.server, args.tool, args.arguments)
+        receipt = None
+        # Legacy direct ToolContext callers without a task/store have no durable scope;
+        # retain their compatibility path. Task-scoped protected calls fail closed.
+        protected = not auto_approved and not (ctx.receipt_store is None and ctx.task_id is None)
+        if protected:
+            store = ctx.receipt_store
+            if store is None:
+                return ToolOutcome(
+                    tool="MCP",
+                    block_name=label,
+                    success=False,
+                    detail=_MCP_RECEIPT_UNAVAILABLE,
+                    continuation=_MCP_CONTINUATION,
+                    truncation_mode="head",
+                )
+            try:
+                receipt = store.create_prepared(
+                    task_id=ctx.task_id,
+                    server_label=label.split(":", 1)[0],
+                    tool_label=label.split(":", 1)[1] if ":" in label else label,
+                    request_digest=canonical_request_digest(args.arguments),
+                )
+                _audit_receipt_transition(ctx, receipt, ctx.operation_id)
+                receipt = store.mark_dispatched(receipt.action_id, receipt.revision)
+                _audit_receipt_transition(ctx, receipt, ctx.operation_id)
+            except (ReceiptError, ValueError, TypeError):
+                return ToolOutcome(
+                    tool="MCP",
+                    block_name=label,
+                    success=False,
+                    detail=_MCP_RECEIPT_UNAVAILABLE,
+                    continuation=_MCP_CONTINUATION,
+                    truncation_mode="head",
+                )
+        try:
+            result = ctx.mcp.call_tool(args.server, args.tool, args.arguments)
+        except Exception:
+            result = {"ok": False, "text": "MCP call failed", "dispatch_certainty": "unknown"}
+        certainty = result.get("dispatch_certainty", "confirmed")
+        if receipt is not None:
+            try:
+                if certainty == "unknown":
+                    store = ctx.receipt_store
+                    assert store is not None
+                    updated = store.mark_unknown(
+                        receipt.action_id, receipt.revision, "result_unknown"
+                    )
+                    _audit_receipt_transition(ctx, updated, ctx.operation_id)
+                else:
+                    store = ctx.receipt_store
+                    assert store is not None
+                    updated = store.mark_confirmed(
+                        receipt.action_id,
+                        receipt.revision,
+                        "not_dispatched" if certainty == "not_dispatched" else "confirmed",
+                        bool(result.get("ok")),
+                        "no_dispatch" if certainty == "not_dispatched" else "protocol_response",
+                    )
+                    _audit_receipt_transition(ctx, updated, ctx.operation_id)
+            except (ReceiptError, ValueError, TypeError):
+                return ToolOutcome(
+                    tool="MCP",
+                    block_name=label,
+                    success=False,
+                    detail=_MCP_RECEIPT_UNAVAILABLE,
+                    continuation=_MCP_CONTINUATION,
+                    truncation_mode="head",
+                )
+        detail = _MCP_RESULT_UNKNOWN if certainty == "unknown" else result.get("text", "")
         return ToolOutcome(
             tool="MCP",
             block_name=label,
             success=bool(result.get("ok")),
-            detail=result.get("text", ""),
+            detail=detail,
             continuation=_MCP_CONTINUATION,
             truncation_mode="head",
         )

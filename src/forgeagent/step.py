@@ -35,6 +35,7 @@ from .context import (
     render_bounded_feedback,
 )
 from .executor import ExecutorBackend
+from .external_actions import ExternalActionReceiptStore
 from .models import (
     AssistantMessage,
     ClientError,
@@ -210,6 +211,7 @@ class Step:
         context_policy: ContextPolicy | None = None,
         skills: SkillRegistry | None = None,
         context_config: ContextConfig | None = None,
+        receipt_store: ExternalActionReceiptStore | None = None,
     ):
         self._client = client
         self._backend = backend
@@ -261,6 +263,7 @@ class Step:
             audit_sink=audit_sink,
             task_id=task_id,
             cancel_event=cancel_event,
+            receipt_store=receipt_store,
         )
         self.rounds: list[RoundResult] = []
 

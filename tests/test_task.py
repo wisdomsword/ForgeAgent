@@ -6,6 +6,7 @@ import threading
 from forgeagent.audit import AuditEvent
 from forgeagent.client import MockClient
 from forgeagent.context import ContextConfig
+from forgeagent.external_actions import ExternalActionReceiptStore
 from forgeagent.identity import ApprovedIdentity
 from forgeagent.memory import MemoryManager
 from forgeagent.models import AssistantMessage, StreamEvent, StreamEventKind, TokenUsage
@@ -142,6 +143,23 @@ def test_task_forwards_injected_tool_registry_to_step(monkeypatch):
 
     assert outcome.status.completed is True
     assert captured is registry
+
+
+def test_task_forwards_receipt_store_to_step(monkeypatch, tmp_path):
+    store = ExternalActionReceiptStore(str(tmp_path), task_id="task-receipt")
+    captured = None
+
+    class _Step:
+        def __init__(self, *args, **kwargs):
+            nonlocal captured
+            captured = kwargs.get("receipt_store")
+
+        def run(self, messages):
+            return [RoundResult(text=_done(), stopped_reason=Termination.COMPLETED)]
+
+    monkeypatch.setattr("forgeagent.task.Step", _Step)
+    Task(MockClient(script=[]), receipt_store=store).run("do a thing")
+    assert captured is store
 
 
 def test_task_forwards_audit_sink_and_task_id_to_core_events():

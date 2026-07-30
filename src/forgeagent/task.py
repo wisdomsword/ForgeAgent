@@ -20,6 +20,7 @@ from .audit import AuditEvent, AuditSink, emit_audit
 from .client import ModelClient
 from .context import ContextConfig, ContextPolicy, SlidingWindowContextPolicy
 from .executor import ContainerBackend, ExecutorBackend, RestrictedBackend, TrustedBackend
+from .external_actions import ExternalActionReceiptStore
 from .identity import ApprovedIdentity, compose_system_prompt
 from .mcp_manager import MCPManager
 from .memory import MemoryManager, MemoryResult
@@ -104,6 +105,7 @@ class Task:
         memory_manager: MemoryManager | None = None,
         skills: SkillRegistry | None = None,
         tool_registry: ToolRegistry | None = None,
+        receipt_store: ExternalActionReceiptStore | None = None,
     ):
         self._client = client
         self._tier = tier
@@ -137,6 +139,7 @@ class Task:
         self._memory_manager = memory_manager
         self._skills = skills
         self._tool_registry = tool_registry
+        self._receipt_store = receipt_store
         self._context_policy = context_policy or SlidingWindowContextPolicy(
             client.capability,
             params,
@@ -219,6 +222,7 @@ class Task:
             context_policy=self._context_policy,
             skills=self._skills,
             registry=self._tool_registry,
+            receipt_store=self._receipt_store,
         )
         rounds = step.run(messages)
         status = self._derive_status(rounds)

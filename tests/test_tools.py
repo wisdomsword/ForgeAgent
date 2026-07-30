@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from forgeagent.audit import AuditEvent
 from forgeagent.executor import TrustedBackend
+from forgeagent.external_actions import ExternalActionReceiptStore, ReceiptError
 from forgeagent.headless import HeadlessConfirmer
 from forgeagent.policy import CodeAnalyzer
 from forgeagent.protocol import (
@@ -318,7 +319,25 @@ class _FakeMCP:
         return {"ok": True, "text": f"{server}:{tool} ran"}
 
 
-def _mcp_ctx(mcp=None, confirmer=None, *, allow_auto_approve=True) -> ToolContext:
+class _ReceiptMCP(_FakeMCP):
+    def __init__(self, result: dict, **kwargs):
+        super().__init__(**kwargs)
+        self.result = result
+
+    def call_tool(self, server: str, tool: str, arguments: dict) -> dict:
+        self.calls.append((server, tool, arguments))
+        return self.result
+
+
+def _mcp_ctx(
+    mcp=None,
+    confirmer=None,
+    *,
+    allow_auto_approve=True,
+    receipt_store=None,
+    task_id=None,
+    operation_id=None,
+) -> ToolContext:
     return ToolContext(
         blocks=CodeBlockStore(),
         backend=TrustedBackend(),
@@ -327,7 +346,108 @@ def _mcp_ctx(mcp=None, confirmer=None, *, allow_auto_approve=True) -> ToolContex
         mcp=mcp,
         confirmer=confirmer,
         allow_auto_approve=allow_auto_approve,
+        receipt_store=receipt_store,
+        task_id=task_id,
+        operation_id=operation_id,
     )
+
+
+def _receipt_store(tmp_path, task_id="task-receipt"):
+    return ExternalActionReceiptStore(str(tmp_path), task_id=task_id)
+
+
+def test_mcp_protected_dispatch_without_receipt_store_fails_closed():
+    fake = _ReceiptMCP({"ok": True, "text": "should not run", "dispatch_certainty": "confirmed"})
+    outcome = MCPTool().run(
+        MCPArgs(server="gh", tool="create_issue"),
+        _mcp_ctx(mcp=fake, confirmer=lambda args: True, task_id="task-receipt"),
+    )
+    assert outcome.success is False
+    assert outcome.detail == "MCP receipt unavailable"
+    assert fake.calls == []
+
+
+def test_mcp_protected_call_receipts_cover_confirmed_protocol_error_and_unknown(tmp_path):
+    for index, (result, expected_phase, expected_success, expected_detail) in enumerate(
+        (
+            (
+                {"ok": True, "text": "done", "dispatch_certainty": "confirmed"},
+                "confirmed",
+                True,
+                "done",
+            ),
+            (
+                {"ok": False, "text": "protocol error", "dispatch_certainty": "confirmed"},
+                "confirmed",
+                False,
+                "protocol error",
+            ),
+            (
+                {"ok": False, "text": "MCP call failed", "dispatch_certainty": "unknown"},
+                "unknown",
+                False,
+                "MCP result unknown; reconcile the external action before retrying",
+            ),
+        )
+    ):
+        root = tmp_path / f"{expected_phase}-{index}"
+        root.mkdir(exist_ok=True)
+        store = _receipt_store(root)
+        fake = _ReceiptMCP(result)
+        ctx = _mcp_ctx(
+            mcp=fake,
+            confirmer=lambda args: True,
+            receipt_store=store,
+            task_id="task-receipt",
+            operation_id="model-generated-id",
+        )
+        outcome = MCPTool().run(MCPArgs(server="gh", tool="create_issue"), ctx)
+        assert outcome.success is expected_success
+        assert outcome.detail == expected_detail
+        pending = store.list_pending(task_id="task-receipt")
+        assert len(pending) == 1
+        assert pending[0].phase == expected_phase
+
+
+def test_mcp_receipt_transition_failure_blocks_manager_entry(tmp_path, monkeypatch):
+    store = _receipt_store(tmp_path)
+    fake = _ReceiptMCP({"ok": True, "text": "should not run", "dispatch_certainty": "confirmed"})
+    monkeypatch.setattr(
+        store, "mark_dispatched", lambda *args: (_ for _ in ()).throw(ReceiptError("boom"))
+    )
+    outcome = MCPTool().run(
+        MCPArgs(server="gh", tool="create_issue"),
+        _mcp_ctx(
+            mcp=fake, confirmer=lambda args: True, receipt_store=store, task_id="task-receipt"
+        ),
+    )
+    assert outcome.success is False
+    assert outcome.detail == "MCP receipt unavailable"
+    assert fake.calls == []
+
+
+def test_mcp_auto_approve_and_denial_do_not_create_receipts(tmp_path):
+    store = _receipt_store(tmp_path)
+    auto = _ReceiptMCP(
+        {"ok": True, "text": "done", "dispatch_certainty": "confirmed"},
+        auto_approved={("fs", "read_file")},
+    )
+    auto_outcome = MCPTool().run(
+        MCPArgs(server="fs", tool="read_file"),
+        _mcp_ctx(
+            mcp=auto, confirmer=lambda args: False, receipt_store=store, task_id="task-receipt"
+        ),
+    )
+    denied = _ReceiptMCP({"ok": True, "text": "should not run", "dispatch_certainty": "confirmed"})
+    denied_outcome = MCPTool().run(
+        MCPArgs(server="gh", tool="delete_repo"),
+        _mcp_ctx(
+            mcp=denied, confirmer=lambda args: False, receipt_store=store, task_id="task-receipt"
+        ),
+    )
+    assert auto_outcome.success is True and denied_outcome.success is False
+    assert auto.calls and denied.calls == []
+    assert store.list_pending(task_id="task-receipt") == ()
 
 
 def test_mcp_no_manager_is_structured_error():
@@ -381,7 +501,15 @@ def test_http_allowlist_preapproval_uses_tool_operation_id_once() -> None:
     fake = _FakeMCP()
     sink = _RecordingAuditSink()
     confirmer = HeadlessConfirmer({"mcp/fs/write_file"}, audit=sink)
-    ctx = _mcp_ctx(mcp=fake, confirmer=confirmer, allow_auto_approve=False)
+    import tempfile
+
+    ctx = _mcp_ctx(
+        mcp=fake,
+        confirmer=confirmer,
+        allow_auto_approve=False,
+        receipt_store=ExternalActionReceiptStore(tempfile.mkdtemp(), task_id="http-task"),
+        task_id="http-task",
+    )
     ctx.audit_sink = sink
     ctx.task_id = "http-task"
     ctx.operation_id = "http-tool-call-preapproved"
@@ -390,7 +518,6 @@ def test_http_allowlist_preapproval_uses_tool_operation_id_once() -> None:
 
     assert outcome.success is True
     assert fake.calls == [("fs", "write_file", {})]
-    assert len(sink.events) == 1
     assert sink.events[0].result_status == "preapproved"
     assert sink.events[0].operation_id == "http-tool-call-preapproved"
 
