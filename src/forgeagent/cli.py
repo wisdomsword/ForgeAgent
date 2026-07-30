@@ -2311,6 +2311,7 @@ def serve_http(
     service: TaskService | None = None
     try:
         mcp = build_mcp_manager()
+        receipt_store = ExternalActionReceiptStore(settings.allowed_root, audit_sink=audit_sink)
 
         def task_factory(record: TaskRecord) -> Task | LoopRunner | CollaborationRunner:
             options = getattr(record, "options", {})
@@ -2343,6 +2344,7 @@ def serve_http(
                         memory_manager=memory_manager,
                         skills=skills,
                         tool_registry=registry,
+                        receipt_store=receipt_store,
                     )
 
                     class OwnedLoopTask:
@@ -2367,6 +2369,7 @@ def serve_http(
                     "task_id": record.task_id,
                     "with_mcp": mcp is not None,
                     "skills": skills,
+                    "receipt_store": receipt_store,
                 }
                 collaboration_mode = cast(str, options.get("collaboration_mode", "single"))
 
@@ -2406,6 +2409,7 @@ def serve_http(
                                 memory_manager=memory_manager if role == "generator" else None,
                                 skills=skills if role == "generator" else None,
                                 tool_registry=registry,
+                                receipt_store=receipt_store if role == "generator" else None,
                             )
                         except Exception as error:
                             close = getattr(client, "close", None)
@@ -2623,6 +2627,7 @@ def serve_http(
                 context_config=settings.service.context_config,
                 memory_manager=memory_manager,
                 skills=skills,
+                receipt_store=receipt_store,
             )
 
         service = TaskService(
