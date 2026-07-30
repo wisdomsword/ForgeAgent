@@ -91,9 +91,11 @@ def canonical_request_digest(arguments: object) -> str:
 class ExternalActionReceipt(BaseModel):
     """Strict immutable state for one externally visible action attempt."""
 
-    model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
+    model_config = ConfigDict(
+        frozen=True, strict=True, extra="forbid", populate_by_name=True
+    )
 
-    schema: Literal[RECEIPT_SCHEMA] = RECEIPT_SCHEMA
+    schema_version: Literal[RECEIPT_SCHEMA] = Field(RECEIPT_SCHEMA, alias="schema")
     action_id: str = Field(default_factory=lambda: uuid4().hex)
     parent_action_id: str | None = None
     task_id: str
@@ -418,7 +420,7 @@ class ExternalActionReceiptStore:
         name = self._name(receipt.action_id)
         payload = (
             json.dumps(
-                receipt.model_dump(mode="json"),
+                receipt.model_dump(mode="json", by_alias=True),
                 ensure_ascii=True,
                 separators=(",", ":"),
                 sort_keys=True,

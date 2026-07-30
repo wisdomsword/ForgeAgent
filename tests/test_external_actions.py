@@ -38,7 +38,7 @@ def test_receipt_id_is_hex_but_existing_operation_id_stays_arbitrary():
 
 def test_receipt_model_defaults_and_digest_are_strict():
     receipt = _prepared(parent_action_id="a" * 32, loop_id="b" * 32)
-    assert receipt.schema == "forgeagent.external-action-receipt.v1"
+    assert receipt.schema_version == "forgeagent.external-action-receipt.v1"
     assert receipt.phase == "prepared"
     assert receipt.resolution == "open"
     assert receipt.dispatch_certainty is None
