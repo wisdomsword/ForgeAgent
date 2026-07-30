@@ -78,6 +78,15 @@ _STARTUP_DIAGNOSTICS = {
 logger = logging.getLogger(__name__)
 
 
+class MCPCallResult(dict[str, object]):
+    """Public result with an internal certainty field hidden from legacy equality."""
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, dict) and "dispatch_certainty" not in other:
+            return {key: self.get(key) for key in ("ok", "text")} == other
+        return super().__eq__(other)
+
+
 class _BoundedStderrCapture:
     def __init__(self, limit: int = _STDERR_CAPTURE_LIMIT) -> None:
         self._limit = limit
@@ -1102,8 +1111,16 @@ class MCPManager:
             state = self._states.get(server)
             public_server = self.public_server_name(server)
             if state is None:
-                return {"ok": False, "text": f"unknown MCP server {public_server!r}"}
-            return {"ok": False, "text": f"MCP server {public_server!r} is {state.status}"}
+                return MCPCallResult(
+                    ok=False,
+                    text=f"unknown MCP server {public_server!r}",
+                    dispatch_certainty="not_dispatched",
+                )
+            return MCPCallResult(
+                ok=False,
+                text=f"MCP server {public_server!r} is {state.status}",
+                dispatch_certainty="not_dispatched",
+            )
         try:
             return self._submit(
                 self._call_tool_on_loop(server, tool, arguments),
@@ -1114,25 +1131,42 @@ class MCPManager:
             # The loop wrapper may still be running after an outer facade timeout. Do not
             # mutate session state from this thread; its loop-owned generation check owns
             # invalidation when the call eventually finishes.
-            return {
-                "ok": False,
-                "text": "MCP call failed",
-            }
+            return MCPCallResult(
+                ok=False,
+                text="MCP call failed",
+                dispatch_certainty="unknown",
+            )
 
     async def _call_tool_on_loop(self, server: str, tool: str, arguments: dict) -> dict:
         """Select the current session generation on the loop immediately before calling."""
         state = self._states.get(server)
         public_server = self.public_server_name(server)
         if state is None:
-            return {"ok": False, "text": f"unknown MCP server {public_server!r}"}
+            return MCPCallResult(
+                ok=False,
+                text=f"unknown MCP server {public_server!r}",
+                dispatch_certainty="not_dispatched",
+            )
         if state.status != "available":
-            return {"ok": False, "text": f"MCP server {public_server!r} is {state.status}"}
+            return MCPCallResult(
+                ok=False,
+                text=f"MCP server {public_server!r} is {state.status}",
+                dispatch_certainty="not_dispatched",
+            )
         session_slot = self._sessions.get(server)
         if session_slot is None:
-            return {"ok": False, "text": f"MCP server {public_server!r} has no live session"}
+            return MCPCallResult(
+                ok=False,
+                text=f"MCP server {public_server!r} has no live session",
+                dispatch_certainty="not_dispatched",
+            )
         generation, session = session_slot
         if state.generation != generation or not self._holder_slot_matches(server, generation):
-            return {"ok": False, "text": f"MCP server {public_server!r} has no live session"}
+            return MCPCallResult(
+                ok=False,
+                text=f"MCP server {public_server!r} has no live session",
+                dispatch_certainty="not_dispatched",
+            )
         try:
             result = await session.call_tool(
                 tool, arguments, read_timeout_seconds=timedelta(seconds=self._call_timeout)
@@ -1152,15 +1186,19 @@ class MCPManager:
                 holder_slot = self._holders.get(server)
                 if holder_slot is not None:
                     holder_slot[2].set()
-            return {"ok": False, "text": "MCP call failed"}
+            return MCPCallResult(ok=False, text="MCP call failed", dispatch_certainty="unknown")
         if (
             state.generation != generation
             or not self._holder_slot_matches(server, generation)
             or not self._session_slot_matches(server, generation, session)
         ):
-            return {"ok": False, "text": "MCP call failed"}
+            return MCPCallResult(ok=False, text="MCP call failed", dispatch_certainty="unknown")
         ok = not getattr(result, "isError", False)
-        return {"ok": ok, "text": mask_secrets(_render_content(result), self._secret_values)}
+        return MCPCallResult(
+            ok=ok,
+            text=mask_secrets(_render_content(result), self._secret_values),
+            dispatch_certainty="confirmed",
+        )
 
     async def _enable_on_loop(self, server: str) -> None:
         state = self._states[server]
