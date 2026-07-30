@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import json
 import hashlib
+import json
 import os
 import re
 import stat
@@ -27,7 +27,6 @@ MAX_RECEIPT_BYTES = 256 * 1024
 MAX_TASK_ID_CHARS = 128
 MAX_LABEL_CHARS = 200
 MAX_EVIDENCE_CHARS = 1000
-MAX_PARENT_ACTION_ID_CHARS = 32
 _ACTION_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 _DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
 
@@ -66,7 +65,8 @@ def _masked_text(value: Any, *, field: str, maximum: int, allow_empty: bool) -> 
         raise ValueError(f"{field} must be a string")
     masked = mask_secrets(value, sensitive_env_values())
     escaped = "".join(
-        character if unicodedata.category(character) not in {"Cc", "Cf", "Cs", "Zl", "Zp"}
+        character
+        if unicodedata.category(character) not in {"Cc", "Cf", "Cs", "Zl", "Zp"}
         else f"\\u{ord(character):04x}"
         for character in masked
     )
@@ -176,14 +176,20 @@ class ExternalActionReceipt(BaseModel):
 
     @model_validator(mode="after")
     def _invariants(self) -> ExternalActionReceipt:
-        if self.phase == "prepared" and self.dispatch_certainty is not None:
-            raise ValueError("prepared receipt cannot have dispatch certainty")
-        if self.phase == "dispatched" and self.dispatch_certainty is not None:
-            raise ValueError("dispatched receipt cannot have dispatch certainty")
+        if self.phase in {"prepared", "dispatched"}:
+            if self.dispatch_certainty is not None or self.remote_ok is not None:
+                raise ValueError("pre-dispatch receipt cannot have result certainty")
+            if self.evidence_ref:
+                raise ValueError("pre-dispatch receipt cannot have evidence")
         if self.phase == "unknown" and self.dispatch_certainty != "unknown":
             raise ValueError("unknown receipt requires unknown certainty")
-        if self.phase == "confirmed" and self.dispatch_certainty not in {"confirmed", "not_dispatched"}:
+        if self.phase == "confirmed" and self.dispatch_certainty not in {
+            "confirmed",
+            "not_dispatched",
+        }:
             raise ValueError("confirmed receipt requires certainty")
+        if self.phase == "confirmed" and not isinstance(self.remote_ok, bool):
+            raise ValueError("confirmed receipt requires remote result")
         if self.dispatch_certainty == "not_dispatched" and self.remote_ok is not False:
             raise ValueError("not-dispatched receipt must be remote failure")
         if self.dispatch_certainty == "unknown" and self.remote_ok is not None:
@@ -203,6 +209,30 @@ class ExternalActionReceipt(BaseModel):
         loop_id: str | None = None,
         **extra: Any,
     ) -> ExternalActionReceipt:
+        if extra:
+            payload = {
+                "task_id": task_id,
+                "action_type": action_type,
+                "server_label": server_label,
+                "tool_label": tool_label,
+                "request_digest": request_digest,
+                "parent_action_id": parent_action_id,
+                "loop_id": loop_id,
+                **extra,
+            }
+            if any(
+                name in extra
+                for name in (
+                    "action_id",
+                    "phase",
+                    "resolution",
+                    "revision",
+                    "created_at",
+                    "updated_at",
+                )
+            ):
+                payload["__creation_override__"] = True
+            return cls.model_validate(payload)
         return cls(
             task_id=task_id,
             action_type=action_type,
@@ -255,7 +285,7 @@ class ExternalActionReceiptStore:
             details = os.lstat(path)
         except FileNotFoundError:
             if not create:
-                raise ReceiptError("receipt directory is unavailable")
+                raise ReceiptError("receipt directory is unavailable") from None
             path.mkdir()
             details = os.lstat(path)
         except OSError as error:
@@ -356,7 +386,9 @@ class ExternalActionReceiptStore:
         descriptor = -1
         try:
             self._ensure_binding()
-            descriptor = os.open(name, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0), dir_fd=self._directory_fd)
+            descriptor = os.open(
+                name, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0), dir_fd=self._directory_fd
+            )
             details = os.fstat(descriptor)
             if not stat.S_ISREG(details.st_mode) or details.st_size > MAX_RECEIPT_BYTES:
                 raise ReceiptError("receipt file is unsafe")
@@ -385,7 +417,12 @@ class ExternalActionReceiptStore:
     def _write(self, receipt: ExternalActionReceipt) -> None:
         name = self._name(receipt.action_id)
         payload = (
-            json.dumps(receipt.model_dump(mode="json"), ensure_ascii=True, separators=(",", ":"), sort_keys=True).encode()
+            json.dumps(
+                receipt.model_dump(mode="json"),
+                ensure_ascii=True,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode()
             + b"\n"
         )
         if len(payload) > MAX_RECEIPT_BYTES:
@@ -405,7 +442,9 @@ class ExternalActionReceiptStore:
                 handle.write(payload)
                 handle.flush()
                 os.fsync(handle.fileno())
-            os.replace(temporary, name, src_dir_fd=self._directory_fd, dst_dir_fd=self._directory_fd)
+            os.replace(
+                temporary, name, src_dir_fd=self._directory_fd, dst_dir_fd=self._directory_fd
+            )
             os.fsync(self._directory_fd)
             self._ensure_binding()
         except ReceiptError:
@@ -462,16 +501,22 @@ class ExternalActionReceiptStore:
                 task_id=effective_task_id,
                 loop_id=self._loop_id if loop_id is None else loop_id,
                 action_type=action_type,
-                server_label=_masked_text(server_label, field="server_label", maximum=MAX_LABEL_CHARS, allow_empty=False),
-                tool_label=_masked_text(tool_label, field="tool_label", maximum=MAX_LABEL_CHARS, allow_empty=False),
+                server_label=_masked_text(
+                    server_label, field="server_label", maximum=MAX_LABEL_CHARS, allow_empty=False
+                ),
+                tool_label=_masked_text(
+                    tool_label, field="tool_label", maximum=MAX_LABEL_CHARS, allow_empty=False
+                ),
                 request_digest=request_digest,
                 parent_action_id=parent_action_id,
             )
-        except ValidationError as error:
+        except (ValidationError, ValueError) as error:
             raise ReceiptError("invalid receipt") from error
         with self._lock, self._receipt_lock(receipt.action_id):
             try:
-                os.stat(self._name(receipt.action_id), dir_fd=self._directory_fd, follow_symlinks=False)
+                os.stat(
+                    self._name(receipt.action_id), dir_fd=self._directory_fd, follow_symlinks=False
+                )
             except FileNotFoundError:
                 pass
             except OSError as error:
@@ -482,7 +527,9 @@ class ExternalActionReceiptStore:
         self._audit(receipt, "created")
         return receipt
 
-    def _transition(self, action_id: str, expected_revision: int, update: Mapping[str, object]) -> ExternalActionReceipt:
+    def _transition(
+        self, action_id: str, expected_revision: int, update: Mapping[str, object]
+    ) -> ExternalActionReceipt:
         if type(expected_revision) is not int or expected_revision < 0:
             raise ReceiptError("invalid receipt revision")
         with self._lock, self._receipt_lock(action_id):
@@ -491,7 +538,9 @@ class ExternalActionReceiptStore:
                 raise ReceiptError("receipt revision is stale")
             try:
                 updated = ExternalActionReceipt.model_validate(
-                    current.model_dump(mode="python") | dict(update) | {"revision": expected_revision + 1, "updated_at": _utc_now()}
+                    current.model_dump(mode="python")
+                    | dict(update)
+                    | {"revision": expected_revision + 1, "updated_at": _utc_now()}
                 )
             except ValidationError as error:
                 raise ReceiptError("invalid receipt transition") from error
@@ -525,30 +574,48 @@ class ExternalActionReceiptStore:
         if type(remote_ok) is not bool:
             raise ReceiptError("remote result must be boolean")
         try:
-            safe_evidence = _masked_text(evidence, field="evidence_ref", maximum=MAX_EVIDENCE_CHARS, allow_empty=False)
+            safe_evidence = _masked_text(
+                evidence, field="evidence_ref", maximum=MAX_EVIDENCE_CHARS, allow_empty=False
+            )
         except ValueError as error:
             raise ReceiptError("invalid evidence") from error
         return self._transition(
             action_id,
             expected_revision,
-            {"phase": "confirmed", "dispatch_certainty": certainty, "remote_ok": remote_ok, "evidence_ref": safe_evidence},
+            {
+                "phase": "confirmed",
+                "dispatch_certainty": certainty,
+                "remote_ok": remote_ok,
+                "evidence_ref": safe_evidence,
+            },
         )
 
-    def mark_unknown(self, action_id: str, expected_revision: int, evidence: str) -> ExternalActionReceipt:
+    def mark_unknown(
+        self, action_id: str, expected_revision: int, evidence: str
+    ) -> ExternalActionReceipt:
         current = self.load(action_id)
         if current.phase not in {"prepared", "dispatched"} or current.resolution != "open":
             raise ReceiptError("invalid receipt transition")
         try:
-            safe_evidence = _masked_text(evidence, field="evidence_ref", maximum=MAX_EVIDENCE_CHARS, allow_empty=False)
+            safe_evidence = _masked_text(
+                evidence, field="evidence_ref", maximum=MAX_EVIDENCE_CHARS, allow_empty=False
+            )
         except ValueError as error:
             raise ReceiptError("invalid evidence") from error
         return self._transition(
             action_id,
             expected_revision,
-            {"phase": "unknown", "dispatch_certainty": "unknown", "remote_ok": None, "evidence_ref": safe_evidence},
+            {
+                "phase": "unknown",
+                "dispatch_certainty": "unknown",
+                "remote_ok": None,
+                "evidence_ref": safe_evidence,
+            },
         )
 
-    def list_pending(self, loop_id: str | None = None, task_id: str | None = None) -> tuple[ExternalActionReceipt, ...]:
+    def list_pending(
+        self, loop_id: str | None = None, task_id: str | None = None
+    ) -> tuple[ExternalActionReceipt, ...]:
         with self._lock:
             self._ensure_binding()
             try:
@@ -563,24 +630,42 @@ class ExternalActionReceiptStore:
                 if _ACTION_ID_RE.fullmatch(action_id) is None:
                     raise ReceiptError("receipt file is invalid")
                 receipt = self._load_unlocked(action_id)
-                if receipt.resolution == "open" and (loop_id is None or receipt.loop_id == loop_id) and (task_id is None or receipt.task_id == task_id):
+                if (
+                    receipt.resolution == "open"
+                    and (loop_id is None or receipt.loop_id == loop_id)
+                    and (task_id is None or receipt.task_id == task_id)
+                ):
                     records.append(receipt)
             return tuple(records)
 
-    def resolve(self, action_id: str, expected_revision: int, decision: ReceiptResolution, evidence: str = "") -> ExternalActionReceipt:
+    def resolve(
+        self,
+        action_id: str,
+        expected_revision: int,
+        decision: ReceiptResolution,
+        evidence: str = "",
+    ) -> ExternalActionReceipt:
         if decision not in {"confirmed", "abandoned", "retry_approved"}:
             raise ReceiptError("invalid resolution")
         if decision == "confirmed":
             try:
-                evidence = _masked_text(evidence, field="evidence_ref", maximum=MAX_EVIDENCE_CHARS, allow_empty=False)
+                evidence = _masked_text(
+                    evidence, field="evidence_ref", maximum=MAX_EVIDENCE_CHARS, allow_empty=False
+                )
             except ValueError as error:
                 raise ReceiptError("confirmation evidence is required") from error
         elif evidence:
             try:
-                evidence = _masked_text(evidence, field="evidence_ref", maximum=MAX_EVIDENCE_CHARS, allow_empty=False)
+                evidence = _masked_text(
+                    evidence, field="evidence_ref", maximum=MAX_EVIDENCE_CHARS, allow_empty=False
+                )
             except ValueError as error:
                 raise ReceiptError("invalid evidence") from error
         current = self.load(action_id)
         if current.resolution != "open":
             raise ReceiptError("receipt is already resolved")
-        return self._transition(action_id, expected_revision, {"resolution": decision, "evidence_ref": evidence or current.evidence_ref})
+        return self._transition(
+            action_id,
+            expected_revision,
+            {"resolution": decision, "evidence_ref": evidence or current.evidence_ref},
+        )
