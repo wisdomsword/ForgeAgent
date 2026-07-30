@@ -84,6 +84,7 @@ from .loop import (
     LoopReport,
     LoopRunner,
 )
+from .external_actions import ExternalActionReceiptStore
 from .mcp_manager import MCPManager, MCPServerDiagnostic, load_mcp_config
 from .memory import MemoryManager
 from .model_registry import (
@@ -790,6 +791,7 @@ def run_collaboration_once(
                 memory_manager=memory_manager if role == "generator" else None,
                 skills=skills if role == "generator" else None,
                 tool_registry=registry,
+                receipt_store=receipt_store,
                 audit_sink=audit_sink,
                 task_id=task_id,
             )
@@ -961,6 +963,11 @@ def run_loop_once(
     resolved_max_rejections = 2 if max_rejections is None else max_rejections
 
     root = str(Path.cwd().resolve()) if allowed_root is None else allowed_root
+    receipt_store = (
+        ExternalActionReceiptStore(root, audit_sink=audit_sink)
+        if mcp is not None
+        else None
+    )
     resolved_context_config = context_config or ContextConfig()
 
     def build_task(iteration: int, remaining_rounds: int, suffix: str, registry):
@@ -1049,6 +1056,7 @@ def run_loop_once(
                     memory_manager=memory_manager if role == "generator" else None,
                     skills=skills if role == "generator" else None,
                     tool_registry=registry,
+                    receipt_store=receipt_store if role == "generator" else None,
                 )
             except Exception as error:
                 if task is not None:
@@ -1139,6 +1147,7 @@ def run_loop_once(
             collaboration_mode_source=collaboration_mode_source,
             collaboration_id=(uuid4().hex if resolved_collaboration_mode != "single" else ""),
             audit_sink=audit_sink,
+            receipt_store=receipt_store,
         )
     else:
         runner = LoopRunner.resume(
@@ -1150,6 +1159,7 @@ def run_loop_once(
             skills=skills,
             collaboration_builder=build_collaboration,
             audit_sink=audit_sink,
+            receipt_store=receipt_store,
         )
     cancel_event = threading.Event()
     previous_sigint = None

@@ -21,6 +21,7 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from .audit import AuditEvent, AuditSink, emit_audit
+from .external_actions import ExternalActionReceiptStore
 from .secret_policy import mask_secrets, sensitive_env_values
 from .skills import SkillRegistry
 from .task import TaskOutcome
@@ -55,6 +56,7 @@ LoopStopReason = Literal[
     "consecutive_failures",
     "unrecoverable_failure",
     "checkpoint_error",
+    "external_action_pending",
 ]
 
 _STOP_REASONS_BY_STATUS: dict[str, frozenset[str | None]] = {
@@ -67,6 +69,7 @@ _STOP_REASONS_BY_STATUS: dict[str, frozenset[str | None]] = {
             "token_budget",
             "max_rounds",
             "consecutive_failures",
+            "external_action_pending",
         }
     ),
     "cancelled": frozenset({"cancelled"}),
@@ -770,6 +773,7 @@ class LoopRunner:
         task_id: str | None,
         with_mcp: bool,
         skills: SkillRegistry | None,
+        receipt_store: ExternalActionReceiptStore | None = None,
     ) -> None:
         self._store = store
         self._checkpoint = checkpoint
@@ -780,6 +784,7 @@ class LoopRunner:
         self._task_id = task_id
         self._with_mcp = with_mcp
         self._skills = skills
+        self._receipt_store = receipt_store
         self._run_lock = threading.Lock()
         self._closed = False
         self._started_at: float | None = None
@@ -804,6 +809,7 @@ class LoopRunner:
         loop_id: str | None = None,
         with_mcp: bool = False,
         skills: SkillRegistry | None = None,
+        receipt_store: ExternalActionReceiptStore | None = None,
     ) -> LoopRunner:
         store = LoopCheckpointStore(allowed_root, audit_sink=audit_sink, task_id=task_id)
         try:
@@ -829,6 +835,7 @@ class LoopRunner:
             task_id=task_id,
             with_mcp=with_mcp,
             skills=skills,
+            receipt_store=receipt_store,
         )
         emit_audit(
             audit_sink,
@@ -868,6 +875,7 @@ class LoopRunner:
         task_id: str | None = None,
         with_mcp: bool = False,
         skills: SkillRegistry | None = None,
+        receipt_store: ExternalActionReceiptStore | None = None,
     ) -> LoopRunner:
         store = LoopCheckpointStore(allowed_root, audit_sink=audit_sink, task_id=task_id)
         try:
@@ -892,6 +900,7 @@ class LoopRunner:
             task_id=task_id,
             with_mcp=with_mcp,
             skills=skills,
+            receipt_store=receipt_store,
         )
         emit_audit(
             audit_sink,
@@ -935,6 +944,8 @@ class LoopRunner:
             self._started_at = time.monotonic()
             self._elapsed_at_start = self._checkpoint.elapsed_seconds
             while self._checkpoint.status == "active":
+                if self._has_pending_receipt():
+                    return self._stop("external_action_pending")
                 stop_reason = self._stop_reason(cancel_event=cancel_event)
                 if stop_reason is not None:
                     return self._stop(stop_reason)
@@ -1001,6 +1012,9 @@ class LoopRunner:
         if outcome is None:
             raise LoopCheckpointError("Loop task failed without an outcome")
         self._record_outcome(outcome)
+        if self._has_pending_receipt():
+            self._stop("external_action_pending")
+            return
         reason = self._stop_reason(cancel_event=cancel_event, watchdog_event=watchdog_event)
         if reason in {"cancelled", "wall_clock"}:
             self._stop(reason)
@@ -1009,6 +1023,11 @@ class LoopRunner:
             self._audit_lifecycle("loop.stop", "completed")
         elif reason is not None:
             self._stop(reason)
+
+    def _has_pending_receipt(self) -> bool:
+        if self._receipt_store is None:
+            return False
+        return bool(self._receipt_store.list_pending(loop_id=self._checkpoint.loop_id))
 
     def _record_outcome(self, outcome: object) -> None:
         # CheckpointTool owns a per-iteration copy and may have committed durable progress.
