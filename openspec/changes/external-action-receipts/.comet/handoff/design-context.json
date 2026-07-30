@@ -1,0 +1,17 @@
+{
+  "change": "external-action-receipts",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "0c1651109076ccf861cd58e1403e134c1e266c2cb6f2be4feb6e602f16e95845",
+  "files": [
+    { "path": "openspec/changes/external-action-receipts/proposal.md", "sha256": "5bacb4dd830d4352c0812a7911ac4de48c3b7fbdc7c74d6566e47fd7eb66f756" },
+    { "path": "openspec/changes/external-action-receipts/design.md", "sha256": "5fdf66674a45dbf7f6dfa50446b283dabbb2e09e7440655735a1230431cda037" },
+    { "path": "openspec/changes/external-action-receipts/tasks.md", "sha256": "3b354f4188faf99d2920f80efd2bf1f19e336c10f95c35d607d795b4e2af2af4" },
+    { "path": "openspec/changes/external-action-receipts/specs/audit-logging/spec.md", "sha256": "55e0f6e2642dcf3208e5863abe611c3598d9891d343882b5a6209772e4d067b4" },
+    { "path": "openspec/changes/external-action-receipts/specs/external-action-receipts/spec.md", "sha256": "96e6defb9a94724a99de84827f9a86749abf1243110afdf96488bf105d96550e" },
+    { "path": "openspec/changes/external-action-receipts/specs/loop-execution/spec.md", "sha256": "717a322148e07af2f3c7cf201a38faa67010a45f8e4624843555d439a4aa82fa" },
+    { "path": "openspec/changes/external-action-receipts/specs/mcp-resilience/spec.md", "sha256": "74ac84154b016a21040b31283d6ff8c1ee0a80f8175bdfdab9876ad22a7ee457" }
+  ]
+}
