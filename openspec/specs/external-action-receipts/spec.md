@@ -1,7 +1,10 @@
 # external-action-receipts Specification
 
 ## Purpose
-TBD - created by archiving change external-action-receipts. Update Purpose after archive.
+Protect approved non-read-only MCP actions with durable, bounded, secret-masked receipts and
+explicit reconciliation. This capability records dispatch certainty, blocks Loop resume while an
+open receipt is unresolved, and never silently replays an external action.
+
 ## Requirements
 ### Requirement: External action receipts are durable and strictly bounded
 ForgeAgent SHALL persist one versioned receipt for every approved, non-read-only external action before dispatch. The receipt MUST use the phases `prepared`, `dispatched`, `confirmed`, and `unknown`, MUST preserve a stable action identifier and request digest, and MUST store only bounded, secret-masked target metadata and evidence references. Receipt writes and phase transitions MUST be atomic and fail closed when the authoritative receipt cannot be persisted.
@@ -58,4 +61,3 @@ Receipt records SHALL be scoped to the canonical allowed project root and MAY ca
 #### Scenario: Receipt file is replaced or malformed
 - **WHEN** a receipt path is a symlink, outside the allowed root, malformed, or contains an unknown schema
 - **THEN** ForgeAgent rejects the record, reports a fixed receipt-store error, and does not dispatch related actions
-

@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from forgeagent.attention import attention_for_reason
 from forgeagent.audit import AuditEvent
 from forgeagent.collaboration import CollaborationReport, CollaborationUsage
 from forgeagent.external_actions import ExternalActionReceiptStore, canonical_request_digest
@@ -312,6 +313,7 @@ def test_submit_copies_options_and_factory_receives_private_record_data():
             "round_count",
             "usage",
             "audit_degraded",
+            "attention",
         }
     finally:
         service.shutdown(1.0)
@@ -322,6 +324,36 @@ def test_ordinary_task_public_view_always_identifies_task_mode():
     try:
         record = service.submit("goal", {})
         assert service.wait(record.task_id, timeout=1.0)["mode"] == "task"
+    finally:
+        service.shutdown(1.0)
+
+
+@pytest.mark.parametrize(
+    ("reason", "state"),
+    [(Termination.NEEDS_INFO, "needs_input"), (Termination.BLOCKED, "blocked")],
+)
+def test_public_view_adds_attention_without_changing_legacy_reason(reason: str, state: str):
+    service = TaskService(
+        factory=lambda _record: _FakeTask(
+            lambda _goal, _cancel: TaskOutcome(
+                status=TaskStatus(
+                    completed=False,
+                    reason=reason,
+                    detail="private detail",
+                    attention=attention_for_reason(reason, "private detail"),
+                ),
+                rounds=[RoundResult(text="")],
+            )
+        ),
+        config=CONFIG,
+    )
+    try:
+        record = service.submit("goal", {})
+        view = service.wait(record.task_id, timeout=1.0)
+        assert view["reason"] == reason
+        assert view["attention"]["state"] == state
+        assert view["attention"]["reason"] in {"user_input_required", "external_dependency"}
+        assert "private detail" in view["attention"]["required_action"]
     finally:
         service.shutdown(1.0)
 
@@ -349,6 +381,7 @@ def test_loop_public_view_is_bounded_and_omits_private_checkpoint_state():
             "round_count": 0,
             "usage": None,
             "audit_degraded": False,
+            "attention": attention_for_reason("max_rounds").model_dump(mode="json"),
             "loop_id": "a" * 32,
             "iterations": 3,
             "rounds_used": 7,
@@ -380,6 +413,8 @@ def test_running_loop_view_does_not_fabricate_terminal_report_counters():
         view = service.query(record.task_id)
         assert view["mode"] == "loop"
         assert view["status"] == "running"
+        assert view["attention"]["state"] == "running"
+        assert view["attention"]["reason"] == "execution_in_progress"
         assert "loop_id" not in view
         assert "iterations" not in view
     finally:
@@ -1033,6 +1068,7 @@ def test_worker_failure_is_safe_and_does_not_affect_another_task():
             "round_count": 0,
             "usage": None,
             "audit_degraded": False,
+            "attention": attention_for_reason("internal_error").model_dump(mode="json"),
         }
         assert service.query(healthy.task_id)["status"] == "completed"
     finally:

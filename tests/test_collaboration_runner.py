@@ -661,6 +661,12 @@ def test_duo_audit_projection_uses_only_safe_counters(tmp_path: Path):
         "evaluator_attempts",
         "rounds",
         "revision",
+        "digest_prefix",
+        "verified_fact_count",
+        "open_receipt_count",
+        "capability_count",
+        "receipt_visibility",
+        "return_owner",
     }
     assert all(set(event.parameters) <= allowed for event in collaboration_events)
     assert all(event.parameters["loop_id"] == "b" * 32 for event in collaboration_events)

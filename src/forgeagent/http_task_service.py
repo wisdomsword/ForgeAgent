@@ -14,6 +14,7 @@ from types import MappingProxyType
 from typing import Protocol
 from uuid import uuid4
 
+from .attention import Attention, attention_for_reason
 from .audit import AuditSink
 from .collaboration import (
     CollaborationMode,
@@ -128,6 +129,12 @@ class TaskRecord:
             or (outcome_status.reason if outcome_status is not None else None)
         )
         status, reason = _public_status_reason(self.status, reason, mode=mode)
+        attention = _record_attention(
+            self,
+            status=status,
+            reason=reason,
+            mode=mode,
+        )
         view: dict[str, object] = {
             "task_id": self.task_id,
             "mode": mode,
@@ -137,6 +144,7 @@ class TaskRecord:
             "round_count": len(self.outcome.rounds) if self.outcome is not None else 0,
             "usage": _usage_summary(self.outcome),
             "audit_degraded": self.audit_degraded or service_audit_degraded,
+            "attention": attention.model_dump(mode="json"),
         }
         if mode in {"duo", "triad"}:
             report = self.collaboration_report
@@ -746,6 +754,25 @@ def _public_status_reason(
     if status == reason and reason in _PUBLIC_TERMINAL_REASONS:
         return status, reason
     return "failed", "internal_error"
+
+
+def _record_attention(
+    record: TaskRecord, *, status: str, reason: str | None, mode: str
+) -> Attention:
+    """Project attention without exposing private task, loop, or collaboration text."""
+    if record.outcome is not None and record.outcome.status.attention is not None:
+        return record.outcome.status.attention
+    if record.loop_report is not None and record.loop_report.attention is not None:
+        return record.loop_report.attention
+    if (
+        mode in {"duo", "triad"}
+        and record.collaboration_report is not None
+        and record.collaboration_report.stop_reason == "needs_confirmation"
+    ):
+        return attention_for_reason("needs_info", "Confirm the generated plan before continuing.")
+    if status in _PUBLIC_NONTERMINAL_STATES:
+        return attention_for_reason(None)
+    return attention_for_reason(reason)
 
 
 def _record_loop_id(record: TaskRecord) -> str | None:
