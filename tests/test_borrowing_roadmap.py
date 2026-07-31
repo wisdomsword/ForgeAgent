@@ -5,12 +5,18 @@ BORROWING = ROOT / "docs" / "reviews" / "2026-07-30-agent开发指南评审-借�
 PROCESS = ROOT / "docs" / "reviews" / "2026-07-30-agent开发指南评审-综合借鉴清单与任务开发流程.md"
 PLAN = ROOT / "ACTION_PLAN.md"
 M33_MILESTONE = ROOT / "milestones" / "milestone_033.md"
-LATEST_MILESTONE = ROOT / "milestones" / "milestone_034.md"
+M34_MILESTONE = ROOT / "milestones" / "milestone_034.md"
 CURRENT_MILESTONE = ROOT / "milestones" / "milestone_039.md"
 M40_MILESTONE = ROOT / "milestones" / "milestone_040.md"
+M41_MILESTONE = ROOT / "milestones" / "milestone_041.md"
 LATEST = ROOT / "milestones" / "latest"
 RECEIPT_SPEC = ROOT / "openspec" / "specs" / "external-action-receipts" / "spec.md"
 BORROWING_SPEC = ROOT / "openspec" / "specs" / "borrowing-review-baseline" / "spec.md"
+CLI_BOUNDARY_SPEC = ROOT / "openspec" / "specs" / "cli-boundary-maintainability" / "spec.md"
+M41_VERIFY_REPORT = (
+    ROOT / "docs" / "superpowers" / "reports" / "2026-07-31-cli-boundary-extraction-verify.md"
+)
+M41_DOCUMENT_AUDIT = ROOT / "docs" / "reviews" / "2026-07-31-M41文档完成度审计.md"
 RETIRED_RELEASE_CHANGE = (
     ROOT
     / "openspec"
@@ -26,6 +32,9 @@ RETIRED_RELEASE_README = (
     / "archive"
     / "2026-07-31-retired-pypi-publication-goal"
     / "README.md"
+)
+EXTERNAL_RECEIPT_ARCHIVE = (
+    ROOT / "openspec" / "changes" / "archive" / "2026-07-30-external-action-receipts"
 )
 
 
@@ -52,16 +61,25 @@ def test_borrowing_candidates_map_to_completed_evidence() -> None:
     assert "真实需求和独立 change" in process
 
 
-def test_review_documents_track_m34_runtime_baseline() -> None:
+def test_process_review_links_to_the_archived_receipt_change() -> None:
+    process = _read(PROCESS)
+    assert EXTERNAL_RECEIPT_ARCHIVE.is_dir()
+    expected_link = "../../openspec/changes/archive/2026-07-30-external-action-receipts/"
+    assert expected_link in process
+
+
+def test_review_documents_track_m41_runtime_baseline() -> None:
     borrowing = _read(BORROWING)
     process = _read(PROCESS)
-    assert "forgeagent_baseline: M34" in borrowing
-    assert "milestones/milestone_034.md" in borrowing
-    assert "当前基线：ForgeAgent M34" in process
+    assert "forgeagent_baseline: M41" in borrowing
+    assert "milestones/milestone_041.md" in borrowing
+    assert "当前基线：ForgeAgent M41" in process
     assert "runtime-skill-exit-contract" in process
-    assert "运行时 Skill 自动拒绝已由独立" in process
+    assert "运行时 Skill 自动拒绝已由 `runtime-skill-exit-contract` change 落地并归档" in process
     assert "既有 Memory 元数据迁移" in process
-    assert "新的 Rewrite/依赖变更" in process
+    assert "未来新的 Rewrite/依赖变更" in process
+    assert "M41 首次" in process
+    assert "运行时依赖仍为 8" in process
 
 
 def test_http_action_approval_binding_remains_conditional() -> None:
@@ -76,7 +94,8 @@ def test_http_action_approval_binding_remains_conditional() -> None:
 
 def test_next_step_summary_lists_all_conditional_items() -> None:
     borrowing = _read(BORROWING)
-    assert "既有 Memory 元数据迁移、新 Rewrite/依赖变更，以及 HTTP 远程动作审批绑定" in borrowing
+    expected = "既有 Memory 元数据迁移、未来新的 Rewrite/依赖变更，以及 HTTP 远程动作审批绑定"
+    assert expected in borrowing
     assert "真实触发后另立 change" in borrowing
 
 
@@ -89,15 +108,29 @@ def test_m33_and_receipt_purpose_are_traceable() -> None:
     assert "Purpose: TBD" not in _read(RECEIPT_SPEC)
     assert "durable, bounded" in _read(RECEIPT_SPEC)
     assert "Purpose: TBD" not in _read(BORROWING_SPEC)
+    assert "TBD - created by archiving change" not in _read(CLI_BOUNDARY_SPEC)
+    assert "measurable, reversible boundaries" in _read(CLI_BOUNDARY_SPEC)
     milestone = _read(M33_MILESTONE)
     assert "external-action-receipts" in milestone
     assert "publish-v0-1-0" in milestone
-    assert "M34" in _read(LATEST_MILESTONE)
+    assert "M34" in _read(M34_MILESTONE)
     assert "M37" in _read(CURRENT_MILESTONE)
     assert "M38" in _read(CURRENT_MILESTONE)
     assert "M39" in _read(CURRENT_MILESTONE)
     assert "M40" in _read(M40_MILESTONE)
     assert "loop-handoff-contract" in _read(M40_MILESTONE)
+    assert "M41 无未完成任务" in _read(M41_MILESTONE)
+    assert "四处兼容/归属问题" in _read(M41_MILESTONE)
+
+
+def test_m41_documented_requirement_and_scenario_counts_match_the_spec() -> None:
+    spec = _read(CLI_BOUNDARY_SPEC)
+    assert spec.count("### Requirement:") == 4
+    assert spec.count("#### Scenario:") == 9
+    for document in (M41_VERIFY_REPORT, M41_DOCUMENT_AUDIT):
+        content = _read(document)
+        assert "4/4 requirements" in content
+        assert "9/9 scenarios" in content
 
 
 def test_removed_distribution_goal_is_retired_and_traceable() -> None:

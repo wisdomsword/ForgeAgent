@@ -1,7 +1,8 @@
 # cli-boundary-maintainability Specification
 
 ## Purpose
-TBD - created by archiving change extract-cli-boundaries. Update Purpose after archive.
+Define measurable, reversible boundaries for extracting ForgeAgent CLI responsibilities while preserving the `forgeagent.cli` compatibility facade, command and HTTP behavior, dependency count, and rollback guarantees.
+
 ## Requirements
 ### Requirement: CLI extraction is gated by six measured dimensions
 

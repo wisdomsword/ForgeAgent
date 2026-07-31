@@ -5,6 +5,7 @@
 - 日期：2026-07-31
 - 验证模式：full
 - 基线提交：`a2c9925f471cd76a0411befd1902793786258595`
+- 归档：`openspec/changes/archive/2026-07-31-extract-cli-boundaries`
 
 ## 结论
 
@@ -15,7 +16,7 @@ M41 符合四个内部边界、兼容门面和六项 Rewrite/Dependency 门禁�
 | Dimension | Status |
 | --- | --- |
 | Completeness | 9/9 tasks；4/4 requirements 有实现证据 |
-| Correctness | 8/8 scenarios 有代码与测试覆盖 |
+| Correctness | 9/9 scenarios 有代码与测试覆盖 |
 | Coherence | 遵循四模块、单向依赖、兼容 façade 设计 |
 
 ### Issues by Priority
@@ -24,7 +25,7 @@ M41 符合四个内部边界、兼容门面和六项 Rewrite/Dependency 门禁�
 - WARNING：无。
 - SUGGESTION：无。当前 `cli.py` 为 1789 行，距离 1800 行硬阈值仅余 11 行；后续新增 CLI 职责应进入既有边界，不能回填主模块。
 
-最终判断：All checks passed. Ready for archive.
+最终判断：All checks passed. Change archived; M41 lifecycle complete.
 
 ## 需求与场景映射
 

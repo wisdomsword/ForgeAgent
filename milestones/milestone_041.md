@@ -22,7 +22,7 @@
 - [x] 建立六项基线、硬阈值、回滚规则和 7 组帮助哈希。
 - [x] 顺序提取 parser/config、collaboration adapter、REPL、HTTP/client 四个边界。
 - [x] 保留动态 façade bindings、旧导入、输出、HTTP 与资源所有权契约。
-- [x] 完成两轮自审并修复发现的三处兼容/归属问题。
+- [x] 完成两轮自审并修复发现的四处兼容/归属问题。
 - [x] 完成聚焦、全量、性能、结构、静态、构建和 OpenSpec 验证。
 - [x] 完成 Comet verify、主规格合并和 change 归档。
 
@@ -62,9 +62,9 @@
 - [x] Ruff check、134 文件 format check、`uv build`、diff check 通过。
 - [x] OpenSpec strict：`32 passed, 0 failed`；Comet change 已归档。
 
-## 遗留问题
+## 已知约束
 
-- [ ] `cli.py` 距 1800 行阈值仅余 11 行 — 影响：后续直接向主模块增加职责会重新触发维护门禁 — 计划：新 CLI 逻辑进入既有四边界，只有兼容 façade/顶层分派保留在主模块。
+M41 无未完成任务。`cli.py` 距 1800 行阈值仅余 11 行，因此后续新增 CLI 逻辑必须进入既有四边界，只有兼容 façade 和顶层分派保留在主模块；这是持续维护门禁，不是 M41 遗留实现项。
 
 ## 续接指引
 
