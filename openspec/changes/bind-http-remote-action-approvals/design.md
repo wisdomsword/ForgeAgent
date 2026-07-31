@@ -58,7 +58,7 @@ M44 只扩展已认证的本地控制面。它不把 HTTP listener 暴露到非 
 - `POST /action-approvals`：严格签发，TTL 为 1-3600 秒。
 - `GET /action-approvals/{approval_id}`：返回固定公开字段。
 - `POST /action-approvals/{approval_id}/revoke`：空 body，幂等返回当前终态；不能撤销已消费动作。
-- `GET /tasks/{task_id}/receipts`：只返回属于该 retained task 的 open receipts 的有界公开投影。
+- `GET /tasks/{task_id}/receipts`：只返回属于 retained task 的 open receipts；进程重启后，exact task ID 匹配的 durable open receipt 可单独建立恢复权限，未知 task 且无匹配 receipt 仍为 404。
 - `POST /tasks/{task_id}/receipts/{action_id}/resolve`：携带 expected revision 和 `confirmed|abandoned|retry_approved` 决策；confirmed 必须有有界 evidence。
 
 错误只使用固定 kind/detail。未知 ID、跨任务 action、stale revision、过期审批和状态冲突不返回原始记录或异常。所有路由继续使用相同 Bearer token、body 限制、origin-form target 和 no-store 响应。

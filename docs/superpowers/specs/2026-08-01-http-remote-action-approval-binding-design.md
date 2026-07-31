@@ -149,7 +149,7 @@ approval IDs 不进入 `options`，所以不能到达 Task、Loop、Collaboratio
 {"expected_revision":2,"decision":"confirmed","evidence":"provider event 123"}
 ```
 
-decision 只接受 `confirmed|abandoned|retry_approved`；confirmed evidence 必须非空且有界。handler 先验证 retained task，再由 service load receipt、验证 task ownership 和 open 状态，最后调用 store CAS。
+decision 只接受 `confirmed|abandoned|retry_approved`；confirmed evidence 必须非空且有界。service 优先验证 retained task；若进程重启后 task record 已消失，则只有 route task ID 完全匹配的 durable open receipt 可以建立恢复权限，随后验证 action ownership、open 状态和 revision 并调用 store CAS。无匹配 receipt 的未知 task 仍返回 404。
 
 ### 6.3 固定错误
 

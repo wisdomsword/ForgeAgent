@@ -20,11 +20,15 @@ The HTTP task service SHALL expose authenticated endpoints to issue, query, and 
 - **THEN** service startup still fails closed and exposes no listener
 
 ### Requirement: HTTP receipt recovery is explicit and task-scoped
-The HTTP task service SHALL let an authenticated caller list open external-action receipts for one retained task and apply an explicit compare-and-swap reconciliation decision. It MUST NOT expose receipts owned by another task, raw arguments, or an automatic replay operation.
+The HTTP task service SHALL let an authenticated caller list open external-action receipts for one retained task and apply an explicit compare-and-swap reconciliation decision. After process restart removes task records, an exact task ID match on a durable open receipt SHALL establish only that receipt recovery scope. It MUST NOT expose receipts owned by another task, raw arguments, or an automatic replay operation.
 
 #### Scenario: List one task's pending receipts
 - **WHEN** an authenticated caller lists receipts for a retained task
 - **THEN** the service returns only bounded public fields for open receipts whose authoritative task ID matches the route
+
+#### Scenario: Recover durable receipt after process restart
+- **WHEN** the process-local task record and approvals are gone but a durable open receipt exactly matches the route task ID
+- **THEN** the service permits listing and reconciliation for that receipt only, without reconstructing an approval or task and without dispatching
 
 #### Scenario: Resolve an unknown receipt with evidence
 - **WHEN** an authenticated caller supplies the current revision, the `confirmed` decision, and bounded evidence for an unknown receipt owned by the task
@@ -37,4 +41,3 @@ The HTTP task service SHALL let an authenticated caller list open external-actio
 #### Scenario: Receipt does not match route authority
 - **WHEN** the action ID is unknown, belongs to a different task, is already resolved, or has a stale revision
 - **THEN** the service returns a fixed non-disclosing not-found or conflict error and performs no transition
-

@@ -95,7 +95,7 @@ Planner approval policy.
 | `POST` | `/action-approvals` | `201` with one short-lived MCP `allow_once` approval |
 | `GET` | `/action-approvals/{32-hex-id}` | `200` bounded approval state projection |
 | `POST` | `/action-approvals/{32-hex-id}/revoke` | `200` with the serialized revoke/consume result |
-| `GET` | `/tasks/{task-id}/receipts` | `200` with the retained task's open receipts |
+| `GET` | `/tasks/{task-id}/receipts` | `200` with task-owned open receipts, including restart recovery |
 | `POST` | `/tasks/{task-id}/receipts/{action-id}/resolve` | `200` after revision-guarded explicit resolution |
 
 Accepted task bodies include:
@@ -204,9 +204,12 @@ already-terminal results unchanged.
 HTTP tasks use the same allowed-root receipt store for approved non-read-only MCP
 actions. A receipt is durably prepared before dispatch; protocol responses become
 `confirmed`, while timeout/cancel/exception uncertainty becomes `unknown`. An open
-receipt blocks Loop resume/next iteration with `external_action_pending`. HTTP does
+receipt blocks Loop resume/next iteration with `external_action_pending`. While the
+task record is retained it establishes route ownership; after restart, a durable open
+receipt with the exact route `task_id` establishes the same narrow recovery scope. An
+unknown task with no matching open receipt remains a non-disclosing `404`. HTTP does
 not expose automatic replay. An authenticated controller can list open receipts for a
-retained task and apply a revision-guarded `confirmed`, `abandoned`, or `retry_approved`
+task and apply a revision-guarded `confirmed`, `abandoned`, or `retry_approved`
 resolution. `confirmed` requires bounded evidence, but responses and audit expose only a
 fixed evidence code. Listing and resolution never call MCP or resume a task;
 `retry_approved` merely closes the old receipt, and any future attempt needs a new action

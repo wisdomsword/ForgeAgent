@@ -231,7 +231,7 @@ Expected: FAIL，路由不存在或请求被 invalid_request 拒绝。
 
 - [ ] **Step 4: 写 receipt routes RED 测试**
 
-覆盖 task retained check、open list、unknown confirmed + evidence、abandoned/retry、cross-task 404、stale 409、invalid decision 400，并用 counting fake 证明 resolve 前后 dispatch count 不变。
+覆盖 retained task 与 restart durable-receipt ownership、open list、unknown confirmed + evidence、abandoned/retry、cross-task 404、stale 409、invalid decision 400，并用 counting fake 证明 resolve 前后 dispatch count 不变。
 
 - [ ] **Step 5: 实现 receipt routes 并跑完整 HTTP GREEN**
 

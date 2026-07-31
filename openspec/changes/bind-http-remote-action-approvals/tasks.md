@@ -11,7 +11,7 @@
 ## 3. HTTP 控制面与 receipt 恢复
 
 - [x] 3.1 增加严格认证的审批签发、查询、撤销路由和任务 `approval_ids` 解析，保持旧请求/错误/loopback-only 契约。
-- [x] 3.2 增加按 retained task 列出 open receipts 和 CAS reconcile 路由，覆盖跨任务、stale revision、evidence、无自动 dispatch 与固定错误。
+- [x] 3.2 增加按 retained task 或重启后 durable receipt owner 列出 open receipts 和 CAS reconcile 路由，覆盖跨任务、stale revision、evidence、无自动 dispatch 与固定错误。
 - [x] 3.3 在 HTTP CLI 组装中向 confirmer 与 TaskService 注入同一审批/receipt 权威实例，并验证资源生命周期。
 
 ## 4. 验证、文档与里程碑

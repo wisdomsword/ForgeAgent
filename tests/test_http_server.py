@@ -16,7 +16,7 @@ from forgeagent.audit import AuditEvent
 from forgeagent.client import MockClient
 from forgeagent.context import ContextConfig
 from forgeagent.external_actions import ExternalActionReceiptStore
-from forgeagent.http_action_approvals import HttpActionApprovalStore
+from forgeagent.http_action_approvals import ApprovalNotFoundError, HttpActionApprovalStore
 from forgeagent.http_config import HttpServiceConfig
 from forgeagent.http_server import (
     ForgeRequestHandler,
@@ -89,6 +89,8 @@ def test_submission_parser_accepts_strict_task_and_collaboration_modes(mode):
         {"goal": "x", "mode": "duo", "evaluator_model": "owned-by-client"},
         {"goal": "x", "mode": "triad", "max_rejections": 9},
         {"goal": "x", "mode": "triad", "triad_plan_policy": "preauthorize"},
+        {"goal": "x", "request_digest": "f" * 64},
+        {"goal": "x", "server": "github", "tool": "create_issue"},
     ],
 )
 def test_submission_parser_rejects_unknown_and_server_owned_collaboration_fields(body):
@@ -607,6 +609,63 @@ def test_http_receipt_routes_use_fixed_task_receipt_and_store_errors(
     status, response, _raw = _request_via_handler(server, "GET", f"/tasks/{owner.task_id}/receipts")
     assert status == 503
     assert response["error"]["kind"] == "receipt_unavailable"
+
+
+def test_http_receipt_recovery_survives_process_local_task_and_approval_loss(
+    tmp_path,
+) -> None:
+    task_id = "a" * 32
+    old_approvals = HttpActionApprovalStore(max_records=2)
+    approval = old_approvals.issue(
+        server="github",
+        tool="create_issue",
+        request_digest="f" * 64,
+        expires_in_seconds=60,
+    )
+    first_store = ExternalActionReceiptStore(str(tmp_path))
+    receipt = first_store.create_prepared(
+        task_id=task_id,
+        server_label="github",
+        tool_label="create_issue",
+        request_digest="f" * 64,
+    )
+    receipt = first_store.mark_dispatched(receipt.action_id, receipt.revision)
+    receipt = first_store.mark_unknown(receipt.action_id, receipt.revision, "result_unknown")
+    first_store.close()
+
+    fresh_approvals = HttpActionApprovalStore(max_records=2)
+    reopened_store = ExternalActionReceiptStore(str(tmp_path))
+    config = HttpServiceConfig(token="test-token", max_workers=1, max_records=2)
+    service = TaskService(
+        factory=lambda _record: FakeTask(_outcome()),
+        config=config,
+        approval_store=fresh_approvals,
+        receipt_store=reopened_store,
+    )
+    server = SimpleNamespace(config=config, task_service=service, audit_sink=RecordingSink())
+    try:
+        with pytest.raises(ApprovalNotFoundError):
+            fresh_approvals.get(approval.approval_id)
+
+        status, listed, _raw = _request_via_handler(server, "GET", f"/tasks/{task_id}/receipts")
+        assert status == 200
+        assert listed["receipts"][0]["phase"] == "unknown"
+
+        status, resolved, _raw = _request_via_handler(
+            server,
+            "POST",
+            f"/tasks/{task_id}/receipts/{receipt.action_id}/resolve",
+            body={
+                "expected_revision": receipt.revision,
+                "decision": "confirmed",
+                "evidence": "provider confirmation after restart",
+            },
+        )
+        assert status == 200
+        assert resolved["resolution"] == "confirmed"
+    finally:
+        service.shutdown(1.0)
+        reopened_store.close()
 
 
 def test_submit_query_cancel_and_auth(running_server):

@@ -273,13 +273,23 @@ class TaskService:
         return self._approval_store.revoke(approval_id).public_view()
 
     def list_task_receipts(self, task_id: str) -> tuple[dict[str, object], ...]:
-        self._require_retained_task(task_id)
+        task_error: TaskNotFound | None = None
+        try:
+            self._require_retained_task(task_id)
+        except TaskNotFound as error:
+            task_error = error
         if self._receipt_store is None:
+            if task_error is not None:
+                raise task_error
             raise ReceiptServiceUnavailable
         try:
             receipts = self._receipt_store.list_pending(task_id=task_id)
         except ReceiptError:
+            if task_error is not None:
+                raise task_error from None
             raise ReceiptServiceUnavailable from None
+        if task_error is not None and not receipts:
+            raise task_error
         return tuple(_receipt_public_view(receipt) for receipt in receipts)
 
     def resolve_task_receipt(
@@ -291,16 +301,26 @@ class TaskService:
         decision: ReceiptResolution,
         evidence: str = "",
     ) -> dict[str, object]:
-        self._require_retained_task(task_id)
+        task_error: TaskNotFound | None = None
+        try:
+            self._require_retained_task(task_id)
+        except TaskNotFound as error:
+            task_error = error
         if self._receipt_store is None:
+            if task_error is not None:
+                raise task_error
             raise ReceiptServiceUnavailable
         try:
             receipt = self._receipt_store.load(action_id)
         except ReceiptError as error:
+            if task_error is not None:
+                raise task_error from None
             if isinstance(error.__cause__, FileNotFoundError):
                 raise TaskReceiptNotFound from None
             raise ReceiptServiceUnavailable from None
         if receipt.task_id != task_id:
+            if task_error is not None:
+                raise task_error
             raise TaskReceiptNotFound
         if receipt.resolution != "open" or receipt.revision != expected_revision:
             raise TaskReceiptConflict
