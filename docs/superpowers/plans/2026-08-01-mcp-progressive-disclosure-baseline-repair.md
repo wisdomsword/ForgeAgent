@@ -2,6 +2,7 @@
 change: repair-mcp-progressive-disclosure-baseline
 design-doc: docs/superpowers/specs/2026-08-01-mcp-progressive-disclosure-baseline-repair-design.md
 base-ref: 8513bef069ef75ec7b9959a3112e0863722239a0
+archived-with: 2026-07-31-repair-mcp-progressive-disclosure-baseline
 ---
 
 # MCP 渐进披露基线修复实施计划

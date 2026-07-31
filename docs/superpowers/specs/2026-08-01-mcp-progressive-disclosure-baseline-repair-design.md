@@ -2,6 +2,8 @@
 comet_change: repair-mcp-progressive-disclosure-baseline
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-07-31-repair-mcp-progressive-disclosure-baseline
+status: final
 ---
 
 # MCP 渐进披露基线修复技术设计
