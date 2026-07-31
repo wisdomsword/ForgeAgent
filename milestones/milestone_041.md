@@ -51,6 +51,7 @@
 - [x] 修复直接 alias 导致 `cli.load_registry` monkeypatch 失效的问题。
 - [x] 修复启动显示绕过当前 façade 能力 callback 的问题。
 - [x] 修复两段配置解析仍滞留 `cli.py` 的边界遗漏。
+- [x] 修复规划追溯测试仍固定指向 M40 的归档后失败。
 - [x] M41 前已有的 5 行 `receipt_store` 工作区改动保持未提交，未被本里程碑覆盖。
 
 ### 验收评审

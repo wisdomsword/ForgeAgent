@@ -39,6 +39,7 @@ M41 符合四个内部边界、兼容门面和六项 Rewrite/Dependency 门禁�
 - 第一轮逐调用检查 façade、bindings 和资源所有权，发现 `build_real_client` 的直接 alias 不再使用当前 `cli.load_registry`，以及 `_StartupDisplay` 绕过当前门面的启动能力判断；已改为薄 wrapper 和显式 callback，并补失败优先回归。
 - 第二轮检查模块归属、依赖方向、阈值和工作区隔离，发现两段环境配置解析仍留在 `cli.py`；已迁至 `_cli_parser.py`，门面只负责读取环境和传递当前 loader/normalizer。
 - 修复后 CLI/HTTP/M41 回归 `397 passed`，最终边界聚焦 `483 passed`。CodeGraph 调用路径复核与 AST 检查均未发现反向依赖或循环。
+- 归档后全量首次发现规划追溯测试仍固定指向 M40；已推进到 M41，并在通过专项后重新运行全量门禁。
 - 当前会话策略禁止启动子代理，因此 standard review 由两轮独立自审完成；没有把该限制伪装成外部 reviewer 结论。
 
 ## 六项终值
