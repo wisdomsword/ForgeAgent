@@ -369,8 +369,10 @@ REPL 内输入 `/` 加回车查看指令菜单，或直接 `/help`。当前支�
 REPL 命令必须以 `/` 开头。裸 `models`、`reload`、`mcp` 和 `mcp ...` 都是普通任务目标；这与顶层 CLI 子命令 `forgeagent models` 无关，后者仍用于列出模型。
 
 Memory 只保存经过确定性准入的事实、偏好和决策。session scope 只在当前 REPL 进程内有效，绝不落盘；
-只有通过确定性准入的合法 project scope 候选才使用稳定本地锁，在锁内重读并合并最新条目后原子持久化。
-相同 key 按后获得锁者替换，不同 key 不互相丢失。文件仍可直接编辑纠正，`--no-memory` 同时关闭两级记忆。
+project scope 使用宿主所有的 v2 metadata、稳定本地锁和写后语义验证。到期或待复核记录保留在存储中，
+但不进入 prompt。旧 v1 文件只读兼容，新的 project 写入前必须显式迁移；不要直接编辑 v2 header 或
+metadata。readiness、manifest、私有备份和 revision 绑定 rollback 见 M42
+[Project Memory v2 与迁移](docs/memory-migration.md)。`--no-memory` 同时关闭两级记忆。
 
 交互式终端中的 REPL 会在输入 `/` 时即时显示 slash 指令，并随继续输入过滤候选；可用键盘选择候选。上下方向键只回放当前进程内的会话输入，ForgeAgent 不会把 REPL 历史写入文件。测试注入 reader 和非 TTY 输入仍沿用普通输入路径。
 
