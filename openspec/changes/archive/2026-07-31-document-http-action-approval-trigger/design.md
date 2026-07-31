@@ -25,4 +25,3 @@ M35 synchronized the review documents to the M34 runtime Skill baseline. A secon
 
 - [Risk] Future readers may interpret the candidate as delivered. -> Explicitly state current loopback-only scope and no runtime change in both documents and the test.
 - [Risk] The trigger may be too vague. -> Name the minimum evidence: a concrete remote action, approval fields, and a verifier that binds the approval to the action digest/scope.
-

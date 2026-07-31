@@ -90,4 +90,3 @@ class Attention(BaseModel):
 ## 8. 失败关闭和回滚
 
 任何无法安全构造 Attention 的输入都降级为现有失败/needs_info 结构，而不是暴露未验证文本。新增字段均有默认值，旧 checkpoint 和旧 HTTP 客户端可继续工作。若验证失败，保留 change 在 build/verify 阶段，不修改 `openspec/changes/publish-v0-1-0`。
-

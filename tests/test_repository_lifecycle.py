@@ -78,8 +78,14 @@ def test_m29_m38_lifecycle_whitelist_exists() -> None:
 def test_recovered_archives_are_verified_terminal_changes() -> None:
     for archive in RESTORED_ARCHIVES:
         state = _read(archive / ".comet.yaml")
-        for expected in ("phase: archive", "verify_result: pass", "archived: true"):
-            assert expected in state, f"{archive.name} missing {expected}"
+        for field, expected in (
+            ("phase", "archive"),
+            ("verify_result", "pass"),
+            ("archived", "true"),
+        ):
+            assert re.search(rf"(?m)^{field}:\s*{expected}\s*$", state), (
+                f"{archive.name} missing exact {field}: {expected}"
+            )
     assert not (ROOT / "openspec" / "changes" / "publish-v0-1-0").exists()
 
 

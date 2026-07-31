@@ -38,4 +38,3 @@ status: final
 ## 验证策略
 
 先写测试验证目录长度/无 schema 泄漏、详情查找、未知工具、secret masking、重复请求确定性和 MCP/CLI 兼容；再实现最小改动。最终运行专项与全量 pytest、Ruff、格式检查、`uv build`、OpenSpec strict，并进行两轮一致性与遗漏自评。
-

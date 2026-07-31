@@ -50,4 +50,3 @@ archived-with: 2026-07-30-structured-collaboration-handoff
 - [x] 记录真实验证输出、代码评审结论和遗留边界。
 - [x] 更新 M31 计划与 milestone 续接指引；保持 PyPI 发布暂停。
 - [x] 仅在验证通过后归档本 change；不触碰 `publish-v0-1-0`。
-

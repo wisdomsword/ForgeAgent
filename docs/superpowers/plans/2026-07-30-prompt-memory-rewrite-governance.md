@@ -133,4 +133,3 @@ archived-with: 2026-07-30-prompt-memory-rewrite-governance
 - [x] **Step 3: Record evidence and archive through Comet**
 
   Check every task, write the verification report and M32 milestone, run `comet-guard ... build --apply`, then verify. Keep the branch and do not publish; archive only after the user’s explicit final archive confirmation if the bridge receives one.
-

@@ -59,4 +59,3 @@ ForgeAgent 当前通过 `SkillRegistry` 发现并解析本地 `SKILL.md`，以�
 1. **所有 Skill 隐式强制五类字段**：会让历史用户 Skill 在升级后失效，超出本 change 的迁移范围。
 2. **仅在开发期文档校验**：无法阻止运行时未治理 Skill 进入模型上下文，不能解决已识别缺口。
 3. **新增独立 JSON 文件或新依赖**：增加同步、信任和部署复杂度；现有 YAML front matter 足以表达固定结构。
-

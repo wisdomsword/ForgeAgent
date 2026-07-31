@@ -180,4 +180,3 @@ Expected: 全部 PASS；发布任务仍未执行。
 - [x] **Step 3: 两轮最终自评**
 
 第一轮逐项对照 proposal/spec/design/tasks；第二轮检查模糊、错误、过度保守、前后不一致、遗漏、兼容性和 secret 泄露。发现问题立即修复并重跑受影响验证。
-

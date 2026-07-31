@@ -1,8 +1,8 @@
 # M45 M29-M38 生命周期工件对账报告
 
-日期：2026-08-01  
-变更：`reconcile-m29-m38-artifacts`  
-基线：M44 集成提交 `8513bef069ef75ec7b9959a3112e0863722239a0`  
+日期：2026-08-01
+变更：`reconcile-m29-m38-artifacts`
+基线：M44 集成提交 `8513bef069ef75ec7b9959a3112e0863722239a0`
 工作分支：`feature/20260801/m45-baseline-reconciliation`
 
 ## 结论
@@ -29,7 +29,9 @@ M29-M38 的开发、验证和归档工件此前没有完整进入当前基线，
 
 ## 来源摘要
 
-以下 SHA256 来自来源工作区 `/Users/admin/Code/llm-agent/ForgeAgent`，用于确认恢复前的输入；archive 行是按相对文件名排序后的 tree manifest 摘要。
+以下 SHA256 来自来源工作区 `/Users/admin/Code/llm-agent/ForgeAgent`，用于确认恢复前的输入；archive 行是按相对文件名排序后的 tree manifest 摘要。为通过 M45 的基线区间 `git diff --check`，恢复后的 Markdown 只做了去除行尾空白和多余 EOF 空行的语义无关规范化；下列 source SHA 保留原始输入，规范化过程不改变正文语义。
+
+archive tree manifest 的可复算定义为：对 archive 内所有文件按相对路径字典序排列，逐行拼接 `sha256(file) + "  " + relative_path + "\\n"`，再对整个 UTF-8 文本计算 SHA256。
 
 ```text
 c652b53a86b72425a9f24c99d6a6af4f7c226e7ec2276bbcb4db87916cf46a18  milestones/milestone_029.md
@@ -73,6 +75,10 @@ aa79e856fc24689c67bea60f5b20e6683587c9f3f2105e3499950e8b7bc3f7fc  openspec/chang
 bb26172cedd54c9c8821f21b0a1d7af9cfb4bb82ac2d9126a14fb8668b13694f  openspec/changes/archive/2026-07-31-retire-pypi-publication-goal (tree manifest)
 467a5cdeaa9b9a44327933f2ca207ceaeab68e5b750369a3daba87a6a731c7e4  openspec/changes/archive/2026-07-31-sync-borrowing-review-m34-baseline (tree manifest)
 ```
+
+## 契约范围与残余
+
+`tests/test_repository_lifecycle.py` 有意固定 M29-M38 恢复白名单，并验证这组工件的链接、archive 终态和主规格边界；M39-M45 的现行工件由各自里程碑和变更验证负责，不在本次历史恢复中递归重写。来源工作区中未纳入白名单的 Memory 迁移计划属于后续条件候选，本变更不采纳它，也不把它伪装成 M29-M38 证据。
 
 ## 验证计划与当前状态
 

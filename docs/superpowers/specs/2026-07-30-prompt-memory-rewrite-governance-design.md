@@ -65,4 +65,3 @@ status: final
 2. 写 canonical 文档和四处规范引用，重跑专项测试。
 3. 执行全量 `pytest`、Ruff check/format、`git diff --check`、OpenSpec strict。
 4. 完成两轮最终自评，确认无运行时行为、无 Memory 迁移、无发布动作。
-

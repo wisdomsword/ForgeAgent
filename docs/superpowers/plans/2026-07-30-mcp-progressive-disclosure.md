@@ -48,4 +48,3 @@ archived-with: 2026-07-30-mcp-progressive-disclosure
 - [x] 运行全量 pytest、Ruff check、Ruff format check、`uv build` 和 OpenSpec strict。
 - [x] 进行两轮最终自评：逐项核对 proposal/design/spec/tasks/实现/验证；再检查模糊、错误、过度保守、前后不一致、遗漏和 secret 泄露。
 - [x] 发现问题立即修复并重跑受影响验证；更新 M30 里程碑和续接指引，保持 PyPI 发布暂停。
-

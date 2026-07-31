@@ -76,4 +76,3 @@ packet。Single 模式保持现有任务数据和控制流，不生成协作交�
 
 不实现 Agent 网络、并行调度、跨进程租约、数据库或远程 packet 服务；不把 packet
 作为新的公开 API；不引入新依赖、配置项、endpoint、发布动作或 PyPI 操作。
-
