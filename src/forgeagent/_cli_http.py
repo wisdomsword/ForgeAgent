@@ -146,9 +146,7 @@ def client_factory_for_registry(
     return build_from_snapshot
 
 
-def validate_context_policy(
-    model: str, registry: Registry, context_config: ContextConfig
-) -> None:
+def validate_context_policy(model: str, registry: Registry, context_config: ContextConfig) -> None:
     """Resolve the selected model and its context limits before publishing a snapshot."""
     SlidingWindowContextPolicy(get_capability(model, registry), None, context_config)
 
@@ -429,9 +427,7 @@ def serve_http(
     service: TaskService | None = None
     try:
         mcp = bindings.build_mcp_manager()
-        receipt_store = bindings.receipt_store_type(
-            settings.allowed_root, audit_sink=audit_sink
-        )
+        receipt_store = bindings.receipt_store_type(settings.allowed_root, audit_sink=audit_sink)
 
         def task_factory(record: TaskRecord) -> Task | LoopRunner | CollaborationRunner:
             options = getattr(record, "options", {})
@@ -631,9 +627,7 @@ def serve_http(
                 resume_loop_id = options.get("resume_loop_id")
                 if isinstance(resume_loop_id, str):
                     common["collaboration_builder"] = build_loop_collaboration
-                    loop_runner = bindings.loop_runner_type.resume(
-                        loop_id=resume_loop_id, **common
-                    )
+                    loop_runner = bindings.loop_runner_type.resume(loop_id=resume_loop_id, **common)
                     return loop_runner
                 budgets = LoopBudgets(
                     token_budget=options["token_budget"],

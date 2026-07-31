@@ -317,9 +317,7 @@ def repl(
         if confirmation_available is None:
             confirmation_available = console.is_terminal and sys.stdin.isatty()
         confirmer = (
-            bindings.make_console_confirmer(console, read_line)
-            if confirmation_available
-            else None
+            bindings.make_console_confirmer(console, read_line) if confirmation_available else None
         )
         identity_confirmer = (
             bindings.make_console_identity_confirmer(console, read_line)

@@ -1199,6 +1199,8 @@ _render_startup_summary = _cli_repl.render_startup_summary
 class _StartupDisplay(_cli_repl.StartupDisplay):
     def __init__(self, console: Console) -> None:
         super().__init__(console, live_type=Live, monotonic=lambda: time.monotonic())
+
+
 def repl(
     *,
     tier: Tier,
@@ -1444,6 +1446,8 @@ def serve_http(
         console=console,
         once=once,
     )
+
+
 def _run_evaluate_command(
     args,
     *,
