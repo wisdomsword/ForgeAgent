@@ -138,3 +138,22 @@ def test_current_baseline_is_not_replaced_by_historical_sources() -> None:
         ROOT / "openspec" / "specs" / "mcp-progressive-disclosure" / "spec.md"
     )
     assert (ROOT / "openspec" / "specs" / "http-action-approvals" / "spec.md").exists()
+
+
+def test_m34_runtime_skill_contract_keeps_executable_verifiers() -> None:
+    skill_tests = _read(ROOT / "tests" / "test_skills.py")
+    required_tests = (
+        "test_registry_accepts_governed_skill_and_reads_exit_conditions",
+        "test_registry_rejects_invalid_governed_exit_contract",
+        "test_registry_rejects_unsupported_format_version",
+        "test_registry_rejects_duplicate_nested_exit_keys",
+        "test_registry_isolates_recursive_yaml_alias",
+        "test_registry_rejects_control_characters_in_exit_contract",
+        "test_registry_keeps_legacy_skill_explicitly_version_one",
+        "test_skill_definition_exit_conditions_are_immutable",
+        "test_governed_exit_conditions_mask_sensitive_values",
+        "test_project_governed_exit_change_reconfirms_effective_digest",
+    )
+
+    missing = [name for name in required_tests if f"def {name}(" not in skill_tests]
+    assert not missing, f"missing M34 runtime Skill verifiers: {missing}"
