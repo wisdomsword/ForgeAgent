@@ -91,6 +91,16 @@ def test_cli_reexports_parser_boundary() -> None:
     assert cli._load_strict_json is _cli_parser.load_strict_json
 
 
+def test_cli_collaboration_boundary_exposes_explicit_bindings() -> None:
+    from forgeagent import _cli_collaboration
+
+    assert tuple(_cli_collaboration.CollaborationBindings.__dataclass_fields__) == (
+        "runner_type",
+        "task_type",
+        "validate_context_policy",
+    )
+
+
 @pytest.mark.parametrize(("argv", "stdout_bytes", "stdout_sha256"), HELP_BASELINE)
 def test_cli_help_output_matches_m41_baseline(
     argv: tuple[str, ...], stdout_bytes: int, stdout_sha256: str

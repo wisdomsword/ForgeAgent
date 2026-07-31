@@ -41,7 +41,7 @@ from rich.console import Console
 from rich.live import Live
 from rich.text import Text
 
-from . import _cli_parser, http_server
+from . import _cli_collaboration, _cli_parser, http_server
 from .anthropic_client import AnthropicClient
 from .audit import AuditSink, JsonlAuditSink
 from .client import ModelClient
@@ -115,6 +115,9 @@ _render_evaluation = _cli_parser.render_evaluation
 _run_evaluate_command_impl = _cli_parser.run_evaluate_command
 run_evaluator = _cli_parser.run_evaluator
 validate_artifact_manifest = _cli_parser.validate_artifact_manifest
+_console_plan_confirmer = _cli_collaboration.console_plan_confirmer
+_confirmed_collaboration_mode = _cli_collaboration.confirmed_collaboration_mode
+_render_collaboration_report = _cli_collaboration.render_collaboration_report
 
 _CONTEXT_CONFIG_ENVIRONMENT = "FORGEAGENT_INTERNAL_CONTEXT_CONFIG_JSON"
 _CANDIDATE_FILES_ENVIRONMENT = "FORGEAGENT_INTERNAL_CANDIDATE_REQUIRED_FILES_JSON"
@@ -679,38 +682,6 @@ def run_once(
     return outcome
 
 
-def _render_collaboration_report(report: CollaborationReport, console: Console) -> None:
-    console.print(f"collaboration id: {report.collaboration_id}")
-    console.print(f"mode: {report.mode}")
-    console.print(f"status: {report.status}")
-    console.print(f"stop reason: {report.stop_reason or 'active'}")
-    console.print(f"phase: {report.phase}")
-    console.print(
-        "counters: "
-        f"plan={report.plan_item_count} passed={report.passed_item_count} "
-        f"failed={report.failed_item_count} generator={report.generator_attempts} "
-        f"evaluator={report.evaluator_attempts} rejections={report.rejections} "
-        f"rounds={report.rounds} usage_available={report.usage_available}"
-    )
-    for item in report.evidence:
-        console.print(f"evidence: {item}", markup=False)
-
-
-def _console_plan_confirmer(
-    console: Console, read_line: Callable[[str], str] = input
-) -> Callable[[str], bool]:
-    def confirm(summary: str) -> bool:
-        console.print("[bold yellow]approve collaboration plan[/bold yellow]")
-        console.print(summary, markup=False)
-        try:
-            answer = read_line("approve plan? [y/N] ").strip().lower()
-        except EOFError:
-            return False
-        return answer in {"y", "yes"}
-
-    return confirm
-
-
 def run_collaboration_once(
     goal: str,
     *,
@@ -737,122 +708,36 @@ def run_collaboration_once(
     route_decision: ModeDecision | None = None,
     required_candidate_files: tuple[str, ...] = (),
 ) -> CollaborationReport:
-    if mode not in {"duo", "triad"}:
-        raise ValueError("collaboration mode must be duo or triad")
-    root = str(Path.cwd().resolve()) if allowed_root is None else allowed_root
-    output = console or Console()
-    audited_requested_mode = (
-        cast(CollaborationMode, mode)
-        if route_decision is None or route_decision.reason == "explicit"
-        else None
-    )
-    emit_collaboration_route(
-        audit_sink,
-        route_decision or ModeDecision(mode=cast(CollaborationMode, mode), reason="explicit"),
-        audited_requested_mode,
-        task_id=task_id,
-    )
-    resolved_context = context_config or ContextConfig()
-    role_models = {
-        "planner": planner_model or model,
-        "generator": model,
-        "evaluator": evaluator_model or model,
-    }
-
-    for selected_model in dict.fromkeys(
-        role_models[role]
-        for role in (("planner",) if mode == "triad" else ()) + ("generator", "evaluator")
-    ):
-        probe = None
-        try:
-            probe = client_factory(selected_model)
-            _validate_client_context_policy(probe, resolved_context)
-        except Exception as error:
-            raise CollaborationRoleConfigurationError from error
-        finally:
-            close = getattr(probe, "close", None)
-            if callable(close):
-                close()
-
-    def build_role_task(role: CollaborationRole, attempt: int, registry, system_prompt: str):
-        del attempt
-        client = None
-        task = None
-        try:
-            client = client_factory(role_models[role])
-            _validate_client_context_policy(client, resolved_context)
-            task = Task(
-                client,
-                tier="restricted" if role == "evaluator" else tier,
-                allowed_root=root,
-                system_prompt=system_prompt,
-                max_rounds=10,
-                asker=asker if role == "generator" else None,
-                mcp=mcp if role == "generator" else None,
-                confirmer=confirmer if role == "generator" else None,
-                identity=identity,
-                container_image=container_image,
-                context_config=resolved_context,
-                memory_manager=memory_manager if role == "generator" else None,
-                skills=skills if role == "generator" else None,
-                tool_registry=registry,
-                receipt_store=None,
-                audit_sink=audit_sink,
-                task_id=task_id,
-            )
-        except BaseException as error:
-            if task is not None:
-                task.close()
-            if client is not None:
-                close = getattr(client, "close", None)
-                if callable(close):
-                    close()
-            if not isinstance(error, Exception):
-                raise
-            raise CollaborationRoleConfigurationError from error
-
-        class OwnedRoleTask:
-            def __init__(self) -> None:
-                self._closed = False
-
-            def run(self, task_goal: str, *, cancel_event=None):
-                return task.run(task_goal, cancel_event=cancel_event)
-
-            def close(self) -> None:
-                if self._closed:
-                    return
-                self._closed = True
-                try:
-                    task.close()
-                finally:
-                    close = getattr(client, "close", None)
-                    if callable(close):
-                        close()
-
-        return OwnedRoleTask()
-
-    runner = CollaborationRunner.create(
+    return _cli_collaboration.run_collaboration_once(
+        goal,
         mode=mode,
-        goal=goal,
-        allowed_root=root,
-        role_task_builder=build_role_task,
-        plan_confirmer=plan_confirmer,
-        planner_model=role_models["planner"],
-        generator_model=role_models["generator"],
-        evaluator_model=role_models["evaluator"],
-        evaluator_tier="restricted",
+        tier=tier,
+        model=model,
+        planner_model=planner_model,
+        evaluator_model=evaluator_model,
         max_rejections=max_rejections,
-        execution_tier=tier,
+        client_factory=client_factory,
+        bindings=_cli_collaboration.CollaborationBindings(
+            runner_type=CollaborationRunner,
+            task_type=Task,
+            validate_context_policy=_validate_client_context_policy,
+        ),
+        allowed_root=allowed_root,
+        console=console,
+        plan_confirmer=plan_confirmer,
+        asker=asker,
+        mcp=mcp,
+        confirmer=confirmer,
+        identity=identity,
+        container_image=container_image,
+        context_config=context_config,
+        memory_manager=memory_manager,
+        skills=skills,
         audit_sink=audit_sink,
         task_id=task_id,
+        route_decision=route_decision,
         required_candidate_files=required_candidate_files,
     )
-    try:
-        report = runner.run(goal)
-    finally:
-        runner.close()
-    _render_collaboration_report(report, output)
-    return report
 
 
 def _loop_system_prompt(
@@ -887,18 +772,6 @@ def _render_loop_report(report: LoopReport, console: Console) -> None:
         f"open_questions={report.open_question_count} "
         f"usage_available={report.usage_available}"
     )
-
-
-def _confirmed_collaboration_mode(
-    goal: str,
-    requested_mode: str | None,
-    *,
-    confirmation_available: bool,
-    read_line: Callable[[str], str],
-    console: Console,
-):
-    del confirmation_available, read_line, console
-    return resolve_collaboration_mode(goal, cast(CollaborationMode | None, requested_mode))
 
 
 def run_loop_once(
