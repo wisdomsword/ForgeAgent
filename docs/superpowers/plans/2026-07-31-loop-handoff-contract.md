@@ -34,7 +34,7 @@ base-ref: 291fdfff1fbd2e2bb0cc9127ecc21a47bd48f416
 **接口：**
 - 产出：`LoopHandoff`、`CheckpointArgs.summary`、`LoopCheckpoint.handoff` 结构化值以及旧字段只读兼容属性。
 
-- [ ] **步骤 1：写失败测试**
+- [x] **步骤 1：写失败测试**
 
 ```python
 def test_structured_handoff_round_trip_and_legacy_string_migration():
@@ -61,13 +61,13 @@ def test_structured_handoff_round_trip_and_legacy_string_migration():
     assert loaded.open_questions == ("q",)
 ```
 
-- [ ] **步骤 2：运行 Red**
+- [x] **步骤 2：运行 Red**
 
 运行：`UV_CACHE_DIR=/tmp/forgeagent-m40-uv-cache uv run pytest -q tests/test_loop_checkpoint.py::test_structured_handoff_round_trip_and_legacy_string_migration`
 
 预期：失败，因为当前 `handoff` 仍要求字符串。
 
-- [ ] **步骤 3：写最小实现**
+- [x] **步骤 3：写最小实现**
 
 ```python
 class LoopHandoff(BaseModel):
@@ -90,13 +90,13 @@ class LoopCheckpoint(BaseModel):
 
 在 before validator 中：新结构直接保留；旧顶层列表与字符串 handoff 合并；新旧同名字段冲突时抛出 ValidationError。复用 `_items` 和 `_safe_text`，并让 `CheckpointArgs` 只接受 handoff 候选字段。
 
-- [ ] **步骤 4：运行 Green**
+- [x] **步骤 4：运行 Green**
 
 运行：`UV_CACHE_DIR=/tmp/forgeagent-m40-uv-cache uv run pytest -q tests/test_loop_checkpoint.py::test_structured_handoff_round_trip_and_legacy_string_migration tests/test_loop_checkpoint.py::test_loop_models_preserve_public_schema_alias_on_round_trip`
 
 预期：PASS。
 
-- [ ] **步骤 5：提交**
+- [x] **步骤 5：提交**
 
 ```bash
 git add src/forgeagent/loop.py tests/test_loop_checkpoint.py
@@ -113,7 +113,7 @@ git commit -m "feat: structure loop handoff state"
 - 消费：任务 1 的 `LoopHandoff`、候选字段和只读属性。
 - 产出：CheckpointTool 只更新 handoff；Runner suffix 使用结构化 JSON 并保持报告计数。
 
-- [ ] **步骤 1：写失败测试**
+- [x] **步骤 1：写失败测试**
 
 ```python
 def test_checkpoint_tool_preserves_host_owned_fields_and_suffix_marks_untrusted(tmp_path):
@@ -132,23 +132,23 @@ def test_checkpoint_tool_preserves_host_owned_fields_and_suffix_marks_untrusted(
 
 并增加 `CheckpointArgs.model_validate({"goal": "mutate"})`、完成项删除和 handoff 危险 Unicode 的拒绝断言。
 
-- [ ] **步骤 2：运行 Red**
+- [x] **步骤 2：运行 Red**
 
 运行：`UV_CACHE_DIR=/tmp/forgeagent-m40-uv-cache uv run pytest -q tests/test_loop_checkpoint.py::test_checkpoint_tool_preserves_host_owned_fields_and_suffix_marks_untrusted`
 
 预期：失败，因为候选模型没有 summary 且 handoff 仍为字符串。
 
-- [ ] **步骤 3：写最小实现**
+- [x] **步骤 3：写最小实现**
 
 让 `CheckpointTool.run()` 使用 `validated` 构造新 `LoopHandoff`，更新 `handoff` 单字段；`_render_suffix()` 序列化结构化对象。保持 `LoopReport.from_checkpoint()` 只读取计数。
 
-- [ ] **步骤 4：运行 Green**
+- [x] **步骤 4：运行 Green**
 
 运行：`UV_CACHE_DIR=/tmp/forgeagent-m40-uv-cache uv run pytest -q tests/test_loop_checkpoint.py tests/test_loop_runner.py`
 
 预期：PASS。
 
-- [ ] **步骤 5：提交**
+- [x] **步骤 5：提交**
 
 ```bash
 git add src/forgeagent/loop.py tests/test_loop_checkpoint.py tests/test_loop_runner.py
@@ -164,7 +164,7 @@ git commit -m "feat: enforce host-owned loop handoff"
 **接口：**
 - 产出：宿主可配置的有限上限（普通 Task 默认 `1`，Loop 显式为 `2`），每个 required completion tool 独立计数；恢复仅追加固定提示。
 
-- [ ] **步骤 1：写失败测试**
+- [x] **步骤 1：写失败测试**
 
 ```python
 def test_required_submission_recovery_is_bounded_without_replaying_tools():
@@ -178,23 +178,23 @@ def test_required_submission_recovery_is_bounded_without_replaying_tools():
     assert sum(len(round_result.outcomes) for round_result in rounds) == 0
 ```
 
-- [ ] **步骤 2：运行 Red**
+- [x] **步骤 2：运行 Red**
 
 运行：`UV_CACHE_DIR=/tmp/forgeagent-m40-uv-cache uv run pytest -q tests/test_step.py::test_required_submission_recovery_is_bounded_without_replaying_tools`
 
 预期：失败或暴露当前恢复次数与测试预期不一致。
 
-- [ ] **步骤 3：写最小实现**
+- [x] **步骤 3：写最小实现**
 
 用 `dict[str, int]` 替换 `_submission_recovery_sent`；缺失提交时先递增并比较上限，未达上限才追加 `_missing_completion_message`，达到上限设置 `Termination.FAILED`。不从历史 `RoundResult` 派发工具，不调用 receipt store。
 
-- [ ] **步骤 4：运行 Green**
+- [x] **步骤 4：运行 Green**
 
 运行：`UV_CACHE_DIR=/tmp/forgeagent-m40-uv-cache uv run pytest -q tests/test_step.py`
 
 预期：PASS。
 
-- [ ] **步骤 5：提交**
+- [x] **步骤 5：提交**
 
 ```bash
 git add src/forgeagent/step.py tests/test_step.py
@@ -208,7 +208,7 @@ git commit -m "fix: bound completion submission recovery"
 - 创建：`docs/superpowers/reports/2026-07-31-loop-handoff-contract-verify.md`、`milestones/milestone_040.md`
 - 更新：`milestones/latest`
 
-- [ ] **步骤 1：运行专项与全量验证**
+- [x] **步骤 1：运行专项与全量验证**
 
 ```bash
 UV_CACHE_DIR=/tmp/forgeagent-m40-uv-cache uv run pytest -q tests/test_loop_checkpoint.py tests/test_loop_runner.py tests/test_step.py
@@ -219,10 +219,10 @@ UV_CACHE_DIR=/tmp/forgeagent-m40-uv-cache uv build
 openspec validate --all --strict --no-interactive
 ```
 
-- [ ] **步骤 2：完成前两轮自评**
+- [x] **步骤 2：完成前两轮自评**
 
 检查结构化 handoff 是否仍有双写事实源、旧 checkpoint 是否可读、恢复是否可能重放动作、公开报告是否泄漏正文；发现问题立即修复并重跑受影响验证。
 
-- [ ] **步骤 3：记录证据并归档**
+- [x] **步骤 3：准备验收记录与归档输入**
 
 填写验证报告和 M40 里程碑，更新路线图后重新运行全量 pytest 与 OpenSpec strict；勾选所有任务，运行 Comet verify/archive 守卫与归档脚本。只执行本地构建和验证，不发布。
