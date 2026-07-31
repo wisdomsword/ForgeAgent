@@ -7,7 +7,7 @@ import math
 import threading
 import time
 from collections import deque
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from concurrent.futures import CancelledError, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
 from types import MappingProxyType
@@ -22,6 +22,7 @@ from .collaboration import (
     emit_collaboration_route,
     resolve_collaboration_mode,
 )
+from .http_action_approvals import ApprovalUnavailableError, HttpActionApprovalStore
 from .http_config import HttpServiceConfig
 from .loop import LoopReport
 from .step import Termination
@@ -82,6 +83,7 @@ class TaskRecord:
     task_id: str
     goal: str
     options: Mapping[str, object] = field(default_factory=dict, repr=False)
+    approval_ids: tuple[str, ...] = field(default=(), repr=False)
     status: str = "queued"
     reason: str | None = None
     detail: str | None = None
@@ -178,12 +180,14 @@ class TaskService:
         clock: Callable[[], float] = time.monotonic,
         shared_mcp_manager: _Closeable | None = None,
         audit_sink: AuditSink | None = None,
+        approval_store: HttpActionApprovalStore | None = None,
     ) -> None:
         self._factory = factory
         self._config = config
         self._clock = clock
         self._shared_mcp_manager = shared_mcp_manager
         self._audit_sink = audit_sink
+        self._approval_store = approval_store
         self._audit_degraded = False
         self._records: dict[str, TaskRecord] = {}
         self._active_resume_ids: dict[str, str] = {}
@@ -219,18 +223,39 @@ class TaskService:
         with self._lock:
             self._audit_degraded = True
 
-    def submit(self, goal: str, options: Mapping[str, object]) -> TaskRecord:
-        record, _ = self._submit_internal(goal, options)
+    def submit(
+        self,
+        goal: str,
+        options: Mapping[str, object],
+        *,
+        approval_ids: Iterable[str] = (),
+    ) -> TaskRecord:
+        record, _ = self._submit_internal(goal, options, approval_ids=approval_ids)
         return record
 
-    def submit_view(self, goal: str, options: Mapping[str, object]) -> dict[str, object]:
+    def submit_view(
+        self,
+        goal: str,
+        options: Mapping[str, object],
+        *,
+        approval_ids: Iterable[str] = (),
+    ) -> dict[str, object]:
         """Create a task and return its initial public view in one lock scope."""
-        _, view = self._submit_internal(goal, options)
+        _, view = self._submit_internal(goal, options, approval_ids=approval_ids)
         return view
 
     def _submit_internal(
-        self, goal: str, options: Mapping[str, object]
+        self,
+        goal: str,
+        options: Mapping[str, object],
+        *,
+        approval_ids: Iterable[str],
     ) -> tuple[TaskRecord, dict[str, object]]:
+        if isinstance(approval_ids, (str, bytes)):
+            raise ApprovalUnavailableError
+        approval_snapshot = tuple(approval_ids)
+        if any(not isinstance(approval_id, str) for approval_id in approval_snapshot):
+            raise ApprovalUnavailableError
         option_snapshot: dict[str, object] = {}
         for key, value in options.items():
             if key == "has_bound_checks":
@@ -269,10 +294,16 @@ class TaskService:
             if queued >= self._config.max_queue or len(self._records) >= self._config.max_records:
                 raise ServiceCapacityError
 
+            task_id = uuid4().hex
+            if approval_snapshot:
+                if self._approval_store is None:
+                    raise ApprovalUnavailableError
+                self._approval_store.bind_many(approval_snapshot, task_id)
             record = TaskRecord(
-                task_id=uuid4().hex,
+                task_id=task_id,
                 goal=goal,
                 options=MappingProxyType(option_snapshot),
+                approval_ids=approval_snapshot,
                 created_at=self._clock(),
             )
             self._records[record.task_id] = record
@@ -289,6 +320,7 @@ class TaskService:
                 record.reason = "internal_error"
                 record.detail = "Task execution failed."
                 record.ended_at = self._clock()
+                self._release_approvals(record)
                 return record, record.public_view(service_audit_degraded=self._audit_degraded)
             if loop_id is not None:
                 self._active_resume_ids[loop_id] = record.task_id
@@ -308,6 +340,7 @@ class TaskService:
                 del self._records[record.task_id]
                 if loop_id is not None:
                     self._active_resume_ids.pop(loop_id, None)
+                self._release_approvals(record)
                 raise
             return record, record.public_view(service_audit_degraded=self._audit_degraded)
 
@@ -329,6 +362,7 @@ class TaskService:
             if record.status == "queued":
                 self._set_cancelled_locked(record)
                 self._release_resume_id_locked(record)
+                self._release_approvals(record)
                 if record.future is not None:
                     record.future.cancel()
             return record.public_view(service_audit_degraded=self._audit_degraded)
@@ -357,6 +391,7 @@ class TaskService:
                 if record.status == "queued":
                     self._set_cancelled_locked(record)
                     self._release_resume_id_locked(record)
+                    self._release_approvals(record)
                     if record.future is not None:
                         record.future.cancel()
                 if record.future is not None:
@@ -485,6 +520,8 @@ class TaskService:
                 record.ended_at = self._clock()
             self._release_resume_id_locked(record)
 
+        self._release_approvals(record)
+
         if process_control_error is not None:
             raise process_control_error
 
@@ -519,6 +556,14 @@ class TaskService:
             and self._active_resume_ids.get(resume_loop_id) == record.task_id
         ):
             del self._active_resume_ids[resume_loop_id]
+
+    def _release_approvals(self, record: TaskRecord) -> None:
+        if not record.approval_ids or self._approval_store is None:
+            return
+        try:
+            self._approval_store.release_task(record.task_id)
+        except RuntimeError:
+            _logger.error("task approval cleanup failed")
 
     def _get_record_locked(self, task_id: str) -> TaskRecord:
         self._purge_expired_locked()

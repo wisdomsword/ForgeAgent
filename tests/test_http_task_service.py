@@ -11,6 +11,11 @@ import pytest
 
 from forgeagent.audit import AuditEvent
 from forgeagent.collaboration import CollaborationReport, CollaborationUsage
+from forgeagent.external_actions import canonical_request_digest
+from forgeagent.http_action_approvals import (
+    ApprovalUnavailableError,
+    HttpActionApprovalStore,
+)
 from forgeagent.http_config import HttpServiceConfig
 from forgeagent.http_task_service import (
     ServiceCapacityError,
@@ -54,6 +59,15 @@ def _outcome(
         status=TaskStatus(completed=reason == Termination.COMPLETED, reason=reason, detail=detail),
         rounds=[RoundResult(text=text, usage=usage)],
     )
+
+
+def _approval(store: HttpActionApprovalStore, marker: str = "safe") -> str:
+    return store.issue(
+        server="github",
+        tool="create_issue",
+        request_digest=canonical_request_digest({"marker": marker}),
+        expires_in_seconds=60,
+    ).approval_id
 
 
 class _FakeClient:
@@ -504,6 +518,114 @@ def test_submit_rejects_nested_mutable_options():
             service.submit("goal", {"nested": {"mutable": True}})
         assert service.records == {}
     finally:
+        service.shutdown(1.0)
+
+
+def test_approval_is_bound_before_worker_publication_and_released_at_terminal() -> None:
+    store = HttpActionApprovalStore(max_records=4)
+    approval_id = _approval(store)
+    worker_started = threading.Event()
+    release_worker = threading.Event()
+
+    def factory(record: TaskRecord) -> _FakeTask:
+        assert record.approval_ids == (approval_id,)
+        assert store.get(approval_id).task_id == record.task_id
+        assert store.get(approval_id).status == "bound"
+        worker_started.set()
+        return _FakeTask(lambda _goal, _cancel: (release_worker.wait(1.0), _outcome())[-1])
+
+    service = TaskService(factory=factory, config=CONFIG, approval_store=store)
+    try:
+        record = service.submit("private goal", {}, approval_ids=[approval_id])
+        assert worker_started.wait(1.0)
+        assert "approval" not in repr(service.query(record.task_id))
+        assert "approval" not in repr(record.options)
+
+        release_worker.set()
+        service.wait(record.task_id, timeout=1.0)
+        assert store.get(approval_id).status == "revoked"
+    finally:
+        release_worker.set()
+        service.shutdown(1.0)
+
+
+def test_approval_binding_is_all_or_nothing_before_task_creation() -> None:
+    store = HttpActionApprovalStore(max_records=4)
+    available_id = _approval(store, "available")
+    revoked_id = _approval(store, "revoked")
+    store.revoke(revoked_id)
+    service = TaskService(factory=_instant_factory, config=CONFIG, approval_store=store)
+    try:
+        with pytest.raises(ApprovalUnavailableError):
+            service.submit("goal", {}, approval_ids=[available_id, revoked_id])
+
+        assert service.records == {}
+        assert store.get(available_id).status == "issued"
+    finally:
+        service.shutdown(1.0)
+
+
+def test_executor_submit_failure_releases_bound_approval() -> None:
+    store = HttpActionApprovalStore(max_records=2)
+    approval_id = _approval(store)
+
+    class FailingExecutor:
+        def submit(self, _fn, _record):
+            raise RuntimeError("submit failed")
+
+        def shutdown(self, **_kwargs):
+            return None
+
+    service = TaskService(factory=_instant_factory, config=CONFIG, approval_store=store)
+    old_executor = service._executor
+    old_executor.shutdown(wait=False, cancel_futures=True)
+    service._executor = FailingExecutor()
+    try:
+        with pytest.raises(RuntimeError, match="submit failed"):
+            service.submit("goal", {}, approval_ids=[approval_id])
+        assert store.get(approval_id).status == "revoked"
+        assert service.records == {}
+    finally:
+        service.shutdown(1.0)
+
+
+def test_queued_cancel_and_shutdown_release_bound_approvals() -> None:
+    store = HttpActionApprovalStore(max_records=4)
+    cancel_id = _approval(store, "cancel")
+    shutdown_id = _approval(store, "shutdown")
+    first_started = threading.Event()
+    release_first = threading.Event()
+
+    def factory(_record: TaskRecord) -> _FakeTask:
+        return _FakeTask(
+            lambda _goal, _cancel: (
+                first_started.set(),
+                release_first.wait(1.0),
+                _outcome(),
+            )[-1]
+        )
+
+    service = TaskService(
+        factory=factory,
+        config=replace(CONFIG, max_workers=1),
+        approval_store=store,
+    )
+    try:
+        first = service.submit("first", {})
+        assert first_started.wait(1.0)
+        cancelled = service.submit("cancelled", {}, approval_ids=[cancel_id])
+        assert service.cancel(cancelled.task_id)["status"] == "cancelled"
+        assert store.get(cancel_id).status == "revoked"
+
+        shutdown = service.submit("shutdown", {}, approval_ids=[shutdown_id])
+        service.shutdown(0.0)
+        assert service.query(shutdown.task_id)["status"] == "cancelled"
+        assert store.get(shutdown_id).status == "revoked"
+
+        release_first.set()
+        service.wait(first.task_id, timeout=1.0)
+    finally:
+        release_first.set()
         service.shutdown(1.0)
 
 

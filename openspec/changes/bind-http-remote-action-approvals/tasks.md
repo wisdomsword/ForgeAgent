@@ -6,7 +6,7 @@
 ## 2. 执行边界接入
 
 - [x] 2.1 以测试证明 `HeadlessConfirmer` 只在静态 allowlist 未命中时消费当前任务精确匹配的 MCP scope/digest 审批，且拒绝错 task/scope/digest、过期和复用。
-- [ ] 2.2 让 `TaskService` 在 worker 发布前认领审批，并在拒绝、调度失败、取消、终态和 shutdown 时关闭未消费绑定，不把审批 ID 传给模型或普通 options。
+- [x] 2.2 让 `TaskService` 在 worker 发布前认领审批，并在拒绝、调度失败、取消、终态和 shutdown 时关闭未消费绑定，不把审批 ID 传给模型或普通 options。
 
 ## 3. HTTP 控制面与 receipt 恢复
 
