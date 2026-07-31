@@ -511,6 +511,11 @@ def test_inactive_records_do_not_consume_active_render_budget(tmp_path):
 
     assert manager.render() == ""
 
+    reloaded = MemoryManager(str(tmp_path), clock=lambda: now)
+    reloaded.load()
+
+    assert reloaded.render() == ""
+
 
 def test_procedure_candidate_is_rejected_without_write(tmp_path):
     manager = MemoryManager(str(tmp_path))
@@ -671,6 +676,43 @@ def test_copy_session_from_preserves_only_session_entries_without_sharing_state(
     assert "editor: nvim" in rendered
     assert "format: compact" not in rendered
     assert "language: python" not in rendered
+
+
+def test_copy_session_from_rejects_combined_render_overflow(tmp_path):
+    messages: list[str] = []
+    source = MemoryManager(str(tmp_path))
+    replacement = MemoryManager(str(tmp_path), diagnostic=messages.append)
+
+    for index in range(32):
+        assert (
+            source.apply(
+                MemoryCandidate(
+                    scope="session",
+                    kind="preference",
+                    key=f"session-{index:02d}",
+                    content="s" * 512,
+                )
+            ).status
+            == "accepted"
+        )
+        assert (
+            replacement.apply(
+                MemoryCandidate(
+                    scope="project",
+                    kind="fact",
+                    key=f"project-{index:02d}",
+                    content="p" * 512,
+                )
+            ).status
+            == "accepted"
+        )
+
+    replacement.copy_session_from(source)
+
+    rendered = replacement.render()
+    assert "project-00" in rendered
+    assert "session-00" not in rendered
+    assert messages == ["memory session copy ignored: memory_limit"]
 
 
 def test_injection_candidate_is_rejected_without_echoing_content(tmp_path):
