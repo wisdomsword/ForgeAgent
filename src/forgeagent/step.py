@@ -25,6 +25,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
+from .attention import Attention, attention_for_reason
 from .audit import AuditEvent, AuditSink, emit_audit
 from .client import AttemptObserver, ModelClient, ProviderAttempt
 from .context import (
@@ -63,7 +64,6 @@ from .tools import (
     ToolContext,
     ToolOutcome,
     ToolRegistry,
-    _apply_edit,
     default_registry,
 )
 
@@ -71,9 +71,8 @@ if TYPE_CHECKING:
     from .mcp_manager import MCPManager
     from .skills import SkillRegistry
 
-# Re-exported for callers/tests that import them from step (their historical home before
-# the M7 tools.py extraction): the Edit runtime matcher and the code-block store.
-__all__ = ["Step", "RoundResult", "Termination", "CodeBlockStore", "ToolOutcome", "_apply_edit"]
+# Public step types; Edit's runtime matcher remains private to forgeagent.tools.
+__all__ = ["Step", "RoundResult", "Termination", "CodeBlockStore", "ToolOutcome"]
 
 
 class Termination(StrEnum):
@@ -91,6 +90,7 @@ class Termination(StrEnum):
     ANSWERED_IN_PROSE = "answered_in_prose"  # prose answer, no execution (soft success)
     REFUSED = "refused"  # stop_reason refusal/content_filter, or declared status=refused
     NEEDS_INFO = "needs_info"  # model declared status=need_info, or Survey w/o asker
+    BLOCKED = "blocked"  # model or tool declared an external dependency block
     FAILED = "failed"  # model declared status=failed
     TRUNCATED = "truncated"  # response cut off at the token limit (partial answer)
     EMPTY_RESPONSE = "empty_response"  # no tool activity and no prose to accept
@@ -109,6 +109,7 @@ _TRUNCATED_STOP_REASONS = frozenset({"max_tokens", "length"})
 _DECLARED_STATUS: dict[str, Termination] = {
     "refused": Termination.REFUSED,
     "need_info": Termination.NEEDS_INFO,
+    "blocked": Termination.BLOCKED,
     "failed": Termination.FAILED,
 }
 
@@ -183,6 +184,7 @@ class RoundResult(BaseModel):
     # tool's user-facing detail (the survey question) lives here so Task's
     # `_derive_status` can surface it instead of the model's raw text. Empty otherwise.
     stopped_detail: str = ""
+    attention: Attention | None = None
 
 
 class Step:
@@ -549,6 +551,16 @@ class Step:
                 if o.needs_info:
                     rr.stopped_reason = Termination.NEEDS_INFO
                     rr.stopped_detail = o.detail
+                    rr.attention = attention_for_reason("needs_info", o.detail)
+                    break
+                if o.attention is not None and o.attention.state in {"needs_input", "blocked"}:
+                    rr.stopped_reason = (
+                        Termination.NEEDS_INFO
+                        if o.attention.state == "needs_input"
+                        else Termination.BLOCKED
+                    )
+                    rr.stopped_detail = o.detail
+                    rr.attention = o.attention
                     break
         return rr
 
@@ -580,6 +592,9 @@ class Step:
         declared = _DECLARED_STATUS.get(status.status or "")
         if declared is not None:
             rr.stopped_reason = declared
+            if declared in {Termination.NEEDS_INFO, Termination.BLOCKED}:
+                rr.stopped_detail = status.reason or status.suggestion or rr.body
+                rr.attention = attention_for_reason(str(declared), rr.stopped_detail)
 
     def _dispatch(self, call: ToolCall) -> ToolOutcome:
         # The tool is looked up by name in the registry; the parser has already validated

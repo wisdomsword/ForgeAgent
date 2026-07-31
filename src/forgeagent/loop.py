@@ -10,7 +10,6 @@ import stat
 import threading
 import time
 import unicodedata
-import warnings
 import weakref
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -20,11 +19,13 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
+from .attention import Attention, attention_for_reason
 from .audit import AuditEvent, AuditSink, emit_audit
 from .external_actions import ExternalActionReceiptStore
 from .secret_policy import mask_secrets, sensitive_env_values
 from .skills import SkillRegistry
 from .task import TaskOutcome
+from .text_safety import safe_text
 from .tools import Tool, ToolContext, ToolOutcome, ToolRegistry, default_registry
 
 try:
@@ -57,6 +58,8 @@ LoopStopReason = Literal[
     "unrecoverable_failure",
     "checkpoint_error",
     "external_action_pending",
+    "needs_input",
+    "blocked",
 ]
 
 _STOP_REASONS_BY_STATUS: dict[str, frozenset[str | None]] = {
@@ -70,6 +73,8 @@ _STOP_REASONS_BY_STATUS: dict[str, frozenset[str | None]] = {
             "max_rounds",
             "consecutive_failures",
             "external_action_pending",
+            "needs_input",
+            "blocked",
         }
     ),
     "cancelled": frozenset({"cancelled"}),
@@ -91,17 +96,7 @@ TaskBuilder = Callable[[int, int, str, ToolRegistry], _RunnableTask]
 CollaborationBuilder = Callable[[int, int, str, ToolRegistry], _RunnableTask]
 
 
-def _safe_text(value: Any, *, field: str, maximum: int, allow_empty: bool) -> str:
-    if not isinstance(value, str):
-        raise ValueError(f"{field} must be a string")
-    if len(value) > maximum:
-        raise ValueError(f"{field} is too long")
-    unsafe_categories = {"Cc", "Cf", "Cs", "Zl", "Zp"}
-    if any(unicodedata.category(character) in unsafe_categories for character in value):
-        raise ValueError(f"{field} contains unsafe characters")
-    if not allow_empty and not value.strip():
-        raise ValueError(f"{field} must not be blank")
-    return value.strip() if not allow_empty else value
+_safe_text = safe_text
 
 
 def _positive_int(value: Any, *, field: str) -> int:
@@ -170,215 +165,224 @@ class LoopBudgets(BaseModel):
         return _positive_number(value, field="wall_clock_seconds")
 
 
-with warnings.catch_warnings():
-    warnings.filterwarnings(
-        "ignore",
-        message=r'Field name "schema" in "LoopCheckpoint" shadows an attribute',
-        category=UserWarning,
+class LoopCheckpoint(BaseModel):
+    """The complete, strictly validated durable Loop snapshot."""
+
+    model_config = ConfigDict(
+        frozen=True, extra="forbid", populate_by_name=True, serialize_by_alias=True
     )
 
-    class LoopCheckpoint(BaseModel):
-        """The complete, strictly validated durable Loop snapshot."""
+    schema_: Literal[LOOP_SCHEMA] = Field(default=LOOP_SCHEMA, alias="schema")
+    loop_id: str
+    goal: str
+    budgets: LoopBudgets
+    status: LoopStatus = "active"
+    stop_reason: LoopStopReason | None = None
+    attention: Attention | None = Field(default=None, exclude_if=lambda value: value is None)
+    revision: int = 0
+    iterations: int = 0
+    rounds_used: int = 0
+    tokens_used: int = 0
+    elapsed_seconds: float = 0.0
+    consecutive_failures: int = 0
+    usage_available: bool = True
+    completed_items: tuple[str, ...] = ()
+    open_questions: tuple[str, ...] = ()
+    handoff: str = ""
+    last_failure: str = ""
+    collaboration_mode: Literal["single", "duo", "triad"] = "single"
+    collaboration_mode_source: Literal["default", "explicit"] = "default"
+    collaboration_id: str = ""
+    plan_digest: str = ""
 
-        model_config = ConfigDict(frozen=True, extra="forbid")
-
-        schema: Literal[LOOP_SCHEMA] = LOOP_SCHEMA
-        loop_id: str
-        goal: str
-        budgets: LoopBudgets
-        status: LoopStatus = "active"
-        stop_reason: LoopStopReason | None = None
-        revision: int = 0
-        iterations: int = 0
-        rounds_used: int = 0
-        tokens_used: int = 0
-        elapsed_seconds: float = 0.0
-        consecutive_failures: int = 0
-        usage_available: bool = True
-        completed_items: tuple[str, ...] = ()
-        open_questions: tuple[str, ...] = ()
-        handoff: str = ""
-        last_failure: str = ""
-        collaboration_mode: Literal["single", "duo", "triad"] = "single"
-        collaboration_mode_source: Literal["default", "explicit"] = "default"
-        collaboration_id: str = ""
-        plan_digest: str = ""
-
-        @model_validator(mode="before")
-        @classmethod
-        def _migrate_collaboration_mode_source(cls, value: Any) -> Any:
-            if not isinstance(value, dict) or "collaboration_mode_source" in value:
-                return value
-            migrated = dict(value)
-            migrated["collaboration_mode_source"] = (
-                "explicit" if migrated.get("collaboration_mode") in {"duo", "triad"} else "default"
-            )
-            return migrated
-
-        @field_validator("loop_id")
-        @classmethod
-        def _validate_loop_id(cls, value: Any) -> str:
-            if not isinstance(value, str) or _LOOP_ID_RE.fullmatch(value) is None:
-                raise ValueError("invalid loop id")
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_collaboration_mode_source(cls, value: Any) -> Any:
+        if not isinstance(value, dict) or "collaboration_mode_source" in value:
             return value
-
-        @field_validator("goal")
-        @classmethod
-        def _validate_goal(cls, value: Any) -> str:
-            return _safe_text(value, field="goal", maximum=MAX_GOAL_CHARS, allow_empty=False)
-
-        @field_validator(
-            "revision",
-            "iterations",
-            "rounds_used",
-            "tokens_used",
-            "consecutive_failures",
-            mode="before",
+        migrated = dict(value)
+        migrated["collaboration_mode_source"] = (
+            "explicit" if migrated.get("collaboration_mode") in {"duo", "triad"} else "default"
         )
-        @classmethod
-        def _validate_counter(cls, value: Any, info: Any) -> int:
-            return _nonnegative_int(value, field=info.field_name)
+        return migrated
 
-        @field_validator("elapsed_seconds", mode="before")
-        @classmethod
-        def _validate_elapsed_seconds(cls, value: Any) -> float:
-            return _nonnegative_number(value, field="elapsed_seconds")
-
-        @field_validator("usage_available", mode="before")
-        @classmethod
-        def _validate_usage_available(cls, value: Any) -> bool:
-            if type(value) is not bool:
-                raise ValueError("usage_available must be a bool")
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_attention(cls, value: Any) -> Any:
+        if not isinstance(value, dict) or "attention" in value:
             return value
+        migrated = dict(value)
+        stop_reason = migrated.get("stop_reason")
+        if stop_reason is not None and stop_reason != "completed":
+            migrated["attention"] = attention_for_reason(str(stop_reason)).model_dump()
+        return migrated
 
-        @field_validator("completed_items", "open_questions", mode="before")
-        @classmethod
-        def _validate_items(cls, value: Any, info: Any) -> tuple[str, ...]:
-            return _items(value, field=info.field_name)
+    @field_validator("loop_id")
+    @classmethod
+    def _validate_loop_id(cls, value: Any) -> str:
+        if not isinstance(value, str) or _LOOP_ID_RE.fullmatch(value) is None:
+            raise ValueError("invalid loop id")
+        return value
 
-        @field_validator("handoff")
-        @classmethod
-        def _validate_handoff(cls, value: Any) -> str:
-            return _safe_text(value, field="handoff", maximum=MAX_HANDOFF_CHARS, allow_empty=True)
+    @field_validator("goal")
+    @classmethod
+    def _validate_goal(cls, value: Any) -> str:
+        return _safe_text(value, field="goal", maximum=MAX_GOAL_CHARS, allow_empty=False)
 
-        @field_validator("last_failure")
-        @classmethod
-        def _validate_last_failure(cls, value: Any) -> str:
-            return _safe_text(
-                value, field="last_failure", maximum=MAX_FAILURE_CHARS, allow_empty=True
-            )
+    @field_validator(
+        "revision",
+        "iterations",
+        "rounds_used",
+        "tokens_used",
+        "consecutive_failures",
+        mode="before",
+    )
+    @classmethod
+    def _validate_counter(cls, value: Any, info: Any) -> int:
+        return _nonnegative_int(value, field=info.field_name)
 
-        @field_validator("collaboration_id")
-        @classmethod
-        def _validate_collaboration_id(cls, value: Any) -> str:
-            if value and (not isinstance(value, str) or _LOOP_ID_RE.fullmatch(value) is None):
-                raise ValueError("invalid collaboration id")
-            return value
+    @field_validator("elapsed_seconds", mode="before")
+    @classmethod
+    def _validate_elapsed_seconds(cls, value: Any) -> float:
+        return _nonnegative_number(value, field="elapsed_seconds")
 
-        @field_validator("plan_digest")
-        @classmethod
-        def _validate_plan_digest(cls, value: Any) -> str:
-            if value and (
-                not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None
-            ):
-                raise ValueError("invalid plan digest")
-            return value
+    @field_validator("usage_available", mode="before")
+    @classmethod
+    def _validate_usage_available(cls, value: Any) -> bool:
+        if type(value) is not bool:
+            raise ValueError("usage_available must be a bool")
+        return value
 
-        @model_validator(mode="after")
-        def _validate_invariants(self) -> LoopCheckpoint:
-            if self.stop_reason not in _STOP_REASONS_BY_STATUS[self.status]:
-                raise ValueError("checkpoint status and stop reason are inconsistent")
-            if self.rounds_used > self.budgets.max_rounds:
-                raise ValueError("rounds_used exceeds max_rounds")
-            if self.consecutive_failures > self.budgets.max_consecutive_failures:
-                raise ValueError("consecutive_failures exceeds its budget")
-            if self.collaboration_mode == "single" and (self.collaboration_id or self.plan_digest):
-                raise ValueError("single loop cannot freeze collaboration state")
-            if self.collaboration_mode != "single" and not self.collaboration_id:
-                raise ValueError("collaborative loop requires a collaboration id")
-            return self
+    @field_validator("completed_items", "open_questions", mode="before")
+    @classmethod
+    def _validate_items(cls, value: Any, info: Any) -> tuple[str, ...]:
+        return _items(value, field=info.field_name)
+
+    @field_validator("handoff")
+    @classmethod
+    def _validate_handoff(cls, value: Any) -> str:
+        return _safe_text(value, field="handoff", maximum=MAX_HANDOFF_CHARS, allow_empty=True)
+
+    @field_validator("last_failure")
+    @classmethod
+    def _validate_last_failure(cls, value: Any) -> str:
+        return _safe_text(value, field="last_failure", maximum=MAX_FAILURE_CHARS, allow_empty=True)
+
+    @field_validator("collaboration_id")
+    @classmethod
+    def _validate_collaboration_id(cls, value: Any) -> str:
+        if value and (not isinstance(value, str) or _LOOP_ID_RE.fullmatch(value) is None):
+            raise ValueError("invalid collaboration id")
+        return value
+
+    @field_validator("plan_digest")
+    @classmethod
+    def _validate_plan_digest(cls, value: Any) -> str:
+        if value and (not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None):
+            raise ValueError("invalid plan digest")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_invariants(self) -> LoopCheckpoint:
+        if self.stop_reason not in _STOP_REASONS_BY_STATUS[self.status]:
+            raise ValueError("checkpoint status and stop reason are inconsistent")
+        if self.rounds_used > self.budgets.max_rounds:
+            raise ValueError("rounds_used exceeds max_rounds")
+        if self.consecutive_failures > self.budgets.max_consecutive_failures:
+            raise ValueError("consecutive_failures exceeds its budget")
+        if self.collaboration_mode == "single" and (self.collaboration_id or self.plan_digest):
+            raise ValueError("single loop cannot freeze collaboration state")
+        if self.collaboration_mode != "single" and not self.collaboration_id:
+            raise ValueError("collaborative loop requires a collaboration id")
+        if self.stop_reason in {"needs_input", "blocked"} and self.attention is None:
+            raise ValueError("attention is required for needs_input and blocked stops")
+        return self
 
 
-with warnings.catch_warnings():
-    warnings.filterwarnings(
-        "ignore",
-        message=r'Field name "schema" in "LoopReport" shadows an attribute',
-        category=UserWarning,
+class LoopReport(BaseModel):
+    """A deliberately safe public projection of a Loop checkpoint."""
+
+    model_config = ConfigDict(
+        frozen=True, extra="forbid", populate_by_name=True, serialize_by_alias=True
     )
 
-    class LoopReport(BaseModel):
-        """A deliberately safe public projection of a Loop checkpoint."""
+    schema_: Literal[LOOP_SCHEMA] = Field(default=LOOP_SCHEMA, alias="schema")
+    loop_id: str
+    status: LoopStatus
+    stop_reason: LoopStopReason | None
+    attention: Attention | None = Field(default=None, exclude_if=lambda value: value is None)
+    iterations: int
+    rounds_used: int
+    tokens_used: int
+    elapsed_seconds: float
+    consecutive_failures: int
+    completed_item_count: int
+    open_question_count: int
+    usage_available: bool
+    collaboration_mode: Literal["single", "duo", "triad"] = "single"
 
-        model_config = ConfigDict(frozen=True, extra="forbid")
+    @field_validator("loop_id")
+    @classmethod
+    def _validate_loop_id(cls, value: Any) -> str:
+        if not isinstance(value, str) or _LOOP_ID_RE.fullmatch(value) is None:
+            raise ValueError("invalid loop id")
+        return value
 
-        schema: Literal[LOOP_SCHEMA] = LOOP_SCHEMA
-        loop_id: str
-        status: LoopStatus
-        stop_reason: LoopStopReason | None
-        iterations: int
-        rounds_used: int
-        tokens_used: int
-        elapsed_seconds: float
-        consecutive_failures: int
-        completed_item_count: int
-        open_question_count: int
-        usage_available: bool
-        collaboration_mode: Literal["single", "duo", "triad"] = "single"
+    @field_validator(
+        "iterations",
+        "rounds_used",
+        "tokens_used",
+        "consecutive_failures",
+        "completed_item_count",
+        "open_question_count",
+        mode="before",
+    )
+    @classmethod
+    def _validate_counter(cls, value: Any, info: Any) -> int:
+        return _nonnegative_int(value, field=info.field_name)
 
-        @field_validator("loop_id")
-        @classmethod
-        def _validate_loop_id(cls, value: Any) -> str:
-            if not isinstance(value, str) or _LOOP_ID_RE.fullmatch(value) is None:
-                raise ValueError("invalid loop id")
-            return value
+    @field_validator("elapsed_seconds", mode="before")
+    @classmethod
+    def _validate_elapsed_seconds(cls, value: Any) -> float:
+        return _nonnegative_number(value, field="elapsed_seconds")
 
-        @field_validator(
-            "iterations",
-            "rounds_used",
-            "tokens_used",
-            "consecutive_failures",
-            "completed_item_count",
-            "open_question_count",
-            mode="before",
+    @field_validator("usage_available", mode="before")
+    @classmethod
+    def _validate_usage_available(cls, value: Any) -> bool:
+        if type(value) is not bool:
+            raise ValueError("usage_available must be a bool")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_invariants(self) -> LoopReport:
+        if self.stop_reason not in _STOP_REASONS_BY_STATUS[self.status]:
+            raise ValueError("report status and stop reason are inconsistent")
+        if self.stop_reason in {"needs_input", "blocked"} and self.attention is None:
+            raise ValueError("attention is required for needs_input and blocked stops")
+        return self
+
+    @classmethod
+    def from_checkpoint(cls, checkpoint: LoopCheckpoint) -> LoopReport:
+        return cls(
+            loop_id=checkpoint.loop_id,
+            status=checkpoint.status,
+            stop_reason=checkpoint.stop_reason,
+            attention=checkpoint.attention
+            or (
+                attention_for_reason(checkpoint.stop_reason)
+                if checkpoint.stop_reason is not None
+                else None
+            ),
+            iterations=checkpoint.iterations,
+            rounds_used=checkpoint.rounds_used,
+            tokens_used=checkpoint.tokens_used,
+            elapsed_seconds=checkpoint.elapsed_seconds,
+            consecutive_failures=checkpoint.consecutive_failures,
+            completed_item_count=len(checkpoint.completed_items),
+            open_question_count=len(checkpoint.open_questions),
+            usage_available=checkpoint.usage_available,
+            collaboration_mode=checkpoint.collaboration_mode,
         )
-        @classmethod
-        def _validate_counter(cls, value: Any, info: Any) -> int:
-            return _nonnegative_int(value, field=info.field_name)
-
-        @field_validator("elapsed_seconds", mode="before")
-        @classmethod
-        def _validate_elapsed_seconds(cls, value: Any) -> float:
-            return _nonnegative_number(value, field="elapsed_seconds")
-
-        @field_validator("usage_available", mode="before")
-        @classmethod
-        def _validate_usage_available(cls, value: Any) -> bool:
-            if type(value) is not bool:
-                raise ValueError("usage_available must be a bool")
-            return value
-
-        @model_validator(mode="after")
-        def _validate_invariants(self) -> LoopReport:
-            if self.stop_reason not in _STOP_REASONS_BY_STATUS[self.status]:
-                raise ValueError("report status and stop reason are inconsistent")
-            return self
-
-        @classmethod
-        def from_checkpoint(cls, checkpoint: LoopCheckpoint) -> LoopReport:
-            return cls(
-                loop_id=checkpoint.loop_id,
-                status=checkpoint.status,
-                stop_reason=checkpoint.stop_reason,
-                iterations=checkpoint.iterations,
-                rounds_used=checkpoint.rounds_used,
-                tokens_used=checkpoint.tokens_used,
-                elapsed_seconds=checkpoint.elapsed_seconds,
-                consecutive_failures=checkpoint.consecutive_failures,
-                completed_item_count=len(checkpoint.completed_items),
-                open_question_count=len(checkpoint.open_questions),
-                usage_available=checkpoint.usage_available,
-                collaboration_mode=checkpoint.collaboration_mode,
-            )
 
 
 class CheckpointArgs(BaseModel):
@@ -539,7 +543,7 @@ class LoopCheckpointStore:
                 task_id=self._task_id,
                 risk_level="low",
                 parameters={
-                    "schema": checkpoint.schema,
+                    "schema": checkpoint.schema_,
                     "loop_id": checkpoint.loop_id,
                     "revision": checkpoint.revision,
                     "iterations": checkpoint.iterations,
@@ -1015,6 +1019,13 @@ class LoopRunner:
         if self._has_pending_receipt():
             self._stop("external_action_pending")
             return
+        outcome_attention = getattr(getattr(outcome, "status", None), "attention", None)
+        if outcome_attention is not None and outcome_attention.state in {"needs_input", "blocked"}:
+            self._stop(
+                "needs_input" if outcome_attention.state == "needs_input" else "blocked",
+                attention=outcome_attention,
+            )
+            return
         reason = self._stop_reason(cancel_event=cancel_event, watchdog_event=watchdog_event)
         if reason in {"cancelled", "wall_clock"}:
             self._stop(reason)
@@ -1065,7 +1076,19 @@ class LoopRunner:
         if provider_reply_seen and tokens == 0:
             usage_available = False
         success = _outcome_completed(outcome)
-        failure_count = 0 if success else self._checkpoint.consecutive_failures + 1
+        outcome_attention = getattr(getattr(outcome, "status", None), "attention", None)
+        attention_stop = outcome_attention is not None and outcome_attention.state in {
+            "needs_input",
+            "blocked",
+        }
+        persisted_attention = outcome_attention if attention_stop else None
+        failure_count = (
+            0
+            if success
+            else self._checkpoint.consecutive_failures
+            if attention_stop
+            else self._checkpoint.consecutive_failures + 1
+        )
         candidate = self._checkpoint.model_copy(
             update={
                 "iterations": self._checkpoint.iterations + 1,
@@ -1074,7 +1097,8 @@ class LoopRunner:
                 "elapsed_seconds": self._elapsed(),
                 "consecutive_failures": failure_count,
                 "usage_available": usage_available,
-                "last_failure": "" if success else _failure_summary(outcome),
+                "last_failure": "" if success or attention_stop else _failure_summary(outcome),
+                "attention": persisted_attention,
                 "plan_digest": (
                     getattr(outcome, "plan_digest", self._checkpoint.plan_digest)
                     if self._checkpoint.collaboration_mode != "single"
@@ -1120,7 +1144,7 @@ class LoopRunner:
             return "unrecoverable_failure"
         return None
 
-    def _stop(self, reason: LoopStopReason) -> LoopReport:
+    def _stop(self, reason: LoopStopReason, *, attention: Attention | None = None) -> LoopReport:
         if reason == "completed":
             status: LoopStatus = "completed"
         elif reason == "cancelled":
@@ -1129,16 +1153,31 @@ class LoopRunner:
             status = "failed"
         else:
             status = "stopped"
-        self._save(status=status, stop_reason=reason)
+        self._save(
+            status=status,
+            stop_reason=reason,
+            attention=attention or attention_for_reason(reason),
+        )
         self._audit_lifecycle("loop.stop", reason)
         return LoopReport.from_checkpoint(self._checkpoint)
 
-    def _save(self, *, status: LoopStatus, stop_reason: LoopStopReason) -> None:
+    def _save(
+        self,
+        *,
+        status: LoopStatus,
+        stop_reason: LoopStopReason,
+        attention: Attention | None = None,
+    ) -> None:
         candidate = self._checkpoint.model_copy(
             update={
                 "status": status,
                 "stop_reason": stop_reason,
                 "elapsed_seconds": self._elapsed(),
+                "attention": (
+                    attention
+                    if attention is not None
+                    else (attention_for_reason(stop_reason) if status != "active" else None)
+                ),
             }
         )
         self._checkpoint = self._store.save(candidate, expected_revision=self._checkpoint.revision)
@@ -1164,7 +1203,7 @@ class LoopRunner:
 
     def _audit_lifecycle(self, event_type: str, result_status: str) -> None:
         parameters: dict[str, object] = {
-            "schema": self._checkpoint.schema,
+            "schema": self._checkpoint.schema_,
             "loop_id": self._checkpoint.loop_id,
             "trigger": self._trigger,
             "revision": self._checkpoint.revision,
@@ -1190,6 +1229,12 @@ class LoopRunner:
                 {
                     "status": self._checkpoint.status,
                     "stop_reason": self._checkpoint.stop_reason,
+                    "attention_state": (
+                        self._checkpoint.attention.state if self._checkpoint.attention else None
+                    ),
+                    "attention_reason": (
+                        self._checkpoint.attention.reason if self._checkpoint.attention else None
+                    ),
                 }
             )
         emit_audit(

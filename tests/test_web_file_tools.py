@@ -405,7 +405,9 @@ def test_file_read_within_root_masks_secrets_and_reports_continuation(tmp_path, 
     assert "supersecretvalue123" not in outcome.detail
     assert "REDACTED" in outcome.detail
     assert outcome.truncation_mode == "head"
-    assert outcome.continuation == "可使用 FileRead 读取其他路径，或使用 Exec 处理此文件"
+    assert outcome.continuation == (
+        "Read another path with FileRead, or process this file with Exec."
+    )
 
 
 @pytest.mark.parametrize("tier", ["restricted", "container"])
@@ -753,7 +755,7 @@ def test_file_list_returns_sorted_relative_paths_and_reports_continuation(tmp_pa
     assert set(entries) == {"a.txt", "b.txt", "sub"}
     assert all(not os.path.isabs(entry) for entry in entries)
     assert outcome.truncation_mode == "head"
-    assert outcome.continuation == "可缩小目录路径后重新调用 FileList"
+    assert outcome.continuation == "Narrow the directory path and call FileList again."
 
 
 def test_file_list_escaping_root_is_blocked(tmp_path):

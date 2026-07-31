@@ -76,7 +76,9 @@ class SkillArgs(BaseModel):
     """Read one validated section of a discovered skill."""
 
     name: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,63}$")
-    section: Literal["full", "steps", "failure_branches", "completion_criteria"] = "full"
+    section: Literal[
+        "full", "steps", "failure_branches", "completion_criteria", "exit_conditions"
+    ] = "full"
 
 
 class MCPArgs(BaseModel):
@@ -91,6 +93,13 @@ class MCPArgs(BaseModel):
     server: str = Field(min_length=1)
     tool: str = Field(min_length=1)
     arguments: dict[str, Any] = Field(default_factory=dict)
+
+
+class MCPDescribeArgs(BaseModel):
+    """Read one discovered MCP tool's public metadata without calling the server."""
+
+    server: str = Field(min_length=1)
+    tool: str = Field(min_length=1)
 
 
 class ExecArgs(BaseModel):
@@ -195,7 +204,7 @@ class TaskStatus(BaseModel):
 
     completed: bool
     confidence: float | None = None
-    status: Literal["refused", "need_info", "failed"] | None = None
+    status: Literal["refused", "need_info", "blocked", "failed"] | None = None
     reason: str | None = None
     suggestion: str | None = None
 
@@ -212,6 +221,32 @@ class ParseResult(BaseModel):
     # plain prose instead of calling Exec leaves its answer here, so callers can still
     # show it even though there is no tool outcome to report.
     body: str = ""
+
+
+def _merge_tool_calls(result: ParseResult) -> None:
+    """Keep one explicit call ID and fail closed when channels disagree."""
+    by_id: dict[str, ToolCall] = {}
+    order: list[str] = []
+    conflicted: set[str] = set()
+    for call in result.tool_calls:
+        if call.id not in by_id:
+            by_id[call.id] = call
+            order.append(call.id)
+            continue
+        previous = by_id[call.id]
+        if previous.name == call.name and previous.arguments.model_dump(
+            mode="python"
+        ) == call.arguments.model_dump(mode="python"):
+            continue
+        conflicted.add(call.id)
+        result.errors.append(
+            ParseError(
+                error_type=ParseErrorType.INVALID_FORMAT,
+                message=f"Conflicting tool call id {call.id!r}; dispatch suppressed",
+                raw="",
+            )
+        )
+    result.tool_calls = [by_id[call_id] for call_id in order if call_id not in conflicted]
 
 
 # --- parsing -----------------------------------------------------------------
@@ -451,4 +486,5 @@ def parse(
     _parse_tool_calls(body, result, schemas)
     if native_tool_calls:
         _parse_native_tool_calls(native_tool_calls, result, schemas)
+    _merge_tool_calls(result)
     return result

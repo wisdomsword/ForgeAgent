@@ -23,6 +23,7 @@ from forgeagent.protocol import (
     FileReadArgs,
     FileWriteArgs,
     MCPArgs,
+    MCPDescribeArgs,
     ParseErrorType,
     SkillArgs,
     SurveyArgs,
@@ -30,10 +31,11 @@ from forgeagent.protocol import (
     parse,
 )
 from forgeagent.runtime import Runtime
-from forgeagent.skills import SkillDefinition, SkillRegistry
+from forgeagent.skills import SkillDefinition, SkillExitCondition, SkillRegistry
 from forgeagent.tools import (
     CodeBlockStore,
     ExecTool,
+    MCPDescribeTool,
     MCPTool,
     SkillTool,
     SurveyTool,
@@ -115,6 +117,49 @@ def test_default_registry_carries_exec_edit_survey():
     }
 
 
+def test_mcp_enabled_registry_registers_describe_tool_only_with_mcp():
+    assert "MCPDescribe" not in default_registry().arg_schemas()
+    schemas = default_registry(with_mcp=True).arg_schemas()
+    assert schemas["MCPDescribe"] is MCPDescribeArgs
+
+
+def test_mcp_describe_is_read_only_and_bounded():
+    class _DescribeMCP:
+        def describe_tool(self, server: str, tool: str):
+            if (server, tool) != ("alpha", "echo"):
+                return None
+            return type(
+                "Info",
+                (),
+                {
+                    "description": "Echo\x01 description",
+                    "input_schema": {"type": "object", "properties": {"text": {"type": "string"}}},
+                },
+            )()
+
+        def is_auto_approved(self, server: str, tool: str) -> bool:
+            return (server, tool) == ("alpha", "echo")
+
+    outcome = MCPDescribeTool().run(
+        MCPDescribeArgs(server="alpha", tool="echo"),
+        _mcp_ctx(mcp=_DescribeMCP()),
+    )
+    assert outcome.success is True
+    assert "Echo description" in outcome.detail
+    assert "\x01" not in outcome.detail
+    assert "MCPDescribe" not in outcome.detail
+    assert "auto-approved" in outcome.detail
+    assert "properties" in outcome.detail
+    assert outcome.continuation
+
+    missing = MCPDescribeTool().run(
+        MCPDescribeArgs(server="alpha", tool="missing"),
+        _mcp_ctx(mcp=_DescribeMCP()),
+    )
+    assert missing.success is False
+    assert "unavailable" in missing.detail
+
+
 def test_registry_later_registration_overrides_earlier():
     class _OtherDummy(_DummyTool):
         pass
@@ -189,9 +234,42 @@ def test_skill_tool_returns_requested_section_without_a_confirmer():
     assert outcome.success is True
     assert outcome.detail == "1. Inspect the diff."
     assert outcome.continuation == (
-        "Skill result truncated; read steps, failure_branches, or completion_criteria by name."
+        "Skill result truncated; read steps, failure_branches, completion_criteria, or "
+        "exit_conditions by name."
     )
     assert outcome.truncation_mode == "head"
+
+
+def test_skill_tool_returns_governed_exit_conditions_section():
+    registry = SkillRegistry(
+        {
+            "review-python": SkillDefinition(
+                name="review-python",
+                trigger="Review Python changes.",
+                steps="1. Inspect the diff.",
+                failure_branches="Stop when the diff is unavailable.",
+                completion_criteria="All findings are recorded.",
+                source="user",
+                format_version=2,
+                exit_conditions={
+                    "success": SkillExitCondition("report exists", "test checks report"),
+                    "failure": SkillExitCondition("read fails", "tool records error"),
+                    "blocked": SkillExitCondition("approval missing", "gate records state"),
+                    "needs_input": SkillExitCondition("branch missing", "user supplies branch"),
+                    "timeout_or_budget": SkillExitCondition("budget reached", "loop records stop"),
+                },
+            )
+        }
+    )
+
+    outcome = SkillTool(registry).run(
+        SkillArgs(name="review-python", section="exit_conditions"),
+        _survey_ctx(),
+    )
+
+    assert outcome.success is True
+    assert "### success" in outcome.detail
+    assert "### timeout_or_budget" in outcome.detail
 
 
 def test_skill_tool_unknown_name_is_recoverable_and_registry_is_conditional():
@@ -287,7 +365,9 @@ def test_exec_success_and_failure_use_same_tail_continuation():
     assert failure.success is False
     assert success.truncation_mode == failure.truncation_mode == "tail"
     assert success.continuation == failure.continuation
-    assert success.continuation == "请缩小输出范围，或将工作分片执行后重试"
+    assert success.continuation == (
+        "Narrow the output or split the work into smaller executions and retry."
+    )
 
 
 def test_survey_uses_honest_head_continuation():
@@ -296,7 +376,9 @@ def test_survey_uses_honest_head_continuation():
     )
 
     assert survey_outcome.truncation_mode == "head"
-    assert survey_outcome.continuation == "此工具不保留游标；如需更多结果，请重新提问"
+    assert survey_outcome.continuation == (
+        "This tool has no cursor; ask a new question if you need more results."
+    )
 
 
 # --- MCP tool confirmation gate (M7 Phase 3) ---------------------------------
@@ -463,7 +545,9 @@ def test_mcp_uses_honest_head_continuation():
     )
 
     assert outcome.truncation_mode == "head"
-    assert outcome.continuation == "此工具不保留游标；如需更多结果，请缩小查询参数后重新调用"
+    assert outcome.continuation == (
+        "This tool has no cursor; narrow the query and call it again for more results."
+    )
 
 
 def test_mcp_auto_approved_call_skips_gate_and_runs():

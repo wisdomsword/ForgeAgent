@@ -252,6 +252,26 @@ def test_both_channels_merge_into_one_tool_calls_list():
     assert sources == {ToolCallSource.TEXT, ToolCallSource.OPENAI}
 
 
+def test_identical_explicit_id_across_channels_is_dispatched_once():
+    text = '<!-- ToolCall: {"id": "same", "name": "Exec", "arguments": {"code": "1"}} -->'
+    native = [NativeToolCall(id="same", name="Exec", arguments='{"code": "1"}')]
+
+    result = parse(text, native_tool_calls=native)
+
+    assert not result.errors
+    assert [(call.id, call.source) for call in result.tool_calls] == [("same", ToolCallSource.TEXT)]
+
+
+def test_conflicting_explicit_id_across_channels_is_not_dispatchable():
+    text = '<!-- ToolCall: {"id": "same", "name": "Exec", "arguments": {"code": "1"}} -->'
+    native = [NativeToolCall(id="same", name="Edit", arguments='{"name":"b","old":"a","new":"z"}')]
+
+    result = parse(text, native_tool_calls=native)
+
+    assert result.tool_calls == []
+    assert any(error.error_type == ParseErrorType.INVALID_FORMAT for error in result.errors)
+
+
 def test_no_native_tool_calls_is_equivalent_to_omitting_argument():
     text = '<!-- ToolCall: {"id": "t1", "name": "Exec", "arguments": {"code": "1"}} -->'
     assert parse(text) == parse(text, native_tool_calls=[])

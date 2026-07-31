@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import math
 import os
 import re
@@ -23,8 +24,10 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from .audit import AuditEvent, AuditSink, emit_audit
 from .check_runner import CheckDefinition, CheckStatus, candidate_snapshot_digest, run_check
+from .external_actions import ExternalActionReceiptStore
 from .secret_policy import REDACTED_PATH, mask_audit_data, sensitive_env_values
 from .task import TaskOutcome
+from .text_safety import safe_text
 from .tools import (
     FileListTool,
     FileReadTool,
@@ -34,6 +37,8 @@ from .tools import (
     ToolRegistry,
     default_registry,
 )
+
+_logger = logging.getLogger(__name__)
 
 try:
     import fcntl
@@ -66,6 +71,12 @@ _WINDOWS_ABSOLUTE_PATH = re.compile(
 
 CollaborationMode = Literal["single", "duo", "triad"]
 CollaborationRole = Literal["planner", "generator", "evaluator"]
+
+HANDOFF_SCHEMA = "forgeagent.collaboration-handoff.v1"
+MAX_HANDOFF_FACTS = 16
+MAX_HANDOFF_CAPABILITIES = 32
+MAX_HANDOFF_RECEIPTS = 8
+MAX_HANDOFF_SCOPE_ITEMS = 16
 
 
 def normalize_required_candidate_files(value: object) -> tuple[str, ...]:
@@ -104,19 +115,7 @@ class CollaborationRoleConfigurationError(Exception):
     """A role task cannot be constructed because its configured provider is unusable."""
 
 
-def _safe_text(value: Any, *, field: str, maximum: int, allow_empty: bool = False) -> str:
-    if not isinstance(value, str):
-        raise ValueError(f"{field} must be a string")
-    if len(value) > maximum:
-        raise ValueError(f"{field} is too long")
-    if any(
-        unicodedata.category(character) in {"Cc", "Cf", "Cs", "Zl", "Zp"} for character in value
-    ):
-        raise ValueError(f"{field} contains unsafe characters")
-    normalized = value if allow_empty else value.strip()
-    if not allow_empty and not normalized:
-        raise ValueError(f"{field} must not be blank")
-    return normalized
+_safe_text = safe_text
 
 
 def _nonnegative_int(value: Any, *, field: str) -> int:
@@ -236,6 +235,144 @@ class EvaluationItem(BaseModel):
         if not self.passed and (not self.observed.strip() or not self.expected.strip()):
             raise ValueError("failed evaluation requires observed and expected evidence")
         return self
+
+
+class HandoffCapability(BaseModel):
+    """A bounded public capability projection, not an executable grant."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    name: str
+    read_only: bool
+
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, value: Any) -> str:
+        return _safe_text(value, field="capability name", maximum=MAX_ITEM_ID_CHARS)
+
+    @field_validator("read_only", mode="before")
+    @classmethod
+    def _validate_read_only(cls, value: Any) -> bool:
+        if type(value) is not bool:
+            raise ValueError("read_only must be a bool")
+        return value
+
+
+class HandoffReceipt(BaseModel):
+    """Public receipt status; action identity and request data stay private."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    server_label: str
+    tool_label: str
+    phase: Literal["prepared", "dispatched", "confirmed", "unknown"]
+    dispatch_certainty: Literal["confirmed", "not_dispatched", "unknown", "pending"]
+
+    @field_validator("server_label", "tool_label")
+    @classmethod
+    def _validate_label(cls, value: Any, info: Any) -> str:
+        return _safe_text(value, field=info.field_name, maximum=MAX_ITEM_TEXT_CHARS)
+
+
+class HandoffCheckpoint(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    revision: int
+    phase: CollaborationPhase
+    generator_attempts: int
+    evaluator_attempts: int
+    rejections: int
+
+    @field_validator(
+        "revision", "generator_attempts", "evaluator_attempts", "rejections", mode="before"
+    )
+    @classmethod
+    def _validate_counter(cls, value: Any, info: Any) -> int:
+        return _nonnegative_int(value, field=info.field_name)
+
+
+def _bounded_handoff_texts(value: Any, *, field: str, maximum_items: int) -> tuple[str, ...]:
+    if not isinstance(value, (list, tuple)) or len(value) > maximum_items:
+        raise ValueError(f"{field} is invalid")
+    return tuple(_safe_text(item, field=field, maximum=MAX_ITEM_TEXT_CHARS) for item in value)
+
+
+class HandoffPacket(BaseModel):
+    """Frozen, host-owned state projection passed between collaboration roles."""
+
+    model_config = ConfigDict(
+        frozen=True, extra="forbid", populate_by_name=True, serialize_by_alias=True
+    )
+
+    schema_: Literal[HANDOFF_SCHEMA] = Field(HANDOFF_SCHEMA, alias="schema")
+    role: CollaborationRole
+    collaboration_id: str
+    attempt: int
+    goal: str
+    scope: tuple[str, ...] = ()
+    plan_digest: str = ""
+    verified_facts: tuple[str, ...] = ()
+    assumptions: tuple[str, ...] = ()
+    open_side_effects: tuple[HandoffReceipt, ...] = ()
+    capabilities: tuple[HandoffCapability, ...] = ()
+    approval: Literal["none", "host_preapproved", "required"] = "none"
+    checkpoint: HandoffCheckpoint
+    stop_conditions: tuple[str, ...] = ()
+    return_owner: Literal["generator", "evaluator", "caller"]
+    receipt_visibility: Literal["available", "unavailable"]
+
+    @property
+    def schema(self) -> str:
+        return self.schema_
+
+    @field_validator("collaboration_id")
+    @classmethod
+    def _validate_collaboration_id(cls, value: Any) -> str:
+        if not isinstance(value, str) or _COLLABORATION_ID_RE.fullmatch(value) is None:
+            raise ValueError("invalid collaboration id")
+        return value
+
+    @field_validator("goal")
+    @classmethod
+    def _validate_goal(cls, value: Any) -> str:
+        return _public_text(_safe_text(value, field="goal", maximum=MAX_GOAL_CHARS))
+
+    @field_validator("scope", mode="before")
+    @classmethod
+    def _validate_scope(cls, value: Any) -> tuple[str, ...]:
+        return _bounded_handoff_texts(value, field="scope", maximum_items=MAX_HANDOFF_SCOPE_ITEMS)
+
+    @field_validator("plan_digest")
+    @classmethod
+    def _validate_plan_digest(cls, value: Any) -> str:
+        if not isinstance(value, str) or (value and re.fullmatch(r"[0-9a-f]{64}", value) is None):
+            raise ValueError("invalid plan digest")
+        return value
+
+    @field_validator("attempt", mode="before")
+    @classmethod
+    def _validate_attempt(cls, value: Any) -> int:
+        return _nonnegative_int(value, field="attempt")
+
+    @field_validator("verified_facts", "assumptions", "stop_conditions", mode="before")
+    @classmethod
+    def _validate_texts(cls, value: Any, info: Any) -> tuple[str, ...]:
+        maximum = MAX_HANDOFF_FACTS if info.field_name != "stop_conditions" else 8
+        return _bounded_handoff_texts(value, field=info.field_name, maximum_items=maximum)
+
+    @field_validator("capabilities", mode="before")
+    @classmethod
+    def _validate_capabilities(cls, value: Any) -> tuple[HandoffCapability, ...]:
+        if not isinstance(value, (list, tuple)) or len(value) > MAX_HANDOFF_CAPABILITIES:
+            raise ValueError("capabilities are invalid")
+        return tuple(HandoffCapability.model_validate(item) for item in value)
+
+    @field_validator("open_side_effects", mode="before")
+    @classmethod
+    def _validate_receipts(cls, value: Any) -> tuple[HandoffReceipt, ...]:
+        if not isinstance(value, (list, tuple)) or len(value) > MAX_HANDOFF_RECEIPTS:
+            raise ValueError("open side effects are invalid")
+        return tuple(HandoffReceipt.model_validate(item) for item in value)
 
 
 class CollaborationUsage(BaseModel):
@@ -530,6 +667,132 @@ class CollaborationState(BaseModel):
         ):
             raise ValueError("completed state requires passing evaluation")
         return self
+
+
+def handoff_digest(packet: HandoffPacket) -> str:
+    payload = packet.model_dump(mode="json", by_alias=True)
+    encoded = json.dumps(payload, ensure_ascii=True, separators=(",", ":"), sort_keys=True).encode()
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _handoff_capabilities(
+    role: CollaborationRole, registry: ToolRegistry | None
+) -> tuple[HandoffCapability, ...]:
+    if registry is None:
+        return ()
+    schemas = getattr(registry, "arg_schemas", None)
+    if not callable(schemas):
+        return ()
+    try:
+        names = sorted(str(name) for name in schemas())[:MAX_HANDOFF_CAPABILITIES]
+    except Exception as exc:
+        _logger.warning(
+            "handoff.capability_projection_failed exception_type=%s",
+            type(exc).__name__,
+        )
+        return ()
+    return tuple(
+        HandoffCapability(
+            name=name,
+            read_only=role == "evaluator" and name in {"FileRead", "FileList"},
+        )
+        for name in names
+    )
+
+
+def _handoff_receipts(
+    receipt_store: ExternalActionReceiptStore | None,
+    *,
+    task_id: str | None,
+    loop_id: str | None,
+) -> tuple[tuple[HandoffReceipt, ...], Literal["available", "unavailable"]]:
+    if receipt_store is None or (task_id is None and loop_id is None):
+        return (), "unavailable"
+    try:
+        records = receipt_store.list_pending(loop_id=loop_id, task_id=task_id)
+    except Exception as exc:
+        _logger.warning(
+            "handoff.receipt_projection_failed exception_type=%s",
+            type(exc).__name__,
+        )
+        return (), "unavailable"
+    projected: list[HandoffReceipt] = []
+    for record in records[:MAX_HANDOFF_RECEIPTS]:
+        projected.append(
+            HandoffReceipt(
+                server_label=_public_text(record.server_label, maximum=MAX_ITEM_TEXT_CHARS),
+                tool_label=_public_text(record.tool_label, maximum=MAX_ITEM_TEXT_CHARS),
+                phase=record.phase,
+                dispatch_certainty=record.dispatch_certainty or "pending",
+            )
+        )
+    return tuple(projected), "available"
+
+
+def build_handoff_packet(
+    state: CollaborationState,
+    role: CollaborationRole,
+    *,
+    registry: ToolRegistry | None = None,
+    evaluator_checks: Mapping[str, CheckDefinition] | None = None,
+    rejection: tuple[EvaluationItem, ...] = (),
+    receipt_store: ExternalActionReceiptStore | None = None,
+    task_id: str | None = None,
+    loop_id: str | None = None,
+    attempt: int | None = None,
+) -> HandoffPacket:
+    if role == "planner":
+        return_owner: Literal["generator", "evaluator", "caller"] = "generator"
+    elif role == "generator":
+        return_owner = "evaluator"
+    else:
+        return_owner = "caller"
+    facts = [
+        f"phase={state.phase}",
+        f"revision={state.revision}",
+        f"generator_attempts={state.generator_attempts}",
+        f"evaluator_attempts={state.evaluator_attempts}",
+        f"rejections={state.rejections}",
+    ]
+    facts.extend(
+        f"evaluation:{item.id}={'passed' if item.passed else 'failed'}"
+        for item in (rejection or state.last_evaluation)[:MAX_HANDOFF_FACTS]
+    )
+    checks = tuple(sorted((evaluator_checks or {}).keys()))[:MAX_HANDOFF_FACTS]
+    if checks:
+        facts.append(f"registered_checks={','.join(checks)}")
+    receipts, receipt_visibility = _handoff_receipts(
+        receipt_store, task_id=task_id, loop_id=loop_id
+    )
+    packet = HandoffPacket(
+        role=role,
+        collaboration_id=state.collaboration_id,
+        attempt=(
+            attempt
+            if attempt is not None
+            else (state.generator_attempts if role == "generator" else state.evaluator_attempts)
+        ),
+        goal=state.goal,
+        scope=tuple(item.id for item in state.plan[:MAX_HANDOFF_SCOPE_ITEMS]),
+        plan_digest=state.plan_digest,
+        verified_facts=tuple(facts[:MAX_HANDOFF_FACTS]),
+        assumptions=(),
+        open_side_effects=receipts,
+        capabilities=_handoff_capabilities(role, registry),
+        approval="required" if role in {"generator", "evaluator"} else "none",
+        checkpoint=HandoffCheckpoint(
+            revision=state.revision,
+            phase=state.phase,
+            generator_attempts=state.generator_attempts,
+            evaluator_attempts=state.evaluator_attempts,
+            rejections=state.rejections,
+        ),
+        stop_conditions=("cancelled", "role_failure", "state_failure", "rejection_limit"),
+        return_owner=return_owner,
+        receipt_visibility=receipt_visibility,
+    )
+    _ = attempt
+    return packet
 
 
 class CollaborationReport(BaseModel):
@@ -1461,6 +1724,7 @@ def _role_task_data(
     state: CollaborationState,
     rejection: tuple[EvaluationItem, ...],
     task_data_suffix: str = "",
+    handoff: HandoffPacket | None = None,
 ) -> str:
     payload: dict[str, object] = {
         "goal": state.goal,
@@ -1471,13 +1735,23 @@ def _role_task_data(
         payload["rejection"] = [item.model_dump(mode="json") for item in rejection]
     if task_data_suffix:
         payload["loop_context"] = task_data_suffix
+    if handoff is not None:
+        payload["handoff"] = handoff.model_dump(mode="json", by_alias=True)
+        payload["handoff_digest"] = handoff_digest(handoff)
     return json.dumps(payload, ensure_ascii=True, separators=(",", ":"), sort_keys=True)
 
 
-def _planner_task_data(state: CollaborationState, task_data_suffix: str = "") -> str:
+def _planner_task_data(
+    state: CollaborationState,
+    task_data_suffix: str = "",
+    handoff: HandoffPacket | None = None,
+) -> str:
     payload = {"goal": state.goal}
     if task_data_suffix:
         payload["loop_context"] = task_data_suffix
+    if handoff is not None:
+        payload["handoff"] = handoff.model_dump(mode="json", by_alias=True)
+        payload["handoff_digest"] = handoff_digest(handoff)
     return json.dumps(payload, ensure_ascii=True, separators=(",", ":"), sort_keys=True)
 
 
@@ -1522,6 +1796,7 @@ class CollaborationRunner:
         audit_sink: AuditSink | None = None,
         task_id: str | None = None,
         loop_id: str | None = None,
+        receipt_store: ExternalActionReceiptStore | None = None,
     ) -> None:
         if type(recover_role_failures) is not bool:
             raise ValueError("recover_role_failures must be a bool")
@@ -1546,6 +1821,7 @@ class CollaborationRunner:
         self._audit_sink = audit_sink
         self._task_id = task_id
         self._loop_id = loop_id
+        self._receipt_store = receipt_store
         self._run_lock = threading.Lock()
         self._closed = False
 
@@ -1573,6 +1849,7 @@ class CollaborationRunner:
         audit_sink: AuditSink | None = None,
         task_id: str | None = None,
         loop_id: str | None = None,
+        receipt_store: ExternalActionReceiptStore | None = None,
     ) -> CollaborationRunner:
         if type(recover_role_failures) is not bool:
             raise ValueError("recover_role_failures must be a bool")
@@ -1615,6 +1892,7 @@ class CollaborationRunner:
             audit_sink=audit_sink,
             task_id=task_id,
             loop_id=loop_id,
+            receipt_store=receipt_store,
         )
 
     def run(self, goal: str, *, cancel_event: threading.Event | None = None) -> CollaborationReport:
@@ -1653,14 +1931,24 @@ class CollaborationRunner:
             return self._finish("cancelled", "cancelled")
         planner_state = self._state
         registry = build_planner_registry(store=self._store, state=planner_state)
+        handoff = build_handoff_packet(
+            planner_state,
+            "planner",
+            registry=registry,
+            receipt_store=self._receipt_store,
+            task_id=self._task_id,
+            loop_id=self._loop_id,
+            attempt=1,
+        )
         try:
             planner = self._run_role(
                 "planner",
                 1,
                 registry,
                 _PLANNER_PROMPT,
-                _planner_task_data(planner_state, self._task_data_suffix),
+                _planner_task_data(planner_state, self._task_data_suffix, handoff),
                 cancel_event,
+                handoff,
             )
         except CollaborationRoleConfigurationError:
             if self._cancelled(cancel_event):
@@ -1772,14 +2060,27 @@ class CollaborationRunner:
                     state=generator_state,
                     required_candidate_files=self._required_candidate_files,
                 )
+                handoff = build_handoff_packet(
+                    generator_state,
+                    "generator",
+                    registry=registry,
+                    rejection=rejection,
+                    receipt_store=self._receipt_store,
+                    task_id=self._task_id,
+                    loop_id=self._loop_id,
+                    attempt=generator_state.generator_attempts + 1,
+                )
                 try:
                     generator = self._run_role(
                         "generator",
                         generator_state.generator_attempts + 1,
                         registry,
                         _GENERATOR_PROMPT + (_GENERATOR_REJECTION_PROMPT if rejection else ""),
-                        _role_task_data(generator_state, rejection, self._task_data_suffix),
+                        _role_task_data(
+                            generator_state, rejection, self._task_data_suffix, handoff
+                        ),
                         cancel_event,
+                        handoff,
                     )
                 except CollaborationRoleConfigurationError:
                     if self._cancelled(cancel_event):
@@ -1830,6 +2131,16 @@ class CollaborationRunner:
                     state=evaluator_state,
                     checks=self._evaluator_checks,
                 )
+                handoff = build_handoff_packet(
+                    evaluator_state,
+                    "evaluator",
+                    registry=registry,
+                    evaluator_checks=self._evaluator_checks,
+                    receipt_store=self._receipt_store,
+                    task_id=self._task_id,
+                    loop_id=self._loop_id,
+                    attempt=evaluator_state.evaluator_attempts + 1,
+                )
                 if self._cancelled(cancel_event):
                     return self._finish("cancelled", "cancelled")
                 try:
@@ -1838,8 +2149,9 @@ class CollaborationRunner:
                         evaluator_state.evaluator_attempts + 1,
                         registry,
                         _EVALUATOR_PROMPT,
-                        _role_task_data(evaluator_state, ()),
+                        _role_task_data(evaluator_state, (), handoff=handoff),
                         cancel_event,
+                        handoff,
                     )
                 except CollaborationRoleConfigurationError:
                     if self._cancelled(cancel_event):
@@ -1917,6 +2229,7 @@ class CollaborationRunner:
         prompt: str,
         data: str,
         cancel_event: threading.Event | None,
+        handoff: HandoffPacket | None = None,
     ) -> TaskOutcome:
         if self._cancelled(cancel_event):
             raise CollaborationError("collaboration cancelled before role start")
@@ -1938,6 +2251,25 @@ class CollaborationRunner:
             attempt=attempt,
             duration_ms=0,
         )
+        if handoff is not None:
+            self._emit(
+                "collaboration.handoff",
+                {
+                    "role": handoff.role,
+                    "phase": handoff.checkpoint.phase,
+                    "attempt": attempt,
+                    "revision": handoff.checkpoint.revision,
+                    "digest_prefix": handoff_digest(handoff)[:12],
+                    "verified_fact_count": len(handoff.verified_facts),
+                    "open_receipt_count": len(handoff.open_side_effects),
+                    "capability_count": len(handoff.capabilities),
+                    "receipt_visibility": handoff.receipt_visibility,
+                    "return_owner": handoff.return_owner,
+                },
+                "prepared",
+                attempt=attempt,
+                duration_ms=0,
+            )
         task: _RunnableRoleTask | None = None
         try:
             task = self._role_task_builder(role, attempt, registry, prompt)

@@ -15,11 +15,13 @@ from __future__ import annotations
 
 import hashlib
 import http.client
+import json
 import logging
 import os
 import stat
 import threading
 import time
+import unicodedata
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -29,6 +31,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel
 
+from .attention import Attention
 from .audit import AuditEvent, AuditSink, emit_audit
 from .executor import ExecResult, ExecutorBackend
 from .external_actions import ExternalActionReceiptStore, ReceiptError, canonical_request_digest
@@ -40,6 +43,7 @@ from .protocol import (
     FileReadArgs,
     FileWriteArgs,
     MCPArgs,
+    MCPDescribeArgs,
     SkillArgs,
     SurveyArgs,
     WebFetchArgs,
@@ -62,14 +66,30 @@ _EXT_BY_CONTENT_TYPE = {"text/html": ".html", "application/json": ".json", "text
 
 _logger = logging.getLogger(__name__)
 
-_FILE_READ_CONTINUATION = "可使用 FileRead 读取其他路径，或使用 Exec 处理此文件"
-_FILE_LIST_CONTINUATION = "可缩小目录路径后重新调用 FileList"
-_EXEC_CONTINUATION = "请缩小输出范围，或将工作分片执行后重试"
-_MCP_CONTINUATION = "此工具不保留游标；如需更多结果，请缩小查询参数后重新调用"
+_FILE_READ_CONTINUATION = "Read another path with FileRead, or process this file with Exec."
+_FILE_LIST_CONTINUATION = "Narrow the directory path and call FileList again."
+_EXEC_CONTINUATION = "Narrow the output or split the work into smaller executions and retry."
+_MCP_CONTINUATION = "This tool has no cursor; narrow the query and call it again for more results."
+_MCP_DESCRIBE_CONTINUATION = (
+    "Choose another tool from the MCP catalog and call MCPDescribe again with its server and tool."
+)
 _MCP_RECEIPT_UNAVAILABLE = "MCP receipt unavailable"
 _MCP_RESULT_UNKNOWN = "MCP result unknown; reconcile the external action before retrying"
-_SURVEY_CONTINUATION = "此工具不保留游标；如需更多结果，请重新提问"
-_WEBFETCH_RETRY_CONTINUATION = "此工具不保留游标；可缩小请求范围后重新调用 WebFetch"
+_MCP_DESCRIPTION_CHARS = 2000
+_MCP_SCHEMA_CHARS = 6000
+_SURVEY_CONTINUATION = "This tool has no cursor; ask a new question if you need more results."
+_WEBFETCH_RETRY_CONTINUATION = (
+    "This tool has no cursor; narrow the request and call WebFetch again."
+)
+
+
+def _mcp_detail_text(value: str) -> str:
+    projected = "".join(
+        " " if unicodedata.category(character) in {"Cc", "Cf", "Cs", "Zl", "Zp"} else character
+        for character in value
+    )
+    return " ".join(projected.split())
+
 
 # Sandbox tier. Lives here (not task.py) so ToolContext.tier can reference it without
 # a circular import: task.py already imports from tools.py (see docs/m10 §3.7).
@@ -129,6 +149,7 @@ class ToolOutcome(BaseModel):
     # and, if set, ends the loop with `Termination.NEEDS_INFO` using `detail` as the
     # user-facing question. See docs/m7-tools-mcp-survey.md §3.5.
     needs_info: bool = False
+    attention: Attention | None = None
     # True only when a successful tool call is itself the task's completion boundary.
     completes_task: bool = False
     continuation: str | None = None
@@ -439,8 +460,8 @@ class SkillTool(Tool):
             success=True,
             detail=detail,
             continuation=(
-                "Skill result truncated; read steps, failure_branches, or completion_criteria "
-                "by name."
+                "Skill result truncated; read steps, failure_branches, completion_criteria, or "
+                "exit_conditions by name."
             ),
             truncation_mode="head",
         )
@@ -578,6 +599,75 @@ class MCPTool(Tool):
             success=bool(result.get("ok")),
             detail=detail,
             continuation=_MCP_CONTINUATION,
+            truncation_mode="head",
+        )
+
+
+class MCPDescribeTool(Tool):
+    """Read one available MCP tool's bounded public discovery metadata."""
+
+    name = "MCPDescribe"
+    args_model = MCPDescribeArgs
+    risk_level = "low"
+
+    def run(self, args: BaseModel, ctx: ToolContext) -> ToolOutcome:
+        assert isinstance(args, MCPDescribeArgs)
+        if ctx.mcp is None:
+            return ToolOutcome(
+                tool=self.name,
+                success=False,
+                detail="MCP tool is unavailable",
+                continuation=_MCP_DESCRIBE_CONTINUATION,
+                truncation_mode="head",
+            )
+        info = ctx.mcp.describe_tool(args.server, args.tool)
+        labeler = getattr(ctx.mcp, "public_tool_label", None)
+        if callable(labeler):
+            label = labeler(args.server, args.tool)
+        else:
+            secret_values = sensitive_env_values()
+            label = (
+                f"{mask_secrets(args.server, secret_values)}:"
+                f"{mask_secrets(args.tool, secret_values)}"
+            )
+        if info is None:
+            return ToolOutcome(
+                tool=self.name,
+                block_name=label,
+                success=False,
+                detail="MCP tool is unavailable",
+                continuation=_MCP_DESCRIBE_CONTINUATION,
+                truncation_mode="head",
+            )
+        try:
+            schema = json.dumps(
+                info.input_schema,
+                ensure_ascii=True,
+                sort_keys=True,
+                allow_nan=False,
+                separators=(",", ":"),
+            )
+        except (RecursionError, TypeError, ValueError):
+            schema = "{}"
+        if len(schema) > _MCP_SCHEMA_CHARS:
+            schema = "{}"
+        description = _mcp_detail_text(mask_secrets(info.description, sensitive_env_values()))[
+            :_MCP_DESCRIPTION_CHARS
+        ]
+        checker = getattr(ctx.mcp, "is_auto_approved", None)
+        permission = (
+            "auto-approved"
+            if callable(checker) and checker(args.server, args.tool)
+            else "confirmation required"
+        )
+        return ToolOutcome(
+            tool=self.name,
+            block_name=label,
+            success=True,
+            detail=(
+                f"permission: {permission}\ndescription: {description}\ninput_schema: {schema}"
+            ),
+            continuation=_MCP_DESCRIBE_CONTINUATION,
             truncation_mode="head",
         )
 
@@ -955,5 +1045,6 @@ def default_registry(
     if skills is not None and skills.catalog_prompt():
         registry.register(SkillTool(skills))
     if with_mcp:
+        registry.register(MCPDescribeTool())
         registry.register(MCPTool())
     return registry

@@ -27,8 +27,8 @@ from forgeagent.models import (
 from forgeagent.protocol import EditArgs, FileReadArgs, MCPArgs, ToolCall
 from forgeagent.runtime import Runtime
 from forgeagent.skills import SkillDefinition, SkillRegistry
-from forgeagent.step import RoundResult, Step, Termination, _apply_edit
-from forgeagent.tools import Tool, ToolContext, ToolOutcome, ToolRegistry
+from forgeagent.step import RoundResult, Step, Termination
+from forgeagent.tools import Tool, ToolContext, ToolOutcome, ToolRegistry, _apply_edit
 
 
 class _NoArgs(BaseModel):
@@ -635,6 +635,15 @@ def test_prose_answer_is_nudged_once_then_accepted():
     assert rounds[-1].body == "still prose, the answer is 42"
 
 
+@pytest.mark.parametrize("body", ["", "   \n\t"])
+def test_empty_or_whitespace_prose_never_becomes_answered_in_prose(body: str):
+    rounds = _step([_reply(body)]).run(_user())
+
+    assert rounds[-1].body == ""
+    assert rounds[-1].stopped_reason == Termination.EMPTY_RESPONSE
+    assert rounds[-1].stopped_reason != Termination.ANSWERED_IN_PROSE
+
+
 def test_prose_nudge_lets_model_recover_via_protocol():
     # After the nudge, a model that switches to the protocol completes normally.
     step = _step([_reply("let me just tell you: 42"), _reply(_done())])
@@ -688,6 +697,16 @@ def test_declared_need_info_via_front_matter():
     fm = "---\ntask_status:\n  completed: false\n  status: need_info\n---\nwhich file?"
     rounds = _step([_reply(fm)]).run(_user())
     assert rounds[0].stopped_reason == "needs_info"
+
+
+def test_declared_blocked_via_front_matter_exposes_attention():
+    fm = "---\ntask_status:\n  completed: false\n  status: blocked\n---\nwaiting for permission"
+    rounds = _step([_reply(fm)]).run(_user())
+
+    assert rounds[0].stopped_reason == "blocked"
+    assert rounds[0].attention is not None
+    assert rounds[0].attention.state == "blocked"
+    assert rounds[0].attention.required_action == "waiting for permission"
 
 
 @pytest.mark.parametrize(
@@ -905,7 +924,7 @@ def test_long_exec_feedback_has_masked_continuation_in_next_provider_request(mon
     monkeypatch.setattr(
         tools_module,
         "_EXEC_CONTINUATION",
-        f"请缩小输出范围，或将工作分片执行后重试 {secret}",
+        f"Narrow the output or split the work into smaller executions and retry. {secret}",
     )
     client = _RecordingClient(script=[_reply(_exec_call("print('x' * 10_000)")), _reply(_done())])
     step = Step(
@@ -922,7 +941,10 @@ def test_long_exec_feedback_has_masked_continuation_in_next_provider_request(mon
     feedback = client.seen_messages[1][-1].content
     assert isinstance(feedback, str)
     assert "[truncated:" in feedback
-    assert "[continuation] 请缩小输出范围，或将工作分片执行后重试 ***REDACTED***" in feedback
+    assert (
+        "[continuation] Narrow the output or split the work into smaller executions and retry. "
+        "***REDACTED***"
+    ) in feedback
     assert secret not in feedback
     assert len(feedback) < 10_000
     assert feedback.endswith("x" * 100)
@@ -1215,6 +1237,8 @@ def test_survey_without_asker_ends_needs_info():
     assert len(rounds) == 1
     assert rounds[0].stopped_reason == "needs_info"
     assert rounds[0].stopped_detail == "which file should I edit?"
+    assert rounds[0].attention is not None
+    assert rounds[0].attention.state == "needs_input"
 
 
 def test_declared_completion_does_not_override_survey_needs_info():

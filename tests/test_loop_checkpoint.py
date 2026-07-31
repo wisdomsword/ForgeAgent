@@ -12,6 +12,7 @@ import pytest
 from pydantic import ValidationError
 
 import forgeagent.loop as loop_module
+from forgeagent.attention import attention_for_reason
 from forgeagent.loop import (
     DEFAULT_MAX_CONSECUTIVE_FAILURES,
     DEFAULT_MAX_ROUNDS,
@@ -131,6 +132,21 @@ def test_model_allows_token_usage_to_overshoot_budget_at_a_safe_boundary():
     assert checkpoint.tokens_used == 101
 
 
+def test_attention_stop_requires_projection_and_old_checkpoint_migrates():
+    checkpoint = _checkpoint(
+        status="stopped", stop_reason="blocked", attention=attention_for_reason("blocked")
+    )
+    assert checkpoint.attention is not None
+    with pytest.raises(ValidationError):
+        _checkpoint(status="stopped", stop_reason="blocked", attention=None)
+
+    payload = _checkpoint(status="stopped", stop_reason="blocked").model_dump(mode="json")
+    payload.pop("attention", None)
+    migrated = LoopCheckpoint(**payload)
+    assert migrated.attention is not None
+    assert migrated.attention.state == "blocked"
+
+
 @pytest.mark.parametrize("character", ["\u0085", "\u202e", "\ud800", "\u2028", "\u2029"])
 @pytest.mark.parametrize(
     ("field", "value_factory"),
@@ -174,6 +190,22 @@ def test_report_is_safe_projection_model():
         "usage_available": True,
         "collaboration_mode": "single",
     }
+
+
+def test_loop_models_preserve_public_schema_alias_on_round_trip():
+    checkpoint = _checkpoint()
+    report = LoopReport.from_checkpoint(checkpoint)
+
+    checkpoint_payload = checkpoint.model_dump(mode="json", by_alias=True)
+    report_payload = report.model_dump(mode="json", by_alias=True)
+
+    assert checkpoint_payload["schema"] == LOOP_SCHEMA
+    assert report_payload["schema"] == LOOP_SCHEMA
+    assert "schema_" not in checkpoint_payload
+    assert "schema_" not in report_payload
+
+    loaded = LoopCheckpoint.model_validate(checkpoint_payload)
+    assert loaded.schema_ == LOOP_SCHEMA
 
 
 def test_old_checkpoint_defaults_to_single_collaboration_mode():

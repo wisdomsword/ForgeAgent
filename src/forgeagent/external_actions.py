@@ -21,6 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from .audit import AuditEvent, AuditSink, emit_audit
 from .secret_policy import mask_secrets, sensitive_env_values
+from .text_safety import safe_text
 
 RECEIPT_SCHEMA = "forgeagent.external-action-receipt.v1"
 MAX_RECEIPT_BYTES = 256 * 1024
@@ -47,17 +48,7 @@ def _reject_json_constant(value: str) -> Any:
     raise ValueError(f"non-finite JSON value: {value}")
 
 
-def _safe_text(value: Any, *, field: str, maximum: int, allow_empty: bool) -> str:
-    if not isinstance(value, str):
-        raise ValueError(f"{field} must be a string")
-    if len(value) > maximum:
-        raise ValueError(f"{field} is too long")
-    if not allow_empty and not value.strip():
-        raise ValueError(f"{field} must not be blank")
-    unsafe = {"Cc", "Cf", "Cs", "Zl", "Zp"}
-    if any(unicodedata.category(character) in unsafe for character in value):
-        raise ValueError(f"{field} contains unsafe characters")
-    return value.strip() if not allow_empty else value
+_safe_text = safe_text
 
 
 def _masked_text(value: Any, *, field: str, maximum: int, allow_empty: bool) -> str:

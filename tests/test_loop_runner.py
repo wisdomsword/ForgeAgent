@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from forgeagent.attention import attention_for_reason
 from forgeagent.audit import AuditEvent
 from forgeagent.collaboration import CollaborationReport, CollaborationUsage
 from forgeagent.loop import (
@@ -266,6 +267,39 @@ def test_create_runs_one_completed_iteration_and_closes_task(tmp_path: Path):
     assert report.tokens_used == 4
     assert len(builder.calls) == 1
     assert builder.calls[0][4].closed == 1
+    runner.close()
+
+
+@pytest.mark.parametrize("reason", ["needs_input", "blocked"])
+def test_attention_outcome_stops_loop_and_persists_safe_projection(tmp_path: Path, reason: str):
+    attention = attention_for_reason(
+        "needs_info" if reason == "needs_input" else "blocked", "provide input"
+    )
+    builder = _Builder([_outcome(reason=reason)])
+    builder._outcomes = iter(
+        [
+            TaskOutcome(
+                status=TaskStatus(
+                    completed=False,
+                    reason=reason,
+                    detail="private detail",
+                    attention=attention,
+                ),
+                rounds=[RoundResult(text="private model text", usage=TokenUsage(input_tokens=1))],
+            )
+        ]
+    )
+    runner = _runner(tmp_path, builder)
+
+    report = runner.run()
+    checkpoint = LoopCheckpointStore(str(tmp_path)).load(report.loop_id)
+
+    assert report.status == "stopped"
+    assert report.stop_reason == reason
+    assert report.attention == attention
+    assert checkpoint.attention == attention
+    assert checkpoint.consecutive_failures == 0
+    assert "private" not in report.attention.required_action
     runner.close()
 
 
