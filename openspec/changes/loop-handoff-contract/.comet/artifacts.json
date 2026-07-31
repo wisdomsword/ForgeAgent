@@ -1,0 +1,8 @@
+{
+  "openspec_proposal": "openspec/changes/loop-handoff-contract/proposal.md",
+  "openspec_design": "openspec/changes/loop-handoff-contract/design.md",
+  "openspec_tasks": "openspec/changes/loop-handoff-contract/tasks.md",
+  "openspec_delta_spec": "openspec/changes/loop-handoff-contract/specs/loop-handoff-contract/spec.md",
+  "handoff_context": "openspec/changes/loop-handoff-contract/.comet/handoff/design-context.json",
+  "handoff_markdown": "openspec/changes/loop-handoff-contract/.comet/handoff/design-context.md"
+}

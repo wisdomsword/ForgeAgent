@@ -27,6 +27,7 @@ from forgeagent.loop import (
     LoopCheckpoint,
     LoopCheckpointError,
     LoopCheckpointStore,
+    LoopHandoff,
     LoopReport,
     build_loop_registry,
 )
@@ -111,6 +112,54 @@ def test_model_deduplicates_items_and_enforces_item_limits():
         _checkpoint(completed_items=tuple(str(index) for index in range(MAX_ITEMS + 1)))
     with pytest.raises(ValidationError):
         _checkpoint(completed_items=("   ",))
+
+
+def test_structured_handoff_round_trip_and_legacy_string_migration():
+    checkpoint = _checkpoint(
+        handoff={
+            "completed_items": ["one"],
+            "open_questions": ["q"],
+            "summary": "safe summary",
+        }
+    )
+    payload = checkpoint.model_dump(mode="json", by_alias=True)
+    assert payload["handoff"] == {
+        "completed_items": ["one"],
+        "open_questions": ["q"],
+        "summary": "safe summary",
+    }
+    assert isinstance(checkpoint.handoff, LoopHandoff)
+
+    legacy = dict(payload)
+    legacy["completed_items"] = ["one"]
+    legacy["open_questions"] = ["q"]
+    legacy["handoff"] = "legacy summary"
+    loaded = LoopCheckpoint.model_validate(legacy)
+    assert loaded.handoff.summary == "legacy summary"
+    assert loaded.completed_items == ("one",)
+    assert loaded.open_questions == ("q",)
+
+
+def test_structured_handoff_rejects_conflicting_legacy_projection():
+    with pytest.raises(ValidationError):
+        _checkpoint(
+            handoff={"completed_items": ["new"], "open_questions": [], "summary": ""},
+            completed_items=["old"],
+        )
+
+
+def test_legacy_handoff_rejects_falsey_non_list_items():
+    payload = _checkpoint().model_dump(mode="json", by_alias=True)
+    payload["handoff"] = "legacy"
+    payload["completed_items"] = 0
+
+    with pytest.raises(ValidationError):
+        LoopCheckpoint.model_validate(payload)
+
+
+def test_checkpoint_candidate_rejects_control_plane_fields():
+    with pytest.raises(ValidationError):
+        CheckpointArgs.model_validate({"goal": "mutate"})
 
 
 @pytest.mark.parametrize(
@@ -658,6 +707,51 @@ def test_checkpoint_tool_commits_before_return_and_refuses_completed_item_deleti
     assert refused.detail == "Checkpoint rejected: completed items cannot be removed"
 
 
+def test_checkpoint_tool_preserves_host_owned_fields_and_structured_summary(tmp_path: Path):
+    store = LoopCheckpointStore(str(tmp_path))
+    checkpoint = store.create("frozen goal", _budgets(), loop_id="4" * 32)
+    tool = CheckpointTool(store, checkpoint)
+
+    result = tool.run(CheckpointArgs(completed_items=["done"], summary="next"), None)
+
+    assert result.success is True
+    saved = store.load(checkpoint.loop_id)
+    assert saved.goal == "frozen goal"
+    assert saved.budgets == checkpoint.budgets
+    assert saved.handoff.summary == "next"
+    assert saved.completed_items == ("done",)
+
+
+def test_store_save_normalizes_legacy_model_copy_item_updates(tmp_path: Path):
+    store = LoopCheckpointStore(str(tmp_path))
+    checkpoint = store.create("Build it", _budgets(), loop_id="5" * 32)
+
+    saved = store.save(
+        checkpoint.model_copy(update={"completed_items": ("legacy update",)}),
+        expected_revision=checkpoint.revision,
+    )
+
+    assert saved.completed_items == ("legacy update",)
+    assert saved.handoff.summary == ""
+
+
+def test_store_save_legacy_summary_update_preserves_existing_items(tmp_path: Path):
+    store = LoopCheckpointStore(str(tmp_path))
+    checkpoint = store.create("Build it", _budgets(), loop_id="6" * 32)
+    checkpoint = store.save(
+        checkpoint.model_copy(update={"completed_items": ("durable",)}),
+        expected_revision=checkpoint.revision,
+    )
+
+    saved = store.save(
+        checkpoint.model_copy(update={"handoff": "legacy summary update"}),
+        expected_revision=checkpoint.revision,
+    )
+
+    assert saved.completed_items == ("durable",)
+    assert saved.handoff.summary == "legacy summary update"
+
+
 def test_checkpoint_tool_bounds_detail_and_registry_isolated_from_default(tmp_path: Path):
     store = LoopCheckpointStore(str(tmp_path))
     checkpoint = store.create("Build it", _budgets(), loop_id="3" * 32)
@@ -667,7 +761,7 @@ def test_checkpoint_tool_bounds_detail_and_registry_isolated_from_default(tmp_pa
     assert "Checkpoint" not in default_registry().arg_schemas()
     # This bypasses parser validation so the Tool's defensive failure remains bounded.
     outcome = registry.get("Checkpoint").run(
-        CheckpointArgs.model_construct(handoff="x" * (MAX_HANDOFF_CHARS + 1)), None
+        CheckpointArgs.model_construct(summary="x" * (MAX_HANDOFF_CHARS + 1)), None
     )
     assert outcome.success is False
     assert len(outcome.detail) < 100

@@ -104,6 +104,7 @@ class Termination(StrEnum):
 # reconciled here rather than in the clients.
 _REFUSAL_STOP_REASONS = frozenset({"refusal", "content_filter"})
 _TRUNCATED_STOP_REASONS = frozenset({"max_tokens", "length"})
+MAX_SUBMISSION_RECOVERY_ATTEMPTS = 2
 
 # Declared non-completion statuses (protocol front matter) -> terminal reason.
 _DECLARED_STATUS: dict[str, Termination] = {
@@ -249,7 +250,7 @@ class Step:
         # is the built-in Exec/Edit/Survey registry; with an MCPManager, MCP is added too.
         self._registry = registry or default_registry(with_mcp=mcp is not None, skills=skills)
         self._successful_tools: set[str] = set()
-        self._submission_recovery_sent: set[str] = set()
+        self._submission_recovery_attempts: dict[str, int] = {}
         # One context shared across the task's tool dispatches (blocks/state persist).
         self._ctx = ToolContext(
             blocks=self.blocks,
@@ -469,10 +470,9 @@ class Step:
             if required_submission:
                 missing_submission = _missing_completion_message(required_submission)
                 rr.parse_errors.append(missing_submission)
-                if required_submission in self._submission_recovery_sent:
+                if not self._request_submission_recovery(required_submission):
                     rr.stopped_reason = Termination.FAILED
                     break
-                self._submission_recovery_sent.add(required_submission)
                 convo.append(Message(role=Role.USER, content=missing_submission))
                 continue
             # Prose with content: nudge toward the protocol once, then accept it as an
@@ -580,10 +580,8 @@ class Step:
             required_submission = self._registry.required_completion_tool
             if required_submission and required_submission not in self._successful_tools:
                 rr.parse_errors.append(_missing_completion_message(required_submission))
-                if required_submission in self._submission_recovery_sent:
+                if not self._request_submission_recovery(required_submission):
                     rr.stopped_reason = Termination.FAILED
-                else:
-                    self._submission_recovery_sent.add(required_submission)
                 return
             if allow_completed:
                 rr.completed = True
@@ -595,6 +593,13 @@ class Step:
             if declared in {Termination.NEEDS_INFO, Termination.BLOCKED}:
                 rr.stopped_detail = status.reason or status.suggestion or rr.body
                 rr.attention = attention_for_reason(str(declared), rr.stopped_detail)
+
+    def _request_submission_recovery(self, tool_name: str) -> bool:
+        attempts = self._submission_recovery_attempts.get(tool_name, 0)
+        if attempts >= MAX_SUBMISSION_RECOVERY_ATTEMPTS:
+            return False
+        self._submission_recovery_attempts[tool_name] = attempts + 1
+        return True
 
     def _dispatch(self, call: ToolCall) -> ToolOutcome:
         # The tool is looked up by name in the registry; the parser has already validated
