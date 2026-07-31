@@ -81,6 +81,10 @@ MemoryWriteSource: TypeAlias = Literal["host_api", "model_candidate", "user_comm
 MemoryFormat: TypeAlias = Literal["none", "v1", "v2", "invalid"]
 
 
+class _MigrationVerificationError(Exception):
+    pass
+
+
 def _parse_timestamp(value: str) -> datetime:
     if _RFC3339_UTC.fullmatch(value) is None:
         raise ValueError("invalid timestamp")
@@ -228,6 +232,136 @@ class MemoryManager:
         if records is None:
             return MemoryReadiness("legacy_needs_metadata", "v1", len(snapshot.entries), reason)
         return MemoryReadiness("legacy_ready", "v1", len(records), "manifest_valid")
+
+    def migrate_legacy(
+        self,
+        manifest: Mapping[str, object] | None,
+        *,
+        task_id: str | None = None,
+    ) -> MemoryOperationResult:
+        try:
+            with self._project_lock():
+                before = self._read_snapshot(canonical_v1=True)
+                if before.format_version == "invalid":
+                    return self._operation_result(
+                        "repair_required",
+                        before,
+                        before.reason or "invalid_format",
+                        task_id,
+                        operation="migrate",
+                    )
+                if before.format_version != "v1":
+                    return self._operation_result(
+                        "not_required",
+                        before,
+                        "not_legacy",
+                        task_id,
+                        operation="migrate",
+                    )
+                records, reason = self._validate_manifest(before, manifest)
+                if records is None:
+                    return self._operation_result(
+                        "rejected", before, reason, task_id, operation="migrate"
+                    )
+                migration_id = secrets.token_hex(16)
+                revision = secrets.token_hex(16)
+                header = MemoryFileHeader(revision, migration_id, revision)
+                try:
+                    raw_v2 = self._serialize_v2(records, header)
+                except ValueError:
+                    return self._operation_result(
+                        "rejected",
+                        before,
+                        "memory_limit",
+                        task_id,
+                        operation="migrate",
+                    )
+                round_trip = self._parse_v2(raw_v2)
+                if not self._verify_migration_snapshot(before, round_trip, migration_id, revision):
+                    return self._operation_result(
+                        "rejected",
+                        before,
+                        "verification_failed",
+                        task_id,
+                        operation="migrate",
+                    )
+                try:
+                    backup = self._create_backup(migration_id, before.raw or b"")
+                except OSError:
+                    return self._operation_result(
+                        "persistence_error",
+                        before,
+                        "backup_write_failed",
+                        task_id,
+                        operation="migrate",
+                    )
+                try:
+                    self._atomic_write_bytes(raw_v2)
+                except OSError:
+                    return self._operation_result(
+                        "persistence_error",
+                        before,
+                        "migration_write_failed",
+                        task_id,
+                        operation="migrate",
+                    )
+                try:
+                    after = self._read_snapshot(canonical_v1=True)
+                    if not self._verify_migration_snapshot(before, after, migration_id, revision):
+                        raise _MigrationVerificationError
+                except (OSError, _MigrationVerificationError):
+                    return self._restore_after_failed_migration(
+                        before, backup, migration_id, task_id
+                    )
+        except OSError:
+            return MemoryOperationResult("unsafe", 0, "storage_path")
+        self._install_snapshot(after)
+        return self._operation_result(
+            "migrated",
+            after,
+            "verified",
+            task_id,
+            migration_id=migration_id,
+            operation="migrate",
+        )
+
+    def verify_project(self, *, task_id: str | None = None) -> MemoryOperationResult:
+        try:
+            snapshot = self._read_snapshot(canonical_v1=True)
+        except OSError:
+            return MemoryOperationResult("unsafe", 0, "storage_path")
+        if snapshot.format_version == "none":
+            return self._operation_result(
+                "not_current",
+                snapshot,
+                "memory_absent",
+                task_id,
+                operation="verify",
+            )
+        if snapshot.format_version == "v1":
+            return self._operation_result(
+                "not_current",
+                snapshot,
+                "legacy_format",
+                task_id,
+                operation="verify",
+            )
+        if snapshot.format_version != "v2" or snapshot.header is None:
+            return self._operation_result(
+                "repair_required",
+                snapshot,
+                snapshot.reason or "invalid_format",
+                task_id,
+                operation="verify",
+            )
+        return self._operation_result(
+            "verified",
+            snapshot,
+            "valid_v2",
+            task_id,
+            migration_id=snapshot.header.migration_id,
+            operation="verify",
+        )
 
     def load(self) -> None:
         if not self._enabled or not self._allow_project:
@@ -525,6 +659,124 @@ class MemoryManager:
                 pass
             raise
 
+    def _safe_backup_directory(self, *, create: bool) -> Path | None:
+        memory_path = self._safe_storage_path(for_write=create)
+        if memory_path is None:
+            return None
+        directory = memory_path.parent / "memory-backups"
+        if os.path.lexists(directory):
+            mode = os.lstat(directory).st_mode
+            if stat.S_ISLNK(mode) or not stat.S_ISDIR(mode):
+                raise OSError("memory backup directory is unsafe")
+        elif create:
+            directory.mkdir(mode=0o700)
+        else:
+            return None
+        resolved = Path(os.path.realpath(directory))
+        try:
+            if os.path.commonpath((str(self._root), str(resolved))) != str(self._root):
+                raise OSError("memory backup directory is outside project root")
+        except ValueError as exc:
+            raise OSError("memory backup directory is outside project root") from exc
+        os.chmod(resolved, 0o700)
+        return resolved
+
+    def _safe_backup_path(self, migration_id: str) -> Path:
+        if _OPAQUE_ID.fullmatch(migration_id) is None:
+            raise OSError("invalid migration id")
+        directory = self._safe_backup_directory(create=False)
+        if directory is None:
+            raise OSError("memory backup directory is missing")
+        path = directory / f"{migration_id}.memory-v1.bak"
+        if os.path.lexists(path):
+            mode = os.lstat(path).st_mode
+            if stat.S_ISLNK(mode) or not stat.S_ISREG(mode):
+                raise OSError("memory backup file is unsafe")
+        return path
+
+    def _create_backup(self, migration_id: str, raw: bytes) -> Path:
+        directory = self._safe_backup_directory(create=True)
+        if directory is None:
+            raise OSError("memory backup directory is unavailable")
+        path = directory / f"{migration_id}.memory-v1.bak"
+        no_follow = getattr(os, "O_NOFOLLOW", None)
+        if no_follow is None:
+            raise OSError("safe memory backup is unavailable")
+        descriptor = os.open(
+            path,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | no_follow | getattr(os, "O_CLOEXEC", 0),
+            0o600,
+        )
+        try:
+            os.fchmod(descriptor, 0o600)
+            with os.fdopen(descriptor, "wb") as handle:
+                descriptor = -1
+                handle.write(raw)
+                handle.flush()
+                os.fsync(handle.fileno())
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+        return path
+
+    @staticmethod
+    def _verify_migration_snapshot(
+        before: _ProjectSnapshot,
+        after: _ProjectSnapshot,
+        migration_id: str,
+        migration_revision: str,
+    ) -> bool:
+        if after.format_version != "v2" or after.header is None:
+            return False
+        if (
+            after.header.migration_id != migration_id
+            or after.header.migration_revision != migration_revision
+            or after.header.revision != migration_revision
+            or set(before.entries) != set(after.entries)
+        ):
+            return False
+        for key, prior in before.entries.items():
+            current = after.entries[key]
+            if current.governance is None:
+                return False
+            if prior.candidate.content != current.candidate.content:
+                return False
+        return True
+
+    def _restore_after_failed_migration(
+        self,
+        before: _ProjectSnapshot,
+        backup: Path,
+        migration_id: str,
+        task_id: str | None,
+    ) -> MemoryOperationResult:
+        try:
+            backup_raw = backup.read_bytes()
+            if backup_raw != before.raw:
+                raise OSError("memory backup mismatch")
+            self._atomic_write_bytes(backup_raw)
+            restored = self._read_snapshot(canonical_v1=True)
+            if restored.format_version != "v1" or restored.raw != before.raw:
+                raise OSError("memory restore verification failed")
+        except OSError:
+            return self._operation_result(
+                "recovery_failed",
+                before,
+                "restore_unconfirmed",
+                task_id,
+                migration_id=migration_id,
+                operation="migrate",
+            )
+        self._install_snapshot(restored)
+        return self._operation_result(
+            "persistence_error",
+            restored,
+            "verification_failed_restored",
+            task_id,
+            migration_id=migration_id,
+            operation="migrate",
+        )
+
     def _parse_project_lines(
         self, lines: list[str], *, diagnose: bool
     ) -> dict[str, MemoryCandidate]:
@@ -771,11 +1023,22 @@ class MemoryManager:
             for key, raw_metadata in manifest.items():
                 if not isinstance(raw_metadata, Mapping) or set(raw_metadata) != _METADATA_FIELDS:
                     raise ValueError("invalid manifest record")
-                kind = raw_metadata["kind"]
+                metadata = dict(raw_metadata)
+                kind = metadata["kind"]
                 if not isinstance(kind, str) or kind not in _KINDS:
                     raise ValueError("invalid kind")
+                if (
+                    metadata.get("source") == "legacy_manifest"
+                    and metadata.get("truth_source") == "unknown"
+                ):
+                    migration_time = _format_timestamp(self._clock())
+                    review_after = metadata.get("review_after")
+                    if review_after is None or (
+                        isinstance(review_after, str) and review_after > migration_time
+                    ):
+                        metadata["review_after"] = migration_time
                 governance = self._parse_governance(
-                    {field: value for field, value in raw_metadata.items() if field != "kind"}
+                    {field: value for field, value in metadata.items() if field != "kind"}
                 )
                 if governance.source != "legacy_manifest":
                     raise ValueError("invalid legacy source")
@@ -1050,6 +1313,52 @@ class MemoryManager:
     def _diagnose(self, message: str) -> None:
         if self._diagnostic is not None:
             self._diagnostic(message)
+
+    def _operation_result(
+        self,
+        status: Literal[
+            "migrated",
+            "not_required",
+            "rejected",
+            "persistence_error",
+            "recovery_failed",
+            "verified",
+            "not_current",
+            "repair_required",
+            "unsafe",
+            "rolled_back",
+            "rollback_conflict",
+            "backup_unavailable",
+        ],
+        snapshot: _ProjectSnapshot,
+        reason: str,
+        task_id: str | None,
+        *,
+        migration_id: str | None = None,
+        operation: str,
+    ) -> MemoryOperationResult:
+        revision = snapshot.header.revision if snapshot.header is not None else None
+        emit_audit(
+            self._audit_sink,
+            AuditEvent(
+                event_type=f"memory.{status}",
+                task_id=task_id,
+                parameters={
+                    "operation": operation,
+                    "reason": reason[:80],
+                    "entry_count": len(snapshot.entries),
+                    "migration_id": migration_id,
+                    "revision": revision,
+                },
+                result_status=status,
+            ),
+        )
+        return MemoryOperationResult(
+            status,
+            len(snapshot.entries),
+            reason,
+            migration_id,
+        )
 
     def _result(
         self,
