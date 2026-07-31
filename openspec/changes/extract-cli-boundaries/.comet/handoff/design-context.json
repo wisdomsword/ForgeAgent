@@ -1,0 +1,14 @@
+{
+  "change": "extract-cli-boundaries",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "ee0a43b238e21a1b9002ea1d4072168589efa20c55f3f0fba38209f3cbb67f62",
+  "files": [
+    { "path": "openspec/changes/extract-cli-boundaries/proposal.md", "sha256": "ba6b36eb279655a5e7c45b2f0bfb45ddeeaf5c9955eba9f394ee136d15efb0ac" },
+    { "path": "openspec/changes/extract-cli-boundaries/design.md", "sha256": "03df0f9ddc3a2e7d5fd51bfeb6dee8dede786074135f6d8891e82ea97b2910f4" },
+    { "path": "openspec/changes/extract-cli-boundaries/tasks.md", "sha256": "42d7e997aa70702deefeada9c63f2273ce4759c8ae5b3cc4e857eba1a818bdf0" },
+    { "path": "openspec/changes/extract-cli-boundaries/specs/cli-boundary-maintainability/spec.md", "sha256": "da3c9e29303d32ff74386ebcfebbed140159d8f595447484fa1a63044a99783c" }
+  ]
+}
