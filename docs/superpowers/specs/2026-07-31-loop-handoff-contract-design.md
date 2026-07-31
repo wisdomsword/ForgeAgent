@@ -2,6 +2,8 @@
 comet_change: loop-handoff-contract
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-07-31-loop-handoff-contract
+status: final
 ---
 
 # M40 Loop Handoff Contract 设计

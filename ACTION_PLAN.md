@@ -107,6 +107,7 @@
 | **M37**         | 评审清单下一步摘要纠偏：统一列出 Memory 迁移、Rewrite/依赖和 HTTP 远程动作审批绑定三类条件候选；不修改运行时、不引入依赖、不引入分发目标。 | 文档专项 `11 passed`；Ruff、format、diff check、OpenSpec strict `31/31`；`publish-v0-1-0` 已撤销归档。 | **已完成并归档（分发目标不在当前路线图，2026-07-31）** |
 | **M38**         | 分发目标退役：重新评审 M30 之后的规划，移除包索引发布、正式 tag、远程 push 和发布自动化目标；保留 M28 RC 历史证据，将 `publish-v0-1-0` 撤销并归档。 | 全量 pytest `2480 passed, 10 skipped`；发布文档/规划专项 `16 passed`；OpenSpec strict `29/29`（归档后）；active release change 缺失、撤销归档可追溯；Ruff、format、diff check 通过。 | **已完成并归档（分发目标已移除，2026-07-31）** |
 | **M39**         | 协议正确性、协作终态投影与 Duo 可观察验收契约：按顺序完成 `harden-loop-protocol-correctness`、`define-collaboration-stop-projection`、`define-duo-acceptance-contract`；不引入 LLM 拆解器、不迁移 Memory、不恢复 PyPI/tag/push/发布自动化。 | 全量 pytest `2526 passed, 10 skipped`；Duo/Collaboration/HTTP focused `390 passed`；Ruff、format、`uv build`、归档后 OpenSpec strict `30/30`（归档前 `31/31`）；三个 Comet change 已归档。 | **已完成并归档（发布继续暂停，2026-07-31）** |
+| **M40**         | Loop handoff contract：将 handoff 收敛为宿主拥有的 `completed_items`、`open_questions`、`summary` 结构；兼容旧字符串 checkpoint；模型只提交候选，不能修改目标、权限、预算、协作冻结状态、终态或恢复语义；Loop 提交恢复有界且不自动重放历史工具或外部动作。 | 专项 `550 passed`；全量 pytest `2534 passed, 10 skipped`；Ruff、format、`uv build`、diff check 通过；归档前后 OpenSpec strict 均为 `31/31`；Comet change 已归档。 | **已完成并归档（分发目标保持移除，2026-07-31）** |
 
 编码型子任务按 spec.md 原则派发给低算力 subagent，模板见 M1 交付的 subagent 任务模板。
 

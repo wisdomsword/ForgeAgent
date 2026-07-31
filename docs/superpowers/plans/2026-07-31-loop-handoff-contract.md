@@ -2,6 +2,7 @@
 change: loop-handoff-contract
 design-doc: docs/superpowers/specs/2026-07-31-loop-handoff-contract-design.md
 base-ref: 291fdfff1fbd2e2bb0cc9127ecc21a47bd48f416
+archived-with: 2026-07-31-loop-handoff-contract
 ---
 
 # M40 Loop Handoff Contract 实施计划

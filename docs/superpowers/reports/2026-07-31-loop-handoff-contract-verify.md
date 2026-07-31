@@ -31,7 +31,7 @@ M40 的实现符合结构化 Loop handoff、旧 checkpoint 兼容迁移、宿主
 - 全量 pytest：`2534 passed, 10 skipped in 164.56s`。
 - `uv run ruff check .`：通过；`uv run ruff format --check .`：`129 files already formatted`。
 - `uv build`：成功生成 sdist 与 wheel；未上传产物。
-- OpenSpec strict：verify 前 `31 passed, 0 failed`，归档后结果记录在 M40 里程碑。
+- OpenSpec strict：verify 前和归档后均为 `31 passed, 0 failed`。
 - `git diff --check`：通过。
 
 ## 范围与边界
