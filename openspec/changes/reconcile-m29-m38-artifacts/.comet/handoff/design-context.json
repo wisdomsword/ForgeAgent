@@ -1,0 +1,19 @@
+{
+  "change": "reconcile-m29-m38-artifacts",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "6376f18c699eef51fe79ba40c3233e7a3aa7306b257327db752c4efda6e10852",
+  "files": [
+    { "path": "openspec/changes/reconcile-m29-m38-artifacts/proposal.md", "sha256": "ce5b595d883f7612ede7be2d4c4df91e356a53561cfd1861738f84478b91116a" },
+    { "path": "openspec/changes/reconcile-m29-m38-artifacts/design.md", "sha256": "01fb0d4943c8b1a524c464109bebc681c0e622b159b395413b9b806ee49edf8b" },
+    { "path": "openspec/changes/reconcile-m29-m38-artifacts/tasks.md", "sha256": "84884c94ac6e264aceac5df226bdc777dde7058ba036767fb9bd3b6badfb04be" },
+    { "path": "openspec/changes/reconcile-m29-m38-artifacts/specs/agent-governance-gates/spec.md", "sha256": "6f9d6742927f6a64ffe86d2f4e8a1543a3310ed176b54e33253f3e3364c60c77" },
+    { "path": "openspec/changes/reconcile-m29-m38-artifacts/specs/attention-state-protocol/spec.md", "sha256": "a96c99845732a4df0a25b8726ffec757b38d94151bf7569d79b9b053487457cc" },
+    { "path": "openspec/changes/reconcile-m29-m38-artifacts/specs/repository-lifecycle-integrity/spec.md", "sha256": "3db96771e493bb4b85c99a1547e1039dab74ac5d082cd9d0b750c99ae2e5e7bf" },
+    { "path": "openspec/changes/reconcile-m29-m38-artifacts/specs/runtime-skill-exit-contract/spec.md", "sha256": "f5becba15125fa9142d0f22446152e525c5f0b3b790cc029beeb9d0507732287" },
+    { "path": "openspec/changes/reconcile-m29-m38-artifacts/specs/skills-runtime/spec.md", "sha256": "d86acf9b26c40eb991290081f8a1c21904646810834b7f028962d15d999b2e02" },
+    { "path": "openspec/changes/reconcile-m29-m38-artifacts/specs/structured-collaboration-handoff/spec.md", "sha256": "8aaf99b21da8be5a4b978a4589089269918bc2a4ef790be9867b811037393cae" }
+  ]
+}
