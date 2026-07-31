@@ -47,4 +47,3 @@ Approval APIs and audit events MUST expose only fixed, bounded metadata and MUST
 #### Scenario: Approval registry is at capacity
 - **WHEN** no terminal record can be evicted and a caller tries to issue another approval
 - **THEN** ForgeAgent returns a stable capacity error and creates no partial approval
-
