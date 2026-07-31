@@ -1,7 +1,7 @@
 # loop-handoff-contract Specification
 
 ## Purpose
-TBD - created by archiving change loop-handoff-contract. Update Purpose after archive.
+Define host-owned, bounded Loop handoff state and compatible recovery so iteration context cannot change goal, permissions, budgets, or replay semantics.
 ## Requirements
 ### Requirement: Loop handoff is host-owned and structured
 

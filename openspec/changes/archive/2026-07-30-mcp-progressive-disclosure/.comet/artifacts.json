@@ -1,0 +1,11 @@
+{
+  "openspec_proposal": "openspec/changes/mcp-progressive-disclosure/proposal.md",
+  "openspec_design": "openspec/changes/mcp-progressive-disclosure/design.md",
+  "openspec_tasks": "openspec/changes/mcp-progressive-disclosure/tasks.md",
+  "openspec_delta_spec": "openspec/changes/mcp-progressive-disclosure/specs/mcp-progressive-disclosure/spec.md",
+  "design_document": "docs/superpowers/specs/2026-07-30-mcp-progressive-disclosure-design.md",
+  "build_plan": "docs/superpowers/plans/2026-07-30-mcp-progressive-disclosure.md",
+  "handoff_context": "openspec/changes/mcp-progressive-disclosure/.comet/handoff/design-context.json",
+  "handoff_markdown": "openspec/changes/mcp-progressive-disclosure/.comet/handoff/design-context.md",
+  "archive_directory": "openspec/changes/archive/2026-07-30-mcp-progressive-disclosure"
+}

@@ -1,0 +1,15 @@
+{
+  "change": "structured-collaboration-handoff",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "23adf759e91b048a01e8ddcf269ab026fcb4cfa987da19f3f52e3747203f9a17",
+  "files": [
+    { "path": "openspec/changes/structured-collaboration-handoff/proposal.md", "sha256": "a830336794928d076818b87d9a097b7ca189d6aa82738fe4d4fa0f00179d5926" },
+    { "path": "openspec/changes/structured-collaboration-handoff/design.md", "sha256": "a7b5a323fb616c2621f5efbcde0d07ec50bc9ca911618a3dc63da396ded36627" },
+    { "path": "openspec/changes/structured-collaboration-handoff/tasks.md", "sha256": "e9443ef4e87b2ee1cca6c825a7103f367b27b6e6b4a8d84128b959363b843ba3" },
+    { "path": "openspec/changes/structured-collaboration-handoff/specs/runtime-collaboration/spec.md", "sha256": "0868ad86efc9f4df28414c91021182b6f6d8b86fe9ea48187a5884abb220df23" },
+    { "path": "openspec/changes/structured-collaboration-handoff/specs/structured-collaboration-handoff/spec.md", "sha256": "1eb98e8b7855ceecd09bb30d107c17525e4a972272bd4309a316c26d14f8b801" }
+  ]
+}

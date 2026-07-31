@@ -1,7 +1,7 @@
 # http-task-service Specification
 
 ## Purpose
-TBD - created by archiving change http-task-service. Update Purpose after archive.
+Define the loopback HTTP task service lifecycle, public status projection, cancellation, attention, and bounded client-facing errors.
 ## Requirements
 ### Requirement: Authenticated task submission
 The service MUST expose an asynchronous task submission endpoint that accepts a strict JSON request schema containing a goal and only explicitly approved low-risk run options, and MUST require a configured static bearer token for every task-management request. The request MAY select ordinary Task, Duo, Triad, or M21 Loop mode and MAY request resume by a strict server-owned Loop identifier. Collaboration model/tier policy, Planner confirmation policy, security-sensitive execution policy, sandbox/path authority, checkpoint paths, identity, confirmer, credentials, and frozen resume budgets MUST remain server-owned.
@@ -170,4 +170,3 @@ The HTTP task service SHALL let an authenticated caller list open external-actio
 #### Scenario: Receipt does not match route authority
 - **WHEN** the action ID is unknown, belongs to a different task, is already resolved, or has a stale revision
 - **THEN** the service returns a fixed non-disclosing not-found or conflict error and performs no transition
-

@@ -1,7 +1,7 @@
 # collaboration-routing-evaluation Specification
 
 ## Purpose
-TBD - created by archiving change calibrate-collaboration-routing. Update Purpose after archive.
+Define evidence-based collaboration routing calibration and reporting without making evaluation data autonomous runtime policy.
 ## Requirements
 ### Requirement: M25 派生分析保持冻结输入不可变
 M27 派生分析 MUST 只读取冻结的 M25 protocol、terminal raw、environment、summary 和原报告，MUST 将新结果写入独立的 M27 派生目录，且 MUST NOT 修改、覆盖或重跑任何 M25 冻结输入。

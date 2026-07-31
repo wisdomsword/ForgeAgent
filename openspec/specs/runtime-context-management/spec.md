@@ -1,7 +1,7 @@
 # runtime-context-management Specification
 
 ## Purpose
-TBD - created by archiving change runtime-context-engineering. Update Purpose after archive.
+Define bounded context assembly, compaction, masking, and continuity rules for Task execution without changing tool or sandbox authority.
 ## Requirements
 ### Requirement: 共享且可配置的运行时上下文策略
 系统 MUST 通过 Task 注入、Step 执行的共享 context policy 管理每次模型请求的消息视图。CLI 单次执行、REPL 和 HTTP 任务 MUST 使用同一策略语义；v1 MUST 只提供 sliding-window 实现，不得为未实现策略增加占位实现或插件注册层。

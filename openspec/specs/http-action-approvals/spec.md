@@ -1,7 +1,7 @@
 # http-action-approvals Specification
 
 ## Purpose
-TBD - created by archiving change bind-http-remote-action-approvals. Update Purpose after archive.
+Define task-, scope-, digest-, and TTL-bound HTTP action approvals with allow-once use, receipts, revocation, and unknown-state recovery on the loopback control plane.
 ## Requirements
 ### Requirement: HTTP action approvals bind exact authority
 ForgeAgent SHALL let an authenticated HTTP caller issue only short-lived `allow_once` approvals for an exact MCP action scope and canonical request digest. The host MUST bind every approval to exactly one newly accepted task before execution, and the model, goal, tool output, MCP server, or task options MUST NOT widen or transfer that authority.

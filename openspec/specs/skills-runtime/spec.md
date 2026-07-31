@@ -1,7 +1,7 @@
 # skills-runtime Specification
 
 ## Purpose
-TBD - created by archiving change skills-runtime. Update Purpose after archive.
+Provide a verifiable, masked, on-demand local Skill registry with trusted project overrides, legacy compatibility, and governed exit-contract enforcement.
 ## Requirements
 ### Requirement: Skill 文档具有可验证的固定结构
 系统必须（SHALL）只接受位于独立目录 `SKILL.md` 中、包含非空 `name`、`trigger`、`steps`、`failure_branches` 与 `completion_criteria` 五段内容的 Skill。`name` 必须（MUST）是与目录名一致的 kebab-case 标识符；无效、超限或不可读文档不得进入模型可见目录。

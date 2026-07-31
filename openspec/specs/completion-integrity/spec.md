@@ -1,7 +1,7 @@
 # completion-integrity Specification
 
 ## Purpose
-TBD - created by archiving change hardening-core-correctness. Update Purpose after archive.
+Define evidence requirements that prevent prose, malformed submissions, or unverified tool outcomes from being accepted as task completion.
 ## Requirements
 ### Requirement: Tool-bearing responses cannot complete a task
 ForgeAgent MUST apply the two-stage eligibility check only to an explicit `completed: true` declaration: it MUST ignore that completion declaration in any response that also contains one or more tool calls and SHALL feed the tool results into a later round.
@@ -50,4 +50,3 @@ An explicit `completed: false` declaration SHALL NOT be delayed, overwritten or 
 #### Scenario: Need-info or failed non-completion accompanies tool activity
 - **WHEN** a response declares `completed: false` with status `need_info` or `failed` and also contains tool calls or parse errors
 - **THEN** ForgeAgent preserves the existing corresponding terminal mapping rather than delaying it to a later round
-

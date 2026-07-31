@@ -1,0 +1,14 @@
+{
+  "change": "prompt-memory-rewrite-governance",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "e6ed167fa93b26c519f80fe04c47ff9c324750ab2f5ce820e00b71f8e891f2c2",
+  "files": [
+    { "path": "openspec/changes/prompt-memory-rewrite-governance/proposal.md", "sha256": "26be1c311341d0acecf4926b4c446eb9cf67c6018d58d62f4158d09653ce93fe" },
+    { "path": "openspec/changes/prompt-memory-rewrite-governance/design.md", "sha256": "f9f584dd119634b289bbaecd0de4f591ddb047a0b5f7d76780e152bf4149872e" },
+    { "path": "openspec/changes/prompt-memory-rewrite-governance/tasks.md", "sha256": "9dd4301a4c458cc8b92f8ac288f5cc8b7ad6894570a8baff4a5e7f8500e291a7" },
+    { "path": "openspec/changes/prompt-memory-rewrite-governance/specs/agent-governance-gates/spec.md", "sha256": "2b7d334585b2748293661f3d025967aadc3f72102ba3e3f9d61328a5e504a399" }
+  ]
+}

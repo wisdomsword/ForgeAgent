@@ -71,3 +71,6 @@
 - 验证情况
 - 必要的下一步
 </output_format>
+
+开发期 Prompt/Skill 退出条件、Memory 四问和 Rewrite/依赖门禁统一遵循
+[`docs/agent-governance-gates.md`](docs/agent-governance-gates.md)；该门禁不改变运行时行为。

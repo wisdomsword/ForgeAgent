@@ -1,7 +1,7 @@
 # network-boundary-safety Specification
 
 ## Purpose
-TBD - created by archiving change hardening-core-correctness. Update Purpose after archive.
+Define network target validation and trust boundaries that prevent unsafe destination access while preserving approved local and remote workflows.
 ## Requirements
 ### Requirement: Web requests ignore environment proxies by default
 ForgeAgent SHALL make WebFetch and `/search` requests through an explicitly direct connection path and SHALL NOT consume proxy settings from process environment variables.

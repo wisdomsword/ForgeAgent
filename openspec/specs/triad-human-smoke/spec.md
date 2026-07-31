@@ -1,7 +1,7 @@
 # triad-human-smoke Specification
 
 ## Purpose
-TBD - created by archiving change add-m22-triad-human-smoke. Update Purpose after archive.
+Define the real-provider human smoke workflow and evidence boundary for Triad planning, generation, evaluation, and corrective retries.
 ## Requirements
 ### Requirement: 一键脚本运行真实模型 Triad 并保留人工计划确认
 仓库 MUST 提供单命令人类冒烟入口，在隔离工作目录中使用现有 ForgeAgent CLI 运行真实模型 Triad。脚本 MUST 保留 Planner 计划与 restricted `FileWrite` 的终端人工确认，不得隐式批准；默认模型 MUST 可通过有界、明确的环境变量覆盖，且脚本不得打印 API key 或其他 credential。脚本 MUST 为本次验收隔离足够的 context feedback 预算，不得因用户全局低 feedback 限额而让 Evaluator 对完整短文件产生截断假拒绝，也不得修改或复制用户配置中的 credential。脚本 MUST 仅为本次子进程冻结 `calc.py` 与 `test_calc.py` 候选文件就绪要求，使缺少目标文件的 `SubmitCandidate` 在进入 Evaluator 前返回当前 Generator 可恢复的结构化失败。
@@ -34,4 +34,3 @@ TBD - created by archiving change add-m22-triad-human-smoke. Update Purpose afte
 #### Scenario: 状态错误与重复 ID 精确分类
 - **WHEN** JSON parser 抛出与文件过大诊断同文案的异常，或计划包含两个相同且格式合法的 ID
 - **THEN** 前者仍稳定报告无效 JSON，后者精确报告 plan item ID 不唯一，且离线测试直接覆盖对应分支
-

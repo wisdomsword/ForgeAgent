@@ -1,7 +1,7 @@
 # golden-validation-core Specification
 
 ## Purpose
-TBD - created by archiving change hardening-core-correctness. Update Purpose after archive.
+Define deterministic golden fixtures and validation evidence for ForgeAgent core parsing, execution, and failure contracts.
 ## Requirements
 ### Requirement: Golden core contains exactly twenty offline scenarios
 ForgeAgent SHALL maintain a trusted core manifest containing exactly G01, G03, G05, G06, G08, G11, G13, G14, G15, G17, G27, G43, G58, G59, G324, G329, G330, G332, G333 and G355. Every scenario SHALL execute offline with local fixtures and without network access, Docker, vendor credentials or user configuration. Agent-loop scenarios SHALL use MockClient; boundary scenarios MAY directly exercise CLI, Tool, RestrictedBackend, guarded URL or local stdio MCP fixtures.
@@ -131,4 +131,3 @@ ForgeAgent MUST build its source distribution from an explicit allowlist of pack
 #### Scenario: A duplicate current-verification heading is introduced
 - **WHEN** README contains an additional valid or malformed `当前验证` section heading
 - **THEN** the documentation contract fails even if one section still matches the expected structured format
-

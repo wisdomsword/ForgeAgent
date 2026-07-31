@@ -32,6 +32,9 @@ process network paths; executor code in restricted/container has no network brok
 
 ## Threats, mitigations, and residual risk
 
+开发期治理门禁（Prompt/Skill 退出条件、Memory 来源/可见性/更正、Rewrite 六项指标）以
+[`docs/agent-governance-gates.md`](agent-governance-gates.md) 为 canonical 文档；缺少 verifier、来源不明或无回滚证据的变更不得进入实施。该门禁是流程约束，不替代运行时安全边界。
+
 | ID | Threat | Current mitigation | Residual risk |
 | --- | --- | --- | --- |
 | T1 | Secret read, echo, or external disclosure | Restricted/container executor scrubs sensitive env values; audit hooks restrict file reads; executor output, errors, FileRead, WebFetch previews, MCP results, and MCP discovery descriptions/schema strings are value-masked with `mask_secrets()`; secret-bearing MCP routing identities are not advertised, and one stable collision-free public label is used for MCP status, startup diagnostics, ToolOutcome feedback and lifecycle logs. | Masking is defense in depth, not an authority boundary. Trusted code, MCP, host processes, or a secret not covered by the naming/value policy may still access it. |

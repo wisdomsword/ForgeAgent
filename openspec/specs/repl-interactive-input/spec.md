@@ -1,7 +1,7 @@
 # repl-interactive-input Specification
 
 ## Purpose
-TBD - created by archiving change skills-runtime. Update Purpose after archive.
+Define interactive REPL input, confirmation, survey, cancellation, and EOF behavior without weakening headless or policy boundaries.
 ## Requirements
 ### Requirement: 交互式 REPL 动态展示斜杠指令
 系统必须（SHALL）在真实交互式终端的 REPL 中，于用户输入 `/` 后立即展示可用斜杠指令，并在每输入或删除一个字符后按当前命令前缀更新候选。候选名称和说明必须（MUST）来自与 `/help` 相同的命令表。
@@ -66,4 +66,3 @@ The REPL command table SHALL include `/duo <goal>` and `/triad <goal>` using the
 #### Scenario: Slash candidates and help
 - **WHEN** a user types `/d`, `/t`, or requests `/help duo`
 - **THEN** candidates and help are derived from the shared command table and describe the collaboration cost and semantics
-

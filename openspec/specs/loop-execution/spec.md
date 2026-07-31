@@ -1,7 +1,7 @@
 # loop-execution Specification
 
 ## Purpose
-TBD - created by archiving change loop-engineering. Update Purpose after archive.
+Define bounded, checkpointable Loop execution, stop reasons, attention projections, and resume invariants.
 ## Requirements
 ### Requirement: Loop 可由现有运行入口显式触发
 ForgeAgent SHALL 提供显式 CLI Loop 入口，并 SHALL 允许既有 HTTP 任务提交入口选择单任务或 Loop 模式。普通 `run`、REPL 和未选择 Loop 的 HTTP 请求 MUST 保持现有单 Task 语义。项目 MUST 只提供 cron、launchd 或 systemd 等外部调度示例，不得内置 scheduler 守护进程。
@@ -139,4 +139,3 @@ Before starting a new Loop iteration and before executing a resumed Loop, ForgeA
 #### Scenario: Reconciled receipt permits continuation
 - **WHEN** all receipts for a Loop are confirmed, abandoned, or explicitly resolved for a new attempt
 - **THEN** Loop resume may continue, but no original action is replayed automatically and any new action uses a new identifier
-

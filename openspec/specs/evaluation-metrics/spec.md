@@ -1,7 +1,7 @@
 # evaluation-metrics Specification
 
 ## Purpose
-TBD - created by archiving change eval-evaluator. Update Purpose after archive.
+Define deterministic evaluation metrics and evidence formats used to compare collaboration modes without turning benchmark results into runtime authority.
 ## Requirements
 ### Requirement: Evaluation metrics are aggregated from machine evidence
 ForgeAgent SHALL create a versioned evaluation record by aggregating a golden runner

@@ -1,7 +1,7 @@
 # independent-evaluator Specification
 
 ## Purpose
-TBD - created by archiving change eval-evaluator. Update Purpose after archive.
+Define evidence-bound independent evaluation contracts that keep evaluator authority separate from implementation and preserve auditable acceptance decisions.
 ## Requirements
 ### Requirement: Independent evaluation is explicitly opt-in
 ForgeAgent SHALL invoke an Evaluator only through an explicit command with a selected

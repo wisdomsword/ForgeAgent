@@ -1,5 +1,16 @@
 # 里程碑管理规范
 
+开发阶段的问题卡、设计、实现和验证应引用
+[`docs/agent-governance-gates.md`](docs/agent-governance-gates.md)：新增或实质修改的
+Prompt/Skill 使用五类退出条件，长期 Memory 回答四问，Rewrite/依赖变更提供六项指标证据。
+
+阶段检查：
+
+- 阶段 1 问题卡：记录现有 Prompt/Skill/Memory 能力、缺口和适用模板。
+- 阶段 3 设计：补齐五类退出条件、模型升级回归集、Memory 核心四问与安全字段，或六项 Rewrite 证据。
+- 阶段 4 实现：新 Prompt/Skill 同时提交 verifier 和最小回归集；不把治理模板误写成运行时迁移。
+- 阶段 5 验证：运行文档契约测试，并明确未验证的 stop-reason 映射、旧 Memory 迁移或真实发布边界。
+
 > 定义 `milestones/` 目录结构与里程碑文件模板，不含具体里程碑内容。
 > 里程碑计划本身（M0-M10 的交付物/验证/门禁）仍以 `ACTION_PLAN.md` 为权威来源，本文件只规范"收尾记录怎么写"。
 

@@ -1,7 +1,7 @@
 # mcp-resilience Specification
 
 ## Purpose
-TBD - created by archiving change hardening-core-correctness. Update Purpose after archive.
+Define MCP lifecycle isolation, bounded diagnostics, masking, discovery safety, and recoverable call behavior across server failures.
 ## Requirements
 ### Requirement: MCP service criticality is configured per server
 ForgeAgent SHALL support a boolean `required` setting on each MCP server configuration, SHALL treat an omitted setting as `false`, and SHALL apply the startup requirement only when that server is enabled.
@@ -329,4 +329,3 @@ The MCP manager SHALL return an internal dispatch-certainty classification that 
 #### Scenario: MCP call loses certainty
 - **WHEN** the SDK call raises, times out, or is cancelled after dispatch
 - **THEN** the internal result is `unknown`, the ToolOutcome uses fixed result-unknown text, and the manager does not invalidate the receipt as a normal retryable failure
-

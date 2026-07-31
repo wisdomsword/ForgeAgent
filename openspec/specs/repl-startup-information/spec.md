@@ -1,7 +1,7 @@
 # repl-startup-information Specification
 
 ## Purpose
-TBD - created by archiving change startup-information. Update Purpose after archive.
+Define deterministic REPL startup diagnostics that expose usable model, sandbox, MCP, and workspace state without leaking secrets.
 ## Requirements
 ### Requirement: 交互式启动展示产品标识
 

@@ -1,0 +1,15 @@
+{
+  "change": "runtime-skill-exit-contract",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "02fcee5e4e7bfa1189573c3947262e7339d2313a33b08399dfad72404291b27d",
+  "files": [
+    { "path": "openspec/changes/runtime-skill-exit-contract/proposal.md", "sha256": "43c9192b1e10405efbf5cda10b22bf18ff1bc7b7e0f7fd97b43b2eff7e33f6ff" },
+    { "path": "openspec/changes/runtime-skill-exit-contract/design.md", "sha256": "4b3acf59d5c55678eee13cfdad93c1fd2690fdbc767d5f75c8360ab738fa270b" },
+    { "path": "openspec/changes/runtime-skill-exit-contract/tasks.md", "sha256": "9df0250012e1edecf5fe656ab565249cbfa928888dd2454cafb715798c2c3a00" },
+    { "path": "openspec/changes/runtime-skill-exit-contract/specs/runtime-skill-exit-contract/spec.md", "sha256": "dc636bd132efdd9e9cb0b4669b34bc516599ced709b69e7e941cac61690214e5" },
+    { "path": "openspec/changes/runtime-skill-exit-contract/specs/skills-runtime/spec.md", "sha256": "d86acf9b26c40eb991290081f8a1c21904646810834b7f028962d15d999b2e02" }
+  ]
+}

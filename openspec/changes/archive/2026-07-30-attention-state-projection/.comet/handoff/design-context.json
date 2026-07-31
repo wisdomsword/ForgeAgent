@@ -1,0 +1,16 @@
+{
+  "change": "attention-state-projection",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "9fab4800470e9af84371912bb1ee97fdd4420001dd5098718bd5ee926a059a4c",
+  "files": [
+    { "path": "openspec/changes/attention-state-projection/proposal.md", "sha256": "8aa548edf2cd0e9f5864fe189e4f1e9611b4916d2bbeb604e3d437535371b37b" },
+    { "path": "openspec/changes/attention-state-projection/design.md", "sha256": "b5cbd18292414633b0d8ec1f72e31c8f61bb33622ef68f89cb6b3e7a6b9dbb70" },
+    { "path": "openspec/changes/attention-state-projection/tasks.md", "sha256": "9b76c48f4b66e1be1aa65830bc8bd4d7a8e4ded6fb4f6ef68db90fcd467e17b0" },
+    { "path": "openspec/changes/attention-state-projection/specs/attention-state-protocol/spec.md", "sha256": "ef5deaa01f34e3800bb8bae4742eab272a1f43378043e4b3655221a862a5e4e7" },
+    { "path": "openspec/changes/attention-state-projection/specs/http-task-service/spec.md", "sha256": "83c969c837b97797b9922f16a4ff12e71e45de247688b3687b133638ed05a462" },
+    { "path": "openspec/changes/attention-state-projection/specs/loop-execution/spec.md", "sha256": "0a6c0c150ec389bfdd23a267eef686c5726c3234e7e29fc3ac86a7811b338b93" }
+  ]
+}

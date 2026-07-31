@@ -1,7 +1,7 @@
 # runtime-memory Specification
 
 ## Purpose
-TBD - created by archiving change memory-runtime. Update Purpose after archive.
+Define bounded runtime Memory discovery, trust, candidate writes, correction, persistence, and recovery behavior.
 ## Requirements
 ### Requirement: 记忆候选提取协议
 系统 SHALL 支持从模型响应中的 `<!-- Memory: {...} -->` 标记提取结构化候选，并 SHALL 支持 CLI `/remember` 将用户输入转换为同一候选类型。候选 MUST 包含非空 `content`、稳定 `key`、`scope`（`session` 或 `project`）和 `kind`（`fact`、`preference`、`decision` 或 `procedure`）；标记 SHALL 从展示给用户的正文中移除，格式错误 SHALL 生成可回馈的解析错误而不是写盘。
@@ -233,4 +233,3 @@ REPL SHALL 提供 `/memory` 查看当前有效 session/project 条目（内容�
 #### Scenario: 故障注入覆盖自动恢复
 - **WHEN** 测试在备份后、原子替换后或写后验证阶段注入失败
 - **THEN** 每个故障点都证明旧字节可恢复且公开错误不含正文、secret、路径或 raw exception
-

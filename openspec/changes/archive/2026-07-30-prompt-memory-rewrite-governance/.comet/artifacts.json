@@ -1,0 +1,9 @@
+{
+  "openspec_proposal": "openspec/changes/prompt-memory-rewrite-governance/proposal.md",
+  "openspec_design": "openspec/changes/prompt-memory-rewrite-governance/design.md",
+  "openspec_tasks": "openspec/changes/prompt-memory-rewrite-governance/tasks.md",
+  "openspec_delta_spec": "openspec/changes/prompt-memory-rewrite-governance/specs/agent-governance-gates/spec.md",
+  "handoff_context": "openspec/changes/prompt-memory-rewrite-governance/.comet/handoff/design-context.json",
+  "handoff_markdown": "openspec/changes/prompt-memory-rewrite-governance/.comet/handoff/design-context.md",
+  "archive_directory": "openspec/changes/archive/2026-07-30-prompt-memory-rewrite-governance"
+}

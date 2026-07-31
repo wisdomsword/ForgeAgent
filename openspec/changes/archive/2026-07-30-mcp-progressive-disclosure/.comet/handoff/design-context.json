@@ -1,0 +1,15 @@
+{
+  "change": "mcp-progressive-disclosure",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "5c4e4dc484b0ebf32beda7478e38ae60069e6bfab376cb76e16fa09ee51a39fc",
+  "files": [
+    { "path": "openspec/changes/mcp-progressive-disclosure/proposal.md", "sha256": "8c5dea7e627f100d4045836beb3445e401e050a50f1875e906e1bce1b5d805ba" },
+    { "path": "openspec/changes/mcp-progressive-disclosure/design.md", "sha256": "c1a600beae7071283528181b9b3eac3c7d5d28512792e770ac698f3a7987c503" },
+    { "path": "openspec/changes/mcp-progressive-disclosure/tasks.md", "sha256": "5eace9a39e8d57c0f3c2b4101aa7c4f675d455cd25730e38833cc4b9a404f942" },
+    { "path": "openspec/changes/mcp-progressive-disclosure/specs/mcp-progressive-disclosure/spec.md", "sha256": "eb0bdfcb77fcefd6b114b479d87b1d92c2e6cd73be4220104408bb8a710055b2" },
+    { "path": "openspec/changes/mcp-progressive-disclosure/specs/mcp-resilience/spec.md", "sha256": "0009a7ce47d8336d62bdadd7a933e4cdff69c21656bcacd6ee85e0a188186733" }
+  ]
+}

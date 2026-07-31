@@ -1,7 +1,7 @@
 # release-candidate-verification Specification
 
 ## Purpose
-TBD - created by archiving change m28-v0-1-release-candidate. Update Purpose after archive.
+Preserve historical release-candidate engineering verification while keeping package publication, formal tags, and publication automation outside the current roadmap.
 ## Requirements
 ### Requirement: 发布候选必须从干净 wheel 安装验收
 ForgeAgent `0.1.0` 发布候选 MUST 在新建的 Python 3.11 隔离环境中只从构建出的 wheel 安装运行时及依赖。验收 MUST 清除 `PYTHONPATH`、`PYTHONHOME` 等源码覆盖，并证明导入模块与 console script 均来自该隔离环境；不得用仓库 `src/` 或开发虚拟环境冒充安装成功。
@@ -68,4 +68,3 @@ RC 门禁 MUST 原子写出一个版本化 JSON 报告，记录候选版本、Py
 #### Scenario: 限制被静默弱化
 - **WHEN** 文档删除必需限制类别或把历史、supplemental、配置态证据描述成当前正式验证
 - **THEN** 发布文档合同测试失败并阻止 RC 通过
-

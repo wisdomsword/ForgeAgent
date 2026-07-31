@@ -1,7 +1,7 @@
 # tool-approval Specification
 
 ## Purpose
-TBD - created by archiving change hardening-core-correctness. Update Purpose after archive.
+Define explicit confirmation and bounded policy checks for side-effecting tools while preserving fail-closed behavior.
 ## Requirements
 ### Requirement: Restricted tools use one type-safe confirmation interface
 ForgeAgent SHALL allow the CLI confirmer to describe and decide MCP, WebFetch and FileWrite requests without assuming that every request has MCP-specific fields.
@@ -199,4 +199,3 @@ ForgeAgent MUST launch the restricted execution worker through an interpreter mo
 #### Scenario: Installed worker remains usable
 - **WHEN** ForgeAgent runs from its supported installed or editable Python environment with an ordinary project root
 - **THEN** restricted execution starts successfully and preserves the existing structured worker protocol
-

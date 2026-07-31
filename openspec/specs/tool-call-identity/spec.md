@@ -1,7 +1,7 @@
 # tool-call-identity Specification
 
 ## Purpose
-TBD - created by archiving change harden-loop-protocol-correctness. Update Purpose after archive.
+Define stable tool-call identity, deduplication, and conflict handling across text and native channels so one logical call is dispatched at most once.
 ## Requirements
 ### Requirement: Tool-call identities are unique across protocol channels
 ForgeAgent SHALL merge text-protocol and native tool calls by stable call ID before dispatch. Identical duplicates MAY be retained once, but a call ID whose tool name or normalized arguments differ across channels MUST be marked as a protocol conflict and MUST NOT be dispatched.
@@ -17,4 +17,3 @@ ForgeAgent SHALL merge text-protocol and native tool calls by stable call ID bef
 #### Scenario: Distinct calls remain independent
 - **WHEN** channels contain different call IDs
 - **THEN** each valid call remains dispatchable exactly once
-
