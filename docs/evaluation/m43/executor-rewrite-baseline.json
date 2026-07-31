@@ -1,0 +1,245 @@
+{
+  "environment": {
+    "commit": "a14630ff",
+    "machine": "arm64",
+    "platform": "darwin",
+    "python": "3.14.3"
+  },
+  "generated_at": "2026-07-31T16:07:54.286228Z",
+  "metrics": {
+    "compatibility": {
+      "baseline": {
+        "exec_result_fields": [
+          "success",
+          "stdout",
+          "stderr",
+          "error",
+          "dropped_state_keys"
+        ],
+        "executor_backends": [
+          "TrustedBackend",
+          "RestrictedBackend",
+          "ContainerBackend"
+        ],
+        "restricted_json_state_roundtrip": true,
+        "worker_protocol": "one_shot_json"
+      },
+      "evidence": {
+        "focused_tests": [
+          "tests/test_executor.py",
+          "tests/test_restricted_backend.py",
+          "tests/test_container_backend.py",
+          "tests/test_escape.py",
+          "tests/test_policy_wiring.py"
+        ]
+      },
+      "migration": "Preserve the current backend API and worker frame throughout any trial.",
+      "rollback_trigger": "Any ExecResult, state, sandbox, CLI, config, or HTTP contract changes.",
+      "status": "ready",
+      "threshold": {
+        "exec_result_fields_exact": [
+          "success",
+          "stdout",
+          "stderr",
+          "error",
+          "dropped_state_keys"
+        ],
+        "existing_contract_test_failures": 0,
+        "public_interface_changes": 0,
+        "state_roundtrip_required": true
+      }
+    },
+    "maintenance_cost": {
+      "baseline": {
+        "direct_runtime_dependencies": 8,
+        "files": {
+          "src/forgeagent/_sandbox_worker.py": {
+            "bytes": 9739,
+            "lines": 238,
+            "top_level_imports": 7,
+            "top_level_symbols": 6
+          },
+          "src/forgeagent/executor.py": {
+            "bytes": 19515,
+            "lines": 457,
+            "top_level_imports": 16,
+            "top_level_symbols": 13
+          },
+          "src/forgeagent/runtime.py": {
+            "bytes": 2151,
+            "lines": 55,
+            "top_level_imports": 2,
+            "top_level_symbols": 1
+          }
+        },
+        "total_lines": 750
+      },
+      "evidence": {
+        "kind": "stdlib_ast_tomllib"
+      },
+      "migration": "Keep one candidate module behind the existing internal backend boundary.",
+      "rollback_trigger": "A new dependency, FFI framework, generator, registry, or second protocol is required.",
+      "status": "within_threshold",
+      "threshold": {
+        "current_surface_lines_gt": 1000,
+        "direct_runtime_dependencies_gt": 8,
+        "future_candidate_module_lines_lte": 400,
+        "future_runtime_dependencies_added": 0
+      }
+    },
+    "migration_rollback_risk": {
+      "baseline": {
+        "config_changes": 0,
+        "data_migrations": 0,
+        "legacy_python_path_present": true,
+        "runtime_changes": 0,
+        "schema_changes": 0
+      },
+      "evidence": {
+        "kind": "design_and_base_ref_diff"
+      },
+      "migration": "Use a separate full Comet change for one internal module while retaining the Python path.",
+      "rollback_trigger": "Rollback needs data conversion, the legacy path is removed, or failure mutates state.",
+      "status": "ready",
+      "threshold": {
+        "legacy_python_path_required": true,
+        "single_internal_module": true,
+        "state_conversion_allowed": false,
+        "unconditional_replay_allowed": false
+      }
+    },
+    "performance": {
+      "baseline": {
+        "container": {
+          "reason": "container_unavailable",
+          "status": "not_available"
+        },
+        "restricted": {
+          "status": "measured",
+          "timing": {
+            "count": 15,
+            "max_ms": 115.212125,
+            "median_ms": 104.795708,
+            "min_ms": 103.64825,
+            "ops_per_second": 9.271593,
+            "p95_ms": 115.212125,
+            "samples_ms": [
+              113.892125,
+              115.212125,
+              112.732208,
+              115.065875,
+              110.635,
+              104.421459,
+              103.984083,
+              105.197208,
+              103.64825,
+              103.980125,
+              104.484625,
+              104.080083,
+              104.156709,
+              104.795708,
+              111.559292
+            ]
+          }
+        },
+        "trusted": {
+          "status": "measured",
+          "timing": {
+            "count": 15,
+            "max_ms": 0.014541,
+            "median_ms": 0.00575,
+            "min_ms": 0.004625,
+            "ops_per_second": 146578.849649,
+            "p95_ms": 0.014541,
+            "samples_ms": [
+              0.014541,
+              0.01025,
+              0.008333,
+              0.006959,
+              0.009917,
+              0.006833,
+              0.005042,
+              0.004958,
+              0.004833,
+              0.00575,
+              0.004875,
+              0.004792,
+              0.004625,
+              0.005917,
+              0.004709
+            ]
+          }
+        }
+      },
+      "evidence": {
+        "clock": "perf_counter_ns",
+        "container_unavailable_is_not_passed": true,
+        "workload": "trivial_assignment"
+      },
+      "migration": "Use a separate full Comet change for one internal module while retaining the Python path.",
+      "rollback_trigger": "The clean rerun misses the improvement target or regresses p95.",
+      "status": "within_threshold",
+      "threshold": {
+        "confirmation": "clean_same_host_rerun_and_real_requirement",
+        "container_is_diagnostic_only": true,
+        "restricted_median_ms_gt": 250.0,
+        "restricted_ops_per_second_lt": 4.0,
+        "trusted_median_ms_gt": 1.0
+      }
+    },
+    "reliability": {
+      "baseline": {
+        "restricted": {
+          "crash_recovery": true,
+          "crash_structured_failure": true,
+          "runs": 20,
+          "successes": 20,
+          "timeout_recovery": true,
+          "timeout_structured_failure": true
+        },
+        "trusted": {
+          "runs": 20,
+          "successes": 20
+        }
+      },
+      "evidence": {
+        "failed_block_replayed": false,
+        "kind": "real_subprocess_fault_injection"
+      },
+      "migration": "Use a separate full Comet change for one internal module while retaining the Python path.",
+      "rollback_trigger": "Any recovery failure or unconditional replay restores the Python path.",
+      "status": "within_threshold",
+      "threshold": {
+        "confirmation": "same_method_reproduction_and_real_path_impact",
+        "crash_recovery_required": true,
+        "normal_control_plane_failures": 0,
+        "timeout_recovery_required": true
+      }
+    },
+    "team_capability": {
+      "baseline": {
+        "candidate_maintenance_rehearsal": "not_run",
+        "cargo_available": true,
+        "python_toolchain": true,
+        "rustc_available": true,
+        "uv_pytest_ruff": true
+      },
+      "evidence": {
+        "rehearsal_status": "not_run",
+        "tool_presence_is_not_capability": true
+      },
+      "migration": "Name an owner and rehearse build, debug, packaging, profiling, and rollback.",
+      "rollback_trigger": "No maintainer can diagnose and revert the candidate on target platforms.",
+      "status": "not_ready",
+      "threshold": {
+        "debug_rehearsal_required": true,
+        "named_owner_required": true,
+        "package_integration_rehearsal_required": true,
+        "rollback_rehearsal_required": true,
+        "target_build_rehearsal_required": true
+      }
+    }
+  },
+  "schema": "forgeagent.executor-rewrite-baseline.v1",
+  "verdict": "keep_python"
+}
