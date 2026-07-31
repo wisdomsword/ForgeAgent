@@ -30,4 +30,6 @@ def test_memory_migration_is_linked_from_project_entry_points():
 
 def test_memory_migration_runbook_links_the_existing_governance_gate():
     text = (ROOT / "docs" / "memory-migration.md").read_text(encoding="utf-8")
-    assert "docs/agent-governance-gates.md" in text
+    target = Path("docs/reviews/2026-07-30-agent开发指南评审-综合借鉴清单与任务开发流程.md")
+    assert target.as_posix() in text
+    assert (ROOT / target).is_file()

@@ -53,9 +53,6 @@ _SOURCE_PROJECTION = {
     "model_candidate": ("task_host", "model_output_unverified"),
     "user_command": ("interactive_host", "user_statement"),
 }
-_SOURCE_BY_TRUTH = {
-    truth_source: (source, writer) for source, (writer, truth_source) in _SOURCE_PROJECTION.items()
-}
 _GOVERNANCE_FIELDS = frozenset(
     {
         "why_remember",
@@ -275,7 +272,7 @@ class MemoryManager:
                     return self._operation_result(
                         "rejected", before, reason, task_id, operation="migrate"
                     )
-                if reason := self._project_projection_reason(records):
+                if reason := self._project_projection_reason(records, include_session=True):
                     return self._operation_result(
                         "rejected", before, reason, task_id, operation="migrate"
                     )
@@ -774,13 +771,10 @@ class MemoryManager:
         ) -> None:
             if current.governance is None:
                 raise ValueError("missing governance")
-            source, writer = _SOURCE_BY_TRUTH[truth_source]
             records[key] = ProjectMemoryRecord(
                 current.candidate,
                 replace(
                     current.governance,
-                    source=source,
-                    writer=writer,
                     review_after=review_after,
                     expires_at=expires_at,
                     truth_source=truth_source,
@@ -1212,12 +1206,8 @@ class MemoryManager:
             raise ValueError("invalid governance classification")
         if writer not in _WRITERS or truth_source not in _TRUTH_SOURCES:
             raise ValueError("invalid provenance")
-        expected_projection = {
-            "host_api": ("host_api", "host_assertion"),
-            "model_candidate": ("task_host", "model_output_unverified"),
-            "user_command": ("interactive_host", "user_statement"),
-        }.get(source)
-        if expected_projection is not None and (writer, truth_source) != expected_projection:
+        expected_projection = _SOURCE_PROJECTION.get(source)
+        if expected_projection is not None and writer != expected_projection[0]:
             raise ValueError("source projection mismatch")
         if value["who_can_write"] != "host_only" or value["visibility"] != "project":
             raise ValueError("invalid ownership")
@@ -1348,6 +1338,8 @@ class MemoryManager:
         governance = record.governance
         if governance is None:
             return None
+        if governance.truth_source == "unknown":
+            return "review_due"
         now = self._clock()
         if now.tzinfo is None:
             raise ValueError("clock must return an aware datetime")
@@ -1469,12 +1461,18 @@ class MemoryManager:
             return "project_memory_untrusted"
         return None
 
-    def _project_projection_reason(self, records: Mapping[str, ProjectMemoryRecord]) -> str | None:
+    def _project_projection_reason(
+        self,
+        records: Mapping[str, ProjectMemoryRecord],
+        *,
+        include_session: bool = False,
+    ) -> str | None:
         try:
             active = self._active_candidates(records)
         except Exception:
             return "invalid_time"
-        if len(self._render_memory(self._session, active).encode("utf-8")) > _MAX_RENDER_BYTES:
+        session = self._session if include_session else {}
+        if len(self._render_memory(session, active).encode("utf-8")) > _MAX_RENDER_BYTES:
             return "memory_limit"
         return None
 
@@ -1537,6 +1535,8 @@ class MemoryManager:
     def _admission_reason(self, candidate: MemoryCandidate) -> str | None:
         if not _KEY.fullmatch(candidate.key):
             return "invalid_key"
+        if mask_secrets(candidate.key, sensitive_env_values()) != candidate.key:
+            return "secret_detected"
         if candidate.kind == "procedure":
             return "procedure_requires_Skill"
         if len(candidate.content.encode("utf-8")) > 512:
@@ -1688,8 +1688,9 @@ class MemoryManager:
         reason: str,
         task_id: str | None,
     ) -> MemoryResult:
-        self._audit(status, candidate.scope, candidate.kind, candidate.key, reason, task_id)
-        return MemoryResult(status, candidate.scope, candidate.kind, candidate.key, reason)
+        public_key = self._public_key(candidate.key)
+        self._audit(status, candidate.scope, candidate.kind, public_key, reason, task_id)
+        return MemoryResult(status, candidate.scope, candidate.kind, public_key, reason)
 
     def _key_result(
         self,
@@ -1702,7 +1703,7 @@ class MemoryManager:
         event_status: str | None = None,
         revision: str | None = None,
     ) -> MemoryResult:
-        public_key = key if _KEY.fullmatch(key) is not None else ""
+        public_key = self._public_key(key)
         self._audit(
             event_status or status,
             "project",
@@ -1713,6 +1714,14 @@ class MemoryManager:
             revision=revision,
         )
         return MemoryResult(status, "project", kind, public_key, reason)
+
+    @staticmethod
+    def _public_key(key: str) -> str:
+        if _KEY.fullmatch(key) is None:
+            return ""
+        if mask_secrets(key, sensitive_env_values()) != key:
+            return ""
+        return key
 
     def _audit(
         self,

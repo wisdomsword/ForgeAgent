@@ -21,7 +21,11 @@ def _write_v1(root, entries: dict[str, str]) -> bytes:
     return raw
 
 
-def _manifest(*keys: str, truth_source: str = "user_statement"):
+def _manifest(
+    *keys: str,
+    truth_source: str = "user_statement",
+    review_after: str | None = None,
+):
     return {
         key: {
             "kind": "fact",
@@ -33,7 +37,7 @@ def _manifest(*keys: str, truth_source: str = "user_statement"):
             "visibility": "project",
             "written_at": "2026-07-30T00:00:00Z",
             "expires_at": None,
-            "review_after": None,
+            "review_after": review_after,
             "revalidate_on": "conflict_or_explicit_review",
             "recovery": "project_memory_file",
             "delete_or_correct": "host_replace_delete_or_revalidate",
@@ -147,7 +151,8 @@ def test_readiness_and_verify_reject_projection_reactivated_by_clock_rollback(tm
     _write_v1(tmp_path, entries)
     migration_time = datetime(2026, 7, 31, 12, 0, tzinfo=UTC)
     manager = MemoryManager(str(tmp_path), clock=lambda: migration_time)
-    assert manager.migrate_legacy(_manifest(*entries, truth_source="unknown")).status == "migrated"
+    manifest = _manifest(*entries, review_after="2026-07-31T11:30:00Z")
+    assert manager.migrate_legacy(manifest).status == "migrated"
     earlier = datetime(2026, 7, 31, 11, 0, tzinfo=UTC)
     verifier = MemoryManager(str(tmp_path), clock=lambda: earlier)
 
@@ -160,6 +165,27 @@ def test_readiness_and_verify_reject_projection_reactivated_by_clock_rollback(tm
         "memory_limit",
     )
     assert (verified.status, verified.reason) == ("repair_required", "memory_limit")
+
+
+def test_temporary_session_does_not_invalidate_persisted_project_verification(tmp_path):
+    writer = MemoryManager(str(tmp_path))
+    project = MemoryCandidate(scope="project", kind="fact", key="project-fact", content="x" * 512)
+    assert writer.apply(project).status == "accepted"
+    reader = MemoryManager(str(tmp_path))
+    for index in range(63):
+        session = MemoryCandidate(
+            scope="session",
+            kind="fact",
+            key=f"session-{index:02d}",
+            content="x" * 500,
+        )
+        assert reader.apply(session).status == "accepted"
+
+    readiness = reader.readiness()
+    verified = reader.verify_project()
+
+    assert (readiness.status, readiness.reason) == ("current", "valid_v2")
+    assert (verified.status, verified.reason) == ("verified", "valid_v2")
 
 
 def test_unknown_truth_source_is_preserved_but_immediately_review_due(tmp_path):
@@ -175,6 +201,12 @@ def test_unknown_truth_source_is_preserved_but_immediately_review_due(tmp_path):
         '"review_after":"2026-07-31T00:00:00Z"'
         in (tmp_path / ".forgeagent" / "MEMORY.md").read_text()
     )
+    earlier = MemoryManager(
+        str(tmp_path),
+        clock=lambda: datetime(2026, 7, 30, 23, 0, tzinfo=UTC),
+    )
+    earlier.load()
+    assert PRIVATE_VALUE not in earlier.render()
 
 
 @pytest.mark.parametrize("field", ["kind", "source"])

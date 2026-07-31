@@ -446,17 +446,7 @@ def test_lifecycle_failures_use_fixed_public_reasons(tmp_path):
     assert str(tmp_path) not in public
 
 
-@pytest.mark.parametrize(
-    ("truth_source", "source", "writer"),
-    [
-        ("host_assertion", "host_api", "host_api"),
-        ("model_output_unverified", "model_candidate", "task_host"),
-        ("user_statement", "user_command", "interactive_host"),
-    ],
-)
-def test_revalidate_updates_the_complete_provenance_projection(
-    tmp_path, truth_source, source, writer
-):
+def test_revalidate_preserves_model_candidate_origin(tmp_path):
     manager = MemoryManager(str(tmp_path))
     candidate = MemoryCandidate(scope="project", kind="fact", key="editor", content="nvim")
     assert manager.apply(candidate, source="model_candidate").status == "accepted"
@@ -465,15 +455,36 @@ def test_revalidate_updates_the_complete_provenance_projection(
         "editor",
         review_after=None,
         expires_at=None,
-        truth_source=truth_source,
+        truth_source="user_statement",
     )
 
     assert result.status == "accepted"
     metadata = _stored_metadata(tmp_path, "editor")
     assert (metadata["truth_source"], metadata["source"], metadata["writer"]) == (
-        truth_source,
-        source,
-        writer,
+        "user_statement",
+        "model_candidate",
+        "task_host",
+    )
+
+
+def test_revalidate_preserves_legacy_origin(tmp_path):
+    _write_v1(tmp_path, {"editor": "nvim"})
+    manager = MemoryManager(str(tmp_path))
+    assert manager.migrate_legacy(_legacy_manifest("editor")).status == "migrated"
+
+    result = manager.revalidate_project(
+        "editor",
+        review_after=None,
+        expires_at=None,
+        truth_source="host_assertion",
+    )
+
+    assert result.status == "accepted"
+    metadata = _stored_metadata(tmp_path, "editor")
+    assert (metadata["truth_source"], metadata["source"], metadata["writer"]) == (
+        "host_assertion",
+        "legacy_manifest",
+        "unknown",
     )
 
 
@@ -513,6 +524,59 @@ def test_invalid_lifecycle_key_is_not_returned_or_audited(tmp_path):
     )
     assert invalid_key not in repr((result, sink.events))
     assert str(tmp_path) not in repr((result, sink.events))
+
+
+def test_invalid_candidate_key_is_not_returned_or_audited(tmp_path):
+    class Sink:
+        def __init__(self):
+            self.events = []
+
+        def emit(self, event):
+            self.events.append(event)
+            return True
+
+    sink = Sink()
+    manager = MemoryManager(str(tmp_path), audit_sink=sink)
+    private_key = f"{tmp_path}/PRIVATE_KEY"
+    candidate = MemoryCandidate(scope="project", kind="fact", key=private_key, content="nvim")
+
+    applied = manager.apply(candidate)
+    corrected = manager.correct_project(candidate, _governance())
+
+    assert (applied.status, applied.reason, applied.key) == ("rejected", "invalid_key", "")
+    assert (corrected.status, corrected.reason, corrected.key) == (
+        "rejected",
+        "invalid_key",
+        "",
+    )
+    assert private_key not in repr((applied, corrected, sink.events))
+    assert str(tmp_path) not in repr((applied, corrected, sink.events))
+
+
+def test_secret_candidate_key_is_rejected_without_public_projection(tmp_path, monkeypatch):
+    class Sink:
+        def __init__(self):
+            self.events = []
+
+        def emit(self, event):
+            self.events.append(event)
+            return True
+
+    secret = "secret-token-1234"
+    monkeypatch.setattr(memory_module, "sensitive_env_values", lambda: {secret})
+    sink = Sink()
+    manager = MemoryManager(str(tmp_path), audit_sink=sink)
+    candidate = MemoryCandidate(scope="project", kind="fact", key=secret, content="nvim")
+
+    result = manager.apply(candidate)
+
+    assert (result.status, result.reason, result.key) == (
+        "rejected",
+        "secret_detected",
+        "",
+    )
+    assert secret not in repr((result, sink.events))
+    assert not (tmp_path / ".forgeagent" / "MEMORY.md").exists()
 
 
 def test_project_write_verifies_full_persisted_semantics(tmp_path, monkeypatch):

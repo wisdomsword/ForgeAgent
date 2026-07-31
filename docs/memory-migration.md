@@ -9,7 +9,8 @@ M42 只治理项目级持久化 Memory。session Memory 仍只存在于当前进
 旧 `forgeagent-memory-v1` 文件可加载、可渲染，但普通 project 写入返回
 `migration_required`。系统不会静默升级 v1，也不会为历史记录猜测元数据。
 
-开发期治理问题见 `docs/agent-governance-gates.md`。M32 模板帮助立项，但不替代 M42 的
+开发期治理问题见 `docs/reviews/2026-07-30-agent开发指南评审-综合借鉴清单与任务开发流程.md`。
+M32 模板帮助立项，但不替代 M42 的
 运行时 metadata 校验、备份、verifier 和 revision 冲突检查。
 
 ## v2 记录与宿主元数据
