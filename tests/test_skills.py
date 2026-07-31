@@ -8,11 +8,46 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from forgeagent.skills import SkillDefinition, SkillRegistry
+from forgeagent.skills import SkillDefinition, SkillExitCondition, SkillRegistry
 
 _FULL_REVIEW_SKILL = """---
 name: review-python
 trigger: Use when reviewing Python.
+---
+
+## Steps
+
+1. Read the changed code.
+
+## Failure Branches
+
+- Ask for the missing context.
+
+## Completion Criteria
+
+- Report the findings.
+"""
+
+_GOVERNED_REVIEW_SKILL = """---
+name: review-python
+trigger: Use when reviewing Python.
+format_version: 2
+exit_conditions:
+  success:
+    condition: Review report exists and names each finding.
+    verifier: reviewer checks the saved report and finding count.
+  failure:
+    condition: A required source file cannot be read.
+    verifier: tool result records the read error.
+  blocked:
+    condition: Required approval is unavailable.
+    verifier: approval gate records the missing approver.
+  needs_input:
+    condition: The task lacks a target branch.
+    verifier: user response records the branch name.
+  timeout_or_budget:
+    condition: The loop reaches its configured round budget.
+    verifier: loop checkpoint records the budget stop.
 ---
 
 ## Steps
@@ -100,6 +135,196 @@ def _skill_document_with_raw_size(size: int) -> str:
         "- Report the findings.\n",
         f"- Report the findings.{'x' * padding}\n",
     )
+
+
+def _governed_skill_with(replacement: str) -> str:
+    return _GOVERNED_REVIEW_SKILL.replace(
+        "condition: Review report exists and names each finding.", replacement
+    )
+
+
+def test_registry_accepts_governed_skill_and_reads_exit_conditions(tmp_path):
+    _write_raw_skill(tmp_path / "home", "review-python", _GOVERNED_REVIEW_SKILL)
+
+    registry = SkillRegistry.load(
+        home=str(tmp_path / "home"),
+        allowed_root=str(tmp_path / "root"),
+        allow_project=False,
+    )
+
+    definition = registry._definitions["review-python"]
+    assert definition.format_version == 2
+    assert "success" in definition.exit_conditions
+    assert "## Exit Conditions" in registry.read("review-python")
+    assert "round budget" in registry.read("review-python", "exit_conditions")
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        _GOVERNED_REVIEW_SKILL.replace("  blocked:\n", "  # blocked omitted\n"),
+        _GOVERNED_REVIEW_SKILL.replace(
+            "condition: Review report exists and names each finding.",
+            "condition: " + ("x" * 513),
+        ),
+        _governed_skill_with("condition: 100% complete"),
+    ],
+)
+def test_registry_rejects_invalid_governed_exit_contract(tmp_path, document):
+    diagnostics: list[str] = []
+    _write_raw_skill(tmp_path / "home", "review-python", document)
+
+    registry = SkillRegistry.load(
+        home=str(tmp_path / "home"),
+        allowed_root=str(tmp_path / "root"),
+        allow_project=False,
+        diagnostic=diagnostics.append,
+    )
+
+    assert registry.catalog_prompt() == ""
+    assert diagnostics == ["skill ignored: invalid exit contract (review-python)"]
+
+
+def test_registry_rejects_unsupported_format_version(tmp_path):
+    diagnostics: list[str] = []
+    _write_raw_skill(
+        tmp_path / "home",
+        "review-python",
+        _FULL_REVIEW_SKILL.replace(
+            "trigger: Use when reviewing Python.\n",
+            "trigger: Use when reviewing Python.\nformat_version: 3\n",
+        ),
+    )
+
+    registry = SkillRegistry.load(
+        home=str(tmp_path / "home"),
+        allowed_root=str(tmp_path / "root"),
+        allow_project=False,
+        diagnostic=diagnostics.append,
+    )
+
+    assert registry.catalog_prompt() == ""
+    assert diagnostics == ["skill ignored: invalid format version (review-python)"]
+
+
+def test_registry_rejects_duplicate_nested_exit_keys(tmp_path):
+    diagnostics: list[str] = []
+    document = _GOVERNED_REVIEW_SKILL.replace(
+        "    verifier: reviewer checks the saved report and finding count.\n",
+        "    verifier: reviewer checks the saved report and finding count.\n"
+        "    verifier: duplicate verifier.\n",
+        1,
+    )
+    _write_raw_skill(tmp_path / "home", "review-python", document)
+
+    registry = SkillRegistry.load(
+        home=str(tmp_path / "home"),
+        allowed_root=str(tmp_path / "root"),
+        allow_project=False,
+        diagnostic=diagnostics.append,
+    )
+
+    assert registry.catalog_prompt() == ""
+    assert diagnostics == ["skill ignored: invalid exit contract (review-python)"]
+
+
+def test_registry_isolates_recursive_yaml_alias(tmp_path):
+    diagnostics: list[str] = []
+    document = _GOVERNED_REVIEW_SKILL.replace(
+        (
+            "  success:\n"
+            "    condition: Review report exists and names each finding.\n"
+            "    verifier: reviewer checks the saved report and finding count."
+        ),
+        (
+            "  success: &success\n"
+            "    condition: Review report exists and names each finding.\n"
+            "    verifier: *success"
+        ),
+    )
+    _write_raw_skill(tmp_path / "home", "review-python", document)
+
+    registry = SkillRegistry.load(
+        home=str(tmp_path / "home"),
+        allowed_root=str(tmp_path / "root"),
+        allow_project=False,
+        diagnostic=diagnostics.append,
+    )
+
+    assert registry.catalog_prompt() == ""
+    assert diagnostics == ["skill ignored: invalid exit contract (review-python)"]
+
+
+def test_registry_rejects_control_characters_in_exit_contract(tmp_path):
+    diagnostics: list[str] = []
+    document = _governed_skill_with('condition: "ok\\nINJECT"')
+    _write_raw_skill(tmp_path / "home", "review-python", document)
+
+    registry = SkillRegistry.load(
+        home=str(tmp_path / "home"),
+        allowed_root=str(tmp_path / "root"),
+        allow_project=False,
+        diagnostic=diagnostics.append,
+    )
+
+    assert registry.catalog_prompt() == ""
+    assert diagnostics == ["skill ignored: invalid exit contract (review-python)"]
+
+
+def test_registry_keeps_legacy_skill_explicitly_version_one(tmp_path):
+    _write_raw_skill(tmp_path / "home", "review-python", _FULL_REVIEW_SKILL)
+
+    registry = SkillRegistry.load(
+        home=str(tmp_path / "home"),
+        allowed_root=str(tmp_path / "root"),
+        allow_project=False,
+    )
+
+    definition = registry._definitions["review-python"]
+    assert definition.format_version == 1
+    assert definition.exit_conditions == {}
+    assert registry.read("review-python") == _FULL_REVIEW_SKILL
+
+
+def test_skill_definition_exit_conditions_are_immutable():
+    definition = SkillDefinition(
+        name="review-python",
+        trigger="Review Python.",
+        steps="Read.",
+        failure_branches="Stop.",
+        completion_criteria="Report.",
+        source="user",
+        format_version=2,
+        exit_conditions={
+            "success": SkillExitCondition("report exists", "test checks report"),
+        },
+    )
+
+    with pytest.raises(TypeError):
+        definition.exit_conditions["failure"] = SkillExitCondition("x", "y")
+
+
+def test_governed_exit_conditions_mask_sensitive_values(tmp_path, monkeypatch):
+    monkeypatch.setenv("TOKEN", "secret-value")
+    document = _GOVERNED_REVIEW_SKILL.replace(
+        "condition: Review report exists and names each finding.",
+        "condition: Review report uses secret-value as a redaction marker.",
+    ).replace(
+        "verifier: reviewer checks the saved report and finding count.",
+        "verifier: reviewer checks secret-value is absent from the report.",
+    )
+    _write_raw_skill(tmp_path / "home", "review-python", document)
+
+    registry = SkillRegistry.load(
+        home=str(tmp_path / "home"),
+        allowed_root=str(tmp_path / "root"),
+        allow_project=False,
+    )
+
+    full = registry.read("review-python")
+    exits = registry.read("review-python", "exit_conditions")
+    assert "secret-value" not in full
+    assert "secret-value" not in exits
 
 
 def test_registry_accepts_only_the_fixed_five_part_document(tmp_path):
@@ -283,6 +508,36 @@ def test_project_skill_reconfirmation_detects_raw_and_effective_digest_changes(
         trust_record_path=str(trust_record_path),
     )
     assert effective_changed and registry.catalog_prompt().endswith("review-python — user trigger")
+
+
+def test_project_governed_exit_change_reconfirms_effective_digest(tmp_path):
+    home, root = tmp_path / "home", tmp_path / "root"
+    trust_record_path = tmp_path / "skills-trust.json"
+    _write_raw_skill(home, "review-python", _FULL_REVIEW_SKILL)
+    _write_raw_skill(root, "review-python", _GOVERNED_REVIEW_SKILL)
+
+    SkillRegistry.load(
+        home=str(home),
+        allowed_root=str(root),
+        confirmer=lambda _request: True,
+        trust_record_path=str(trust_record_path),
+    )
+    changed = _GOVERNED_REVIEW_SKILL.replace(
+        "verifier: reviewer checks the saved report and finding count.",
+        "verifier: independent reviewer checks the saved report and finding count.",
+        1,
+    )
+    _write_raw_skill(root, "review-python", changed)
+    prompts: list[object] = []
+    registry = SkillRegistry.load(
+        home=str(home),
+        allowed_root=str(root),
+        confirmer=lambda request: prompts.append(request) or False,
+        trust_record_path=str(trust_record_path),
+    )
+
+    assert prompts
+    assert registry.catalog_prompt().endswith("review-python — Use when reviewing Python.")
 
 
 def test_unapproved_or_unwritable_project_skill_keeps_user_definition(tmp_path, monkeypatch):
