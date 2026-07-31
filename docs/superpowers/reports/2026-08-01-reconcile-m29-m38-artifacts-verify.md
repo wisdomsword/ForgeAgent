@@ -25,15 +25,24 @@ M45 的 `reconcile-m29-m38-artifacts` 已完成实现与验证。变更只恢复
 
 ## 验证命令
 
-以下命令均在 M45 工作树、当前提交 `47474f1` 上执行：
+以下命令均在 M45 工作树、审查修复提交 `ab362ac` 上重新执行：
 
-- `uv run pytest -q` -> `2710 passed, 10 skipped in 173.28s`
+- `uv run pytest -q` -> `2710 passed, 10 skipped in 171.45s`
 - 聚焦回归（lifecycle/governance/borrowing/skills/attention/collaboration）-> `95 passed`
 - `uv run ruff check .` -> `All checks passed!`
 - `uv run ruff format --check .` -> `146 files already formatted`
 - `git diff --check` -> 通过
+- `git diff --check 1b65c5635baa267012c3fb3f1a3e9551b5622867...HEAD` -> 通过
 - `uv build` -> 成功生成 source distribution 和 wheel；未上传
 - `openspec validate --all --strict --no-interactive` -> `31 passed, 0 failed`
+
+## 只读审查
+
+- 审查未发现 Critical 安全问题。
+- 已修复恢复 Markdown 的尾随空白/EOF 空行，并补充 archive tree hash 的可复算定义。
+- 已将 archive 终态测试从子串判断改为严格字段值匹配。
+- 已统一治理 delta：仅“分发型 remote push”退出路线图，用户授权的普通开发分支 push 保持独立。
+- 已将 repository lifecycle 规范收窄到实际授权的 M29-M38 恢复集，消除“测试固定白名单、规范声称遍历到 latest”的漂移。
 
 ## 两轮最终自审
 

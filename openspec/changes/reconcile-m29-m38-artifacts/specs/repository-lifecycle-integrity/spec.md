@@ -2,7 +2,7 @@
 
 ### Requirement: Completed milestones retain a traceable lifecycle chain
 
-ForgeAgent SHALL keep a repository-local evidence chain for M29 through the latest completed milestone. Every completed milestone in that range MUST have a milestone record, and each referenced archived change, technical design, implementation plan, and verification report MUST exist. Historical verification counts MUST be identified as evidence for their original snapshot rather than current HEAD.
+ForgeAgent SHALL keep a repository-local evidence chain for the authorized M29-M38 recovery set: M29-M32 and M35-M38. Every milestone in that set MUST have a milestone record, and each referenced archived change, technical design, implementation plan, and verification report MUST exist. Historical verification counts MUST be identified as evidence for their original snapshot rather than current HEAD. M39 and later milestones remain governed by their current milestone records and are not recursively rewritten by this historical recovery.
 
 #### Scenario: Historical milestone evidence is inspected
 - **WHEN** a reviewer follows a restored M29-M38 milestone link
