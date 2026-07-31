@@ -330,6 +330,7 @@ def test_task_parser_accepts_bounded_approval_ids_without_putting_them_in_option
 @pytest.mark.parametrize(
     "approval_ids",
     [
+        None,
         [],
         ["a" * 32, "a" * 32],
         ["A" * 32],
@@ -532,6 +533,7 @@ def test_http_receipt_list_and_confirm_are_task_scoped_without_evidence_leak(
     assert resolved["resolution"] == "confirmed"
     assert resolved["evidence_code"] == "provided"
     assert b"private-evidence-123" not in raw
+    assert "private-evidence-123" not in repr(sink.events)
     assert {event.event_type for event in sink.events} >= {
         "http.receipt_list",
         "http.receipt_resolve",

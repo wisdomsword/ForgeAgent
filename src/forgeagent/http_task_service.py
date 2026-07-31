@@ -27,6 +27,7 @@ from .external_actions import (
     ExternalActionReceiptStore,
     ReceiptError,
     ReceiptResolution,
+    public_receipt_evidence_code,
 )
 from .http_action_approvals import ApprovalUnavailableError, HttpActionApprovalStore
 from .http_config import HttpServiceConfig
@@ -734,12 +735,6 @@ def _record_loop_id(record: TaskRecord) -> str | None:
 
 
 def _receipt_public_view(receipt: ExternalActionReceipt) -> dict[str, object]:
-    known_evidence_codes = {"result_unknown", "protocol_response", "no_dispatch"}
-    evidence_code = (
-        receipt.evidence_ref if receipt.evidence_ref in known_evidence_codes else "provided"
-    )
-    if not receipt.evidence_ref:
-        evidence_code = ""
     return {
         "action_id": receipt.action_id,
         "action_type": receipt.action_type,
@@ -750,7 +745,7 @@ def _receipt_public_view(receipt: ExternalActionReceipt) -> dict[str, object]:
         "resolution": receipt.resolution,
         "dispatch_certainty": receipt.dispatch_certainty,
         "remote_ok": receipt.remote_ok,
-        "evidence_code": evidence_code,
+        "evidence_code": public_receipt_evidence_code(receipt.evidence_ref),
         "revision": receipt.revision,
     }
 

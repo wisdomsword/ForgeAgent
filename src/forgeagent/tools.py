@@ -34,7 +34,12 @@ from pydantic import BaseModel
 from .attention import Attention
 from .audit import AuditEvent, AuditSink, emit_audit
 from .executor import ExecResult, ExecutorBackend
-from .external_actions import ExternalActionReceiptStore, ReceiptError, canonical_request_digest
+from .external_actions import (
+    ExternalActionReceiptStore,
+    ReceiptError,
+    canonical_request_digest,
+    public_receipt_evidence_code,
+)
 from .policy import CodeAnalyzer
 from .protocol import (
     EditArgs,
@@ -300,7 +305,7 @@ def _audit_receipt_transition(
                 "remote_ok": getattr(receipt, "remote_ok", None),
                 "server_label": getattr(receipt, "server_label", "")[:200],
                 "tool_label": getattr(receipt, "tool_label", "")[:200],
-                "evidence_code": getattr(receipt, "evidence_ref", "")[:64],
+                "evidence_code": public_receipt_evidence_code(getattr(receipt, "evidence_ref", "")),
                 **(
                     {"source_operation_id": str(source_operation_id)[:128]}
                     if source_operation_id

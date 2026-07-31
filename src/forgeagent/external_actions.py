@@ -34,6 +34,7 @@ _DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
 ReceiptPhase = Literal["prepared", "dispatched", "confirmed", "unknown"]
 ReceiptResolution = Literal["open", "confirmed", "abandoned", "retry_approved"]
 DispatchCertainty = Literal["not_dispatched", "confirmed", "unknown"]
+_PUBLIC_EVIDENCE_CODES = frozenset({"result_unknown", "protocol_response", "no_dispatch"})
 
 
 class ReceiptError(Exception):
@@ -77,6 +78,13 @@ def canonical_request_digest(arguments: object) -> str:
     except (TypeError, ValueError) as error:
         raise ValueError("arguments must be JSON-serializable") from error
     return hashlib.sha256(payload).hexdigest()
+
+
+def public_receipt_evidence_code(evidence_ref: str) -> str:
+    """Project receipt evidence without exposing provider or operator text."""
+    if not evidence_ref:
+        return ""
+    return evidence_ref if evidence_ref in _PUBLIC_EVIDENCE_CODES else "provided"
 
 
 class ExternalActionReceipt(BaseModel):
@@ -466,7 +474,7 @@ class ExternalActionReceiptStore:
                     "remote_ok": receipt.remote_ok,
                     "server_label": receipt.server_label,
                     "tool_label": receipt.tool_label,
-                    "evidence_code": receipt.evidence_ref[:64],
+                    "evidence_code": public_receipt_evidence_code(receipt.evidence_ref),
                     "loop_id": receipt.loop_id,
                 },
                 result_status=status,

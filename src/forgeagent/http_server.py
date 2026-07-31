@@ -508,9 +508,10 @@ def _parse_task_request(
     body: dict[str, object],
 ) -> tuple[str, dict[str, object], tuple[str, ...]]:
     task_body = dict(body)
-    raw_approval_ids = task_body.pop("approval_ids", None)
+    missing = object()
+    raw_approval_ids = task_body.pop("approval_ids", missing)
     approval_ids: tuple[str, ...] = ()
-    if raw_approval_ids is not None:
+    if raw_approval_ids is not missing:
         if not isinstance(raw_approval_ids, list) or not 1 <= len(raw_approval_ids) <= 16:
             raise HttpError(400, "invalid_request")
         if any(

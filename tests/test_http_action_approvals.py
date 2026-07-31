@@ -74,6 +74,7 @@ def test_issue_returns_strict_bounded_public_record() -> None:
     ("overrides", "error"),
     [
         ({"server": "../private"}, ValueError),
+        ({"server": "a" * 201}, ValueError),
         ({"tool": "create/issue"}, ValueError),
         ({"digest": "not-a-digest"}, ValueError),
         ({"ttl": True}, ValueError),

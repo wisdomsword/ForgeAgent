@@ -16,6 +16,7 @@ from .protocol import FileWriteArgs, MCPArgs, WebFetchArgs
 
 _GLOB_CHARACTERS = frozenset("*?[]{}")
 _WEB_SCHEMES = {"http": 80, "https": 443}
+_MAX_MCP_SEGMENT_CHARS = 200
 
 
 class ActionApprovalConsumer(Protocol):
@@ -54,9 +55,13 @@ def _validate_relative_key(key: str) -> str:
 
 
 def _validate_mcp_segment(value: str) -> str:
-    if not value or any(
-        not character.isascii() or not (character.isalnum() or character in "-_.:")
-        for character in value
+    if (
+        not value
+        or len(value) > _MAX_MCP_SEGMENT_CHARS
+        or any(
+            not character.isascii() or not (character.isalnum() or character in "-_.:")
+            for character in value
+        )
     ):
         raise _invalid_allowlist_entry()
     return value
