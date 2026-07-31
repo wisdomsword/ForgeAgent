@@ -652,7 +652,16 @@ class MemoryManager:
                 self._diagnose("memory record inactive: invalid_time")
                 self._audit("invalid_time", "project", "", "", "invalid_time")
             project = {}
-        return self._render_memory(self._session, project)
+        rendered = self._render_memory(self._session, project)
+        if len(rendered.encode("utf-8")) <= _MAX_RENDER_BYTES:
+            return rendered
+        revision = self._header.revision if self._header is not None else "legacy"
+        notice = (revision, "", "memory_limit")
+        if notice not in self._lifecycle_notices:
+            self._lifecycle_notices.add(notice)
+            self._diagnose("memory project projection ignored: memory_limit")
+            self._audit("memory_limit", "project", "", "", "memory_limit")
+        return self._render_memory(self._session, {})
 
     def correct_project(
         self,

@@ -557,10 +557,19 @@ def test_inactive_records_do_not_consume_active_render_budget(tmp_path):
 
     assert manager.render() == ""
 
-    reloaded = MemoryManager(str(tmp_path), clock=lambda: now)
+    current_time = [now]
+    messages: list[str] = []
+    reloaded = MemoryManager(
+        str(tmp_path), clock=lambda: current_time[0], diagnostic=messages.append
+    )
     reloaded.load()
 
     assert reloaded.render() == ""
+
+    current_time[0] = datetime(2026, 7, 31, 11, 0, tzinfo=UTC)
+
+    assert reloaded.render() == ""
+    assert messages[-1] == "memory project projection ignored: memory_limit"
 
 
 def test_procedure_candidate_is_rejected_without_write(tmp_path):
