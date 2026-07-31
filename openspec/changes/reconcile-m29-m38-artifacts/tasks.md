@@ -19,5 +19,5 @@
 ## 4. 验证与归档准备
 
 - [x] 4.1 运行 lifecycle、governance、borrowing、skills、attention 和 collaboration 聚焦回归
-- [ ] 4.2 运行全量 pytest、Ruff、format、build、diff check 和 OpenSpec strict
-- [ ] 4.3 完成两轮最终自审并记录归档证据，不执行 PyPI、tag、push 或发布自动化
+- [x] 4.2 运行全量 pytest、Ruff、format、build、diff check 和 OpenSpec strict
+- [x] 4.3 完成两轮最终自审并记录归档证据，不执行 PyPI、tag、push 或发布自动化
