@@ -2,6 +2,7 @@
 change: define-collaboration-stop-projection
 design-doc: docs/superpowers/specs/2026-07-31-define-collaboration-stop-projection-design.md
 base-ref: cb5efb6ce33d55f3264e4607ec0b4a902a8afeb9
+archived-with: 2026-07-31-define-collaboration-stop-projection
 ---
 
 # Collaboration Stop Projection Implementation Plan
@@ -22,6 +23,7 @@ base-ref: cb5efb6ce33d55f3264e4607ec0b4a902a8afeb9
 - 内部执行 goal 可保留合法绝对路径；公开 handoff/report/audit 不得包含绝对路径、secret、raw goal、原始 prompt 或异常正文。
 - 不新增依赖、通用状态机、Loop 嵌套、HTTP endpoint、PyPI、tag、push 或发布自动化。
 
+archived-with: 2026-07-31-define-collaboration-stop-projection
 ---
 
 ### Task 1: Stop projection contract

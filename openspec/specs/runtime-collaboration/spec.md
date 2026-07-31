@@ -4,19 +4,19 @@
 定义隔离、串行的 Duo/Triad 运行时协作、冻结验收计划、独立评估与 single 模式兼容路由。
 ## Requirements
 ### Requirement: 协作模式使用隔离角色与串行编排
-ForgeAgent SHALL 提供 `single`、`duo` 和 `triad` 三种运行模式。Duo MUST 按 Generator → Evaluator 串行执行；Triad MUST 按 Planner → 确认 → Generator ⇄ Evaluator 串行执行。每个角色 MUST 使用独立 Task、conversation、runtime、tool registry 与模型 client，不得共享另一角色的模型历史或可变执行状态。
+ForgeAgent SHALL 提供 `single`、`duo` 和 `triad` 三种运行模式。Duo MUST 按 Generator → Evaluator 串行执行；Triad MUST 按 Planner → 确认 → Generator ⇄ Evaluator 串行执行。每个角色 MUST 使用独立 Task、conversation、runtime、tool registry 与模型 client，不得共享另一角色的模型历史或可变执行状态。角色边界 MUST 传递由持久 state 和宿主能力投影生成的有界结构化 handoff；该 handoff 不得成为角色间共享可变执行状态。
 
 #### Scenario: Duo 角色隔离
 - **WHEN** 用户以 Duo 模式执行任务
-- **THEN** Generator 与 Evaluator 分别创建独立 Task，Evaluator 只接收原始目标、冻结验收输入与允许根目录中的外部可观察产物
+- **THEN** Generator 与 Evaluator 分别创建独立 Task，Evaluator 只接收原始目标、冻结验收输入、允许根目录中的外部可观察产物和当前结构化 handoff
 
 #### Scenario: Triad 严格串行
 - **WHEN** 用户以 Triad 模式执行任务
-- **THEN** Planner 完成且计划确认后才创建 Generator，Generator 提交后才创建 Evaluator，v1 不并行运行角色
+- **THEN** Planner 完成且计划确认后才创建 Generator，Generator 提交后才创建 Evaluator，v1 不并行运行角色；每个边界都生成新的有界 handoff
 
 #### Scenario: 单角色兼容
 - **WHEN** 任务选择 single
-- **THEN** 系统沿用既有单 Task 路径，不创建 Planner、Evaluator 或协作状态
+- **THEN** 系统沿用既有单 Task 路径，不创建 Planner、Evaluator 或协作 handoff 状态
 
 ### Requirement: Planner 生成冻结且不可降级的验收清单
 Triad Planner MUST 只定义 WHAT：每个清单项包含稳定 ID、可观察行为与验收标准，不得指定实现步骤。系统 MUST 对 `behavior` 与 `acceptance` 两个字段同时执行 WHAT-only 校验。计划提交后系统 MUST 规范化并计算摘要；确认后的条目、顺序和标准 MUST 冻结，后续角色不得删除、替换、重排或降低标准。
@@ -81,15 +81,29 @@ Evaluator 失败 SHALL 把有界、脱敏、逐项证据返回新的 Generator T
 - **THEN** 该配置不得触发自动 Triad
 
 ### Requirement: 协作报告稳定、有界且兼容
-协作执行 MUST 返回加法式稳定报告，包含 mode、终态、稳定原因、角色尝试计数、计划项计数、通过/失败计数、打回次数、累计轮次与 normalized usage。报告 MUST NOT 包含完整目标、计划正文、模型回复、工具参数、文件内容、绝对路径、credential 或未掩码证据。普通 `TaskOutcome` 的既有字段与语义 MUST 保持兼容。
+协作执行 MUST 返回加法式稳定报告，包含 mode、终态、稳定原因、角色尝试计数、计划项计数、通过/失败计数、打回次数、累计轮次、normalized usage 与可选的有界 attention。报告 MUST NOT 包含完整目标、计划正文、模型回复、工具参数、文件内容、绝对路径、credential、原始异常或未掩码证据。普通 `TaskOutcome` 的既有字段与语义 MUST 保持兼容。
+
+Task 与 Loop 的已知停止信号 MUST 使用确定性投影：正常打回上限保持 `stopped/rejection_limit`；`needs_info` 映射为 `stopped/needs_input`；`blocked` 和未决外部动作映射为 stopped 的阻塞原因；`max_rounds`、`wall_clock`、`token_budget`、`token_usage_unavailable` 与 `consecutive_failures` MUST 保留具体资源原因并映射为 stopped；`cancelled` 映射为 cancelled；auth、invalid-request、checkpoint/state/protocol 损坏与其他不可恢复角色错误映射为 failed。未知原因 MUST fail closed，不得成为任意公开枚举。
 
 #### Scenario: 安全终态投影
 - **WHEN** CLI 或 HTTP 输出协作终态
-- **THEN** 输出只包含稳定枚举、计数、模型标识和经过掩码截断的逐项证据摘要
+- **THEN** 输出只包含稳定枚举、计数、模型标识、可选安全 attention 和经过掩码截断的逐项证据摘要
 
 #### Scenario: 普通结果未改变
 - **WHEN** single 任务结束
 - **THEN** 现有调用方仍收到原 `TaskOutcome` 形状，不需要解析协作字段
+
+#### Scenario: 资源耗尽原因透传
+- **WHEN** 内层 Task 或外层 Loop 因 `max_rounds`、`wall_clock`、`token_budget`、`token_usage_unavailable` 或 `consecutive_failures` 停止
+- **THEN** Collaboration 投影为 `stopped` 并保留该稳定原因，不把它误报为 `rejection_limit` 或 `role_failed`
+
+#### Scenario: 需要输入和阻塞保持可恢复
+- **WHEN** 内层 Task 报告 `needs_info`，或 Task/Loop 报告 `blocked`、`external_action_pending`
+- **THEN** Collaboration 投影为 `stopped`，分别使用 `needs_input` 或稳定阻塞原因，并附带不含敏感正文的匹配 attention
+
+#### Scenario: 不可恢复错误保持失败
+- **WHEN** 角色遭遇 auth、invalid-request、状态损坏、checkpoint 损坏、无效结构化提交或其他不可恢复错误
+- **THEN** Collaboration 报告为 `failed` 且只暴露固定失败原因，不包含原始异常正文
 
 ### Requirement: Evaluator 只能执行宿主冻结的隔离检查
 协作运行时 MUST 允许宿主为 Evaluator 注册零个或多个稳定检查 ID。Evaluator 只能提交检查 ID，MUST NOT 提交或覆盖 argv、shell 文本、工作目录、环境变量、超时、输出上限、检查状态或快照证据。检查 MUST 在项目临时工作副本内以无 shell 子进程执行，使用宿主冻结的参数、最小环境、固定超时和有界输出；检查 worker MUST 能读取和枚举当前 Python 解释器环境以导入宿主已安装依赖，并 MUST 能读写当前平台固定的 null device 以支持测试框架捕获，但 MUST 继续拒绝项目副本和 Python 运行时之外的宿主目录枚举、其他宿主文件写入、网络与进程创建。检查结果 MUST 作为不含绝对路径和已知 secret 的结构化证据返回。
