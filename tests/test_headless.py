@@ -5,7 +5,9 @@ from pathlib import Path
 import pytest
 
 from forgeagent.audit import AuditEvent
+from forgeagent.external_actions import canonical_request_digest
 from forgeagent.headless import HeadlessConfirmer, normalize_allowlist, operation_key
+from forgeagent.http_action_approvals import HttpActionApprovalStore
 from forgeagent.protocol import FileWriteArgs, MCPArgs, WebFetchArgs
 
 
@@ -181,3 +183,112 @@ def test_web_allowlist_and_runtime_share_idna_host_canonicalization(tmp_path: Pa
 
     assert configured == frozenset({"web/https/xn--bcher-kva.example/443/report"})
     assert runtime in configured
+
+
+def _bound_approval(
+    store: HttpActionApprovalStore,
+    *,
+    task_id: str,
+    arguments: dict[str, object],
+) -> str:
+    record = store.issue(
+        server="github",
+        tool="create_issue",
+        request_digest=canonical_request_digest(arguments),
+        expires_in_seconds=60,
+    )
+    store.bind_many([record.approval_id], task_id)
+    return record.approval_id
+
+
+def test_dynamic_mcp_approval_requires_exact_task_scope_and_digest(tmp_path: Path) -> None:
+    store = HttpActionApprovalStore(max_records=4)
+    task_id = "a" * 32
+    approval_id = _bound_approval(store, task_id=task_id, arguments={"repo": "safe"})
+    sink = _RecordingAuditSink()
+    confirmer = HeadlessConfirmer([], audit=sink, root=tmp_path, approval_store=store)
+
+    assert (
+        confirmer.confirm_with_context(
+            MCPArgs(server="github", tool="create_issue", arguments={"repo": "changed"}),
+            task_id=task_id,
+            operation_id="wrong-digest",
+        )
+        is False
+    )
+    assert (
+        confirmer.confirm_with_context(
+            MCPArgs(server="github", tool="create_issue", arguments={"repo": "safe"}),
+            task_id="b" * 32,
+            operation_id="wrong-task",
+        )
+        is False
+    )
+    assert (
+        confirmer.confirm_with_context(
+            MCPArgs(server="github", tool="delete_repo", arguments={"repo": "safe"}),
+            task_id=task_id,
+            operation_id="wrong-scope",
+        )
+        is False
+    )
+    assert store.get(approval_id).status == "bound"
+
+    exact = MCPArgs(server="github", tool="create_issue", arguments={"repo": "safe"})
+    assert confirmer.confirm_with_context(exact, task_id=task_id, operation_id="exact") is True
+    assert confirmer.confirm_with_context(exact, task_id=task_id, operation_id="reuse") is False
+    assert store.get(approval_id).status == "consumed"
+    assert [event.result_status for event in sink.events] == [
+        "denied",
+        "denied",
+        "denied",
+        "allow_once",
+        "denied",
+    ]
+
+
+def test_static_allowlist_does_not_consume_dynamic_approval(tmp_path: Path) -> None:
+    store = HttpActionApprovalStore(max_records=2)
+    task_id = "c" * 32
+    approval_id = _bound_approval(store, task_id=task_id, arguments={})
+    confirmer = HeadlessConfirmer(
+        ["mcp/github/create_issue"],
+        audit=None,
+        root=tmp_path,
+        approval_store=store,
+    )
+
+    assert (
+        confirmer.confirm_with_context(
+            MCPArgs(server="github", tool="create_issue"),
+            task_id=task_id,
+            operation_id="static",
+        )
+        is True
+    )
+    assert store.get(approval_id).status == "bound"
+
+
+def test_dynamic_approval_never_authorizes_non_mcp_tools(tmp_path: Path) -> None:
+    store = HttpActionApprovalStore(max_records=2)
+    task_id = "d" * 32
+    approval_id = _bound_approval(store, task_id=task_id, arguments={})
+    confirmer = HeadlessConfirmer([], audit=None, root=tmp_path, approval_store=store)
+
+    assert (
+        confirmer.confirm_with_context(
+            FileWriteArgs(path="result.txt", content="safe"),
+            task_id=task_id,
+            operation_id="file",
+        )
+        is False
+    )
+    assert (
+        confirmer.confirm_with_context(
+            WebFetchArgs(url="https://example.com/"),
+            task_id=task_id,
+            operation_id="web",
+        )
+        is False
+    )
+    assert store.get(approval_id).status == "bound"

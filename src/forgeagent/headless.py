@@ -4,16 +4,30 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from pathlib import Path
+from typing import Protocol
 from urllib.parse import unquote, urlsplit
 from uuid import uuid4
 
 from pydantic import BaseModel
 
 from .audit import AuditEvent, AuditSink, emit_audit
+from .external_actions import canonical_request_digest
 from .protocol import FileWriteArgs, MCPArgs, WebFetchArgs
 
 _GLOB_CHARACTERS = frozenset("*?[]{}")
 _WEB_SCHEMES = {"http": 80, "https": 443}
+
+
+class ActionApprovalConsumer(Protocol):
+    """Minimal authority needed by the execution confirmation boundary."""
+
+    def consume(
+        self,
+        *,
+        task_id: str,
+        scope: str,
+        request_digest: str,
+    ) -> object | None: ...
 
 
 def _invalid_allowlist_entry() -> ValueError:
@@ -165,10 +179,12 @@ class HeadlessConfirmer:
         *,
         audit: AuditSink | None,
         root: str | Path = ".",
+        approval_store: ActionApprovalConsumer | None = None,
     ) -> None:
         self._allowlist = normalize_allowlist(allowlist)
         self._audit = audit
         self._root = Path(root).resolve()
+        self._approval_store = approval_store
 
     def __call__(self, args: BaseModel) -> bool:
         return self.confirm_with_context(
@@ -185,6 +201,7 @@ class HeadlessConfirmer:
         operation_id: str,
         allowed_root: str | Path | None = None,
     ) -> bool:
+        result_status = "denied"
         if (
             isinstance(args, FileWriteArgs)
             and allowed_root is not None
@@ -200,6 +217,25 @@ class HeadlessConfirmer:
                 allowed = False
             else:
                 allowed = key in self._allowlist
+                if allowed:
+                    result_status = "preapproved"
+                elif (
+                    isinstance(args, MCPArgs)
+                    and task_id is not None
+                    and self._approval_store is not None
+                ):
+                    try:
+                        consumed = self._approval_store.consume(
+                            task_id=task_id,
+                            scope=key,
+                            request_digest=canonical_request_digest(args.arguments),
+                        )
+                    except RuntimeError:
+                        result_status = "error"
+                    else:
+                        allowed = consumed is not None
+                        if allowed:
+                            result_status = "allow_once"
         emit_audit(
             self._audit,
             AuditEvent(
@@ -208,7 +244,7 @@ class HeadlessConfirmer:
                 risk_level="high",
                 operation_id=operation_id,
                 parameters={"operation": key},
-                result_status="preapproved" if allowed else "denied",
+                result_status=result_status,
                 duration_ms=0,
             ),
         )

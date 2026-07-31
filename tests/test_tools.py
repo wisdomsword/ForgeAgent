@@ -13,8 +13,13 @@ from pydantic import BaseModel
 
 from forgeagent.audit import AuditEvent
 from forgeagent.executor import TrustedBackend
-from forgeagent.external_actions import ExternalActionReceiptStore, ReceiptError
+from forgeagent.external_actions import (
+    ExternalActionReceiptStore,
+    ReceiptError,
+    canonical_request_digest,
+)
 from forgeagent.headless import HeadlessConfirmer
+from forgeagent.http_action_approvals import HttpActionApprovalStore
 from forgeagent.policy import CodeAnalyzer
 from forgeagent.protocol import (
     EditArgs,
@@ -506,6 +511,42 @@ def test_mcp_receipt_transition_failure_blocks_manager_entry(tmp_path, monkeypat
     assert outcome.success is False
     assert outcome.detail == "MCP receipt unavailable"
     assert fake.calls == []
+
+
+def test_dynamic_approval_stays_consumed_when_receipt_persistence_fails(tmp_path, monkeypatch):
+    task_id = "e" * 32
+    approval_store = HttpActionApprovalStore(max_records=2)
+    approval = approval_store.issue(
+        server="gh",
+        tool="create_issue",
+        request_digest=canonical_request_digest({"repo": "safe"}),
+        expires_in_seconds=60,
+    )
+    approval_store.bind_many([approval.approval_id], task_id)
+    confirmer = HeadlessConfirmer([], audit=None, approval_store=approval_store)
+    receipt_store = _receipt_store(tmp_path, task_id=task_id)
+    monkeypatch.setattr(
+        receipt_store,
+        "mark_dispatched",
+        lambda *args: (_ for _ in ()).throw(ReceiptError("boom")),
+    )
+    fake = _ReceiptMCP({"ok": True, "text": "should not run", "dispatch_certainty": "confirmed"})
+
+    outcome = MCPTool().run(
+        MCPArgs(server="gh", tool="create_issue", arguments={"repo": "safe"}),
+        _mcp_ctx(
+            mcp=fake,
+            confirmer=confirmer,
+            allow_auto_approve=False,
+            receipt_store=receipt_store,
+            task_id=task_id,
+        ),
+    )
+
+    assert outcome.success is False
+    assert outcome.detail == "MCP receipt unavailable"
+    assert fake.calls == []
+    assert approval_store.get(approval.approval_id).status == "consumed"
 
 
 def test_mcp_auto_approve_and_denial_do_not_create_receipts(tmp_path):
