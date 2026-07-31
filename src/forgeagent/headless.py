@@ -48,6 +48,12 @@ def _validate_mcp_segment(value: str) -> str:
     return value
 
 
+def mcp_operation_key(server: str, tool: str) -> str:
+    """Return the exact portable scope for one MCP server/tool pair."""
+
+    return f"mcp/{_validate_mcp_segment(server)}/{_validate_mcp_segment(tool)}"
+
+
 def _validate_mcp_key(key: str) -> str:
     try:
         prefix, server, tool = key.split("/")
@@ -55,7 +61,7 @@ def _validate_mcp_key(key: str) -> str:
         raise _invalid_allowlist_entry() from None
     if prefix != "mcp":
         raise _invalid_allowlist_entry()
-    return f"mcp/{_validate_mcp_segment(server)}/{_validate_mcp_segment(tool)}"
+    return mcp_operation_key(server, tool)
 
 
 def _validate_file_key(key: str) -> str:
