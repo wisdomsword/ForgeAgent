@@ -216,6 +216,8 @@ class MemoryManager:
 
     def readiness(self, manifest: Mapping[str, object] | None = None) -> MemoryReadiness:
         """Inspect project Memory without creating files or exposing stored values."""
+        if reason := self._project_access_reason():
+            return MemoryReadiness("unsafe", "unknown", 0, reason)
         try:
             self._validate_readiness_paths()
             snapshot = self._read_snapshot(canonical_v1=True)
@@ -231,10 +233,14 @@ class MemoryManager:
                 snapshot.reason or "invalid_format",
             )
         if snapshot.format_version == "v2":
+            if reason := self._project_projection_reason(snapshot.entries):
+                return MemoryReadiness("repair_required", "v2", len(snapshot.entries), reason)
             return MemoryReadiness("current", "v2", len(snapshot.entries), "valid_v2")
         records, reason = self._validate_manifest(snapshot, manifest)
         if records is None:
             return MemoryReadiness("legacy_needs_metadata", "v1", len(snapshot.entries), reason)
+        if reason := self._project_projection_reason(records):
+            return MemoryReadiness("repair_required", "v1", len(records), reason)
         return MemoryReadiness("legacy_ready", "v1", len(records), "manifest_valid")
 
     def migrate_legacy(
@@ -243,6 +249,8 @@ class MemoryManager:
         *,
         task_id: str | None = None,
     ) -> MemoryOperationResult:
+        if reason := self._project_access_reason():
+            return MemoryOperationResult("rejected", 0, reason)
         try:
             with self._project_lock():
                 before = self._read_snapshot(canonical_v1=True)
@@ -267,6 +275,10 @@ class MemoryManager:
                     return self._operation_result(
                         "rejected", before, reason, task_id, operation="migrate"
                     )
+                if reason := self._project_projection_reason(records):
+                    return self._operation_result(
+                        "rejected", before, reason, task_id, operation="migrate"
+                    )
                 migration_id = secrets.token_hex(16)
                 revision = secrets.token_hex(16)
                 header = MemoryFileHeader(revision, migration_id, revision)
@@ -281,7 +293,9 @@ class MemoryManager:
                         operation="migrate",
                     )
                 round_trip = self._parse_v2(raw_v2)
-                if not self._verify_migration_snapshot(before, round_trip, migration_id, revision):
+                if not self._verify_migration_snapshot(
+                    before, round_trip, records, migration_id, revision
+                ):
                     return self._operation_result(
                         "rejected",
                         before,
@@ -311,7 +325,9 @@ class MemoryManager:
                     )
                 try:
                     after = self._read_snapshot(canonical_v1=True)
-                    if not self._verify_migration_snapshot(before, after, migration_id, revision):
+                    if not self._verify_migration_snapshot(
+                        before, after, records, migration_id, revision
+                    ):
                         raise _MigrationVerificationError
                 except (OSError, _MigrationVerificationError):
                     return self._restore_after_failed_migration(
@@ -330,6 +346,8 @@ class MemoryManager:
         )
 
     def verify_project(self, *, task_id: str | None = None) -> MemoryOperationResult:
+        if reason := self._project_access_reason():
+            return MemoryOperationResult("unsafe", 0, reason)
         try:
             snapshot = self._read_snapshot(canonical_v1=True)
         except OSError:
@@ -358,6 +376,14 @@ class MemoryManager:
                 task_id,
                 operation="verify",
             )
+        if reason := self._project_projection_reason(snapshot.entries):
+            return self._operation_result(
+                "repair_required",
+                snapshot,
+                reason,
+                task_id,
+                operation="verify",
+            )
         return self._operation_result(
             "verified",
             snapshot,
@@ -373,6 +399,8 @@ class MemoryManager:
         *,
         task_id: str | None = None,
     ) -> MemoryOperationResult:
+        if reason := self._project_access_reason():
+            return MemoryOperationResult("rejected", 0, reason)
         if _OPAQUE_ID.fullmatch(migration_id) is None:
             return MemoryOperationResult("backup_unavailable", 0, "invalid_migration_id")
         try:
@@ -910,6 +938,7 @@ class MemoryManager:
     def _verify_migration_snapshot(
         before: _ProjectSnapshot,
         after: _ProjectSnapshot,
+        expected: Mapping[str, ProjectMemoryRecord],
         migration_id: str,
         migration_revision: str,
     ) -> bool:
@@ -920,6 +949,7 @@ class MemoryManager:
             or after.header.migration_revision != migration_revision
             or after.header.revision != migration_revision
             or set(before.entries) != set(after.entries)
+            or after.entries != dict(expected)
         ):
             return False
         for key, prior in before.entries.items():
@@ -1431,6 +1461,22 @@ class MemoryManager:
             for key, record in records.items()
             if self._inactive_reason(record) is None
         }
+
+    def _project_access_reason(self) -> str | None:
+        if not self._enabled:
+            return "memory_disabled"
+        if not self._allow_project:
+            return "project_memory_untrusted"
+        return None
+
+    def _project_projection_reason(self, records: Mapping[str, ProjectMemoryRecord]) -> str | None:
+        try:
+            active = self._active_candidates(records)
+        except Exception:
+            return "invalid_time"
+        if len(self._render_memory(self._session, active).encode("utf-8")) > _MAX_RENDER_BYTES:
+            return "memory_limit"
+        return None
 
     def _governance_for_write(
         self,

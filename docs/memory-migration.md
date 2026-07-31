@@ -84,6 +84,7 @@ revision 绑定 rollback。v1 也不能通过普通 `/remember` 继续追加。
 
 ```bash
 uv run python scripts/m42_memory_migration.py readiness --root /absolute/project
+uv run python scripts/m42_memory_migration.py readiness --root /absolute/project --manifest .forgeagent/memory-manifest.json
 uv run python scripts/m42_memory_migration.py migrate --root /absolute/project --manifest .forgeagent/memory-manifest.json
 uv run python scripts/m42_memory_migration.py verify --root /absolute/project
 uv run python scripts/m42_memory_migration.py rollback --root /absolute/project --migration-id 0123456789abcdef0123456789abcdef

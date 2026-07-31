@@ -30,6 +30,26 @@ def _write_v1(root) -> bytes:
     return raw
 
 
+def _manifest() -> dict[str, dict[str, object]]:
+    return {
+        "editor": {
+            "kind": "fact",
+            "why_remember": "cross_task_fact",
+            "source": "legacy_manifest",
+            "writer": "unknown",
+            "who_can_write": "host_only",
+            "truth_source": "user_statement",
+            "visibility": "project",
+            "written_at": "2026-07-30T00:00:00Z",
+            "expires_at": None,
+            "review_after": None,
+            "revalidate_on": "conflict_or_explicit_review",
+            "recovery": "project_memory_file",
+            "delete_or_correct": "host_replace_delete_or_revalidate",
+        }
+    }
+
+
 def test_readiness_no_data_is_single_line_json_and_does_not_write(tmp_path):
     result = _run("readiness", "--root", str(tmp_path))
 
@@ -43,6 +63,30 @@ def test_readiness_no_data_is_single_line_json_and_does_not_write(tmp_path):
     }
     assert result.stdout.count("\n") == 1
     assert not (tmp_path / ".forgeagent").exists()
+
+
+def test_readiness_accepts_manifest_without_migrating_legacy_file(tmp_path):
+    original = _write_v1(tmp_path)
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps(_manifest()), encoding="utf-8")
+
+    result = _run(
+        "readiness",
+        "--root",
+        str(tmp_path),
+        "--manifest",
+        "manifest.json",
+    )
+
+    assert result.returncode == 0
+    assert json.loads(result.stdout) == {
+        "entry_count": 1,
+        "format_version": "v1",
+        "reason": "manifest_valid",
+        "status": "legacy_ready",
+    }
+    assert (tmp_path / ".forgeagent" / "MEMORY.md").read_bytes() == original
+    assert not (tmp_path / ".forgeagent" / "memory-backups").exists()
 
 
 def test_manifest_must_be_project_relative_regular_json(tmp_path):

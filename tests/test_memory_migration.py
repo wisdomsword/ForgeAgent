@@ -59,6 +59,30 @@ def test_migrate_rejects_incomplete_or_mismatched_manifest_before_backup(tmp_pat
     assert str(tmp_path) not in repr(result)
 
 
+@pytest.mark.parametrize(
+    ("manager_options", "reason"),
+    [
+        ({"enabled": False}, "memory_disabled"),
+        ({"allow_project": False}, "project_memory_untrusted"),
+    ],
+)
+def test_project_operations_respect_memory_access_boundary(tmp_path, manager_options, reason):
+    original = _write_v1(tmp_path, {"editor": PRIVATE_VALUE})
+    manager = MemoryManager(str(tmp_path), **manager_options)
+
+    readiness = manager.readiness(_manifest("editor"))
+    migrated = manager.migrate_legacy(_manifest("editor"))
+    verified = manager.verify_project()
+    rolled_back = manager.rollback_migration("a" * 32)
+
+    assert (readiness.status, readiness.reason) == ("unsafe", reason)
+    assert (migrated.status, migrated.reason) == ("rejected", reason)
+    assert (verified.status, verified.reason) == ("unsafe", reason)
+    assert (rolled_back.status, rolled_back.reason) == ("rejected", reason)
+    assert (tmp_path / ".forgeagent" / "MEMORY.md").read_bytes() == original
+    assert not (tmp_path / ".forgeagent" / "memory-backups").exists()
+
+
 def test_migrate_creates_private_backup_and_verified_semantic_v2(tmp_path):
     original = _write_v1(tmp_path, {"editor": PRIVATE_VALUE})
     manager = MemoryManager(
@@ -81,6 +105,61 @@ def test_migrate_creates_private_backup_and_verified_semantic_v2(tmp_path):
     assert stat.S_IMODE(backup.stat().st_mode) == 0o600
     assert manager.verify_project().status == "verified"
     assert PRIVATE_VALUE in manager.render()
+
+
+def test_migration_verifier_restores_v1_when_persisted_metadata_drifts(tmp_path, monkeypatch):
+    original = _write_v1(tmp_path, {"editor": PRIVATE_VALUE})
+    manager = MemoryManager(str(tmp_path))
+    real_write = manager._atomic_write_bytes
+
+    def alter_metadata(raw: bytes) -> None:
+        real_write(
+            raw.replace(
+                b'"truth_source":"user_statement"',
+                b'"truth_source":"host_assertion"',
+            )
+        )
+
+    monkeypatch.setattr(manager, "_atomic_write_bytes", alter_metadata)
+
+    result = manager.migrate_legacy(_manifest("editor"))
+
+    assert (result.status, result.reason) == ("persistence_error", "verification_failed")
+    assert (tmp_path / ".forgeagent" / "MEMORY.md").read_bytes() == original
+
+
+def test_migration_rejects_active_project_projection_over_render_limit(tmp_path):
+    entries = {f"memory-{index:02d}": "x" * 512 for index in range(64)}
+    original = _write_v1(tmp_path, entries)
+    manager = MemoryManager(str(tmp_path))
+
+    readiness = manager.readiness(_manifest(*entries))
+    result = manager.migrate_legacy(_manifest(*entries))
+
+    assert (readiness.status, readiness.reason) == ("repair_required", "memory_limit")
+    assert (result.status, result.reason) == ("rejected", "memory_limit")
+    assert (tmp_path / ".forgeagent" / "MEMORY.md").read_bytes() == original
+    assert not (tmp_path / ".forgeagent" / "memory-backups").exists()
+
+
+def test_readiness_and_verify_reject_projection_reactivated_by_clock_rollback(tmp_path):
+    entries = {f"memory-{index:02d}": "x" * 512 for index in range(64)}
+    _write_v1(tmp_path, entries)
+    migration_time = datetime(2026, 7, 31, 12, 0, tzinfo=UTC)
+    manager = MemoryManager(str(tmp_path), clock=lambda: migration_time)
+    assert manager.migrate_legacy(_manifest(*entries, truth_source="unknown")).status == "migrated"
+    earlier = datetime(2026, 7, 31, 11, 0, tzinfo=UTC)
+    verifier = MemoryManager(str(tmp_path), clock=lambda: earlier)
+
+    readiness = verifier.readiness()
+    verified = verifier.verify_project()
+
+    assert (readiness.status, readiness.format_version, readiness.reason) == (
+        "repair_required",
+        "v2",
+        "memory_limit",
+    )
+    assert (verified.status, verified.reason) == ("repair_required", "memory_limit")
 
 
 def test_unknown_truth_source_is_preserved_but_immediately_review_due(tmp_path):
@@ -175,12 +254,12 @@ def test_post_write_verification_failure_restores_exact_v1_bytes(tmp_path, monke
     real_verify = manager._verify_migration_snapshot
     calls = 0
 
-    def fail_disk_verification(before, after, migration_id, migration_revision):
+    def fail_disk_verification(before, after, expected, migration_id, migration_revision):
         nonlocal calls
         calls += 1
         if calls == 2:
             return False
-        return real_verify(before, after, migration_id, migration_revision)
+        return real_verify(before, after, expected, migration_id, migration_revision)
 
     monkeypatch.setattr(manager, "_verify_migration_snapshot", fail_disk_verification)
 

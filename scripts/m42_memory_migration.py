@@ -65,9 +65,11 @@ def _load_manifest(root: Path, relative_name: str) -> dict[str, object]:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="m42-memory-migration")
     subparsers = parser.add_subparsers(dest="command", required=True)
-    for name in ("readiness", "verify"):
-        command = subparsers.add_parser(name)
-        command.add_argument("--root", required=True)
+    readiness = subparsers.add_parser("readiness")
+    readiness.add_argument("--root", required=True)
+    readiness.add_argument("--manifest")
+    verify = subparsers.add_parser("verify")
+    verify.add_argument("--root", required=True)
     migrate = subparsers.add_parser("migrate")
     migrate.add_argument("--root", required=True)
     migrate.add_argument("--manifest", required=True)
@@ -87,7 +89,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         root = Path(args.root).resolve()
         manager = MemoryManager(str(root))
         if args.command == "readiness":
-            result = manager.readiness()
+            if args.manifest is None:
+                result = manager.readiness()
+            else:
+                result = manager.readiness(_load_manifest(root, args.manifest))
         elif args.command == "verify":
             result = manager.verify_project()
         elif args.command == "migrate":
