@@ -2,6 +2,7 @@
 change: measure-executor-rewrite-baseline
 design-doc: docs/superpowers/specs/2026-07-31-executor-rewrite-baseline-design.md
 base-ref: a14630ff8a730b98839289785e365bda0519381a
+archived-with: 2026-07-31-measure-executor-rewrite-baseline
 ---
 
 # M43 Executor Rewrite Baseline Implementation Plan

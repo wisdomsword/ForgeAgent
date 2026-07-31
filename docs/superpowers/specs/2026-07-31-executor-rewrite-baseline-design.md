@@ -2,6 +2,8 @@
 comet_change: measure-executor-rewrite-baseline
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-07-31-measure-executor-rewrite-baseline
+status: final
 ---
 
 # M43 Executor Rewrite Baseline 技术设计

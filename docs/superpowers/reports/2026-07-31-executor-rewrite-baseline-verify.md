@@ -72,11 +72,24 @@ Python，不授权 Rust 重写、新依赖、运行时切换或状态迁移。
 - 公开 evidence 的绝对路径、测试 secret 与常见凭据表达式扫描：无命中。
 - `base-ref..HEAD` 对 `src/`、`pyproject.toml`、`uv.lock` 的 M43 提交差异：零。
 
-零排除 pytest、全库静态门禁和归档前 OpenSpec 已通过。Comet verify、主规格同步和归档后 strict
-结果将在 archive 阶段写回；在此之前本报告状态为“验证通过，待归档”。
+零排除 pytest、全库静态门禁和归档前 OpenSpec 已通过。Comet full verify 通过；归档脚本 7/7
+步骤成功，主规格已同步，change 已移动到
+`openspec/changes/archive/2026-07-31-measure-executor-rewrite-baseline/` 并标记 `archived: true`。
+归档后的全量 pytest、Ruff、format、diff check 与 OpenSpec strict 结果见本报告最终验证补记。
+
+## 最终验证补记
+
+- Comet full verify：tasks、verification、报告、语言和分支处理 5 项全部通过。
+- Comet archive：`7/7 steps succeeded`，主规格无 delta-only 标题残留。
+- 归档后聚焦：`26 passed in 1.55s`。
+- 归档后零排除全量 pytest：`2653 passed, 10 skipped in 173.25s`。
+- 归档后 Ruff：通过；format：`141 files already formatted`；diff check：通过；OpenSpec strict：
+  `33 passed, 0 failed`。
+- 首次归档后回归因评审文档改写破坏一条固定追溯短语，得到聚焦 `1 failed, 25 passed`、全量
+  `1 failed, 2652 passed, 10 skipped`；恢复原短语并补充 M43 归档句后，上述聚焦和全量门禁均通过。
 
 ## 未执行与边界
 
 未访问网络、未拉取镜像、未运行真实 container/Linux/Podman、未执行 Rust 构建或维护演练。
-未执行 package upload、PyPI、tag 或发布自动化。普通开发分支 push 只按用户明确授权在归档后作为
-版本控制交接执行，不代表恢复公开分发目标。
+未执行 package upload、PyPI、tag 或发布自动化。普通开发分支已按用户明确授权推送，归档提交还会
+在最终门禁通过后更新到同一分支；这只是版本控制交接，不代表恢复公开分发目标。

@@ -1,6 +1,6 @@
 # 里程碑 M43: Rewrite/依赖基线测量
 
-- 状态: 验证完成，待归档
+- 状态: 已完成并归档
 - 起止: 2026-07-31 ~ 2026-07-31
 - 对应 ACTION_PLAN 行: M43（见该文件 §四里程碑表）
 - 前置里程碑: [milestone_042](milestone_042.md)
@@ -31,7 +31,7 @@ baseline、threshold、evidence、migration 与 rollback trigger。M43 不实现
 - [x] 完成两次同提交测量并得到 `keep_python`。
 - [x] 完成两轮自审并修复状态词表、no-replay、profiling 和流程循环问题。
 - [x] 完成零排除全量验证与归档前 OpenSpec strict。
-- [ ] 完成 Comet verify、主规格同步和 change 归档。
+- [x] 完成 Comet verify、主规格同步和 change 归档。
 
 ## 交付物清单
 
@@ -40,7 +40,7 @@ baseline、threshold、evidence、migration 与 rollback trigger。M43 不实现
 - [x] `docs/evaluation/m43/executor-rewrite-baseline.json`：绑定 `47876661` 的冻结原始证据。
 - [x] `docs/evaluation/m43/rewrite-dependency-baseline.md`：六项治理表、复现和未来门禁。
 - [x] `docs/superpowers/reports/2026-07-31-executor-rewrite-baseline-verify.md`：全量验证报告。
-- [ ] `openspec/changes/archive/2026-07-31-measure-executor-rewrite-baseline/`：待最终门禁后归档。
+- [x] `openspec/changes/archive/2026-07-31-measure-executor-rewrite-baseline/`：归档 change 与完整 Comet 状态。
 
 ## 三次评审
 
@@ -60,16 +60,16 @@ baseline、threshold、evidence、migration 与 rollback trigger。M43 不实现
 
 - [x] 聚焦 `68 passed, 10 skipped`；零排除全量 `2653 passed, 10 skipped`。
 - [x] 全库 Ruff/141 文件 format、diff check、OpenSpec strict `33/33` 与敏感公开面扫描通过。
-- [ ] Comet verify 与 archive 待执行。
+- [x] Comet full verify 通过，archive `7/7 steps succeeded`。
 
 ## 遗留问题
 
-- [ ] 本机 container evidence 为 `not_available`，团队维护演练为 `not_ready`。这两项阻止未来重写
-  试验，不阻止“保持 Python”的 M43 结论；只在真实需求和 verifier 出现后另立 change。
+M43 无未完成任务。本机 container evidence 为 `not_available`，团队维护演练为 `not_ready`；这是
+未来重写试验的准入阻断条件，不是 M43 的遗漏，也不阻止“保持 Python”的已验收结论。
 
 ## 续接指引
 
-先完成零排除全量门禁和 Comet verify，再同步主规格并归档
-`openspec/changes/archive/2026-07-31-measure-executor-rewrite-baseline`。归档后 M43 应无未完成任务，
-继续使用 Python；不得从工具已安装或单次微基准推断可以启动 Rust 重写。HTTP 远程动作审批绑定仍是
-条件候选。PyPI、tag 和发布自动化继续移除；普通开发分支 push 仅按本次明确授权执行。
+M43 已完成全量门禁、主规格同步和 Comet 归档。后续继续使用 Python；不得从工具已安装或单次
+微基准推断可以启动 Rust 重写。只有真实使用瓶颈持续越阈且六项门禁具备完整 evidence，才可另立
+保留 Python fallback 的单模块 full change。HTTP 远程动作审批绑定仍是条件候选。PyPI、tag 和发布
+自动化继续移除；普通开发分支 push 仅按本次明确授权执行。
