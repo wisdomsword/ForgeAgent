@@ -28,6 +28,7 @@ from .external_actions import (
     ReceiptError,
     ReceiptResolution,
     public_receipt_evidence_code,
+    public_receipt_label,
 )
 from .http_action_approvals import ApprovalUnavailableError, HttpActionApprovalStore
 from .http_config import HttpServiceConfig
@@ -738,8 +739,8 @@ def _receipt_public_view(receipt: ExternalActionReceipt) -> dict[str, object]:
     return {
         "action_id": receipt.action_id,
         "action_type": receipt.action_type,
-        "server_label": receipt.server_label,
-        "tool_label": receipt.tool_label,
+        "server_label": public_receipt_label(receipt.server_label),
+        "tool_label": public_receipt_label(receipt.tool_label),
         "request_digest": receipt.request_digest,
         "phase": receipt.phase,
         "resolution": receipt.resolution,

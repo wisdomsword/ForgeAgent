@@ -616,6 +616,7 @@ def serve_http(
                             audit_sink=audit_sink,
                             task_id=record.task_id,
                             loop_id=loop_runner._checkpoint.loop_id,
+                            receipt_store=receipt_store,
                         )
 
                     class OwnedCollaboration:

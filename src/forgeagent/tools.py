@@ -39,6 +39,7 @@ from .external_actions import (
     ReceiptError,
     canonical_request_digest,
     public_receipt_evidence_code,
+    public_receipt_label,
 )
 from .policy import CodeAnalyzer
 from .protocol import (
@@ -303,8 +304,8 @@ def _audit_receipt_transition(
                 "resolution": getattr(receipt, "resolution", "open"),
                 "dispatch_certainty": getattr(receipt, "dispatch_certainty", None),
                 "remote_ok": getattr(receipt, "remote_ok", None),
-                "server_label": getattr(receipt, "server_label", "")[:200],
-                "tool_label": getattr(receipt, "tool_label", "")[:200],
+                "server_label": public_receipt_label(getattr(receipt, "server_label", "")),
+                "tool_label": public_receipt_label(getattr(receipt, "tool_label", "")),
                 "evidence_code": public_receipt_evidence_code(getattr(receipt, "evidence_ref", "")),
                 **(
                     {"source_operation_id": str(source_operation_id)[:128]}

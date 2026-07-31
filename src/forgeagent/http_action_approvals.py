@@ -250,31 +250,44 @@ class HttpActionApprovalStore:
         with self._lock:
             expired = self._expire_locked(now)
             record = self._records.get(approval_id)
-            if record is None:
-                raise ApprovalNotFoundError
         for item in expired:
             self._audit(item, "expired")
+        if record is None:
+            raise ApprovalNotFoundError
         return record
 
     def bind_many(
         self, approval_ids: Iterable[str], task_id: str
     ) -> tuple[HttpActionApproval, ...]:
         identifiers = tuple(approval_ids)
-        if _ID_RE.fullmatch(task_id) is None or len(identifiers) != len(set(identifiers)):
+        if (
+            not isinstance(task_id, str)
+            or _ID_RE.fullmatch(task_id) is None
+            or any(
+                not isinstance(approval_id, str) or _ID_RE.fullmatch(approval_id) is None
+                for approval_id in identifiers
+            )
+            or len(identifiers) != len(set(identifiers))
+        ):
             raise ApprovalUnavailableError
         now = self._now()
         with self._lock:
             expired = self._expire_locked(now)
             records = [self._records.get(approval_id) for approval_id in identifiers]
-            if any(record is None or record.status != "issued" for record in records):
-                raise ApprovalUnavailableError
-            bound = tuple(
-                self._replace(record, status="bound", task_id=task_id)
-                for record in records
-                if record is not None
+            unavailable = any(record is None or record.status != "issued" for record in records)
+            bound = (
+                ()
+                if unavailable
+                else tuple(
+                    self._replace(record, status="bound", task_id=task_id)
+                    for record in records
+                    if record is not None
+                )
             )
         for item in expired:
             self._audit(item, "expired")
+        if unavailable:
+            raise ApprovalUnavailableError
         for item in bound:
             self._audit(item, "bound")
         return bound
@@ -310,12 +323,12 @@ class HttpActionApprovalStore:
         with self._lock:
             expired = self._expire_locked(now)
             record = self._records.get(approval_id)
-            if record is None:
-                raise ApprovalNotFoundError
-            if record.status in {"issued", "bound"}:
+            if record is not None and record.status in {"issued", "bound"}:
                 record = self._replace(record, status="revoked")
         for item in expired:
             self._audit(item, "expired")
+        if record is None:
+            raise ApprovalNotFoundError
         self._audit(record, record.status)
         return record
 

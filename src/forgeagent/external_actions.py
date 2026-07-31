@@ -20,7 +20,7 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from .audit import AuditEvent, AuditSink, emit_audit
-from .secret_policy import mask_secrets, sensitive_env_values
+from .secret_policy import mask_audit_data, mask_secrets, sensitive_env_values
 from .text_safety import safe_text
 
 RECEIPT_SCHEMA = "forgeagent.external-action-receipt.v1"
@@ -85,6 +85,12 @@ def public_receipt_evidence_code(evidence_ref: str) -> str:
     if not evidence_ref:
         return ""
     return evidence_ref if evidence_ref in _PUBLIC_EVIDENCE_CODES else "provided"
+
+
+def public_receipt_label(value: str) -> str:
+    """Project a bounded receipt target label across response and audit boundaries."""
+    projected = mask_audit_data(value, sensitive_env_values())
+    return projected[:MAX_LABEL_CHARS] if isinstance(projected, str) else ""
 
 
 class ExternalActionReceipt(BaseModel):
@@ -472,8 +478,8 @@ class ExternalActionReceiptStore:
                     "resolution": receipt.resolution,
                     "dispatch_certainty": receipt.dispatch_certainty,
                     "remote_ok": receipt.remote_ok,
-                    "server_label": receipt.server_label,
-                    "tool_label": receipt.tool_label,
+                    "server_label": public_receipt_label(receipt.server_label),
+                    "tool_label": public_receipt_label(receipt.tool_label),
                     "evidence_code": public_receipt_evidence_code(receipt.evidence_ref),
                     "loop_id": receipt.loop_id,
                 },

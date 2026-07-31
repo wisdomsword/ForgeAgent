@@ -701,6 +701,44 @@ def test_receipt_wrappers_are_task_scoped_and_revision_guarded(tmp_path) -> None
         receipt_store.close()
 
 
+def test_receipt_public_view_redacts_historical_absolute_path_labels(tmp_path) -> None:
+    sink = _AuditSink()
+    receipt_store = ExternalActionReceiptStore(str(tmp_path), audit_sink=sink)
+    service = TaskService(
+        factory=_instant_factory,
+        config=CONFIG,
+        receipt_store=receipt_store,
+    )
+    try:
+        owner = service.submit("owner", {})
+        service.wait(owner.task_id, timeout=1.0)
+        receipt = receipt_store.create_prepared(
+            task_id=owner.task_id,
+            server_label=str(tmp_path / "private-server"),
+            tool_label=f"tool at {tmp_path / 'private-tool'}",
+            request_digest="f" * 64,
+        )
+
+        view = service.list_task_receipts(owner.task_id)[0]
+
+        assert str(tmp_path) not in repr(view)
+        assert str(tmp_path) not in repr(sink.events)
+        assert view["server_label"] == "<redacted-path>"
+        assert view["tool_label"] == "tool at <redacted-path>"
+        with pytest.raises(TaskReceiptConflict):
+            service.resolve_task_receipt(
+                owner.task_id,
+                receipt.action_id,
+                expected_revision=receipt.revision,
+                decision="confirmed",
+                evidence="external confirmation",
+            )
+        assert receipt_store.load(receipt.action_id).resolution == "open"
+    finally:
+        service.shutdown(1.0)
+        receipt_store.close()
+
+
 @pytest.mark.parametrize("raised", [RuntimeError("submit failed"), KeyboardInterrupt()])
 def test_executor_submit_failure_tombstones_queued_record_and_reraises(raised):
     created: list[str] = []

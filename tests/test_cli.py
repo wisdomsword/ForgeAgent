@@ -5360,11 +5360,36 @@ def test_serve_wires_single_approval_and_receipt_authorities(monkeypatch, tmp_pa
         def shutdown(self, timeout):
             pass
 
+    class FakeLoopRunner:
+        def __init__(self, kwargs):
+            self._checkpoint = SimpleNamespace(
+                collaboration_mode="triad",
+                collaboration_id="c" * 32,
+                loop_id="d" * 32,
+            )
+            self.collaboration_builder = kwargs["collaboration_builder"]
+
+        @classmethod
+        def create(cls, **kwargs):
+            return cls(kwargs)
+
+    class FakeCollaborationRunner:
+        @classmethod
+        def create(cls, **kwargs):
+            captured["loop_collaboration_receipt"] = kwargs.get("receipt_store")
+            return SimpleNamespace(
+                _state=SimpleNamespace(plan_digest="digest"),
+                run=lambda *_args, **_kwargs: None,
+                close=lambda: None,
+            )
+
     monkeypatch.setattr(cli_module, "JsonlAuditSink", FakeAuditSink)
     monkeypatch.setattr(cli_module, "HttpActionApprovalStore", FakeApprovalStore, raising=False)
     monkeypatch.setattr(cli_module, "ExternalActionReceiptStore", FakeReceiptStore)
     monkeypatch.setattr(cli_module, "HeadlessConfirmer", FakeConfirmer)
     monkeypatch.setattr(cli_module, "TaskService", FakeService)
+    monkeypatch.setattr(cli_module, "LoopRunner", FakeLoopRunner)
+    monkeypatch.setattr(cli_module, "CollaborationRunner", FakeCollaborationRunner)
     monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: None)
     monkeypatch.setattr(cli_module, "load_registry", lambda: object())
     monkeypatch.setattr(cli_module, "_validate_context_policy", lambda *_args: None)
@@ -5395,6 +5420,24 @@ def test_serve_wires_single_approval_and_receipt_authorities(monkeypatch, tmp_pa
     assert captured["service_receipt"] is captured["receipt_store"]
     assert captured["approval_audit"] is captured["service_audit"]
     assert captured["receipt_audit"] is captured["service_audit"]
+
+    loop_runner = captured["factory"](
+        SimpleNamespace(
+            task_id="d" * 32,
+            goal="loop goal",
+            options={
+                "mode": "loop",
+                "collaboration_mode": "triad",
+                "token_budget": 100,
+                "max_rounds": 2,
+                "wall_clock_seconds": 30,
+                "max_consecutive_failures": 1,
+            },
+        )
+    )
+    loop_runner.collaboration_builder(0, 2, "", object())
+
+    assert captured["loop_collaboration_receipt"] is captured["receipt_store"]
 
 
 def test_http_owner_restores_partial_signal_install_and_closes_resources(monkeypatch):

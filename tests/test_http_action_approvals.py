@@ -28,6 +28,15 @@ class FakeClock:
         return self.value
 
 
+class RecordingSink:
+    def __init__(self) -> None:
+        self.events = []
+
+    def emit(self, event) -> bool:
+        self.events.append(event)
+        return True
+
+
 def _issue(
     store: HttpActionApprovalStore,
     *,
@@ -231,3 +240,24 @@ def test_unknown_approval_is_not_disclosed() -> None:
 
     with pytest.raises(ApprovalNotFoundError, match="approval is unavailable"):
         store.get("f" * 32)
+
+
+@pytest.mark.parametrize("operation", ["get", "bind", "revoke"])
+def test_expiry_audit_survives_a_rejected_operation(operation: str) -> None:
+    clock = FakeClock()
+    sink = RecordingSink()
+    store = HttpActionApprovalStore(max_records=2, clock=clock, audit_sink=sink)
+    expiring = _issue(store, ttl=1)
+    sink.events.clear()
+    clock.value += 2
+
+    with pytest.raises((ApprovalNotFoundError, ApprovalUnavailableError)):
+        if operation == "get":
+            store.get("f" * 32)
+        elif operation == "bind":
+            store.bind_many(("f" * 32,), TASK_ID)
+        else:
+            store.revoke("f" * 32)
+
+    assert [event.result_status for event in sink.events] == ["expired"]
+    assert sink.events[0].operation_id == expiring.approval_id
