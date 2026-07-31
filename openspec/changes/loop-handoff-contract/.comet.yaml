@@ -21,7 +21,7 @@ verified_at: null
 archived: false
 direct_override: null
 handoff_context: openspec/changes/loop-handoff-contract/.comet/handoff/design-context.json
-handoff_hash: 822f886fe59a7c0d2f2983dfe0057df45fbb650473a6243bbd84e3937c019175
+handoff_hash: d84b6d9fff8f94525047ba8dbf312dae88b41f9a5614eba2bebf1a798d667a76
 classic_profile: full
 classic_migration: 1
 run_id: 4a2c8ba9-3ea8-4703-a78e-2d119cdf82b0

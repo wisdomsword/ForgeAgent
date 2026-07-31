@@ -3,7 +3,7 @@
 - Change: loop-handoff-contract
 - Phase: design
 - Mode: compact
-- Context hash: 822f886fe59a7c0d2f2983dfe0057df45fbb650473a6243bbd84e3937c019175
+- Context hash: d84b6d9fff8f94525047ba8dbf312dae88b41f9a5614eba2bebf1a798d667a76
 
 Generated-by: comet-handoff.sh
 
@@ -50,7 +50,7 @@ Loop checkpoint 当前把模型提交的自由文本直接作为下一轮交接�
 
 - Source: openspec/changes/loop-handoff-contract/design.md
 - Lines: 1-43
-- SHA256: 25f1d1bb0507938d67dc67f5d233641460592df52d14288ef103e91a7431b6b3
+- SHA256: 647574325e4e665835d7bdd449920d843659b3c55eed990ae44c78772dff0bd0
 
 ```md
 ## Context
@@ -76,7 +76,7 @@ Loop checkpoint 当前把模型提交的自由文本直接作为下一轮交接�
 
 1. **双模型边界。** `LoopHandoff` 是宿主持久化模型，使用冻结、禁止额外字段的 `completed_items`、`open_questions`、`summary` 字段；`LoopHandoffCandidate`/`CheckpointArgs` 只表达模型可提交的三项内容。CheckpointTool 从候选更新 handoff，其他 checkpoint 字段直接沿用当前快照。相比让模型提交完整 checkpoint，这能在 Pydantic 校验前后都阻断越权字段。
 2. **兼容迁移。** `LoopCheckpoint` 的 before validator 接受旧字符串 `handoff`，转换为 `LoopHandoff(summary=<旧字符串>)`；缺失 handoff 使用空结构。读取旧文件不会原地改写，下一次正常保存才以结构化对象序列化。这样旧文件可恢复，且迁移不扩大读取权限。
-3. **恢复边界。** required completion submission 的恢复提示由宿主计数并设置固定上限；达到上限后失败。恢复消息只要求模型重新提交当前状态，不调用历史 ToolCall、不复制外部动作、不改变 receipt 状态。若已有未知/待处理收据，Loop 在现有 `external_action_pending` 门禁处停止。
+3. **恢复边界。** required completion submission 的恢复提示由宿主计数并设置固定上限；普通 Task/Collaboration 保持一次恢复的兼容默认值，Loop 宿主任务显式允许两次，达到上限后失败。恢复消息只要求模型重新提交当前状态，不调用历史 ToolCall、不复制外部动作、不改变 receipt 状态。若已有未知/待处理收据，Loop 在现有 `external_action_pending` 门禁处停止。
 4. **不可回退的进度。** `completed_items` 仍只能追加；`open_questions` 与 `summary` 可替换但受相同安全文本和大小限制。模型不能清除已完成项，也不能通过 handoff 候选改变 goal、budgets、permissions、collaboration_mode、plan_digest、status、stop_reason 或 attention。
 5. **提示投影。** `_render_suffix()` 只注入结构化 handoff 的 JSON 投影，并显式标记为不可信 Loop 状态；公开报告继续只输出计数，不泄漏 handoff 正文。
 
@@ -103,26 +103,26 @@ Loop checkpoint 当前把模型提交的自由文本直接作为下一轮交接�
 
 - Source: openspec/changes/loop-handoff-contract/tasks.md
 - Lines: 1-17
-- SHA256: c043775c6b10d3df8f6012516860ef1c1bf5e52821a1e5a8f27afe40e450c8ba
+- SHA256: 59b68b3bd21d32a4d308c3e583bb3c46d414103ef894fb60ef33997e62421853
 
 ```md
 ## 1. 契约与兼容性
 
-- [ ] 1.1 新增冻结的 `LoopHandoff` 与仅供模型提交的候选校验，复用有界安全文本规则并保持完成项只增不减。
-- [ ] 1.2 加载时迁移旧字符串 `handoff`，不得执行其中内容，并保持 `schema` JSON 别名往返兼容。
-- [ ] 1.3 更新 Loop checkpoint 与下一轮上下文注入以使用结构化 handoff，同时保持公开报告计数字段不变。
+- [x] 1.1 新增冻结的 `LoopHandoff` 与仅供模型提交的候选校验，复用有界安全文本规则并保持完成项只增不减。
+- [x] 1.2 加载时迁移旧字符串 `handoff`，不得执行其中内容，并保持 `schema` JSON 别名往返兼容。
+- [x] 1.3 更新 Loop checkpoint 与下一轮上下文注入以使用结构化 handoff，同时保持公开报告计数字段不变。
 
 ## 2. 恢复边界
 
-- [ ] 2.1 将 `CheckpointTool` 写入限制为候选拥有的 handoff 字段，并在持久化前拒绝控制面字段。
-- [ ] 2.2 增加宿主拥有的有限提交恢复上限，只请求纠正提交，不重放历史工具或外部动作。
-- [ ] 2.3 保持恢复期间待处理/未知外部收据的停止门禁。
+- [x] 2.1 将 `CheckpointTool` 写入限制为候选拥有的 handoff 字段，并在持久化前拒绝控制面字段。
+- [x] 2.2 增加宿主拥有的有限提交恢复上限，只请求纠正提交，不重放历史工具或外部动作。
+- [x] 2.3 保持恢复期间待处理/未知外部收据的停止门禁。
 
 ## 3. 验证与文档
 
-- [ ] 3.1 增加回归测试：合法更新、旧数据迁移、schema 别名、控制面拒绝、完成项只增、上下文投影和有限非重放恢复。
-- [ ] 3.2 运行专项测试、全量 pytest、Ruff check/format、OpenSpec strict 校验和 `uv build`；修复回归但不发布。
-- [ ] 3.3 记录 M40 验收证据，更新 `ACTION_PLAN.md`，创建 `milestones/milestone_040.md`，更新 `milestones/latest` 并归档 Comet change。
+- [x] 3.1 增加回归测试：合法更新、旧数据迁移、schema 别名、控制面拒绝、完成项只增、上下文投影和有限非重放恢复。
+- [x] 3.2 运行专项测试、全量 pytest、Ruff check/format、OpenSpec strict 校验和 `uv build`；修复回归但不发布。
+- [x] 3.3 记录 M40 验收证据，更新 `ACTION_PLAN.md`，创建 `milestones/milestone_040.md`，更新 `milestones/latest` 并归档 Comet change。
 
 ```
 

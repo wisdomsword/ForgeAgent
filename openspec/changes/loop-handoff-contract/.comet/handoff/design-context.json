@@ -4,11 +4,11 @@
   "mode": "compact",
   "canonical_spec": "openspec",
   "generated_by": "comet-handoff.sh",
-  "context_hash": "822f886fe59a7c0d2f2983dfe0057df45fbb650473a6243bbd84e3937c019175",
+  "context_hash": "d84b6d9fff8f94525047ba8dbf312dae88b41f9a5614eba2bebf1a798d667a76",
   "files": [
     { "path": "openspec/changes/loop-handoff-contract/proposal.md", "sha256": "d878ccd8122cdfb811c43bd7b2258e976d717877ef983e68919b96bb37e5dd8a" },
-    { "path": "openspec/changes/loop-handoff-contract/design.md", "sha256": "25f1d1bb0507938d67dc67f5d233641460592df52d14288ef103e91a7431b6b3" },
-    { "path": "openspec/changes/loop-handoff-contract/tasks.md", "sha256": "c043775c6b10d3df8f6012516860ef1c1bf5e52821a1e5a8f27afe40e450c8ba" },
+    { "path": "openspec/changes/loop-handoff-contract/design.md", "sha256": "647574325e4e665835d7bdd449920d843659b3c55eed990ae44c78772dff0bd0" },
+    { "path": "openspec/changes/loop-handoff-contract/tasks.md", "sha256": "59b68b3bd21d32a4d308c3e583bb3c46d414103ef894fb60ef33997e62421853" },
     { "path": "openspec/changes/loop-handoff-contract/specs/loop-execution/spec.md", "sha256": "a1aca593a9976277ed19eddd1e2dad5985bcc7fb2bc3a2e19fdab9e6bdd6392a" },
     { "path": "openspec/changes/loop-handoff-contract/specs/loop-handoff-contract/spec.md", "sha256": "ef8d81718383daf02fc75a78bce21dd653d7326972a7a1fc3c4b949ff8f34f1f" }
   ]
