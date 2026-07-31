@@ -24,6 +24,7 @@ M40 的实现符合结构化 Loop handoff、旧 checkpoint 兼容迁移、宿主
 - 第二轮逐条对照 OpenSpec 场景和向后兼容测试，保留隐藏的 deprecated `handoff` 输入别名以兼容历史调用方；工具 schema 与新持久化格式仍只使用 `summary`。
 - 全量回归首次发现把两次恢复设为全局默认会改变独立 Collaboration 的失败语义；已改为默认一次、Loop 入口显式两次。
 - 恢复工作区原有改动后的专项复验发现一处错误的 CLI `CollaborationStore(receipt_store=...)` 参数；已撤销该误恢复，原有五处 receipt 投影改动保持未提交。
+- 最终 commit-range 审查删除两处全局方案遗留的未消费 Collaboration mock 回复；相关专项 `30 passed`。
 
 ## 验证证据
 
