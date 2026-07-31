@@ -69,6 +69,28 @@ def _stored_metadata(root, key: str) -> dict[str, object]:
     raise AssertionError(f"missing stored key: {key}")
 
 
+def _v2_bytes(*, metadata_changes=None, body="- editor: nvim") -> bytes:
+    header = {
+        "migration_id": None,
+        "migration_revision": None,
+        "revision": "0123456789abcdef0123456789abcdef",
+    }
+    metadata = {
+        "kind": "fact",
+        **vars(_governance()),
+    }
+    metadata.update(metadata_changes or {})
+
+    def dump(value):
+        return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+
+    return (
+        f"<!-- forgeagent-memory-v2: {dump(header)} -->\n"
+        f"<!-- forgeagent-memory-meta: {dump(metadata)} -->\n"
+        f"{body}\n"
+    ).encode("ascii")
+
+
 def test_readiness_no_data_is_read_only_and_minimally_disclosing(tmp_path):
     manager = MemoryManager(str(tmp_path))
     before = tuple(tmp_path.rglob("*"))
@@ -136,6 +158,73 @@ def test_readiness_rejects_memory_symlink_without_following_it(tmp_path):
     assert (result.status, result.reason) == ("unsafe", "storage_path")
     assert "private-content" not in repr(result)
     assert str(outside) not in repr(result)
+
+
+def test_readiness_accepts_complete_v2_without_writing(tmp_path):
+    path = tmp_path / ".forgeagent" / "MEMORY.md"
+    path.parent.mkdir()
+    raw = _v2_bytes()
+    path.write_bytes(raw)
+    manager = MemoryManager(str(tmp_path))
+
+    result = manager.readiness()
+    manager.load()
+
+    assert (result.status, result.format_version, result.entry_count, result.reason) == (
+        "current",
+        "v2",
+        1,
+        "valid_v2",
+    )
+    assert "editor: nvim" in manager.render()
+    assert path.read_bytes() == raw
+
+
+@pytest.mark.parametrize(
+    ("raw", "reason"),
+    [
+        (_v2_bytes(metadata_changes={"unknown": "value"}), "invalid_metadata"),
+        (_v2_bytes(metadata_changes={"written_at": "2026-07-31"}), "invalid_metadata"),
+        (_v2_bytes(metadata_changes={"kind": "preference"}), "invalid_metadata"),
+        (
+            _v2_bytes() + b'<!-- forgeagent-memory-meta: {"kind":"fact"} -->\n',
+            "unpaired_record",
+        ),
+        (b"x" * (64 * 1024 + 1), "memory_limit"),
+    ],
+)
+def test_readiness_rejects_invalid_v2_as_one_snapshot(tmp_path, raw, reason):
+    path = tmp_path / ".forgeagent" / "MEMORY.md"
+    path.parent.mkdir()
+    path.write_bytes(raw)
+    manager = MemoryManager(str(tmp_path))
+
+    result = manager.readiness()
+    manager.load()
+
+    assert (result.status, result.reason) == ("repair_required", reason)
+    assert manager.render() == ""
+
+
+def test_reload_same_revision_does_not_repeat_lifecycle_notice(tmp_path):
+    messages: list[str] = []
+    now = datetime(2026, 7, 31, 12, 0, tzinfo=UTC)
+    manager = MemoryManager(str(tmp_path), clock=lambda: now, diagnostic=messages.append)
+    candidate = MemoryCandidate(scope="project", kind="fact", key="editor", content="nvim")
+    assert manager.apply(candidate).status == "accepted"
+    assert (
+        manager.correct_project(
+            candidate,
+            _governance(review_after="2026-07-31T12:00:00Z"),
+        ).status
+        == "replaced"
+    )
+
+    assert manager.render() == ""
+    manager.load()
+    assert manager.render() == ""
+
+    assert messages.count("memory record inactive: review_due") == 1
 
 
 @pytest.mark.parametrize(
@@ -309,6 +398,118 @@ def test_lifecycle_failures_use_fixed_public_reasons(tmp_path):
     public = repr((invalid_time, invalid_key, legacy_result))
     assert "private-value" not in public
     assert str(tmp_path) not in public
+
+
+@pytest.mark.parametrize(
+    ("truth_source", "source", "writer"),
+    [
+        ("host_assertion", "host_api", "host_api"),
+        ("model_output_unverified", "model_candidate", "task_host"),
+        ("user_statement", "user_command", "interactive_host"),
+    ],
+)
+def test_revalidate_updates_the_complete_provenance_projection(
+    tmp_path, truth_source, source, writer
+):
+    manager = MemoryManager(str(tmp_path))
+    candidate = MemoryCandidate(scope="project", kind="fact", key="editor", content="nvim")
+    assert manager.apply(candidate, source="model_candidate").status == "accepted"
+
+    result = manager.revalidate_project(
+        "editor",
+        review_after=None,
+        expires_at=None,
+        truth_source=truth_source,
+    )
+
+    assert result.status == "accepted"
+    metadata = _stored_metadata(tmp_path, "editor")
+    assert (metadata["truth_source"], metadata["source"], metadata["writer"]) == (
+        truth_source,
+        source,
+        writer,
+    )
+
+
+def test_clock_exception_is_projected_without_exception_text(tmp_path):
+    def broken_clock():
+        raise RuntimeError("PRIVATE_CLOCK_FAILURE")
+
+    messages: list[str] = []
+    manager = MemoryManager(str(tmp_path), clock=broken_clock, diagnostic=messages.append)
+    candidate = MemoryCandidate(scope="project", kind="fact", key="editor", content="nvim")
+
+    result = manager.apply(candidate)
+
+    assert (result.status, result.reason) == ("persistence_error", "invalid_clock")
+    assert "PRIVATE_CLOCK_FAILURE" not in repr((result, messages))
+
+
+def test_invalid_lifecycle_key_is_not_returned_or_audited(tmp_path):
+    class Sink:
+        def __init__(self):
+            self.events = []
+
+        def emit(self, event):
+            self.events.append(event)
+            return True
+
+    sink = Sink()
+    manager = MemoryManager(str(tmp_path), audit_sink=sink)
+    invalid_key = f"{tmp_path}/PRIVATE_KEY"
+
+    result = manager.delete_project(invalid_key)
+
+    assert (result.status, result.reason, result.key) == (
+        "rejected",
+        "invalid_key",
+        "",
+    )
+    assert invalid_key not in repr((result, sink.events))
+    assert str(tmp_path) not in repr((result, sink.events))
+
+
+def test_project_write_verifies_full_persisted_semantics(tmp_path, monkeypatch):
+    manager = MemoryManager(str(tmp_path))
+    real_write = manager._atomic_write_bytes
+
+    def alter_content(raw: bytes) -> None:
+        real_write(raw.replace(b"editor: nvim", b"editor: evil"))
+
+    monkeypatch.setattr(manager, "_atomic_write_bytes", alter_content)
+
+    result = manager.apply(
+        MemoryCandidate(scope="project", kind="fact", key="editor", content="nvim")
+    )
+
+    assert (result.status, result.reason) == (
+        "persistence_error",
+        "project_write_failed",
+    )
+    assert manager.render() == ""
+
+
+def test_inactive_records_do_not_consume_active_render_budget(tmp_path):
+    now = datetime(2026, 7, 31, 12, 0, tzinfo=UTC)
+    manager = MemoryManager(str(tmp_path), clock=lambda: now)
+
+    for index in range(64):
+        candidate = MemoryCandidate(
+            scope="project",
+            kind="fact",
+            key=f"memory-{index:02d}",
+            content="x" * 512,
+        )
+        assert manager.apply(candidate).status == "accepted"
+        assert (
+            manager.correct_project(
+                candidate,
+                _governance(expires_at="2026-07-31T12:00:00Z"),
+            ).status
+            == "replaced"
+        )
+
+    assert manager.render() == ""
 
 
 def test_procedure_candidate_is_rejected_without_write(tmp_path):

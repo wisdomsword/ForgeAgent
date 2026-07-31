@@ -53,6 +53,9 @@ _SOURCE_PROJECTION = {
     "model_candidate": ("task_host", "model_output_unverified"),
     "user_command": ("interactive_host", "user_statement"),
 }
+_SOURCE_BY_TRUTH = {
+    truth_source: (source, writer) for source, (writer, truth_source) in _SOURCE_PROJECTION.items()
+}
 _GOVERNANCE_FIELDS = frozenset(
     {
         "why_remember",
@@ -486,6 +489,23 @@ class MemoryManager:
             self._project_format = "invalid"
             self._header = None
             return
+        try:
+            active_project = self._active_candidates(snapshot.entries)
+            rendered_size = len(self._render_memory(self._session, active_project).encode("utf-8"))
+        except Exception:
+            self._diagnose("memory file ignored: invalid_time")
+            self._project = {}
+            self._project_records = {}
+            self._project_format = "invalid"
+            self._header = None
+            return
+        if rendered_size > _MAX_RENDER_BYTES:
+            self._diagnose("memory file ignored: memory_limit")
+            self._project = {}
+            self._project_records = {}
+            self._project_format = "invalid"
+            self._header = None
+            return
         self._install_snapshot(snapshot)
 
     def disable(self) -> None:
@@ -493,6 +513,10 @@ class MemoryManager:
             self._enabled = False
             self._session.clear()
             self._project.clear()
+            self._project_records.clear()
+            self._project_format = "none"
+            self._header = None
+            self._lifecycle_notices.clear()
             self._audit("disabled", "", "", "", "memory_disabled")
 
     def clear_project(self) -> None:
@@ -509,7 +533,16 @@ class MemoryManager:
     def copy_session_from(self, source: MemoryManager) -> None:
         """Preserve session-scoped facts while replacing project-backed state."""
         if self._enabled and source._enabled:
-            self._session = dict(source._session)
+            copied = dict(source._session)
+            try:
+                project = self._active_project(emit_notices=False)
+            except Exception:
+                self._diagnose("memory session copy ignored: invalid_time")
+                return
+            if len(self._render_memory(copied, project).encode("utf-8")) > _MAX_RENDER_BYTES:
+                self._diagnose("memory session copy ignored: memory_limit")
+                return
+            self._session = copied
 
     def apply(
         self,
@@ -530,7 +563,7 @@ class MemoryManager:
         if candidate.scope == "project":
             try:
                 governance = self._governance_for_write(candidate, source)
-            except (TypeError, ValueError):
+            except Exception:
                 return self._result(candidate, "persistence_error", "invalid_clock", task_id)
             try:
                 with self._project_lock():
@@ -546,9 +579,14 @@ class MemoryManager:
                     if not replaced and len(records) >= _MAX_ENTRIES:
                         return self._result(candidate, "rejected", "memory_limit", task_id)
                     records[candidate.key] = ProjectMemoryRecord(candidate, governance)
-                    new_project = {key: record.candidate for key, record in records.items()}
+                    try:
+                        active_project = self._active_candidates(records)
+                    except Exception:
+                        return self._result(
+                            candidate, "persistence_error", "invalid_clock", task_id
+                        )
                     rendered_size = len(
-                        self._render_memory(self._session, new_project).encode("utf-8")
+                        self._render_memory(self._session, active_project).encode("utf-8")
                     )
                     if rendered_size > _MAX_RENDER_BYTES:
                         return self._result(candidate, "rejected", "memory_limit", task_id)
@@ -573,7 +611,8 @@ class MemoryManager:
                     if (
                         persisted.format_version != "v2"
                         or persisted.header != header
-                        or set(persisted.entries) != set(records)
+                        or persisted.entries != records
+                        or persisted.raw != raw
                     ):
                         raise OSError("project memory write verification failed")
             except OSError:
@@ -588,7 +627,11 @@ class MemoryManager:
             return self._result(candidate, "rejected", "memory_limit", task_id)
         new_session = dict(target)
         new_session[candidate.key] = candidate
-        rendered_size = len(self._render_memory(new_session, self._project).encode("utf-8"))
+        try:
+            active_project = self._active_project(emit_notices=False)
+        except Exception:
+            return self._result(candidate, "persistence_error", "invalid_clock", task_id)
+        rendered_size = len(self._render_memory(new_session, active_project).encode("utf-8"))
         if rendered_size > _MAX_RENDER_BYTES:
             return self._result(candidate, "rejected", "memory_limit", task_id)
         self._session = new_session
@@ -600,7 +643,7 @@ class MemoryManager:
             return ""
         try:
             project = self._active_project(emit_notices=True)
-        except (TypeError, ValueError):
+        except Exception:
             revision = self._header.revision if self._header is not None else "legacy"
             notice = (revision, "", "invalid_time")
             if notice not in self._lifecycle_notices:
@@ -693,10 +736,13 @@ class MemoryManager:
         ) -> None:
             if current.governance is None:
                 raise ValueError("missing governance")
+            source, writer = _SOURCE_BY_TRUTH[truth_source]
             records[key] = ProjectMemoryRecord(
                 current.candidate,
                 replace(
                     current.governance,
+                    source=source,
+                    writer=writer,
                     review_after=review_after,
                     expires_at=expires_at,
                     truth_source=truth_source,
@@ -938,15 +984,11 @@ class MemoryManager:
         canonical_v1: bool = False,
         diagnose: bool = False,
     ) -> _ProjectSnapshot:
-        path = self._safe_storage_path()
-        if path is None:
+        raw = self._read_storage_bytes()
+        if raw is None:
             return _ProjectSnapshot("none", {}, None, None)
-        try:
-            if path.stat().st_size > _MAX_STORAGE_BYTES:
-                return _ProjectSnapshot("invalid", {}, None, None, "memory_limit")
-            raw = path.read_bytes()
-        except OSError:
-            raise
+        if len(raw) > _MAX_STORAGE_BYTES:
+            return _ProjectSnapshot("invalid", {}, None, None, "memory_limit")
         try:
             first_line = raw.decode("utf-8").splitlines()[0]
         except (UnicodeError, IndexError):
@@ -956,6 +998,38 @@ class MemoryManager:
         if first_line.startswith(_V2_HEADER_PREFIX):
             return self._parse_v2(raw)
         return _ProjectSnapshot("invalid", {}, None, raw, "invalid_header")
+
+    def _read_storage_bytes(self) -> bytes | None:
+        path = self._safe_storage_path()
+        if path is None:
+            return None
+        no_follow = getattr(os, "O_NOFOLLOW", None)
+        directory_flag = getattr(os, "O_DIRECTORY", None)
+        if no_follow is None or directory_flag is None:
+            raise OSError("safe memory read is unavailable")
+        directory_descriptor = os.open(
+            path.parent,
+            os.O_RDONLY | directory_flag | no_follow | getattr(os, "O_CLOEXEC", 0),
+        )
+        descriptor = -1
+        try:
+            descriptor = os.open(
+                path.name,
+                os.O_RDONLY | no_follow | getattr(os, "O_CLOEXEC", 0),
+                dir_fd=directory_descriptor,
+            )
+            info = os.fstat(descriptor)
+            if not stat.S_ISREG(info.st_mode):
+                raise OSError("memory file is not regular")
+            if info.st_size > _MAX_STORAGE_BYTES:
+                return b"x" * (_MAX_STORAGE_BYTES + 1)
+            with os.fdopen(descriptor, "rb") as handle:
+                descriptor = -1
+                return handle.read(_MAX_STORAGE_BYTES + 1)
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+            os.close(directory_descriptor)
 
     def _parse_v1(
         self,
@@ -1189,7 +1263,7 @@ class MemoryManager:
                 if self._admission_reason(candidate) is not None:
                     raise ValueError("invalid content")
                 records[key] = ProjectMemoryRecord(candidate, governance)
-        except (KeyError, TypeError, ValueError):
+        except Exception:
             return None, "manifest_invalid"
         return records, "manifest_valid"
 
@@ -1216,16 +1290,19 @@ class MemoryManager:
         if len(raw) > _MAX_STORAGE_BYTES:
             raise ValueError("memory file exceeds storage limit")
         parsed = self._parse_v2(raw)
-        if parsed.format_version != "v2" or set(parsed.entries) != set(entries):
+        if parsed.format_version != "v2" or parsed.entries != dict(entries):
             raise ValueError("serialized memory did not round trip")
         return raw
 
     def _install_snapshot(self, snapshot: _ProjectSnapshot) -> None:
+        previous_revision = self._header.revision if self._header is not None else "legacy"
+        next_revision = snapshot.header.revision if snapshot.header is not None else "legacy"
         self._project_records = dict(snapshot.entries)
         self._project = {key: record.candidate for key, record in snapshot.entries.items()}
         self._project_format = snapshot.format_version
         self._header = snapshot.header
-        self._lifecycle_notices.clear()
+        if previous_revision != next_revision:
+            self._lifecycle_notices.clear()
 
     def _inactive_reason(self, record: ProjectMemoryRecord) -> str | None:
         governance = record.governance
@@ -1295,7 +1372,7 @@ class MemoryManager:
                     return self._key_result(key, "rejected", "invalid_metadata", task_id=task_id)
                 try:
                     active = self._active_candidates(records)
-                except (TypeError, ValueError):
+                except Exception:
                     return self._key_result(
                         key,
                         "persistence_error",
@@ -1516,16 +1593,17 @@ class MemoryManager:
         event_status: str | None = None,
         revision: str | None = None,
     ) -> MemoryResult:
+        public_key = key if _KEY.fullmatch(key) is not None else ""
         self._audit(
             event_status or status,
             "project",
             kind,
-            key,
+            public_key,
             reason,
             task_id,
             revision=revision,
         )
-        return MemoryResult(status, "project", kind, key[:80], reason)
+        return MemoryResult(status, "project", kind, public_key, reason)
 
     def _audit(
         self,
