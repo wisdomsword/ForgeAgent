@@ -1161,7 +1161,7 @@ def _handle_remember_command(goal: str, manager: MemoryManager, console: Console
     except ValueError:
         console.print("[red]memory rejected[/red]: invalid candidate")
         return
-    outcome = manager.apply(candidate)
+    outcome = manager.apply(candidate, source="user_command")
     colour = "green" if outcome.status in {"accepted", "replaced"} else "yellow"
     detail = f": {outcome.reason}" if outcome.reason else ""
     console.print(f"[{colour}]memory {outcome.status}[/{colour}]{detail}")

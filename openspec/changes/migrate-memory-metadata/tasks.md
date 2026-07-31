@@ -3,7 +3,7 @@
 - [x] 1.1 先添加失败测试，覆盖无数据、合法 v1、合法 v2、畸形/不安全文件的最小披露 readiness 状态。
 - [x] 1.2 定义 v2 record/header、治理元数据、公开结果和固定原因码类型，保持 `MemoryCandidate` 不承载宿主元数据。
 - [x] 1.3 实现有界 v1/v2 解析与序列化，分离 storage/render 上限，并保持 v1 load/render 只读兼容。
-- [ ] 1.4 实现 host API、Task 模型候选和 `/remember` 的固定 source/writer 投影；v1 普通 project 写入返回 `migration_required`。
+- [x] 1.4 实现 host API、Task 模型候选和 `/remember` 的固定 source/writer 投影；v1 普通 project 写入返回 `migration_required`。
 
 ## 2. 生命周期与受控修改
 

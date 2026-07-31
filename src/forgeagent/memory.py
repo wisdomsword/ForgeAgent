@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import secrets
 import stat
 import tempfile
 from collections.abc import Callable, Iterator, Mapping
@@ -46,6 +47,11 @@ _WHY_BY_KIND = {
     "fact": "cross_task_fact",
     "preference": "cross_task_preference",
     "decision": "cross_task_decision",
+}
+_SOURCE_PROJECTION = {
+    "host_api": ("host_api", "host_assertion"),
+    "model_candidate": ("task_host", "model_output_unverified"),
+    "user_command": ("interactive_host", "user_statement"),
 }
 _GOVERNANCE_FIELDS = frozenset(
     {
@@ -277,7 +283,13 @@ class MemoryManager:
         if self._enabled and source._enabled:
             self._session = dict(source._session)
 
-    def apply(self, candidate: MemoryCandidate, task_id: str | None = None) -> MemoryResult:
+    def apply(
+        self,
+        candidate: MemoryCandidate,
+        task_id: str | None = None,
+        *,
+        source: MemoryWriteSource = "host_api",
+    ) -> MemoryResult:
         if not self._enabled:
             return self._result(candidate, "disabled", "memory_disabled", task_id)
         if candidate.scope == "project" and not self._allow_project:
@@ -285,24 +297,64 @@ class MemoryManager:
         reason = self._admission_reason(candidate)
         if reason is not None:
             return self._result(candidate, "rejected", reason, task_id)
+        if source not in _SOURCE_PROJECTION:
+            return self._result(candidate, "rejected", "invalid_source", task_id)
         if candidate.scope == "project":
             try:
+                governance = self._governance_for_write(candidate, source)
+            except (TypeError, ValueError):
+                return self._result(candidate, "persistence_error", "invalid_clock", task_id)
+            try:
                 with self._project_lock():
-                    target = self._read_project_for_update()
-                    replaced = candidate.key in target
-                    if not replaced and len(target) >= _MAX_ENTRIES:
+                    snapshot = self._read_snapshot(canonical_v1=True)
+                    if snapshot.format_version == "v1":
+                        return self._result(
+                            candidate, "rejected", "migration_required", task_id
+                        )
+                    if snapshot.format_version == "invalid":
+                        return self._result(
+                            candidate, "persistence_error", "project_read_failed", task_id
+                        )
+                    records = dict(snapshot.entries)
+                    replaced = candidate.key in records
+                    if not replaced and len(records) >= _MAX_ENTRIES:
                         return self._result(candidate, "rejected", "memory_limit", task_id)
-                    new_project = dict(target)
-                    new_project[candidate.key] = candidate
+                    records[candidate.key] = ProjectMemoryRecord(candidate, governance)
+                    new_project = {
+                        key: record.candidate for key, record in records.items()
+                    }
                     rendered_size = len(
                         self._render_memory(self._session, new_project).encode("utf-8")
                     )
                     if rendered_size > _MAX_RENDER_BYTES:
                         return self._result(candidate, "rejected", "memory_limit", task_id)
-                    self._write_project(new_project)
+                    previous_header = snapshot.header
+                    header = MemoryFileHeader(
+                        revision=secrets.token_hex(16),
+                        migration_id=(
+                            previous_header.migration_id if previous_header is not None else None
+                        ),
+                        migration_revision=(
+                            previous_header.migration_revision
+                            if previous_header is not None
+                            else None
+                        ),
+                    )
+                    try:
+                        raw = self._serialize_v2(records, header)
+                    except ValueError:
+                        return self._result(candidate, "rejected", "memory_limit", task_id)
+                    self._atomic_write_bytes(raw)
+                    persisted = self._read_snapshot(canonical_v1=True)
+                    if (
+                        persisted.format_version != "v2"
+                        or persisted.header != header
+                        or set(persisted.entries) != set(records)
+                    ):
+                        raise OSError("project memory write verification failed")
             except OSError:
                 return self._result(candidate, "persistence_error", "project_write_failed", task_id)
-            self._project = new_project
+            self._install_snapshot(persisted)
             status: Literal["accepted", "replaced"] = "replaced" if replaced else "accepted"
             return self._result(candidate, status, "", task_id)
 
@@ -344,20 +396,17 @@ class MemoryManager:
             lines.append(f"- {key}: {value}")
         return "\n".join(lines)
 
-    def _write_project(self, entries: dict[str, MemoryCandidate]) -> None:
+    def _atomic_write_bytes(self, content: bytes) -> None:
         path = self._safe_storage_path(for_write=True)
         directory = path.parent
         directory.mkdir(parents=True, exist_ok=True)
-        content = (
-            "<!-- forgeagent-memory-v1 -->\n"
-            + "\n".join(f"- {key}: {entries[key].content}" for key in sorted(entries))
-            + "\n"
-        )
+        path = self._safe_storage_path(for_write=True)
         descriptor, temporary_name = tempfile.mkstemp(
             prefix=".MEMORY.", suffix=".tmp", dir=directory
         )
         try:
-            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            os.fchmod(descriptor, 0o600)
+            with os.fdopen(descriptor, "wb") as handle:
                 handle.write(content)
                 handle.flush()
                 os.fsync(handle.fileno())
@@ -368,18 +417,6 @@ class MemoryManager:
             except OSError:
                 pass
             raise
-
-    def _read_project_for_update(self) -> dict[str, MemoryCandidate]:
-        path = self._safe_storage_path()
-        if path is None:
-            return {}
-        try:
-            if path.stat().st_size > _MAX_RENDER_BYTES:
-                raise OSError("memory file exceeds limit")
-            lines = path.read_text(encoding="utf-8").splitlines()
-        except UnicodeError as exc:
-            raise OSError("memory file is unreadable") from exc
-        return self._parse_project_lines(lines, diagnose=False)
 
     def _parse_project_lines(
         self, lines: list[str], *, diagnose: bool
@@ -685,6 +722,30 @@ class MemoryManager:
         self._header = snapshot.header
         self._lifecycle_notices.clear()
 
+    def _governance_for_write(
+        self,
+        candidate: MemoryCandidate,
+        source: MemoryWriteSource,
+    ) -> MemoryGovernance:
+        projection = _SOURCE_PROJECTION.get(source)
+        if projection is None:
+            raise ValueError("invalid memory write source")
+        writer, truth_source = projection
+        return MemoryGovernance(
+            why_remember=_WHY_BY_KIND[candidate.kind],
+            source=source,
+            writer=writer,
+            who_can_write="host_only",
+            truth_source=truth_source,
+            visibility="project",
+            written_at=_format_timestamp(self._clock()),
+            expires_at=None,
+            review_after=None,
+            revalidate_on="conflict_or_explicit_review",
+            recovery="project_memory_file",
+            delete_or_correct="host_replace_delete_or_revalidate",
+        )
+
     @contextmanager
     def _project_lock(self) -> Iterator[None]:
         if fcntl is None:
@@ -734,6 +795,8 @@ class MemoryManager:
 
     def _safe_storage_path(self, *, for_write: bool = False) -> Path | None:
         directory = self._path.parent
+        if os.path.lexists(directory) and stat.S_ISLNK(os.lstat(directory).st_mode):
+            raise OSError("memory directory cannot be a symlink")
         if directory.exists() and not directory.is_dir():
             raise OSError("memory directory is not a directory")
         resolved_directory = Path(os.path.realpath(directory))
@@ -744,6 +807,8 @@ class MemoryManager:
             raise OSError("memory directory is outside project root") from exc
         candidate = directory / self._path.name
         if candidate.exists() or os.path.lexists(candidate):
+            if stat.S_ISLNK(os.lstat(candidate).st_mode):
+                raise OSError("memory file cannot be a symlink")
             if not candidate.is_file():
                 raise OSError("memory file is not regular")
             resolved = Path(os.path.realpath(candidate))

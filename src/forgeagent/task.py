@@ -251,7 +251,11 @@ class Task:
                         continue
                     last_memory_values[address] = value
                     memory_results.append(
-                        self._memory_manager.apply(candidate, task_id=self._task_id)
+                        self._memory_manager.apply(
+                            candidate,
+                            task_id=self._task_id,
+                            source="model_candidate",
+                        )
                     )
         outcome = TaskOutcome(status=status, rounds=rounds, memory_results=memory_results)
         emit_audit(

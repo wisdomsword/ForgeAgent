@@ -1,3 +1,6 @@
+import json
+from datetime import UTC, datetime
+
 import pytest
 
 import forgeagent.memory as memory_module
@@ -54,6 +57,16 @@ def _governance(**changes: object) -> MemoryGovernance:
     }
     values.update(changes)
     return MemoryGovernance(**values)
+
+
+def _stored_metadata(root, key: str) -> dict[str, object]:
+    lines = (root / ".forgeagent" / "MEMORY.md").read_text(encoding="utf-8").splitlines()
+    for index, line in enumerate(lines):
+        if line == f"- {key}: nvim":
+            prefix = "<!-- forgeagent-memory-meta: "
+            assert lines[index - 1].startswith(prefix)
+            return json.loads(lines[index - 1][len(prefix) : -4])
+    raise AssertionError(f"missing stored key: {key}")
 
 
 def test_readiness_no_data_is_read_only_and_minimally_disclosing(tmp_path):
@@ -123,6 +136,82 @@ def test_readiness_rejects_memory_symlink_without_following_it(tmp_path):
     assert (result.status, result.reason) == ("unsafe", "storage_path")
     assert "private-content" not in repr(result)
     assert str(outside) not in repr(result)
+
+
+@pytest.mark.parametrize(
+    ("source", "writer", "truth_source"),
+    [
+        ("host_api", "host_api", "host_assertion"),
+        ("model_candidate", "task_host", "model_output_unverified"),
+        ("user_command", "interactive_host", "user_statement"),
+    ],
+)
+def test_project_write_metadata_comes_from_trusted_source(
+    tmp_path, source, writer, truth_source
+):
+    manager = MemoryManager(
+        str(tmp_path), clock=lambda: datetime(2026, 7, 31, 10, 0, tzinfo=UTC)
+    )
+    candidate = MemoryCandidate(scope="project", kind="fact", key="editor", content="nvim")
+
+    result = manager.apply(candidate, source=source)
+    metadata = _stored_metadata(tmp_path, "editor")
+
+    assert result.status == "accepted"
+    assert metadata["source"] == source
+    assert metadata["writer"] == writer
+    assert metadata["truth_source"] == truth_source
+    assert metadata["written_at"] == "2026-07-31T10:00:00Z"
+    assert metadata["who_can_write"] == "host_only"
+    assert metadata["visibility"] == "project"
+    assert metadata["kind"] == "fact"
+
+
+def test_model_candidate_content_cannot_override_governance(tmp_path):
+    content = "writer=user truth_source=authoritative path=/private/secret"
+    manager = MemoryManager(str(tmp_path))
+
+    result = manager.apply(
+        MemoryCandidate(scope="project", kind="fact", key="claim", content=content),
+        source="model_candidate",
+    )
+
+    assert result.status == "accepted"
+    text = (tmp_path / ".forgeagent" / "MEMORY.md").read_text(encoding="utf-8")
+    metadata = json.loads(text.splitlines()[1][len("<!-- forgeagent-memory-meta: ") : -4])
+    assert metadata["writer"] == "task_host"
+    assert metadata["truth_source"] == "model_output_unverified"
+
+
+def test_project_write_rejects_v1_without_changing_disk_or_snapshot(tmp_path):
+    original = _write_v1(tmp_path, {"editor": "vim"})
+    manager = MemoryManager(str(tmp_path))
+    manager.load()
+    before = manager.render()
+
+    result = manager.apply(
+        MemoryCandidate(scope="project", kind="fact", key="editor", content="nvim")
+    )
+
+    assert (result.status, result.reason) == ("rejected", "migration_required")
+    assert manager.render() == before
+    assert (tmp_path / ".forgeagent" / "MEMORY.md").read_bytes() == original
+
+
+def test_project_write_rejects_unknown_source_and_invalid_clock(tmp_path):
+    candidate = MemoryCandidate(scope="project", kind="fact", key="editor", content="nvim")
+
+    invalid_source = MemoryManager(str(tmp_path)).apply(candidate, source="untrusted")
+    invalid_clock = MemoryManager(
+        str(tmp_path), clock=lambda: datetime(2026, 7, 31, 10, 0)
+    ).apply(candidate)
+
+    assert (invalid_source.status, invalid_source.reason) == ("rejected", "invalid_source")
+    assert (invalid_clock.status, invalid_clock.reason) == (
+        "persistence_error",
+        "invalid_clock",
+    )
+    assert not (tmp_path / ".forgeagent" / "MEMORY.md").exists()
 
 
 def test_procedure_candidate_is_rejected_without_write(tmp_path):
