@@ -101,6 +101,21 @@ def test_cli_collaboration_boundary_exposes_explicit_bindings() -> None:
     )
 
 
+def test_cli_repl_boundary_exposes_frozen_explicit_bindings() -> None:
+    from forgeagent import _cli_repl
+
+    fields = set(_cli_repl.ReplBindings.__dataclass_fields__)
+    assert _cli_repl.ReplBindings.__dataclass_params__.frozen is True
+    assert {
+        "build_real_client",
+        "build_mcp_manager",
+        "run_once",
+        "run_collaboration_once",
+        "load_context_config",
+        "load_skill_registry",
+    } <= fields
+
+
 @pytest.mark.parametrize(("argv", "stdout_bytes", "stdout_sha256"), HELP_BASELINE)
 def test_cli_help_output_matches_m41_baseline(
     argv: tuple[str, ...], stdout_bytes: int, stdout_sha256: str
