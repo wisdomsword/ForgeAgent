@@ -47,7 +47,7 @@ M42 已实现项目 Memory v2 的宿主治理元数据、只读 readiness、v1 �
 ## 验证证据
 
 - M42/Task/CLI/Golden 聚焦：`426 passed in 6.10s`。
-- 最终全量：`2631 passed, 10 skipped in 171.30s`。
+- 最终审查修复后全量：`2632 passed, 10 skipped in 181.65s`。
 - 敏感公开面：`13 passed, 74 deselected`；静态敏感表达式搜索无命中。
 - `uv run ruff check .`：通过。
 - `uv run ruff format --check .`：`139 files already formatted`。
