@@ -7,7 +7,7 @@ import os
 import re
 import stat
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Literal
@@ -36,12 +36,27 @@ _SKILL_NAME_RE = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
 _FRONT_MATTER_RE = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n(.*)\Z", re.DOTALL)
 _HEADING_RE = re.compile(r"^## ([^\r\n]+)\s*$")
 _SECTION_HEADINGS = ("Steps", "Failure Branches", "Completion Criteria")
+_EXIT_CLASS_NAMES = ("success", "failure", "blocked", "needs_input", "timeout_or_budget")
+_MAX_EXIT_TEXT_BYTES = 512
+_ABSOLUTE_EXIT_CLAIM_RE = re.compile(
+    r"^(?:100\s*%|always|never|all|everything|全部|始终|永远|完美)"
+    r"(?:\s+(?:complete|completed|succeeds?|done|完成|成功|通过))?$",
+    re.IGNORECASE,
+)
 _CATALOG_HEADER = (
     "## Available Skills",
     "",
     "Choose a skill when its trigger matches the task. Read it with the Skill tool before "
     "following it.",
 )
+
+
+@dataclass(frozen=True)
+class SkillExitCondition:
+    """One bounded, observable exit condition and its responsible verifier."""
+
+    condition: str
+    verifier: str
 
 
 @dataclass(frozen=True)
@@ -54,6 +69,13 @@ class SkillDefinition:
     failure_branches: str
     completion_criteria: str
     source: Literal["user", "project"]
+    format_version: int = 1
+    exit_conditions: Mapping[str, SkillExitCondition] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "exit_conditions", MappingProxyType(dict(self.exit_conditions)))
 
 
 class SkillRegistry:
@@ -131,6 +153,8 @@ class SkillRegistry:
             "failure_branches": skill.failure_branches,
             "completion_criteria": skill.completion_criteria,
         }
+        if skill.format_version == 2:
+            sections["exit_conditions"] = _render_exit_conditions(skill.exit_conditions)
         if section in sections:
             return sections[section]
         if section != "full":
@@ -174,6 +198,9 @@ def _discover(
             definition = _parse_document(document, source=source, expected_name=directory_name)
         except (OSError, UnicodeDecodeError, yaml.YAMLError):
             _emit_ignored(diagnostic, "invalid format", directory_name)
+            continue
+        except RecursionError:
+            _emit_ignored(diagnostic, "invalid exit contract", directory_name)
             continue
         except ValueError as error:
             _emit_ignored(diagnostic, str(error), directory_name)
@@ -271,6 +298,8 @@ def _parse_document(
         ]
         if len(keys) != len(front_matter_node.value) or len(keys) != len(set(keys)):
             raise ValueError("invalid format")
+        if _has_duplicate_mapping_key(front_matter_node):
+            raise ValueError("invalid exit contract")
         front_matter = yaml.safe_load(front_matter_text)
     except ValueError:
         raise
@@ -278,14 +307,35 @@ def _parse_document(
         if _has_malformed_multiline_trigger(front_matter_text):
             raise ValueError("invalid trigger") from error
         raise ValueError("invalid format") from error
-    if not isinstance(front_matter, dict) or set(front_matter) != {"name", "trigger"}:
+    if not isinstance(front_matter, dict):
         raise ValueError("invalid format")
+    format_version = front_matter.get("format_version", 1)
+    if isinstance(format_version, bool) or not isinstance(format_version, int):
+        raise ValueError("invalid format version")
+    if format_version not in {1, 2}:
+        raise ValueError("invalid format version")
+    expected_keys = (
+        {"name", "trigger"}
+        if format_version == 1
+        else {
+            "name",
+            "trigger",
+            "format_version",
+            "exit_conditions",
+        }
+    )
+    if set(front_matter) != expected_keys:
+        raise ValueError("invalid exit contract" if format_version == 2 else "invalid format")
     name = front_matter["name"]
     trigger = front_matter["trigger"]
     if not isinstance(name, str) or not _SKILL_NAME_RE.fullmatch(name) or name != expected_name:
         raise ValueError("invalid name")
     if not isinstance(trigger, str) or not trigger or "\n" in trigger or "\r" in trigger:
         raise ValueError("invalid trigger")
+
+    exit_conditions: Mapping[str, SkillExitCondition] = MappingProxyType({})
+    if format_version == 2:
+        exit_conditions = _parse_exit_conditions(front_matter["exit_conditions"])
 
     sections = _parse_sections(match.group(2))
     secret_values = sensitive_env_values()
@@ -296,6 +346,59 @@ def _parse_document(
         failure_branches=mask_secrets(sections["Failure Branches"], secret_values),
         completion_criteria=mask_secrets(sections["Completion Criteria"], secret_values),
         source=source,
+        format_version=format_version,
+        exit_conditions=MappingProxyType(
+            {
+                name: SkillExitCondition(
+                    condition=mask_secrets(item.condition, secret_values),
+                    verifier=mask_secrets(item.verifier, secret_values),
+                )
+                for name, item in exit_conditions.items()
+            }
+        ),
+    )
+
+
+def _parse_exit_conditions(value: object) -> Mapping[str, SkillExitCondition]:
+    if not isinstance(value, dict) or set(value) != set(_EXIT_CLASS_NAMES):
+        raise ValueError("invalid exit contract")
+    parsed: dict[str, SkillExitCondition] = {}
+    for name in _EXIT_CLASS_NAMES:
+        item = value[name]
+        if not isinstance(item, dict) or set(item) != {"condition", "verifier"}:
+            raise ValueError("invalid exit contract")
+        condition, verifier = item["condition"], item["verifier"]
+        if not _valid_exit_text(condition) or not _valid_exit_text(verifier):
+            raise ValueError("invalid exit contract")
+        if _ABSOLUTE_EXIT_CLAIM_RE.fullmatch(condition.strip()):
+            raise ValueError("invalid exit contract")
+        parsed[name] = SkillExitCondition(condition=condition, verifier=verifier)
+    return MappingProxyType(parsed)
+
+
+def _has_duplicate_mapping_key(node: yaml.Node, visited: set[int] | None = None) -> bool:
+    if visited is None:
+        visited = set()
+    node_id = id(node)
+    if node_id in visited:
+        return True
+    visited.add(node_id)
+    if isinstance(node, yaml.MappingNode):
+        keys = [key.value for key, _ in node.value if isinstance(key, yaml.ScalarNode)]
+        if len(keys) != len(node.value) or len(keys) != len(set(keys)):
+            return True
+        return any(_has_duplicate_mapping_key(value, visited) for _, value in node.value)
+    if isinstance(node, yaml.SequenceNode):
+        return any(_has_duplicate_mapping_key(item, visited) for item in node.value)
+    return False
+
+
+def _valid_exit_text(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and bool(value.strip())
+        and not any(ord(character) < 0x20 for character in value)
+        and len(value.encode("utf-8")) <= _MAX_EXIT_TEXT_BYTES
     )
 
 
@@ -356,11 +459,33 @@ def _bounded_catalog(
 
 
 def _render_full_skill(skill: SkillDefinition) -> str:
-    return (
+    rendered = (
         f"---\nname: {skill.name}\ntrigger: {skill.trigger}\n---\n\n"
         f"## Steps\n\n{skill.steps}\n\n"
         f"## Failure Branches\n\n{skill.failure_branches}\n\n"
         f"## Completion Criteria\n\n{skill.completion_criteria}\n"
+    )
+    if skill.format_version == 2:
+        rendered = rendered.replace(
+            "---\n\n",
+            "format_version: 2\nexit_conditions:\n"
+            + "".join(
+                f"  {name}:\n    condition: {item.condition}\n    verifier: {item.verifier}\n"
+                for name, item in skill.exit_conditions.items()
+            )
+            + "---\n\n",
+            1,
+        )
+        rendered += (
+            "\n## Exit Conditions\n\n" + _render_exit_conditions(skill.exit_conditions) + "\n"
+        )
+    return rendered
+
+
+def _render_exit_conditions(conditions: Mapping[str, SkillExitCondition]) -> str:
+    return "\n".join(
+        f"### {name}\n- condition: {item.condition}\n- verifier: {item.verifier}"
+        for name, item in conditions.items()
     )
 
 
@@ -373,7 +498,14 @@ def _emit_ignored(
         bounded_name = directory_name if _SKILL_NAME_RE.fullmatch(directory_name) else "unknown"
         bounded_reason = (
             reason
-            if reason in {"invalid format", "invalid name", "invalid trigger"}
+            if reason
+            in {
+                "invalid format",
+                "invalid format version",
+                "invalid exit contract",
+                "invalid name",
+                "invalid trigger",
+            }
             else "invalid format"
         )
         diagnostic(f"skill ignored: {bounded_reason} ({bounded_name})")
