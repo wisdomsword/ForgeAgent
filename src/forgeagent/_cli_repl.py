@@ -2,14 +2,22 @@
 
 from __future__ import annotations
 
+import os
 import sys
+import time
 from collections.abc import Callable
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import yaml
+from prompt_toolkit import PromptSession
+from prompt_toolkit.completion import WordCompleter
+from prompt_toolkit.history import InMemoryHistory
 from rich.console import Console
+from rich.live import Live
+from rich.text import Text
 
 from .audit import AuditSink
 from .client import ModelClient
@@ -19,13 +27,205 @@ from .collaboration import (
     resolve_collaboration_mode,
 )
 from .context import ContextConfig
-from .identity import IdentityConfigError
+from .identity import IdentityConfigError, IdentityConfirmer, IdentityTrustRequest
+from .mcp_manager import MCPServerDiagnostic
 from .model_registry import Registry, RegistryError
 from .models import ImageItem, TokenUsage
 from .skills import SkillRegistry
 from .tools import Tier
 
 ClientFactory = Callable[[str], ModelClient]
+
+_STARTUP_COLOURS = (
+    "red",
+    "yellow",
+    "green",
+    "cyan",
+    "blue",
+    "magenta",
+    "bright_magenta",
+)
+_STARTUP_LOGO = (
+    " _____                    _                    _   ",
+    "|  ___|__  _ __ __ _  ___| | __ _  ___ _ __ | |_ ",
+    "| |_ / _ \\| '__/ _` |/ _ \\ |/ _` |/ _ \\ '_ \\| __|",
+    "|  _| (_) | | | (_| |  __/ | (_| |  __/ | | | |_ ",
+    "|_|  \\___/|_|  \\__, |\\___|_|\\__, |\\___|_| |_|\\__|",
+    "                |___/        |___/                  ",
+)
+
+
+def make_interactive_reader(
+    command_usage: dict[str, str],
+    *,
+    prompt_session_type: Callable[..., Any] = PromptSession,
+) -> Callable[[str], str]:
+    """Build a terminal reader with slash completion and session-only history."""
+    completer = WordCompleter(
+        list(command_usage),
+        meta_dict=command_usage,
+        sentence=True,
+        match_middle=False,
+    )
+    session = prompt_session_type(
+        history=InMemoryHistory(),
+        completer=completer,
+        complete_while_typing=True,
+    )
+    return session.prompt
+
+
+def interactive_repl(console: Console, *, default_reader: bool) -> bool:
+    return default_reader and console.is_terminal and sys.stdin.isatty()
+
+
+def startup_mark_available(console: Console) -> bool:
+    return (
+        console.is_terminal
+        and os.environ.get("TERM") != "dumb"
+        and not any(name in os.environ for name in ("CI", "GITHUB_ACTIONS", "BUILD_NUMBER"))
+    )
+
+
+def startup_ui_available(console: Console) -> bool:
+    return (
+        startup_mark_available(console)
+        and console.color_system is not None
+        and not console.no_color
+        and "NO_COLOR" not in os.environ
+    )
+
+
+class StartupDisplay:
+    def __init__(
+        self,
+        console: Console,
+        *,
+        live_type: Callable[..., Any] = Live,
+        monotonic: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._console = console
+        self._live_type = live_type
+        self._monotonic = monotonic
+        self._stage: str | None = None
+        self._live: Any | None = None
+        self._static_mark_rendered = False
+
+    def _logo_text(self) -> str:
+        return (
+            "ForgeAgent"
+            if self._console.width < max(map(len, _STARTUP_LOGO))
+            else "\n".join(_STARTUP_LOGO)
+        )
+
+    def logo_renderable(self) -> Text:
+        colour = _STARTUP_COLOURS[int(self._monotonic() * 8) % len(_STARTUP_COLOURS)]
+        return Text(self._logo_text(), style=colour)
+
+    def static_logo_renderable(self) -> Text:
+        return Text(self._logo_text())
+
+    def renderable(self) -> Text:
+        rendered = self.logo_renderable()
+        if self._stage:
+            rendered.append("\n")
+            rendered.append(self._stage, style="dim")
+        return rendered
+
+    def start(self, stage: str) -> None:
+        self._stage = stage
+        if startup_ui_available(self._console):
+            self._start_live()
+        elif startup_mark_available(self._console) and not self._static_mark_rendered:
+            self._console.print(self.static_logo_renderable())
+            self._static_mark_rendered = True
+
+    def set_stage(self, stage: str) -> None:
+        self._stage = stage
+
+    def pause(self) -> None:
+        self.stop()
+
+    def resume(self) -> None:
+        if self._stage is not None:
+            self._start_live()
+
+    def stop(self) -> None:
+        live = self._live
+        if live is None:
+            return
+        try:
+            live.stop()
+        finally:
+            self._live = None
+
+    def _start_live(self) -> None:
+        if self._live is not None or not startup_ui_available(self._console):
+            return
+        self._live = self._live_type(
+            console=self._console,
+            refresh_per_second=8,
+            transient=True,
+            get_renderable=self.renderable,
+        )
+        self._live.start()
+
+
+@contextmanager
+def startup_confirmation(display: StartupDisplay):
+    should_resume = display._live is not None
+    if should_resume:
+        display.pause()
+    try:
+        yield
+    except BaseException:
+        raise
+    else:
+        if should_resume:
+            display.resume()
+
+
+def with_startup_display_pause(
+    confirmer: IdentityConfirmer | None, display: StartupDisplay
+) -> IdentityConfirmer | None:
+    if confirmer is None:
+        return None
+
+    def confirm(request: IdentityTrustRequest) -> bool:
+        with startup_confirmation(display):
+            return confirmer(request)
+
+    return confirm
+
+
+def render_startup_summary(
+    console: Console,
+    *,
+    model: str,
+    tier: Tier,
+    root: str,
+    diagnostics: tuple[MCPServerDiagnostic, ...],
+) -> None:
+    enabled = [item for item in diagnostics if item.enabled]
+    available = sum(item.status == "available" for item in enabled)
+    summary_fields = ["Ready", f"model {model}", f"sandbox {tier}", f"project {root}"]
+    if enabled:
+        summary_fields.insert(1, f"MCP {available}/{len(enabled)}")
+    console.print(Text(" | ".join(summary_fields)))
+    for item in enabled:
+        if item.required or item.status == "available":
+            continue
+        detail = [f"MCP {item.name} unavailable"]
+        detail.extend(
+            f"{label}: {value}"
+            for label, value in (
+                ("Reason", item.reason),
+                ("Impact", item.impact),
+                ("Action", item.action),
+            )
+            if value is not None
+        )
+        console.print(Text(" | ".join(detail)), soft_wrap=True)
 
 
 @dataclass(frozen=True)

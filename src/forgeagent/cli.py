@@ -16,7 +16,6 @@ from __future__ import annotations
 import ipaddress
 import json
 import logging
-import math
 import os
 import re
 import signal
@@ -25,8 +24,6 @@ import threading
 import time
 import unicodedata
 from collections.abc import Callable, Mapping
-from contextlib import contextmanager
-from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import cast
 from urllib.parse import parse_qsl, quote, unquote, urlencode, urlsplit, urlunsplit
@@ -34,15 +31,12 @@ from uuid import uuid4
 
 import yaml
 from prompt_toolkit import PromptSession
-from prompt_toolkit.completion import WordCompleter
-from prompt_toolkit.history import InMemoryHistory
 from pydantic import BaseModel
 from rich.console import Console
 from rich.live import Live
 from rich.text import Text
 
-from . import _cli_collaboration, _cli_parser, _cli_repl, http_server
-from .anthropic_client import AnthropicClient
+from . import _cli_collaboration, _cli_http, _cli_parser, _cli_repl
 from .audit import AuditSink, JsonlAuditSink
 from .client import ModelClient
 from .collaboration import (
@@ -56,14 +50,12 @@ from .collaboration import (
     emit_collaboration_route,
     headless_plan_confirmer,
     normalize_required_candidate_files,
-    resolve_collaboration_mode,
 )
-from .context import ContextConfig, SlidingWindowContextPolicy, load_context_config
+from .context import ContextConfig, load_context_config
 from .executor import ContainerRuntimeError
 from .external_actions import ExternalActionReceiptStore, ReceiptError
 from .headless import HeadlessConfirmer
-from .http_config import HttpServiceConfig
-from .http_task_service import TaskRecord, TaskService
+from .http_task_service import TaskService
 from .identity import (
     ApprovedIdentity,
     IdentityConfigError,
@@ -84,19 +76,16 @@ from .loop import (
     LoopReport,
     LoopRunner,
 )
-from .mcp_manager import MCPManager, MCPServerDiagnostic, load_mcp_config
+from .mcp_manager import MCPManager, load_mcp_config
 from .memory import MemoryManager
 from .model_registry import (
     Registry,
     RegistryError,
-    get_capability,
     list_models,
     load_registry,
     reload_registry,
-    resolve_model,
 )
 from .models import ImageItem, StreamEventKind, TokenUsage
-from .openai_compatible_client import OpenAICompatibleClient
 from .protocol import FileWriteArgs, MCPArgs, MemoryCandidate, SurveyArgs, WebFetchArgs
 from .secret_policy import REDACTED, is_secret_name, mask_secrets, sensitive_env_values
 from .skills import SkillRegistry
@@ -134,124 +123,23 @@ class MCPStartupError(RuntimeError):
         super().__init__(code if code in self._CODES else "startup_failed")
 
 
-class HttpStartupError(RuntimeError):
-    """The opt-in HTTP service could not be configured, bound, or started."""
-
-
-@dataclass(frozen=True)
-class _HttpRuntimeSettings:
-    service: HttpServiceConfig
-    model: str
-    tier: Tier
-    allowed_root: str
-    no_identity: bool
-    no_memory: bool
-    container_image: str | None
-    shutdown_timeout_seconds: float
-
-
-_HTTP_RUNTIME_KEYS = frozenset(
-    {
-        "model",
-        "tier",
-        "allowed_root",
-        "no_identity",
-        "no_memory",
-        "container_image",
-        "shutdown_timeout_seconds",
-    }
-)
-_HTTP_CONFIG_KEYS = frozenset(
-    {
-        *(field.name for field in fields(HttpServiceConfig) if field.name != "context_config"),
-        "context",
-    }
-)
-_SERVE_FORBIDDEN_CLI_OPTIONS = (
-    "--tier",
-    "--container-image",
-    "--model",
-    "--stream",
-    "--no-identity",
-    "--no-memory",
-)
+HttpStartupError = _cli_http.HttpStartupError
+_HttpRuntimeSettings = _cli_http.HttpRuntimeSettings
 
 
 # Injectable client factory: (model) -> ModelClient. Default builds a real client from
 # the environment; tests pass a factory returning a MockClient.
 ClientFactory = Callable[[str], ModelClient]
 
-# capability.client_kind -> concrete ModelClient class (M6). Dispatch never branches
-# on model_id/vendor strings directly — it goes through this one declared mapping.
-_CLIENT_CLASSES: dict[str, type[AnthropicClient | OpenAICompatibleClient]] = {
-    "anthropic": AnthropicClient,
-    "openai_compatible": OpenAICompatibleClient,
-}
-
-
-def build_real_client(
-    model: str,
-    env: dict[str, str] | None = None,
-    *,
-    registry: Registry | None = None,
-) -> ModelClient:
-    """Assemble a real client from the environment (key never stored).
-
-    Dispatches to AnthropicClient or OpenAICompatibleClient by
-    `capability.client_kind` — never by branching on model_id/vendor name. Routing to
-    the right provider is by the model's own registered group (model_registry.py),
-    not by scanning whichever provider's env vars happen to be set.
-    """
-    resolved = resolve_model(model, registry if registry is not None else load_registry(), env=env)
-    client_class = _CLIENT_CLASSES[resolved.capability.client_kind]
-    return client_class(
-        capability=resolved.capability,
-        api_key=resolved.api_key,
-        base_url=resolved.base_url,
-    )
+build_real_client = _cli_http.build_real_client
+_validate_context_policy = _cli_http.validate_context_policy
+_validate_client_context_policy = _cli_http.validate_client_context_policy
 
 
 def _client_factory_for_registry(
     registry: Registry | None, fallback: ClientFactory
 ) -> ClientFactory:
-    if registry is None:
-        return fallback
-
-    def build_from_snapshot(model: str) -> ModelClient:
-        return build_real_client(model, registry=registry)
-
-    return build_from_snapshot
-
-
-def _validate_context_policy(model: str, registry: Registry, context_config: ContextConfig) -> None:
-    """Resolve the selected model and its context limits before publishing a snapshot."""
-    SlidingWindowContextPolicy(get_capability(model, registry), None, context_config)
-
-
-def _validate_client_context_policy(client: ModelClient, context_config: ContextConfig) -> None:
-    """Validate an injected client's actual capability before constructing its Task."""
-    SlidingWindowContextPolicy(client.capability, None, context_config)
-
-
-def _http_client_factory_with_validated_context(
-    model: str,
-    client_factory: ClientFactory,
-    context_config: ContextConfig,
-) -> ClientFactory:
-    """Validate HTTP context limits against the exact capability source used by tasks."""
-    if client_factory is build_real_client:
-        registry = load_registry()
-        _validate_context_policy(model, registry, context_config)
-        return _client_factory_for_registry(registry, client_factory)
-
-    probe = client_factory(model)
-    try:
-        _validate_client_context_policy(probe, context_config)
-    finally:
-        close = getattr(probe, "close", None)
-        if callable(close):
-            close()
-    return client_factory
+    return _cli_http.client_factory_for_registry(registry, fallback, build_real_client)
 
 
 def _make_stream_callback(console: Console) -> tuple[Live, Callable[[str, StreamEventKind], None]]:
@@ -1294,185 +1182,23 @@ def _handle_help_command(goal: str, console: Console) -> None:
 
 
 def _make_interactive_reader() -> Callable[[str], str]:
-    """Return a terminal reader with slash-command completion and session-only history."""
-    completer = WordCompleter(
-        list(_SLASH_COMMAND_USAGE),
-        meta_dict=_SLASH_COMMAND_USAGE,
-        sentence=True,
-        match_middle=False,
-    )
-    session = PromptSession(
-        history=InMemoryHistory(),
-        completer=completer,
-        complete_while_typing=True,
-    )
-    return session.prompt
-
-
-_STARTUP_COLOURS = (
-    "red",
-    "yellow",
-    "green",
-    "cyan",
-    "blue",
-    "magenta",
-    "bright_magenta",
-)
-_STARTUP_LOGO = (
-    " _____                    _                    _   ",
-    "|  ___|__  _ __ __ _  ___| | __ _  ___ _ __ | |_ ",
-    "| |_ / _ \\| '__/ _` |/ _ \\ |/ _` |/ _ \\ '_ \\| __|",
-    "|  _| (_) | | | (_| |  __/ | (_| |  __/ | | | |_ ",
-    "|_|  \\___/|_|  \\__, |\\___|_|\\__, |\\___|_| |_|\\__|",
-    "                |___/        |___/                  ",
-)
-
-
-def _interactive_repl(console: Console, *, default_reader: bool) -> bool:
-    return default_reader and console.is_terminal and sys.stdin.isatty()
-
-
-def _startup_mark_available(console: Console) -> bool:
-    return (
-        console.is_terminal
-        and os.environ.get("TERM") != "dumb"
-        and not any(name in os.environ for name in ("CI", "GITHUB_ACTIONS", "BUILD_NUMBER"))
+    return _cli_repl.make_interactive_reader(
+        _SLASH_COMMAND_USAGE,
+        prompt_session_type=PromptSession,
     )
 
 
-def _startup_ui_available(console: Console) -> bool:
-    return (
-        _startup_mark_available(console)
-        and console.color_system is not None
-        and not console.no_color
-        and "NO_COLOR" not in os.environ
-    )
+_interactive_repl = _cli_repl.interactive_repl
+_startup_mark_available = _cli_repl.startup_mark_available
+_startup_ui_available = _cli_repl.startup_ui_available
+_startup_confirmation = _cli_repl.startup_confirmation
+_with_startup_display_pause = _cli_repl.with_startup_display_pause
+_render_startup_summary = _cli_repl.render_startup_summary
 
 
-class _StartupDisplay:
+class _StartupDisplay(_cli_repl.StartupDisplay):
     def __init__(self, console: Console) -> None:
-        self._console = console
-        self._stage: str | None = None
-        self._live: Live | None = None
-        self._static_mark_rendered = False
-
-    def _logo_text(self) -> str:
-        return (
-            "ForgeAgent"
-            if self._console.width < max(map(len, _STARTUP_LOGO))
-            else "\n".join(_STARTUP_LOGO)
-        )
-
-    def logo_renderable(self) -> Text:
-        colour = _STARTUP_COLOURS[int(time.monotonic() * 8) % len(_STARTUP_COLOURS)]
-        return Text(self._logo_text(), style=colour)
-
-    def static_logo_renderable(self) -> Text:
-        return Text(self._logo_text())
-
-    def renderable(self) -> Text:
-        rendered = self.logo_renderable()
-        if self._stage:
-            rendered.append("\n")
-            rendered.append(self._stage, style="dim")
-        return rendered
-
-    def start(self, stage: str) -> None:
-        self._stage = stage
-        if _startup_ui_available(self._console):
-            self._start_live()
-        elif _startup_mark_available(self._console) and not self._static_mark_rendered:
-            self._console.print(self.static_logo_renderable())
-            self._static_mark_rendered = True
-
-    def set_stage(self, stage: str) -> None:
-        self._stage = stage
-
-    def pause(self) -> None:
-        self.stop()
-
-    def resume(self) -> None:
-        if self._stage is not None:
-            self._start_live()
-
-    def stop(self) -> None:
-        live = self._live
-        if live is None:
-            return
-        try:
-            live.stop()
-        finally:
-            self._live = None
-
-    def _start_live(self) -> None:
-        if self._live is not None or not _startup_ui_available(self._console):
-            return
-        self._live = Live(
-            console=self._console,
-            refresh_per_second=8,
-            transient=True,
-            get_renderable=self.renderable,
-        )
-        self._live.start()
-
-
-@contextmanager
-def _startup_confirmation(display: _StartupDisplay):
-    should_resume = display._live is not None
-    if should_resume:
-        display.pause()
-    try:
-        yield
-    except BaseException:
-        raise
-    else:
-        if should_resume:
-            display.resume()
-
-
-def _with_startup_display_pause(
-    confirmer: IdentityConfirmer | None, display: _StartupDisplay
-) -> IdentityConfirmer | None:
-    if confirmer is None:
-        return None
-
-    def confirm(request: IdentityTrustRequest) -> bool:
-        with _startup_confirmation(display):
-            return confirmer(request)
-
-    return confirm
-
-
-def _render_startup_summary(
-    console: Console,
-    *,
-    model: str,
-    tier: Tier,
-    root: str,
-    diagnostics: tuple[MCPServerDiagnostic, ...],
-) -> None:
-    enabled = [item for item in diagnostics if item.enabled]
-    available = sum(item.status == "available" for item in enabled)
-    fields = ["Ready", f"model {model}", f"sandbox {tier}", f"project {root}"]
-    if enabled:
-        fields.insert(1, f"MCP {available}/{len(enabled)}")
-    console.print(Text(" | ".join(fields)))
-    for item in enabled:
-        if item.required or item.status == "available":
-            continue
-        detail = [f"MCP {item.name} unavailable"]
-        detail.extend(
-            f"{label}: {value}"
-            for label, value in (
-                ("Reason", item.reason),
-                ("Impact", item.impact),
-                ("Action", item.action),
-            )
-            if value is not None
-        )
-        console.print(Text(" | ".join(detail)), soft_wrap=True)
-
-
+        super().__init__(console, live_type=Live, monotonic=lambda: time.monotonic())
 def repl(
     *,
     tier: Tier,
@@ -1676,196 +1402,11 @@ def _load_required_candidate_files_from_environment() -> tuple[str, ...]:
         raise RegistryError("Invalid candidate file configuration") from None
 
 
-def _load_http_runtime_settings(path: str | Path) -> _HttpRuntimeSettings:
-    config_path = Path(path).expanduser()
-    try:
-        loaded = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, yaml.YAMLError) as error:
-        raise HttpStartupError("HTTP service configuration is invalid or unavailable.") from error
-    if loaded is None:
-        loaded = {}
-    if not isinstance(loaded, dict) or any(not isinstance(key, str) for key in loaded):
-        raise HttpStartupError("HTTP service configuration must be a mapping.")
-    values = cast(dict[str, object], loaded)
-    if set(values) - _HTTP_CONFIG_KEYS - _HTTP_RUNTIME_KEYS:
-        raise HttpStartupError("HTTP service configuration contains unknown fields.")
-
-    try:
-        service = HttpServiceConfig.from_sources(
-            {key: value for key, value in values.items() if key in _HTTP_CONFIG_KEYS}
-        )
-    except (TypeError, ValueError) as error:
-        if str(error).startswith("context "):
-            raise HttpStartupError("HTTP service context configuration is invalid.") from error
-        raise HttpStartupError("HTTP service configuration is invalid.") from error
-
-    model = values.get("model", DEFAULT_MODEL)
-    if not isinstance(model, str) or not model.strip() or any(ord(char) < 32 for char in model):
-        raise HttpStartupError("HTTP service model configuration is invalid.")
-
-    tier_value = values.get("tier", "restricted")
-    if tier_value not in {"trusted", "restricted", "container"}:
-        raise HttpStartupError("HTTP service tier configuration is invalid.")
-    tier = cast(Tier, tier_value)
-
-    allowed_root_value = values.get("allowed_root", str(Path.cwd()))
-    if not isinstance(allowed_root_value, str) or not allowed_root_value.strip():
-        raise HttpStartupError("HTTP service allowed root is invalid.")
-    try:
-        allowed_root_path = Path(allowed_root_value).expanduser().resolve(strict=True)
-    except (OSError, RuntimeError) as error:
-        raise HttpStartupError("HTTP service allowed root is invalid.") from error
-    if not allowed_root_path.is_dir():
-        raise HttpStartupError("HTTP service allowed root is invalid.")
-
-    no_identity = values.get("no_identity", False)
-    if not isinstance(no_identity, bool):
-        raise HttpStartupError("HTTP service identity configuration is invalid.")
-
-    no_memory = values.get("no_memory", False)
-    if not isinstance(no_memory, bool):
-        raise HttpStartupError("HTTP service memory configuration is invalid.")
-
-    container_image = values.get("container_image")
-    if container_image is not None and (
-        not isinstance(container_image, str)
-        or not container_image.strip()
-        or any(unicodedata.category(character) == "Cc" for character in container_image)
-    ):
-        raise HttpStartupError("HTTP service container configuration is invalid.")
-
-    shutdown_timeout = values.get("shutdown_timeout_seconds", 5.0)
-    if type(shutdown_timeout) not in {int, float}:
-        raise HttpStartupError("HTTP service shutdown timeout is invalid.")
-    shutdown_timeout_seconds = float(shutdown_timeout)
-    if not math.isfinite(shutdown_timeout_seconds) or not 0 < shutdown_timeout_seconds <= 60:
-        raise HttpStartupError("HTTP service shutdown timeout is invalid.")
-
-    return _HttpRuntimeSettings(
-        service=service,
-        model=model,
-        tier=tier,
-        allowed_root=str(allowed_root_path),
-        no_identity=no_identity,
-        no_memory=no_memory,
-        container_image=container_image,
-        shutdown_timeout_seconds=shutdown_timeout_seconds,
-    )
+_load_http_runtime_settings = _cli_http.load_http_runtime_settings
+_serve_has_cli_policy_override = _cli_http.serve_has_cli_policy_override
 
 
-def _serve_has_cli_policy_override(argv: list[str]) -> bool:
-    return any(
-        argument == option or argument.startswith(f"{option}=")
-        for argument in argv
-        for option in _SERVE_FORBIDDEN_CLI_OPTIONS
-    )
-
-
-def _run_owned_http_server(
-    server,
-    service: TaskService,
-    *,
-    shutdown_timeout: float,
-    once: bool,
-    on_started: Callable[[], None] | None = None,
-) -> None:
-    stop_requested = threading.Event()
-    wrapper_entered = threading.Event()
-    serve_entered = getattr(server, "serve_entered", wrapper_entered)
-    server_errors: list[BaseException] = []
-    cleanup_errors: list[BaseException] = []
-    previous_handlers: dict[signal.Signals, object] = {}
-    server_thread: threading.Thread | None = None
-    thread_started = False
-    listener_entered = False
-    primary_error: BaseException | None = None
-
-    def request_stop(_signum=None, _frame=None) -> None:
-        stop_requested.set()
-
-    def run_server() -> None:
-        wrapper_entered.set()
-        try:
-            server.serve_forever(poll_interval=0.1)
-        except BaseException as error:
-            server_errors.append(error)
-        finally:
-            stop_requested.set()
-
-    try:
-        if threading.current_thread() is threading.main_thread():
-            for signal_number in (signal.SIGINT, signal.SIGTERM):
-                previous_handler = signal.getsignal(signal_number)
-                signal.signal(signal_number, request_stop)
-                previous_handlers[signal_number] = previous_handler
-
-        server_thread = threading.Thread(
-            target=run_server,
-            name="forgeagent-http-server",
-            daemon=False,
-        )
-        server_thread.start()
-        thread_started = True
-        listener_entered = serve_entered.wait(timeout=max(1.0, shutdown_timeout))
-        if not listener_entered:
-            raise HttpStartupError("HTTP listener did not enter its serve loop.")
-        if on_started is not None:
-            on_started()
-        if once:
-            stop_requested.set()
-        while server_thread.is_alive() and not stop_requested.wait(0.1):
-            pass
-    except BaseException as error:
-        primary_error = error
-    finally:
-        if thread_started and listener_entered:
-            try:
-                server.shutdown()
-            except BaseException as error:
-                cleanup_errors.append(error)
-                logger.error("HTTP listener shutdown failed")
-        try:
-            service.shutdown(timeout=shutdown_timeout)
-        except BaseException as error:
-            cleanup_errors.append(error)
-            logger.error("HTTP task service shutdown failed")
-        try:
-            server.server_close()
-        except BaseException as error:
-            cleanup_errors.append(error)
-            logger.error("HTTP listener close failed")
-        if thread_started and server_thread is not None:
-            try:
-                server_thread.join(timeout=shutdown_timeout)
-            except BaseException as error:
-                cleanup_errors.append(error)
-                logger.error("HTTP listener thread join failed")
-        for signal_number, previous_handler in reversed(previous_handlers.items()):
-            try:
-                signal.signal(signal_number, previous_handler)
-            except BaseException as error:
-                cleanup_errors.append(error)
-                logger.error("HTTP signal handler restoration failed")
-
-    if isinstance(primary_error, (KeyboardInterrupt, SystemExit)):
-        raise primary_error
-    for error in cleanup_errors:
-        if isinstance(error, (KeyboardInterrupt, SystemExit)):
-            raise error
-    for error in server_errors:
-        if isinstance(error, (KeyboardInterrupt, SystemExit)):
-            raise error
-    if primary_error is not None:
-        if isinstance(primary_error, HttpStartupError):
-            raise primary_error
-        if isinstance(primary_error, Exception):
-            raise HttpStartupError("HTTP service owner failed.") from primary_error
-        raise primary_error
-    if server_errors:
-        error = server_errors[0]
-        raise HttpStartupError("HTTP listener stopped unexpectedly.") from error
-    if (server_thread is not None and server_thread.is_alive()) or cleanup_errors:
-        raise HttpStartupError("HTTP service shutdown did not complete cleanly.")
+_run_owned_http_server = _cli_http.run_owned_http_server
 
 
 def serve_http(
@@ -1876,399 +1417,33 @@ def serve_http(
     once: bool = False,
 ) -> None:
     """Assemble and own the opt-in local HTTP task service."""
-    settings = _load_http_runtime_settings(config_path)
-    try:
-        task_client_factory = _http_client_factory_with_validated_context(
-            settings.model,
-            client_factory,
-            settings.service.context_config,
-        )
-    except (KeyboardInterrupt, SystemExit):
-        raise
-    except Exception as error:
-        raise HttpStartupError("HTTP service context policy is invalid.") from error
-    audit_path = settings.service.audit_path.expanduser()
-    try:
-        audit_sink = JsonlAuditSink(
-            audit_path,
-            max_bytes=settings.service.audit_max_bytes,
-            retention_files=settings.service.audit_retention_files,
-        )
-        headless_confirmer = HeadlessConfirmer(
-            settings.service.allowlist,
-            audit=audit_sink,
-            root=settings.allowed_root,
-        )
-    except (OSError, ValueError) as error:
-        raise HttpStartupError("HTTP audit or allowlist configuration is invalid.") from error
-
-    identity = resolve_cli_identity(
-        no_identity=settings.no_identity,
-        allowed_root=settings.allowed_root,
-        confirmer=None,
-        diagnostic=make_console_identity_diagnostic(console),
-    )
-    skills = _load_skill_registry(
-        home=str(Path.home()),
-        allowed_root=settings.allowed_root,
-        no_identity=settings.no_identity,
-        confirmer=None,
-        diagnostic=make_console_identity_diagnostic(console),
-    )
-    mcp: MCPManager | None = None
-    service: TaskService | None = None
-    try:
-        mcp = build_mcp_manager()
-        receipt_store = ExternalActionReceiptStore(settings.allowed_root, audit_sink=audit_sink)
-
-        def task_factory(record: TaskRecord) -> Task | LoopRunner | CollaborationRunner:
-            options = getattr(record, "options", {})
-            memory_manager = _make_memory_manager(
-                settings.allowed_root,
-                identity=identity,
-                no_memory=settings.no_memory,
-                no_identity=settings.no_identity,
-                audit_sink=audit_sink,
-            )
-            if options.get("mode") == "loop":
-                loop_runner: LoopRunner | None = None
-
-                def build_loop_task(iteration, remaining_rounds, suffix, registry):
-                    del iteration
-                    client = task_client_factory(settings.model)
-                    task = Task(
-                        client,
-                        tier=settings.tier,
-                        allowed_root=settings.allowed_root,
-                        system_prompt=_loop_system_prompt(identity, memory_manager, suffix),
-                        max_rounds=remaining_rounds,
-                        mcp=mcp,
-                        confirmer=headless_confirmer,
-                        allow_auto_approve=False,
-                        container_image=settings.container_image,
-                        audit_sink=audit_sink,
-                        task_id=record.task_id,
-                        context_config=settings.service.context_config,
-                        memory_manager=memory_manager,
-                        skills=skills,
-                        tool_registry=registry,
-                        receipt_store=receipt_store,
-                        max_submission_recovery_attempts=2,
-                    )
-
-                    class OwnedLoopTask:
-                        def run(self, goal, *, cancel_event=None):
-                            return task.run(goal, cancel_event=cancel_event)
-
-                        def close(self):
-                            try:
-                                task.close()
-                            finally:
-                                close = getattr(client, "close", None)
-                                if callable(close):
-                                    close()
-
-                    return OwnedLoopTask()
-
-                common = {
-                    "allowed_root": settings.allowed_root,
-                    "task_builder": build_loop_task,
-                    "trigger": "http",
-                    "audit_sink": audit_sink,
-                    "task_id": record.task_id,
-                    "with_mcp": mcp is not None,
-                    "skills": skills,
-                    "receipt_store": receipt_store,
-                }
-                collaboration_mode = cast(str, options.get("collaboration_mode", "single"))
-
-                def build_loop_collaboration(iteration, remaining_rounds, suffix, registry):
-                    del iteration
-                    rounds_left = remaining_rounds
-                    role_models = {
-                        "planner": settings.service.planner_model or settings.model,
-                        "generator": settings.model,
-                        "evaluator": settings.service.evaluator_model or settings.model,
-                    }
-
-                    def build_role(role, attempt, registry, prompt):
-                        del attempt
-                        nonlocal rounds_left
-                        if rounds_left <= 0:
-                            raise CollaborationRoleConfigurationError
-                        client = task_client_factory(role_models[role])
-                        try:
-                            task = Task(
-                                client,
-                                tier=(
-                                    settings.service.evaluator_tier
-                                    if role == "evaluator"
-                                    else settings.tier
-                                ),
-                                allowed_root=settings.allowed_root,
-                                system_prompt=prompt,
-                                max_rounds=rounds_left,
-                                mcp=mcp if role == "generator" else None,
-                                confirmer=headless_confirmer if role == "generator" else None,
-                                allow_auto_approve=False,
-                                container_image=settings.container_image,
-                                audit_sink=audit_sink,
-                                task_id=record.task_id,
-                                context_config=settings.service.context_config,
-                                memory_manager=memory_manager if role == "generator" else None,
-                                skills=skills if role == "generator" else None,
-                                tool_registry=registry,
-                                receipt_store=receipt_store if role == "generator" else None,
-                                max_submission_recovery_attempts=2,
-                            )
-                        except Exception as error:
-                            close = getattr(client, "close", None)
-                            if callable(close):
-                                close()
-                            raise CollaborationRoleConfigurationError from error
-
-                        class OwnedRole:
-                            def run(self, goal, *, cancel_event=None):
-                                nonlocal rounds_left
-                                outcome = task.run(goal, cancel_event=cancel_event)
-                                rounds_left = max(0, rounds_left - len(outcome.rounds))
-                                return outcome
-
-                            def close(self):
-                                try:
-                                    task.close()
-                                finally:
-                                    close = getattr(client, "close", None)
-                                    if callable(close):
-                                        close()
-
-                        return OwnedRole()
-
-                    if loop_runner is None:
-                        raise LoopCheckpointError("Loop collaboration is unavailable")
-                    collaboration_id = loop_runner._checkpoint.collaboration_id
-                    state_path = (
-                        Path(settings.allowed_root)
-                        / ".forgeagent"
-                        / "collaborations"
-                        / f"{collaboration_id}.json"
-                    )
-                    if state_path.exists():
-                        store = CollaborationStore(
-                            settings.allowed_root,
-                            audit_sink=audit_sink,
-                            task_id=record.task_id,
-                            loop_id=loop_runner._checkpoint.loop_id,
-                        )
-                        state = store.load(collaboration_id)
-                        collaboration = CollaborationRunner(
-                            store=store,
-                            state=state,
-                            role_task_builder=build_role,
-                            plan_confirmer=headless_plan_confirmer(
-                                settings.service.triad_plan_policy
-                            ),
-                            generator_registry=registry,
-                            task_data_suffix=suffix,
-                            recover_role_failures=True,
-                            execution_tier=settings.tier,
-                            audit_sink=audit_sink,
-                            task_id=record.task_id,
-                            loop_id=loop_runner._checkpoint.loop_id,
-                        )
-                    else:
-                        collaboration = CollaborationRunner.create(
-                            mode=loop_runner._checkpoint.collaboration_mode,
-                            goal=record.goal,
-                            allowed_root=settings.allowed_root,
-                            collaboration_id=collaboration_id,
-                            role_task_builder=build_role,
-                            plan_confirmer=headless_plan_confirmer(
-                                settings.service.triad_plan_policy
-                            ),
-                            planner_model=role_models["planner"],
-                            generator_model=role_models["generator"],
-                            evaluator_model=role_models["evaluator"],
-                            evaluator_tier=settings.service.evaluator_tier,
-                            max_rejections=settings.service.max_rejections,
-                            generator_registry=registry,
-                            task_data_suffix=suffix,
-                            recover_role_failures=True,
-                            execution_tier=settings.tier,
-                            audit_sink=audit_sink,
-                            task_id=record.task_id,
-                            loop_id=loop_runner._checkpoint.loop_id,
-                        )
-
-                    class OwnedCollaboration:
-                        @property
-                        def plan_digest(self):
-                            return collaboration._state.plan_digest
-
-                        def run(self, goal, *, cancel_event=None):
-                            return collaboration.run(goal, cancel_event=cancel_event)
-
-                        def close(self):
-                            collaboration.close()
-
-                    return OwnedCollaboration()
-
-                common["collaboration_builder"] = (
-                    build_loop_collaboration if collaboration_mode != "single" else None
-                )
-                resume_loop_id = options.get("resume_loop_id")
-                if isinstance(resume_loop_id, str):
-                    common["collaboration_builder"] = build_loop_collaboration
-                    loop_runner = LoopRunner.resume(loop_id=resume_loop_id, **common)
-                    return loop_runner
-                budgets = LoopBudgets(
-                    token_budget=options["token_budget"],
-                    max_rounds=options["max_rounds"],
-                    wall_clock_seconds=options["wall_clock_seconds"],
-                    max_consecutive_failures=options["max_consecutive_failures"],
-                )
-                loop_runner = LoopRunner.create(
-                    goal=record.goal,
-                    budgets=budgets,
-                    loop_id=record.task_id,
-                    collaboration_mode=collaboration_mode,
-                    collaboration_mode_source=(
-                        "explicit" if "collaboration_mode" in options else "default"
-                    ),
-                    collaboration_id=(uuid4().hex if collaboration_mode != "single" else ""),
-                    **common,
-                )
-                return loop_runner
-            record_goal = getattr(record, "goal", "")
-            requested = options.get("mode")
-            requested_mode = (
-                None
-                if requested is None
-                else "single"
-                if requested == "task"
-                else cast(str, requested)
-            )
-            decision = (
-                resolve_collaboration_mode(
-                    record_goal,
-                    requested_mode,
-                    allow_weaker_override=settings.service.allow_weaker_override,
-                )
-                if record_goal
-                else resolve_collaboration_mode("ordinary request", requested_mode)
-            )
-            if decision.mode in {"duo", "triad"}:
-                role_models = {
-                    "planner": settings.service.planner_model or settings.model,
-                    "generator": settings.model,
-                    "evaluator": settings.service.evaluator_model or settings.model,
-                }
-
-                def build_role(role, attempt, registry, prompt):
-                    del attempt
-                    client = task_client_factory(role_models[role])
-                    try:
-                        task = Task(
-                            client,
-                            tier=(
-                                settings.service.evaluator_tier
-                                if role == "evaluator"
-                                else settings.tier
-                            ),
-                            allowed_root=settings.allowed_root,
-                            system_prompt=prompt,
-                            mcp=mcp if role == "generator" else None,
-                            confirmer=headless_confirmer if role == "generator" else None,
-                            allow_auto_approve=False,
-                            container_image=settings.container_image,
-                            audit_sink=audit_sink,
-                            task_id=record.task_id,
-                            context_config=settings.service.context_config,
-                            memory_manager=memory_manager if role == "generator" else None,
-                            skills=skills if role == "generator" else None,
-                            tool_registry=registry,
-                        )
-                    except Exception as error:
-                        close = getattr(client, "close", None)
-                        if callable(close):
-                            close()
-                        raise CollaborationRoleConfigurationError from error
-
-                    class OwnedRole:
-                        def run(self, goal, *, cancel_event=None):
-                            return task.run(goal, cancel_event=cancel_event)
-
-                        def close(self):
-                            try:
-                                task.close()
-                            finally:
-                                close = getattr(client, "close", None)
-                                if callable(close):
-                                    close()
-
-                    return OwnedRole()
-
-                return CollaborationRunner.create(
-                    mode=decision.mode,
-                    goal=record_goal,
-                    allowed_root=settings.allowed_root,
-                    role_task_builder=build_role,
-                    plan_confirmer=headless_plan_confirmer(settings.service.triad_plan_policy),
-                    planner_model=role_models["planner"],
-                    generator_model=role_models["generator"],
-                    evaluator_model=role_models["evaluator"],
-                    evaluator_tier=settings.service.evaluator_tier,
-                    max_rejections=settings.service.max_rejections,
-                    execution_tier=settings.tier,
-                    audit_sink=audit_sink,
-                    task_id=record.task_id,
-                )
-            return Task(
-                task_client_factory(settings.model),
-                tier=settings.tier,
-                allowed_root=settings.allowed_root,
-                identity=identity,
-                mcp=mcp,
-                confirmer=headless_confirmer,
-                allow_auto_approve=False,
-                container_image=settings.container_image,
-                audit_sink=audit_sink,
-                task_id=record.task_id,
-                context_config=settings.service.context_config,
-                memory_manager=memory_manager,
-                skills=skills,
-                receipt_store=receipt_store,
-            )
-
-        service = TaskService(
-            factory=task_factory,
-            config=settings.service,
-            shared_mcp_manager=mcp,
-            audit_sink=audit_sink,
-        )
-        server = http_server.create_http_server(settings.service, service)
-    except BaseException as error:
-        if service is not None:
-            service.shutdown(timeout=settings.shutdown_timeout_seconds)
-        elif mcp is not None:
-            mcp.close()
-        if not isinstance(error, Exception):
-            raise
-        if isinstance(error, (MCPStartupError, HttpStartupError)):
-            raise
-        raise HttpStartupError("HTTP service could not start.") from error
-
-    _run_owned_http_server(
-        server,
-        service,
-        shutdown_timeout=settings.shutdown_timeout_seconds,
-        once=once,
-        on_started=lambda: console.print(
-            f"[green]serving[/green] on {settings.service.bind_host}:{server.server_address[1]}"
+    return _cli_http.serve_http(
+        config_path,
+        client_factory=client_factory,
+        real_client_factory=build_real_client,
+        bindings=_cli_http.HttpBindings(
+            task_service_type=TaskService,
+            task_type=Task,
+            loop_runner_type=LoopRunner,
+            collaboration_runner_type=CollaborationRunner,
+            collaboration_store_type=CollaborationStore,
+            receipt_store_type=ExternalActionReceiptStore,
+            audit_sink_type=JsonlAuditSink,
+            headless_confirmer_type=HeadlessConfirmer,
+            build_mcp_manager=build_mcp_manager,
+            load_registry=load_registry,
+            validate_context_policy=_validate_context_policy,
+            validate_client_context_policy=_validate_client_context_policy,
+            resolve_cli_identity=resolve_cli_identity,
+            make_console_identity_diagnostic=make_console_identity_diagnostic,
+            load_skill_registry=_load_skill_registry,
+            make_memory_manager=_make_memory_manager,
+            loop_system_prompt=_loop_system_prompt,
+            mcp_startup_error_type=MCPStartupError,
         ),
+        console=console,
+        once=once,
     )
-
-
 def _run_evaluate_command(
     args,
     *,

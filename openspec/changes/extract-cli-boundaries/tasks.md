@@ -8,7 +8,7 @@
 - [x] 2.1 将 parser/config 职责提取到 `_cli_parser.py`，保留 `forgeagent.cli` 导入与帮助文本字节，然后运行 parser/CLI 测试。
 - [x] 2.2 将 collaboration adapter 职责提取到 `_cli_collaboration.py`，使用当前调用的 façade bindings，然后运行协作/CLI 测试。
 - [x] 2.3 将 REPL 状态与启动展示提取到 `_cli_repl.py`，使用当前调用的 façade bindings，然后运行 REPL/启动/CLI 测试。
-- [ ] 2.4 将 HTTP/client 装配提取到 `_cli_http.py`，使用当前调用的 façade bindings，然后运行 HTTP/Loop/Collaboration/CLI 测试。
+- [x] 2.4 将 HTTP/client 装配提取到 `_cli_http.py`，使用当前调用的 façade bindings，然后运行 HTTP/Loop/Collaboration/CLI 测试。
 
 ## 3. 阈值与回归验证
 

@@ -116,6 +116,21 @@ def test_cli_repl_boundary_exposes_frozen_explicit_bindings() -> None:
     } <= fields
 
 
+def test_cli_http_boundary_exposes_frozen_explicit_bindings() -> None:
+    from forgeagent import _cli_http
+
+    fields = set(_cli_http.HttpBindings.__dataclass_fields__)
+    assert _cli_http.HttpBindings.__dataclass_params__.frozen is True
+    assert {
+        "task_service_type",
+        "task_type",
+        "loop_runner_type",
+        "collaboration_runner_type",
+        "build_mcp_manager",
+        "load_registry",
+    } <= fields
+
+
 @pytest.mark.parametrize(("argv", "stdout_bytes", "stdout_sha256"), HELP_BASELINE)
 def test_cli_help_output_matches_m41_baseline(
     argv: tuple[str, ...], stdout_bytes: int, stdout_sha256: str
