@@ -1,11 +1,11 @@
 {
   "environment": {
-    "commit": "a14630ff",
+    "commit": "47876661",
     "machine": "arm64",
     "platform": "darwin",
     "python": "3.14.3"
   },
-  "generated_at": "2026-07-31T16:07:54.286228Z",
+  "generated_at": "2026-07-31T16:27:04.660111Z",
   "metrics": {
     "compatibility": {
       "baseline": {
@@ -118,27 +118,27 @@
           "status": "measured",
           "timing": {
             "count": 15,
-            "max_ms": 115.212125,
-            "median_ms": 104.795708,
-            "min_ms": 103.64825,
-            "ops_per_second": 9.271593,
-            "p95_ms": 115.212125,
+            "max_ms": 119.167875,
+            "median_ms": 108.947834,
+            "min_ms": 104.361209,
+            "ops_per_second": 9.077731,
+            "p95_ms": 119.167875,
             "samples_ms": [
-              113.892125,
-              115.212125,
-              112.732208,
-              115.065875,
-              110.635,
-              104.421459,
-              103.984083,
-              105.197208,
-              103.64825,
-              103.980125,
-              104.484625,
-              104.080083,
-              104.156709,
-              104.795708,
-              111.559292
+              104.555583,
+              104.361209,
+              108.947834,
+              115.191,
+              112.0285,
+              112.66625,
+              116.571125,
+              114.738958,
+              113.914,
+              119.167875,
+              108.406292,
+              105.453917,
+              106.511541,
+              104.943,
+              104.93825
             ]
           }
         },
@@ -146,27 +146,27 @@
           "status": "measured",
           "timing": {
             "count": 15,
-            "max_ms": 0.014541,
-            "median_ms": 0.00575,
-            "min_ms": 0.004625,
-            "ops_per_second": 146578.849649,
-            "p95_ms": 0.014541,
+            "max_ms": 0.023,
+            "median_ms": 0.010625,
+            "min_ms": 0.0085,
+            "ops_per_second": 84526.090387,
+            "p95_ms": 0.023,
             "samples_ms": [
-              0.014541,
-              0.01025,
-              0.008333,
-              0.006959,
-              0.009917,
-              0.006833,
-              0.005042,
-              0.004958,
-              0.004833,
-              0.00575,
-              0.004875,
-              0.004792,
-              0.004625,
-              0.005917,
-              0.004709
+              0.023,
+              0.019125,
+              0.015542,
+              0.011041,
+              0.011833,
+              0.013375,
+              0.009292,
+              0.008917,
+              0.008709,
+              0.011042,
+              0.00925,
+              0.008625,
+              0.008584,
+              0.010625,
+              0.0085
             ]
           }
         }
@@ -203,8 +203,10 @@
         }
       },
       "evidence": {
+        "crash_failed_block_replayed": false,
         "failed_block_replayed": false,
-        "kind": "real_subprocess_fault_injection"
+        "kind": "real_subprocess_fault_injection",
+        "timeout_failed_block_replayed": false
       },
       "migration": "Use a separate full Comet change for one internal module while retaining the Python path.",
       "rollback_trigger": "Any recovery failure or unconditional replay restores the Python path.",
@@ -235,6 +237,7 @@
         "debug_rehearsal_required": true,
         "named_owner_required": true,
         "package_integration_rehearsal_required": true,
+        "profiling_rehearsal_required": true,
         "rollback_rehearsal_required": true,
         "target_build_rehearsal_required": true
       }

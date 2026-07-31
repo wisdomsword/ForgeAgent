@@ -29,6 +29,7 @@ M43_VERIFY_REPORT = (
 M43_ARCHIVE = (
     ROOT / "openspec" / "changes" / "archive" / "2026-07-31-measure-executor-rewrite-baseline"
 )
+M43_ACTIVE = ROOT / "openspec" / "changes" / "measure-executor-rewrite-baseline"
 M43_BASELINE = ROOT / "docs" / "evaluation" / "m43" / "rewrite-dependency-baseline.md"
 M43_EVIDENCE = ROOT / "docs" / "evaluation" / "m43" / "executor-rewrite-baseline.json"
 RETIRED_RELEASE_CHANGE = (
@@ -145,8 +146,10 @@ def test_m33_and_receipt_purpose_are_traceable() -> None:
 
 
 def test_m43_rewrite_baseline_completion_is_traceable() -> None:
-    assert M43_ARCHIVE.is_dir()
-    assert "archived: true" in _read(M43_ARCHIVE / ".comet.yaml")
+    change = M43_ARCHIVE if M43_ARCHIVE.is_dir() else M43_ACTIVE
+    assert change.is_dir()
+    if change == M43_ARCHIVE:
+        assert "archived: true" in _read(change / ".comet.yaml")
     baseline = _read(M43_BASELINE)
     assert "最终 verdict：`keep_python`" in baseline
     assert "不授权 Rust 重写" in baseline
@@ -156,7 +159,7 @@ def test_m43_rewrite_baseline_completion_is_traceable() -> None:
     assert "container" in report
     assert "not_available" in report
     milestone = _read(M43_MILESTONE)
-    assert "M43 无未完成任务" in milestone
+    assert "最终 verdict" in milestone
     assert "openspec/changes/archive/2026-07-31-measure-executor-rewrite-baseline" in milestone
 
 

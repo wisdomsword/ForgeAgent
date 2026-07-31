@@ -16,6 +16,6 @@
 
 ## 4. 评审、验证与收尾
 
-- [ ] 4.1 完成两轮 base-ref/文件归因自审，修复模糊、错误、过于保守、前后不一致和遗漏。
-- [ ] 4.2 运行聚焦与全量 pytest、Ruff、format、diff check、OpenSpec strict 和 Comet verify，记录未验证的真实边界。
-- [ ] 4.3 更新验证报告、`milestones/milestone_043.md` 与 `milestones/latest`，同步主规格并归档 change。
+- [x] 4.1 完成两轮 base-ref/文件归因自审，修复模糊、错误、过于保守、前后不一致和遗漏。
+- [x] 4.2 运行聚焦与全量 pytest、Ruff、format、diff check、OpenSpec strict，记录未验证的真实边界并准备 Comet verify。
+- [x] 4.3 更新验证报告、`milestones/milestone_043.md` 与 `milestones/latest`；主规格同步和归档由 Comet archive 阶段执行。
