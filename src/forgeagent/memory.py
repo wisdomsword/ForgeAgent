@@ -217,6 +217,7 @@ class MemoryManager:
     def readiness(self, manifest: Mapping[str, object] | None = None) -> MemoryReadiness:
         """Inspect project Memory without creating files or exposing stored values."""
         try:
+            self._validate_readiness_paths()
             snapshot = self._read_snapshot(canonical_v1=True)
         except OSError:
             return MemoryReadiness("unsafe", "unknown", 0, "storage_path")
@@ -1521,6 +1522,59 @@ class MemoryManager:
         if for_write:
             return resolved_directory / self._path.name
         return None
+
+    def _validate_readiness_paths(self) -> None:
+        directory = self._path.parent
+        if not os.path.lexists(directory):
+            return
+
+        lock_path = directory / ".MEMORY.lock"
+        if os.path.lexists(lock_path):
+            mode = os.lstat(lock_path).st_mode
+            if stat.S_ISLNK(mode) or not stat.S_ISREG(mode):
+                raise OSError("memory lock is unsafe")
+            no_follow = getattr(os, "O_NOFOLLOW", None)
+            if no_follow is None:
+                raise OSError("safe memory lock check is unavailable")
+            descriptor = os.open(
+                lock_path,
+                os.O_RDWR | no_follow | getattr(os, "O_CLOEXEC", 0),
+            )
+            try:
+                if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                    raise OSError("memory lock is unsafe")
+            finally:
+                os.close(descriptor)
+
+        backup_directory = directory / "memory-backups"
+        if not os.path.lexists(backup_directory):
+            return
+        details = os.lstat(backup_directory)
+        if (
+            stat.S_ISLNK(details.st_mode)
+            or not stat.S_ISDIR(details.st_mode)
+            or stat.S_IMODE(details.st_mode) != 0o700
+        ):
+            raise OSError("memory backup directory is unsafe")
+        resolved = Path(os.path.realpath(backup_directory))
+        try:
+            if os.path.commonpath((str(self._root), str(resolved))) != str(self._root):
+                raise OSError("memory backup directory is outside project root")
+        except ValueError as exc:
+            raise OSError("memory backup directory is outside project root") from exc
+        with os.scandir(resolved) as entries:
+            for entry in entries:
+                suffix = ".memory-v1.bak"
+                migration_id = entry.name[: -len(suffix)] if entry.name.endswith(suffix) else ""
+                if _OPAQUE_ID.fullmatch(migration_id) is None:
+                    continue
+                info = entry.stat(follow_symlinks=False)
+                if (
+                    not stat.S_ISREG(info.st_mode)
+                    or stat.S_IMODE(info.st_mode) != 0o600
+                    or info.st_size > _MAX_STORAGE_BYTES
+                ):
+                    raise OSError("memory backup file is unsafe")
 
     def _diagnose(self, message: str) -> None:
         if self._diagnostic is not None:

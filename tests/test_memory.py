@@ -160,6 +160,52 @@ def test_readiness_rejects_memory_symlink_without_following_it(tmp_path):
     assert str(outside) not in repr(result)
 
 
+@pytest.mark.parametrize("unsafe_path", ["lock", "backup_directory", "backup_file"])
+def test_readiness_rejects_unsafe_auxiliary_paths_without_following_them(tmp_path, unsafe_path):
+    outside = tmp_path.parent / f"{tmp_path.name}-outside-memory-auxiliary"
+    outside.write_text("private-content", encoding="utf-8")
+    directory = tmp_path / ".forgeagent"
+    directory.mkdir()
+    if unsafe_path == "lock":
+        (directory / ".MEMORY.lock").symlink_to(outside)
+    elif unsafe_path == "backup_directory":
+        (directory / "memory-backups").symlink_to(tmp_path.parent, target_is_directory=True)
+    else:
+        backups = directory / "memory-backups"
+        backups.mkdir(mode=0o700)
+        (backups / f"{'a' * 32}.memory-v1.bak").symlink_to(outside)
+
+    result = MemoryManager(str(tmp_path)).readiness()
+
+    assert (result.status, result.reason) == ("unsafe", "storage_path")
+    assert "private-content" not in repr(result)
+    assert str(outside) not in repr(result)
+
+
+def test_readiness_accepts_safe_auxiliary_paths_without_mutation(tmp_path):
+    directory = tmp_path / ".forgeagent"
+    directory.mkdir()
+    lock = directory / ".MEMORY.lock"
+    lock.write_bytes(b"lock-state")
+    lock.chmod(0o640)
+    backups = directory / "memory-backups"
+    backups.mkdir(mode=0o700)
+    backup = backups / f"{'a' * 32}.memory-v1.bak"
+    backup.write_bytes(b"legacy-backup")
+    backup.chmod(0o600)
+    before = (lock.read_bytes(), lock.stat().st_mode, backup.read_bytes(), backup.stat().st_mode)
+
+    result = MemoryManager(str(tmp_path)).readiness()
+
+    assert (result.status, result.reason) == ("no_data", "memory_absent")
+    assert (
+        lock.read_bytes(),
+        lock.stat().st_mode,
+        backup.read_bytes(),
+        backup.stat().st_mode,
+    ) == before
+
+
 def test_readiness_accepts_complete_v2_without_writing(tmp_path):
     path = tmp_path / ".forgeagent" / "MEMORY.md"
     path.parent.mkdir()
