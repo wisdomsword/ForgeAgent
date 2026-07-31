@@ -26,6 +26,7 @@
 
 ## 5. 验证与里程碑收尾
 
-- [ ] 5.1 运行 Memory 专项测试、相关 Task/CLI 集成测试、全量 pytest、Ruff、format、OpenSpec strict、Comet verify 和 `git diff --check`。
-- [ ] 5.2 完成两轮代码/契约自评，检查模糊、错误、过度保守、前后不一致、遗漏和公开信息泄漏；发现问题立即修复并重跑相关验证。
-- [ ] 5.3 产出 verification report，归档 change，创建 M42 里程碑并更新 `milestones/latest`；不执行 PyPI、tag、push 或发布自动化。
+- [x] 5.1 运行 Memory 专项测试、相关 Task/CLI 集成测试、全量 pytest、Ruff、format、OpenSpec strict 和 `git diff --check`。
+- [x] 5.2 完成两轮代码/契约自评和独立审查，检查模糊、错误、过度保守、前后不一致、遗漏和公开信息泄漏；发现问题立即修复并重跑相关验证。
+
+Post-build 收尾由 Comet 阶段状态跟踪：进入 verify 后完成验证报告终稿、主规格同步与归档，再创建 M42 里程碑并更新 `milestones/latest`。全程不执行 PyPI、tag、push 或发布自动化。

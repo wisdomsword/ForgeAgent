@@ -43,7 +43,7 @@
 
 #### Scenario: 未知历史来源不被推断
 - **WHEN** 操作者无法证明某条 v1 Memory 的原始写入者或 truth source，并在完整 manifest 中显式标记 unknown
-- **THEN** 系统保留该正文但将记录标记为待复核，迁移后不把它注入模型上下文
+- **THEN** 系统保留该正文但将记录标记为待复核，迁移后不把它注入模型上下文，且宿主时钟回拨不会使它重新生效
 
 #### Scenario: 成功迁移并验证语义等价
 - **WHEN** 合法 v1 的每个 key 都有完整治理 manifest 且存储路径安全
@@ -97,7 +97,7 @@
 
 #### Scenario: 复核恢复有效状态
 - **WHEN** 宿主对待复核记录执行有效复核并给出新的复核条件
-- **THEN** 元数据和 revision 原子更新，记录在新条件有效时重新进入上下文
+- **THEN** truth source、生命周期元数据和 revision 原子更新，原始 source/writer 保持不变，记录在新条件有效时重新进入上下文
 
 ### Requirement: Memory 迁移回归与离线 verifier
 系统 MUST 提供 v1/v2 解析、readiness、元数据宿主所有权、到期过滤、迁移备份、写后恢复、revision 冲突回滚、symlink 边界和公开结果脱敏的可执行测试。项目内 verifier MUST 离线运行，只访问指定项目根目录，并 MUST 在当前仓库无 MEMORY.md 时验证 `no_data` 且跳过 migrate。

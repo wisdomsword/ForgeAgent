@@ -17,6 +17,8 @@ def test_memory_migration_runbook_covers_bounded_operations():
         "0600",
         "不推断",
         "不进入 prompt",
+        "保留原始 `source`/`writer`",
+        "truth_source=unknown",
     ):
         assert required in text, required
 

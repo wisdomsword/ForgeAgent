@@ -1272,9 +1272,11 @@ class MemoryManager:
                 ):
                     migration_time = _format_timestamp(self._clock())
                     review_after = metadata.get("review_after")
-                    if review_after is None or (
-                        isinstance(review_after, str) and review_after > migration_time
-                    ):
+                    if review_after is None:
+                        metadata["review_after"] = migration_time
+                    elif not isinstance(review_after, str):
+                        raise ValueError("invalid review timestamp")
+                    elif _parse_timestamp(review_after) > _parse_timestamp(migration_time):
                         metadata["review_after"] = migration_time
                 governance = self._parse_governance(
                     {field: value for field, value in metadata.items() if field != "kind"}

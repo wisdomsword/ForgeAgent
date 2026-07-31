@@ -209,6 +209,30 @@ def test_unknown_truth_source_is_preserved_but_immediately_review_due(tmp_path):
     assert PRIVATE_VALUE not in earlier.render()
 
 
+def test_unknown_truth_source_rejects_invalid_review_timestamp_before_clamping(tmp_path):
+    original = _write_v1(tmp_path, {"editor": PRIVATE_VALUE})
+    manager = MemoryManager(
+        str(tmp_path),
+        clock=lambda: datetime(2026, 7, 31, 0, 0, tzinfo=UTC),
+    )
+    manifest = _manifest(
+        "editor",
+        truth_source="unknown",
+        review_after="not-a-timestamp",
+    )
+
+    readiness = manager.readiness(manifest)
+    migrated = manager.migrate_legacy(manifest)
+
+    assert (readiness.status, readiness.reason) == (
+        "legacy_needs_metadata",
+        "manifest_invalid",
+    )
+    assert (migrated.status, migrated.reason) == ("rejected", "manifest_invalid")
+    assert (tmp_path / ".forgeagent" / "MEMORY.md").read_bytes() == original
+    assert not (tmp_path / ".forgeagent" / "memory-backups").exists()
+
+
 @pytest.mark.parametrize("field", ["kind", "source"])
 def test_manifest_requires_explicit_matching_kind_and_legacy_source(tmp_path, field):
     original = _write_v1(tmp_path, {"editor": PRIVATE_VALUE})

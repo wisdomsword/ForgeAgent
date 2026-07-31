@@ -61,7 +61,7 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
 - Consumes: `MemoryCandidate(scope, kind, key, content)`、现有 project root/path/lock 边界。
 - Produces: `MemoryWriteSource`、`MemoryGovernance`、`ProjectMemoryRecord`、`MemoryFileHeader`、`MemoryReadiness`、`MemoryOperationResult`、`MemoryManager.readiness(manifest=None)`，以及严格的 v1/v2 snapshot 解析与 deterministic v2 serializer。
 
-- [ ] **Step 1: 记录基线与重叠文件现状**
+- [x] **Step 1: 记录基线与重叠文件现状**
 
   Run:
 
@@ -74,7 +74,7 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
 
   Expected: base-ref commit 可解析；当前 HEAD 可以包含已确认的 M42 设计/计划提交；`memory.py` 和 `test_memory.py` 没有用户 hunk；`task.py`、`cli.py` 及对应测试的既有 hunk保持可见且不被改动。
 
-- [ ] **Step 2: 写 readiness 和格式失败测试**
+- [x] **Step 2: 写 readiness 和格式失败测试**
 
   在 `tests/test_memory.py` 增加 imports 和精确 fixtures：
 
@@ -269,13 +269,13 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
       assert manager.render() == ""
   ```
 
-- [ ] **Step 3: 运行 RED 测试**
+- [x] **Step 3: 运行 RED 测试**
 
   Run: `uv run pytest tests/test_memory.py -q`
 
   Expected: FAIL，首个新失败为无法从 `forgeagent.memory` 导入 `MemoryGovernance` 或 `MemoryManager` 没有 `readiness`。
 
-- [ ] **Step 4: 定义公开类型和固定状态集合**
+- [x] **Step 4: 定义公开类型和固定状态集合**
 
   在 `src/forgeagent/memory.py` 中增加标准库 imports、常量和以下类型。`ProjectMemoryRecord.governance` 允许 `None` 的唯一原因是 v1 只读兼容；v2 parser 和 verifier 必须拒绝 `None`：
 
@@ -388,7 +388,7 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
       return datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
   ```
 
-- [ ] **Step 5: 实现 bounded snapshot parser、serializer 和 readiness**
+- [x] **Step 5: 实现 bounded snapshot parser、serializer 和 readiness**
 
   `MemoryManager.__init__` 增加 `clock` 并初始化格式/header/失效诊断状态：
 
@@ -443,7 +443,7 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
       return MemoryReadiness("legacy_ready", "v1", len(records), "manifest_valid")
   ```
 
-- [ ] **Step 6: 运行格式与既有 Memory 回归测试**
+- [x] **Step 6: 运行格式与既有 Memory 回归测试**
 
   Run:
 
@@ -454,7 +454,7 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
 
   Expected: PASS；既有 v1 load/render、session、symlink、lock 和审计测试仍通过。
 
-- [ ] **Step 7: 提交格式/readiness 基线**
+- [x] **Step 7: 提交格式/readiness 基线**
 
   ```bash
   git add src/forgeagent/memory.py tests/test_memory.py
@@ -477,7 +477,7 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
 - Consumes: Task 模型候选、REPL `/remember` 候选、Task 1 的 v2 types/parser/serializer。
 - Produces: `MemoryManager.apply(candidate, task_id=None, *, source="host_api")`，新项目首写 v2，v1 写入拒绝，以及 `host_api`/`model_candidate`/`user_command` 三种固定投影。
 
-- [ ] **Step 1: 写 host-owned metadata 和 v1 写入拒绝测试**
+- [x] **Step 1: 写 host-owned metadata 和 v1 写入拒绝测试**
 
   在 `tests/test_memory.py` 增加解析 metadata comment 的本地 helper 和测试：
 
@@ -554,7 +554,7 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
 
   在 `tests/test_task.py` 的 project Memory 集成测试中读取 v2 metadata，并断言 `source == "model_candidate"`；在 `tests/test_cli.py::test_repl_remember_and_memory_commands` 中断言 `source == "user_command"`。再分别增加一个 v1 fixture，证明 Task 和 `/remember` 都把 `migration_required` 暴露为结果而不改写文件。
 
-- [ ] **Step 2: 运行 RED 测试**
+- [x] **Step 2: 运行 RED 测试**
 
   Run:
 
@@ -566,7 +566,7 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
 
   Expected: FAIL，因为 `apply` 尚不接受 `source`、首写仍是 v1、Task/REPL 未传递可信来源。
 
-- [ ] **Step 3: 实现固定来源投影与 v2 project write**
+- [x] **Step 3: 实现固定来源投影与 v2 project write**
 
   在 `memory.py` 中增加固定投影；`MemoryCandidate` 字段不得参与映射选择：
 
@@ -613,7 +613,7 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
 
   `apply` 在 admission 后、获取锁前检查 `source in _SOURCE_PROJECTION`；无效 runtime 值返回 `rejected/invalid_source`，clock 为 naive 或抛错时返回固定 `persistence_error/invalid_clock`，不得传播 exception。把 project 分支改为锁内严格读取 snapshot：`none` 创建 v2，`v1` 返回 `migration_required`，`v2` 合并 record，`invalid`/unsafe 映射固定 persistence reason。计算 active render 大小和完整 serializer 存储大小后再 `_atomic_write_bytes`，写后重新解析成功才更新 manager；每次成功写生成 `secrets.token_hex(16)` revision，并保留 header 的 migration fields。
 
-- [ ] **Step 4: 在可信调用点传递 source**
+- [x] **Step 4: 在可信调用点传递 source**
 
   `src/forgeagent/task.py` 只改这一处调用：
 
@@ -633,7 +633,7 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
 
   不修改 `MemoryCandidate`、protocol parser 或 HTTP schema。
 
-- [ ] **Step 5: 运行专项和集成 GREEN 测试**
+- [x] **Step 5: 运行专项和集成 GREEN 测试**
 
   Run:
 
@@ -647,7 +647,7 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
 
   Expected: PASS；golden Memory catalog 仍是一条 accepted、一条 procedure rejected。
 
-- [ ] **Step 6: 选择性暂存并检查脏文件**
+- [x] **Step 6: 选择性暂存并检查脏文件**
 
   ```bash
   git add src/forgeagent/memory.py tests/test_memory.py
@@ -658,7 +658,7 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
 
   Expected: cached diff 只含两个 `source=` 调用和对应 M42 测试；不得含 attention、receipt_store、HTTP、collaboration 或其他既有 hunks。
 
-- [ ] **Step 7: 提交来源投影**
+- [x] **Step 7: 提交来源投影**
 
   Run: `git commit -m "feat(memory): persist host-owned metadata"`
 
@@ -672,7 +672,7 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
 - Consumes: Task 1 的 `MemoryGovernance`/header/snapshot 和 Task 2 的 v2 project writes。
 - Produces: active-only `render()`、`correct_project(candidate, governance, *, task_id=None)`、`delete_project(key, *, task_id=None)`、`revalidate_project(key, *, review_after, expires_at, truth_source, task_id=None)`；每次成功变更生成新 revision。
 
-- [ ] **Step 1: 写 lifecycle RED 测试**
+- [x] **Step 1: 写 lifecycle RED 测试**
 
   在 `tests/test_memory.py` 增加：
 
@@ -768,13 +768,13 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
       assert ("editor: nvim" in manager.render()) is visible
   ```
 
-- [ ] **Step 2: 运行 lifecycle RED 测试**
+- [x] **Step 2: 运行 lifecycle RED 测试**
 
   Run: `uv run pytest tests/test_memory.py -q -k 'expired or review or correct or delete or revalidate'`
 
   Expected: FAIL，因为三个受控方法和 active-only projection 尚不存在。
 
-- [ ] **Step 3: 实现 active projection 与去重诊断**
+- [x] **Step 3: 实现 active projection 与去重诊断**
 
   增加以下明确逻辑；v1 records 的 `governance is None` 继续兼容渲染：
 
@@ -811,13 +811,13 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
 
   `render()` 调用 `_active_project()`；异常只映射固定 `memory record inactive: invalid_time`，不得拼接 exception。
 
-- [ ] **Step 4: 实现共享锁内 read-modify-write 操作**
+- [x] **Step 4: 实现共享锁内 read-modify-write 操作**
 
   增加一个私有 `_mutate_current_v2`，锁内重读当前 v2、应用纯函数、生成新 revision、验证 storage/render 上限、原子写、重读验证后才更新 snapshot。三个 public 方法只能调用该 helper，签名固定为 `correct_project(self, candidate: MemoryCandidate, governance: MemoryGovernance, *, task_id: str | None = None) -> MemoryResult`、`delete_project(self, key: str, *, task_id: str | None = None) -> MemoryResult`、`revalidate_project(self, key: str, *, review_after: str | None, expires_at: str | None, truth_source: str, task_id: str | None = None) -> MemoryResult`。
 
   `correct_project` 重验 candidate 和完整 governance；`delete_project` 要求合法 key 且存在；`revalidate_project` 只允许白名单 truth source、合法时间，并用 `dataclasses.replace` 保留其余治理字段。成功操作分别发出 `memory.replaced`、`memory.deleted`、`memory.revalidated`，参数只含 scope/kind/key/reason/revision。
 
-- [ ] **Step 5: 运行 GREEN 和回归测试**
+- [x] **Step 5: 运行 GREEN 和回归测试**
 
   Run:
 
@@ -829,7 +829,7 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
 
   Expected: PASS；session Memory 和 v1 compatible render 不回归。
 
-- [ ] **Step 6: 提交生命周期能力**
+- [x] **Step 6: 提交生命周期能力**
 
   ```bash
   git add src/forgeagent/memory.py tests/test_memory.py
@@ -847,7 +847,7 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
 - Consumes: canonical v1 snapshot、完整 `Mapping[str, object]` manifest、Task 1 的 strict v2 parser。
 - Produces: `migrate_legacy(manifest, *, task_id=None)`、`verify_project(*, task_id=None)`、项目内 `.forgeagent/memory-backups/<migration-id>.memory-v1.bak` 和写后语义验证。
 
-- [ ] **Step 1: 写 migration/verify RED 测试与本地 fixture**
+- [x] **Step 1: 写 migration/verify RED 测试与本地 fixture**
 
   创建 `tests/test_memory_migration.py`：
 
@@ -950,13 +950,13 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
 
   增加具名测试 `test_manifest_requires_explicit_matching_kind_and_legacy_source`、`test_backup_directory_and_file_symlinks_are_rejected`、`test_existing_backup_name_is_not_overwritten`、`test_oversize_or_noncanonical_v1_stops_before_backup`、`test_migration_result_and_audit_are_minimally_disclosing`。每个测试都先保存原 v1 bytes，失败后断言 bytes 相等且没有虚假成功；collision test 用 `monkeypatch.setattr(memory_module.secrets, "token_hex", lambda _size: "a" * 32)` 固定名称；symlink tests 断言项目外目标 bytes 不变；脱敏 test 断言 `PRIVATE_VALUE`、`str(tmp_path)`、完整 manifest 和注入的 `OSError("private failure")` 均不在 result/audit/diagnostic repr。
 
-- [ ] **Step 2: 运行 migration RED 测试**
+- [x] **Step 2: 运行 migration RED 测试**
 
   Run: `uv run pytest tests/test_memory_migration.py -q`
 
   Expected: FAIL，因为 `migrate_legacy` 和 `verify_project` 尚不存在。
 
-- [ ] **Step 3: 实现 symlink-safe backup 与迁移事务**
+- [x] **Step 3: 实现 symlink-safe backup 与迁移事务**
 
   增加固定私有接口 `_safe_backup_directory(self, *, create: bool) -> Path | None`、`_safe_backup_path(self, migration_id: str) -> Path`、`_create_backup(self, migration_id: str, raw: bytes) -> Path`、`_atomic_write_bytes(self, raw: bytes) -> None` 和 `_verify_migration_snapshot(self, before: _ProjectSnapshot, after: _ProjectSnapshot, migration_id: str, migration_revision: str) -> bool`。
 
@@ -1013,7 +1013,7 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
 
   实际实现必须把 backup 创建后但 replace 前的 OSError 映射为固定失败，并保留原 v1；不能在 public result 中保留 `backup` Path。unknown truth source 的 `review_after` 用 `min(existing_review_after, migration_now)` 规范为不晚于当前注入时钟。
 
-- [ ] **Step 4: 实现只读 verify**
+- [x] **Step 4: 实现只读 verify**
 
   ```python
   def verify_project(self, *, task_id: str | None = None) -> MemoryOperationResult:
@@ -1039,7 +1039,7 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
 
   verify 不获取写锁、不创建目录、不修改文件；审计只包含 operation/status/reason/entry_count 和 opaque id/revision。
 
-- [ ] **Step 5: 运行 GREEN、权限和脱敏测试**
+- [x] **Step 5: 运行 GREEN、权限和脱敏测试**
 
   Run:
 
@@ -1051,7 +1051,7 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
 
   Expected: PASS；成功迁移可 reload/render/verify，所有 pre-write 失败保留原 bytes。
 
-- [ ] **Step 6: 提交迁移和 verifier**
+- [x] **Step 6: 提交迁移和 verifier**
 
   ```bash
   git add src/forgeagent/memory.py tests/test_memory_migration.py
@@ -1069,7 +1069,7 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
 - Consumes: Task 4 的 backup、迁移 header 和 `_atomic_write_bytes`。
 - Produces: 写后验证失败自动恢复、`rollback_migration(migration_id, *, task_id=None)`、后续 revision 冲突拒绝和无 force 路径。
 
-- [ ] **Step 1: 写恢复/rollback RED 测试**
+- [x] **Step 1: 写恢复/rollback RED 测试**
 
   在 `tests/test_memory_migration.py` 增加：
 
@@ -1158,13 +1158,13 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
       assert set(parameters) == {"self", "migration_id", "task_id"}
   ```
 
-- [ ] **Step 2: 运行恢复/rollback RED 测试**
+- [x] **Step 2: 运行恢复/rollback RED 测试**
 
   Run: `uv run pytest tests/test_memory_migration.py -q -k 'restore or rollback or post_write'`
 
   Expected: FAIL，因为恢复 helper 和 `rollback_migration` 尚未满足契约。
 
-- [ ] **Step 3: 实现自动恢复的确认语义**
+- [x] **Step 3: 实现自动恢复的确认语义**
 
   `_restore_after_failed_migration` 必须使用 backup 原 bytes 调 `_atomic_write_bytes`，再重读并同时证明字节相等、canonical v1 parse 和 entry_count 相等；只有三项均成立才返回 `persistence_error/verification_failed`，否则返回 `recovery_failed/restore_unconfirmed`，且不把 manager snapshot 安装成成功 v2。
 
@@ -1198,7 +1198,7 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
       )
   ```
 
-- [ ] **Step 4: 实现 revision 绑定 rollback**
+- [x] **Step 4: 实现 revision 绑定 rollback**
 
   ```python
   def rollback_migration(
@@ -1245,7 +1245,7 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
 
   `_read_safe_backup` 必须以 `O_RDONLY | O_NOFOLLOW | O_CLOEXEC` 打开，`fstat` 同时验证 regular file、`0600` 和 `<= _MAX_STORAGE_BYTES`，不得通过 Path 先跟随 symlink。
 
-- [ ] **Step 5: 运行故障矩阵和全 Memory 测试**
+- [x] **Step 5: 运行故障矩阵和全 Memory 测试**
 
   Run:
 
@@ -1257,7 +1257,7 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
 
   Expected: PASS；rollback 冲突时当前 v2 bytes 不变；所有 recovery_failed 分支保留 backup 且不宣称成功。
 
-- [ ] **Step 6: 提交恢复和回滚**
+- [x] **Step 6: 提交恢复和回滚**
 
   ```bash
   git add src/forgeagent/memory.py tests/test_memory_migration.py
@@ -1275,7 +1275,7 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
 - Consumes: `MemoryManager.readiness/migrate_legacy/verify_project/rollback_migration`。
 - Produces: `readiness`、`migrate`、`verify`、`rollback` 四个离线子命令，单行公开 JSON，确定性退出码；manifest 只能是 project-relative safe regular JSON。
 
-- [ ] **Step 1: 写脚本 RED 测试**
+- [x] **Step 1: 写脚本 RED 测试**
 
   创建 `tests/test_m42_memory_migration_script.py`：
 
@@ -1340,13 +1340,13 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
 
   增加具名 tests `test_manifest_symlink_is_rejected_without_following_target`、`test_invalid_or_oversize_manifest_has_fixed_reason`、`test_verify_reports_legacy_without_modifying_it`、`test_rollback_invalid_id_is_rejected`、`test_script_never_prints_runtime_exception`。前两项分别断言 `manifest_path` 和 `manifest_format`/`manifest_file`；verify 断言 `not_current/legacy_format` 且 bytes 不变；rollback 断言 `backup_unavailable/invalid_migration_id`；故障 test monkeypatch 脚本调用边界抛出含 private marker 的 exception，并断言 stdout/stderr 均无 marker、secret 或 root。
 
-- [ ] **Step 2: 运行脚本 RED 测试**
+- [x] **Step 2: 运行脚本 RED 测试**
 
   Run: `uv run pytest tests/test_m42_memory_migration_script.py -q`
 
   Expected: FAIL，因为脚本不存在。
 
-- [ ] **Step 3: 实现窄脚本入口**
+- [x] **Step 3: 实现窄脚本入口**
 
   创建 `scripts/m42_memory_migration.py`，实现以下结构；错误结果使用固定字典，不序列化 exception：
 
@@ -1469,7 +1469,7 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
 
   `ManifestInputError.reason` 只允许 `manifest_format`、`manifest_path`、`manifest_file` 三个固定值；不得把底层 exception 文本写入 stdout/stderr。
 
-- [ ] **Step 4: 运行脚本 GREEN 与真实仓库 readiness**
+- [x] **Step 4: 运行脚本 GREEN 与真实仓库 readiness**
 
   Run:
 
@@ -1481,7 +1481,7 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
 
   Expected: pytest PASS；真实命令单行输出 `{"entry_count":0,"format_version":"none","reason":"memory_absent","status":"no_data"}`；文件清单与执行前一致，没有 `MEMORY.md` 或 `memory-backups/`。
 
-- [ ] **Step 5: 提交离线入口**
+- [x] **Step 5: 提交离线入口**
 
   ```bash
   git add scripts/m42_memory_migration.py tests/test_m42_memory_migration_script.py
@@ -1501,7 +1501,7 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
 - Consumes: M42 public statuses、脚本命令、v1/v2、backup/rollback 契约。
 - Produces: 单一运维说明及 README、威胁模型、治理入口的可执行引用契约。
 
-- [ ] **Step 1: 写文档 RED 测试**
+- [x] **Step 1: 写文档 RED 测试**
 
   创建 `tests/test_memory_migration_docs.py`：
 
@@ -1542,13 +1542,13 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
       assert "docs/agent-governance-gates.md" in text
   ```
 
-- [ ] **Step 2: 运行文档 RED 测试**
+- [x] **Step 2: 运行文档 RED 测试**
 
   Run: `uv run pytest tests/test_memory_migration_docs.py -q`
 
   Expected: FAIL，因为 runbook 和引用尚不存在。
 
-- [ ] **Step 3: 写具体运维说明**
+- [x] **Step 3: 写具体运维说明**
 
   `docs/memory-migration.md` 必须按以下固定顺序写完整章节：
 
@@ -1576,13 +1576,13 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
   uv run python scripts/m42_memory_migration.py rollback --root /absolute/project --migration-id 0123456789abcdef0123456789abcdef
   ```
 
-- [ ] **Step 4: 更新三个入口而不覆盖用户 hunks**
+- [x] **Step 4: 更新三个入口而不覆盖用户 hunks**
 
   - README Memory 小节增加 `[Project Memory v2 与迁移](docs/memory-migration.md)`，说明 v1 只读和新写入需先迁移。
   - `docs/threat-model.md` T15 增加 host-owned metadata、inactive prompt exclusion、private backup、revision conflict 和残余风险“错误但未到复核期的 host assertion 仍可能被使用”。
   - 新 runbook 链接现有 `docs/agent-governance-gates.md`，明确 M32 治理模板不替代 M42 运行时 metadata 校验；该治理文件是用户既有未跟踪输入，本 change 不修改、不暂存它。
 
-- [ ] **Step 5: 运行文档 GREEN 测试**
+- [x] **Step 5: 运行文档 GREEN 测试**
 
   Run:
 
@@ -1593,7 +1593,7 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
 
   Expected: PASS。
 
-- [ ] **Step 6: 选择性暂存文档并提交**
+- [x] **Step 6: 选择性暂存文档并提交**
 
   ```bash
   git add docs/memory-migration.md tests/test_memory_migration_docs.py
@@ -1617,7 +1617,7 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
 - Consumes: Tasks 1-7 的实现、测试、当前仓库 readiness 输出和 Comet 状态。
 - Produces: 完整验证证据、已完成任务 ledger、归档 change 和 M42 续接指引。
 
-- [ ] **Step 1: 运行专项与相关集成门禁**
+- [x] **Step 1: 运行专项与相关集成门禁**
 
   ```bash
   uv run pytest tests/test_memory.py tests/test_memory_migration.py tests/test_m42_memory_migration_script.py tests/test_memory_migration_docs.py tests/test_task.py tests/test_cli.py tests/test_golden_candidates_memory.py -q
@@ -1626,7 +1626,7 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
 
   Expected: tests 全部 PASS；readiness 精确为 `no_data`、零条目；没有创建 `.forgeagent/MEMORY.md` 或 `.forgeagent/memory-backups/`。
 
-- [ ] **Step 2: 运行全量质量门禁**
+- [x] **Step 2: 运行全量质量门禁**
 
   ```bash
   uv run pytest
@@ -1638,7 +1638,7 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
 
   Expected: 全部 exit 0。记录 pytest 的精确 passed/skipped 数和 OpenSpec 的精确通过数；若失败来自用户既有未暂存 hunk，保留原输出并隔离判断，不修改无关文件。
 
-- [ ] **Step 3: 做第一轮代码/契约自评**
+- [x] **Step 3: 做第一轮代码/契约自评**
 
   逐项核对 delta spec 六个 requirements 和全部 scenarios，并用以下搜索确认没有遗漏：
 
@@ -1649,11 +1649,11 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
 
   必须确认：legacy manifest 显式提供 `kind`；unknown truth 不注入；v1 只读；readiness 零写；source/truth_source 分离；storage/render 双上限；backup O_EXCL/O_NOFOLLOW/0600；写后失败恢复；rollback revision 冲突；没有 force、正文/path/exception 泄漏。发现问题立即补失败测试、最小修复并重跑受影响测试。
 
-- [ ] **Step 4: 做第二轮敌手/故障自评**
+- [x] **Step 4: 做第二轮敌手/故障自评**
 
   从 TOCTOU、symlink、跨进程 stale manager、文件在 readiness 后改变、migration 后写入、invalid clock、unknown JSON 字段、重复 key、oversize、恢复再次失败和 audit sink 失败角度重新审查。特别确认 migration 在同一个 project lock 内重读源文件，不能依赖之前 readiness 的快照；失败时不把内存状态安装成成功状态。发现问题立即以 RED/GREEN 循环修复并重复 Step 1-2。
 
-- [ ] **Step 5: 检查公开面没有敏感信息**
+- [x] **Step 5: 检查公开面没有敏感信息**
 
   ```bash
   uv run pytest tests/test_memory.py tests/test_memory_migration.py tests/test_m42_memory_migration_script.py -q -k 'disclos or secret or path or exception or audit or diagnostic'
@@ -1662,11 +1662,11 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
 
   Expected: tests PASS；搜索结果为空或仅出现在明确不进入公开对象的内部控制流，逐项在 verification report 说明。
 
-- [ ] **Step 6: 更新任务 ledger 和验证报告**
+- [x] **Step 6: 更新任务 ledger 和验证报告**
 
   将 `openspec/changes/migrate-memory-metadata/tasks.md` 仅在相应 evidence 已取得后从 `- [ ]` 改为 `- [x]`。验证报告按“范围、base-ref、专项验证、全量门禁、真实 readiness、迁移决策、两轮自评、敏感信息检查、未执行动作、剩余风险”顺序写入；所有命令记录实际 exit code 和精确计数，明确 `migration_skipped` 的原因是当前仓库 `no_data`，而不是迁移功能未实现。
 
-- [ ] **Step 7: 通过 Comet verify 并归档**
+**Post-build Step 7: 通过 Comet verify 并归档（由 Comet phase 状态跟踪）**
 
   Run:
 
@@ -1682,7 +1682,7 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
   git status --short
   ```
 
-- [ ] **Step 8: 创建 M42 里程碑并更新 latest**
+**Post-build Step 8: 创建 M42 里程碑并更新 latest（verify/archive 后执行）**
 
   `milestones/milestone_042.md` 严格使用 `MILESTONE_GUIDE.md` 模板，写明：v2 contract、readiness、来源投影、lifecycle、migration/verify/rollback、真实 `no_data`、全量验证、两轮自评、PyPI/tag/push 未执行，以及下一阶段只在真实长期 Memory 使用证据出现后规划检索/排序或备份保留策略。将 `milestones/latest` 的唯一内容改为：
 
@@ -1690,7 +1690,7 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
   milestone_042.md
   ```
 
-- [ ] **Step 9: 选择性提交收尾文件**
+**Post-build Step 9: 选择性提交收尾文件（verify/archive 后执行）**
 
   ```bash
   git add openspec/changes/archive/2026-07-31-migrate-memory-metadata docs/superpowers/reports/2026-07-31-memory-metadata-migration-verify.md milestones/milestone_042.md milestones/latest

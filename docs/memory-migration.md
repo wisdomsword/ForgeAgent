@@ -34,7 +34,9 @@ M32 模板帮助立项，但不替代 M42 的
 | `recovery` | 固定恢复介质 |
 | `delete_or_correct` | 宿主纠错、删除和复核策略 |
 
-模型候选、`/remember` 和直接 host API 分别投影为固定来源三元组，正文不能覆盖这些字段。
+模型候选、`/remember` 和直接 host API 分别投影为固定入口与写入者，正文不能覆盖这些字段。
+后续复核保留原始 `source`/`writer`，只更新 `truth_source` 和生命周期条件，避免把新的权威判断
+伪装成另一条写入路径。key 与正文使用同一 secret 边界；非法、含 secret 的 key 不进入结果或审计。
 
 ## Readiness 决策表
 
@@ -72,8 +74,9 @@ verify 是只读操作。rollback 只接受 32 位小写 hex migration id，并�
 ## 到期、复核、纠错和删除
 
 `expires_at <= now` 或 `review_after <= now` 的记录仍保留在 v2 文件中，但不进入 prompt。
-宿主可调用受控纠错、删除或复核操作；每次成功操作都生成新 revision。复核会同步更新完整
-来源三元组，不能只改 `truth_source` 而留下互相矛盾的 provenance。
+`truth_source=unknown` 的记录不依赖当前时钟，始终保持待复核，直到宿主显式复核或纠正。
+宿主可调用受控纠错、删除或复核操作；每次成功操作都生成新 revision。复核保留记录的原始
+`source`/`writer`，并更新 `truth_source` 与新的复核/到期条件。
 
 ## 人工编辑边界
 
