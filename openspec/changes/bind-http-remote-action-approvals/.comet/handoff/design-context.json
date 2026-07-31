@@ -1,0 +1,16 @@
+{
+  "change": "bind-http-remote-action-approvals",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "a474992009949a06f797200fb041326781949462fbc93f40caf1688fd72a3c21",
+  "files": [
+    { "path": "openspec/changes/bind-http-remote-action-approvals/proposal.md", "sha256": "986cb95ad5b0650bf3ae4502b26d7975015c12e00634ff419568586dbd1614ea" },
+    { "path": "openspec/changes/bind-http-remote-action-approvals/design.md", "sha256": "19c6d779de67c41a1bfa72507a3bd87607f0f6d64df98542981de89c1621a152" },
+    { "path": "openspec/changes/bind-http-remote-action-approvals/tasks.md", "sha256": "d27deab7c715f2e7ba4c7d28c78422998e4a3934f58cc26acc619519ab9b8d3b" },
+    { "path": "openspec/changes/bind-http-remote-action-approvals/specs/external-action-receipts/spec.md", "sha256": "a31636d6b5f92554028273554b5588cc22e0153a142d65d05ecdbae3771409d0" },
+    { "path": "openspec/changes/bind-http-remote-action-approvals/specs/http-action-approvals/spec.md", "sha256": "e2f545c709e62ad38a0798b000f94b1245da27c9fac9ada9fbdbcd3e551ff5da" },
+    { "path": "openspec/changes/bind-http-remote-action-approvals/specs/http-task-service/spec.md", "sha256": "50452c1a3b1d5f0f70cf9bdf8e7ca700bf1ba9ac8a9d1e472a665f118e760f15" }
+  ]
+}
