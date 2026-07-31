@@ -2,6 +2,8 @@
 comet_change: extract-cli-boundaries
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-07-31-extract-cli-boundaries
+status: final
 ---
 
 # M41 CLI Boundary Extraction 技术设计

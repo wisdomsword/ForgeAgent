@@ -2,6 +2,7 @@
 change: extract-cli-boundaries
 design-doc: docs/superpowers/specs/2026-07-31-cli-boundary-extraction-design.md
 base-ref: a2c9925f471cd76a0411befd1902793786258595
+archived-with: 2026-07-31-extract-cli-boundaries
 ---
 
 # M41 CLI Boundary Extraction Implementation Plan
