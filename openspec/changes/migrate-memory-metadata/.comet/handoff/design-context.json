@@ -1,0 +1,14 @@
+{
+  "change": "migrate-memory-metadata",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "51095a8476600629ca870d6dd62175f0cb0c35c30845c73d05a91d1293438f63",
+  "files": [
+    { "path": "openspec/changes/migrate-memory-metadata/proposal.md", "sha256": "c922f22fe64947b76d1ff02c0cf1f5fb595e24a3a50beeee9a1632c8a2ba2f08" },
+    { "path": "openspec/changes/migrate-memory-metadata/design.md", "sha256": "44d093845a9c6c08983a126971b27e027976956d7f8dec08e7108a42d8a81eb2" },
+    { "path": "openspec/changes/migrate-memory-metadata/tasks.md", "sha256": "66b213987c3165de14cca55ba364e10552f47d9306558ae9d06b8d6016917c1f" },
+    { "path": "openspec/changes/migrate-memory-metadata/specs/runtime-memory/spec.md", "sha256": "d3270cea2e2c09ddc28efd4f86130a1e080dee87b5a4c2201748c4cdfadcff46" }
+  ]
+}
