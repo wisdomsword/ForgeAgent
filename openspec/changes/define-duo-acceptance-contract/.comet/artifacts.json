@@ -1,0 +1,8 @@
+{
+  "openspec_proposal": "openspec/changes/define-duo-acceptance-contract/proposal.md",
+  "openspec_design": "openspec/changes/define-duo-acceptance-contract/design.md",
+  "openspec_tasks": "openspec/changes/define-duo-acceptance-contract/tasks.md",
+  "openspec_delta_spec": "openspec/changes/define-duo-acceptance-contract/specs/runtime-collaboration/spec.md",
+  "handoff_context": "openspec/changes/define-duo-acceptance-contract/.comet/handoff/design-context.json",
+  "handoff_markdown": "openspec/changes/define-duo-acceptance-contract/.comet/handoff/design-context.md"
+}

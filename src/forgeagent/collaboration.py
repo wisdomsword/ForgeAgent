@@ -422,13 +422,75 @@ def plan_digest(items: list[AcceptanceItem] | tuple[AcceptanceItem, ...]) -> str
     return hashlib.sha256(encoded).hexdigest()
 
 
+_LEGACY_DUO_PLAN = (
+    AcceptanceItem(
+        id="goal",
+        behavior="Satisfy the original task goal",
+        acceptance="External artifacts satisfy the original task goal",
+    ),
+)
+
+
 def _duo_plan(goal: str) -> tuple[AcceptanceItem, ...]:
-    _ = goal
+    normalized = goal.casefold() if isinstance(goal, str) else ""
+    artifact_words = (
+        "artifact",
+        "document",
+        "file",
+        "path",
+        "report",
+        "save",
+        "write",
+        "create",
+        "update",
+    )
+    artifact_terms = (
+        "文件",
+        "文档",
+        "产物",
+        "路径",
+        "写入",
+        "创建",
+        "保存",
+    )
+    verification_words = (
+        "build",
+        "check",
+        "lint",
+        "pytest",
+        "run",
+        "test",
+        "verify",
+    )
+    verification_terms = (
+        "验证",
+        "检查",
+        "构建",
+        "测试",
+        "运行",
+    )
+    if any(re.search(rf"\b{re.escape(word)}\b", normalized) for word in artifact_words) or any(
+        term in normalized for term in artifact_terms
+    ):
+        behavior = "Produce an inspectable artifact within the allowed project root."
+        acceptance = (
+            "Evaluator can locate a relative artifact and inspect its existence and content."
+        )
+    elif any(
+        re.search(rf"\b{re.escape(word)}\b", normalized) for word in verification_words
+    ) or any(term in normalized for term in verification_terms):
+        behavior = "Run the requested verification and preserve its observable result."
+        acceptance = "Evaluator can inspect a registered check result or bounded command result."
+    else:
+        behavior = "Provide a concrete response supported by externally observable evidence."
+        acceptance = (
+            "Evaluator can cite a response excerpt or safe artifact that supports the conclusion."
+        )
     return (
         AcceptanceItem(
             id="goal",
-            behavior="Satisfy the original task goal",
-            acceptance="External artifacts satisfy the original task goal",
+            behavior=behavior,
+            acceptance=acceptance,
         ),
     )
 
@@ -739,7 +801,7 @@ class CollaborationState(BaseModel):
         if self.mode == "duo":
             if self.status == "active" and self.phase not in {"generator", "evaluator"}:
                 raise ValueError("duo phase must be generator or evaluator while active")
-            if self.plan != _duo_plan(self.goal):
+            if self.plan != _duo_plan(self.goal) and self.plan != _LEGACY_DUO_PLAN:
                 raise ValueError("duo requires the system acceptance plan")
         elif self.status == "active":
             if self.phase == "planning" and self.plan:

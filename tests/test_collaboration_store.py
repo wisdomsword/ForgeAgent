@@ -32,7 +32,7 @@ def test_store_creates_loads_and_atomically_saves_private_state(tmp_path: Path):
     assert store.load(created.collaboration_id) == created
     assert created.status == "active"
     assert created.phase == "generator"
-    assert created.plan[0].behavior == "Satisfy the original task goal"
+    assert "inspectable artifact" in created.plan[0].behavior.casefold()
     assert path.stat().st_mode & 0o777 == 0o600
     saved = store.save(created.model_copy(update={"rounds": 1}), expected_revision=0)
     assert saved.revision == 1

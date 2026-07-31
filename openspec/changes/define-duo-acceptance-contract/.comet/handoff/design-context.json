@@ -1,0 +1,14 @@
+{
+  "change": "define-duo-acceptance-contract",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "2250e4268f6a8e118d3cf305511001e6f918fcb215a26183547b315c77a91f8e",
+  "files": [
+    { "path": "openspec/changes/define-duo-acceptance-contract/proposal.md", "sha256": "0c6bd1e7773f92a0ced71112a7a9300b356176620ee7d1cf3b20067437dc3f9e" },
+    { "path": "openspec/changes/define-duo-acceptance-contract/design.md", "sha256": "643335765dc2a6536b8e251c862b4e5d23b65ac17829abd01f2fef25fa1a5bb1" },
+    { "path": "openspec/changes/define-duo-acceptance-contract/tasks.md", "sha256": "2e7fd5b301459d36b6b10efcc372b151894b17fb7978a9d13ee8e567791fbc68" },
+    { "path": "openspec/changes/define-duo-acceptance-contract/specs/runtime-collaboration/spec.md", "sha256": "48490ff65c9f2e1af0df8ea3857646cca8ffccbbaf250e9e3bfe0beb9623298c" }
+  ]
+}
