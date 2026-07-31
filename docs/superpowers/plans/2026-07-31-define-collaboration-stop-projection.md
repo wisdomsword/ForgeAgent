@@ -35,20 +35,20 @@ base-ref: cb5efb6ce33d55f3264e4607ec0b4a902a8afeb9
 - Produces: `_project_collaboration_stop(reason: str, attention: Attention | None = None) -> tuple[Literal["stopped", "cancelled", "failed"], str, Attention | None]`
 - Produces: optional `CollaborationState.attention` and `CollaborationReport.attention`
 
-- [ ] **Step 1: Write failing mapping and model tests**
+- [x] **Step 1: Write failing mapping and model tests**
 
 Add a parameterized matrix for needs input, blocked, external action, five resource reasons, cancellation, unrecoverable reasons and unknown failure. Add state/report validation tests for matching attention and legacy JSON without the field.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run: `UV_CACHE_DIR=/tmp/forgeagent-m39-review-uv-cache rtk uv run pytest -q tests/test_collaboration_models.py tests/test_collaboration_runner.py`
 Expected: import/field/reason assertions fail because the projection helper and report attention do not exist.
 
-- [ ] **Step 3: Implement the minimum projection**
+- [x] **Step 3: Implement the minimum projection**
 
 Add fixed reason sets and the pure helper; extend `_STOP_REASONS`, State/Report fields and validators; make `_task_failure()` call the helper and pass attention to `_finish()`.
 
-- [ ] **Step 4: Verify GREEN**
+- [x] **Step 4: Verify GREEN**
 
 Run the same focused command; expected all tests pass.
 
@@ -62,20 +62,20 @@ Run the same focused command; expected all tests pass.
 - Produces: `_public_handoff_goal(goal: str) -> str`
 - Preserves: `_role_task_data(...)["goal"] == state.goal`
 
-- [ ] **Step 1: Write failing trust-boundary tests**
+- [x] **Step 1: Write failing trust-boundary tests**
 
 Create a goal containing `/data/input.csv`, a configured secret and a control character. Assert internal role task data retains the validated execution path, public handoff masks it, and audit/report contain neither path, secret nor raw goal.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run: `UV_CACHE_DIR=/tmp/forgeagent-m39-review-uv-cache rtk uv run pytest -q tests/test_collaboration_handoff.py`
 Expected: explicit execution/public projection contract assertion fails before the named boundary exists.
 
-- [ ] **Step 3: Implement explicit public projection**
+- [x] **Step 3: Implement explicit public projection**
 
 Use one named helper at `build_handoff_packet()` while leaving `_role_task_data` and `_planner_task_data` on `state.goal`. Do not add a second persisted goal field.
 
-- [ ] **Step 4: Verify GREEN**
+- [x] **Step 4: Verify GREEN**
 
 Run the same focused command; expected all handoff tests pass.
 
@@ -85,19 +85,19 @@ Run the same focused command; expected all handoff tests pass.
 - Modify: `openspec/changes/define-collaboration-stop-projection/tasks.md`
 - Create: `docs/superpowers/reports/2026-07-31-define-collaboration-stop-projection-verify.md`
 
-- [ ] **Step 1: Run integration tests**
+- [x] **Step 1: Run integration tests**
 
 Run Collaboration, Loop and HTTP focused suites to confirm stable reason/attention projection and no compatibility regression.
 
-- [ ] **Step 2: Run static and strict checks**
+- [x] **Step 2: Run static and strict checks**
 
 Run Ruff check, Ruff format check and OpenSpec strict validation.
 
-- [ ] **Step 3: Run full verification**
+- [x] **Step 3: Run full verification**
 
 Run full pytest and `uv build`; record exact evidence and confirm no publication action ran.
 
-- [ ] **Step 4: Final self-review and task completion**
+- [x] **Step 4: Final self-review and task completion**
 
 Review the diff twice for ambiguity, incorrect grouping, over-conservatism, inconsistency and leakage; fix any issue, rerun affected tests, then check all OpenSpec tasks.
 
