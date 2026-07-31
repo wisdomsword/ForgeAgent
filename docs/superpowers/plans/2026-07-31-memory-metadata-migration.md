@@ -45,7 +45,6 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
 - Create: `docs/memory-migration.md` — v2、manifest、备份、回滚和人工纠错操作说明。
 - Modify: `README.md` — Memory 章节链接到迁移说明；只暂存 M42 hunk。
 - Modify: `docs/threat-model.md` — T15 的元数据、备份、失效和回滚控制；只暂存 M42 hunk。
-- Modify: `docs/agent-governance-gates.md` — 把 M32 治理问题连接到 M42 运行时 verifier；只暂存 M42 hunk。
 - Create: `tests/test_memory_migration_docs.py` — 文档契约测试。
 - Modify: `openspec/changes/migrate-memory-metadata/tasks.md` — 实施完成后逐项勾选。
 - Create: `docs/superpowers/reports/2026-07-31-memory-metadata-migration-verify.md` — M42 验证证据。
@@ -69,10 +68,11 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
   ```bash
   git status --short
   git diff -- src/forgeagent/memory.py tests/test_memory.py src/forgeagent/task.py src/forgeagent/cli.py tests/test_task.py tests/test_cli.py
+  git cat-file -e 35fe8cce29cdb781fcfcd385c54791c7e1a10795^{commit}
   git rev-parse HEAD
   ```
 
-  Expected: HEAD 为 `35fe8cce29cdb781fcfcd385c54791c7e1a10795`；`memory.py` 和 `test_memory.py` 没有用户 hunk；`task.py`、`cli.py` 及对应测试的既有 hunk保持可见且不被改动。
+  Expected: base-ref commit 可解析；当前 HEAD 可以包含已确认的 M42 设计/计划提交；`memory.py` 和 `test_memory.py` 没有用户 hunk；`task.py`、`cli.py` 及对应测试的既有 hunk保持可见且不被改动。
 
 - [ ] **Step 2: 写 readiness 和格式失败测试**
 
@@ -115,6 +115,43 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
           }
           for key in keys
       }
+  ```
+
+  同一 test 文件增加一个只用于 parser fixtures 的 deterministic v2 builder：
+
+  ```python
+  def _v2_bytes(*, metadata_changes=None, header_changes=None, body="- editor: nvim"):
+      header = {
+          "migration_id": None,
+          "migration_revision": None,
+          "revision": "0123456789abcdef0123456789abcdef",
+      }
+      metadata = {
+          "delete_or_correct": "host_replace_delete_or_revalidate",
+          "expires_at": None,
+          "kind": "fact",
+          "recovery": "project_memory_file",
+          "revalidate_on": "conflict_or_explicit_review",
+          "review_after": None,
+          "source": "host_api",
+          "truth_source": "host_assertion",
+          "visibility": "project",
+          "who_can_write": "host_only",
+          "why_remember": "cross_task_fact",
+          "writer": "host_api",
+          "written_at": "2026-07-31T10:00:00Z",
+      }
+      header.update(header_changes or {})
+      metadata.update(metadata_changes or {})
+      def dump(value):
+          return json.dumps(
+              value, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+          )
+      return (
+          f"<!-- forgeagent-memory-v2: {dump(header)} -->\n"
+          f"<!-- forgeagent-memory-meta: {dump(metadata)} -->\n"
+          f"{body}\n"
+      ).encode("ascii")
   ```
 
   增加以下 tests；现有 v1 malformed-entry test 保留，后续实现仍须满足它：
@@ -187,6 +224,49 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
       assert (result.status, result.reason) == ("unsafe", "storage_path")
       assert "private-content" not in repr(result)
       assert str(outside) not in repr(result)
+
+
+  def test_readiness_accepts_complete_v2_without_writing(tmp_path):
+      path = tmp_path / ".forgeagent" / "MEMORY.md"
+      path.parent.mkdir()
+      raw = _v2_bytes()
+      path.write_bytes(raw)
+
+      result = MemoryManager(str(tmp_path)).readiness()
+
+      assert (result.status, result.format_version, result.entry_count, result.reason) == (
+          "current",
+          "v2",
+          1,
+          "valid_v2",
+      )
+      assert path.read_bytes() == raw
+
+
+  @pytest.mark.parametrize(
+      ("raw", "reason"),
+      [
+          (_v2_bytes(metadata_changes={"unknown": "value"}), "unknown_metadata_field"),
+          (_v2_bytes(metadata_changes={"written_at": "2026-07-31"}), "invalid_timestamp"),
+          (
+              _v2_bytes()
+              + b'<!-- forgeagent-memory-meta: {"kind":"fact"} -->\n',
+              "orphan_metadata",
+          ),
+          (_v2_bytes(metadata_changes={"kind": "preference"}), "kind_mismatch"),
+      ],
+  )
+  def test_readiness_rejects_incomplete_v2_atomically(tmp_path, raw, reason):
+      path = tmp_path / ".forgeagent" / "MEMORY.md"
+      path.parent.mkdir()
+      path.write_bytes(raw)
+      manager = MemoryManager(str(tmp_path))
+
+      result = manager.readiness()
+      manager.load()
+
+      assert (result.status, result.reason) == ("repair_required", reason)
+      assert manager.render() == ""
   ```
 
 - [ ] **Step 3: 运行 RED 测试**
@@ -337,16 +417,16 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
       self._lifecycle_notices: set[tuple[str, str, str]] = set()
   ```
 
-  实现以下精确私有接口，并让 `load()` 只根据完整 snapshot 更新内存状态：`_read_snapshot(self, *, diagnose: bool = False) -> _ProjectSnapshot`、`_parse_v1(self, raw: bytes, *, canonical: bool) -> _ProjectSnapshot`、`_parse_v2(self, raw: bytes) -> _ProjectSnapshot`、`_parse_governance(self, value: Mapping[str, object]) -> MemoryGovernance`、`_serialize_v2(self, entries: Mapping[str, ProjectMemoryRecord], header: MemoryFileHeader) -> bytes`、`_validate_manifest(self, snapshot: _ProjectSnapshot, manifest: Mapping[str, object] | None) -> tuple[dict[str, ProjectMemoryRecord] | None, str]`。
+  实现以下精确私有接口，并让 `load()` 只根据完整 snapshot 更新内存状态：`_read_snapshot(self, *, diagnose: bool = False, canonical_v1: bool = False) -> _ProjectSnapshot`、`_parse_v1(self, raw: bytes, *, canonical: bool) -> _ProjectSnapshot`、`_parse_v2(self, raw: bytes) -> _ProjectSnapshot`、`_parse_governance(self, value: Mapping[str, object]) -> MemoryGovernance`、`_serialize_v2(self, entries: Mapping[str, ProjectMemoryRecord], header: MemoryFileHeader) -> bytes`、`_validate_manifest(self, snapshot: _ProjectSnapshot, manifest: Mapping[str, object] | None) -> tuple[dict[str, ProjectMemoryRecord] | None, str]`。`load()` 使用 `canonical_v1=False` 保持逐条隔离和固定 diagnostic；readiness、project write 和 migrate 使用 `canonical_v1=True`，不得对畸形 legacy 文件继续写入或迁移。
 
-  这些函数的实现规则是确定的：只用 `json.loads` 解析对象；用 `set(mapping) == expected_fields` 拒绝未知/缺失字段；header 和 metadata 使用 `json.dumps(sort_keys=True, separators=(",", ":"), ensure_ascii=True)`；v2 metadata 的 `kind` 必须与随后的正文 candidate 一致；重复 key、孤立 metadata、额外非空行、无效 UTF-8、无效时间和超过 64 KiB 均返回固定 reason。v1 compatibility load 保持逐条隔离，但 `readiness` 和 `migrate` 使用 `canonical=True` 拒绝畸形行与重复 key。
+  这些函数的实现规则是确定的：只用 `json.loads` 解析对象；用 `set(mapping) == expected_fields` 拒绝未知/缺失字段；header 和 metadata 使用 `json.dumps(sort_keys=True, separators=(",", ":"), ensure_ascii=True)`；v2 metadata 的 `kind` 必须与随后的正文 candidate 一致；重复 key、孤立 metadata、额外非空行、无效 UTF-8、无效时间和超过 64 KiB 均返回固定 reason。v1 compatibility load 保持逐条隔离，但 `readiness` 和 `migrate` 使用 `canonical=True` 拒绝畸形行与重复 key。`_safe_storage_path` 必须先以 `os.lstat`/`stat.S_ISLNK` 拒绝 `.forgeagent` 和 `MEMORY.md` 自身为 symlink，再做 root containment 检查，不能用会跟随 symlink 的 `Path.is_file()` 作为唯一判定。
 
   `readiness` 必须仅调用只读 snapshot 逻辑：
 
   ```python
   def readiness(self, manifest: Mapping[str, object] | None = None) -> MemoryReadiness:
       try:
-          snapshot = self._read_snapshot()
+          snapshot = self._read_snapshot(canonical_v1=True)
       except OSError:
           return MemoryReadiness("unsafe", "unknown", 0, "storage_path")
       if snapshot.format_version == "none":
@@ -512,6 +592,8 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
   def _governance_for_write(
       self, candidate: MemoryCandidate, source: MemoryWriteSource
   ) -> MemoryGovernance:
+      if source not in _SOURCE_PROJECTION:
+          raise ValueError("invalid memory write source")
       writer, truth_source = _SOURCE_PROJECTION[source]
       return MemoryGovernance(
           why_remember=_WHY_BY_KIND[candidate.kind],
@@ -529,7 +611,7 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
       )
   ```
 
-  把 project 分支改为锁内读取 snapshot：`none` 创建 v2，`v1` 返回 `migration_required`，`v2` 合并 record，`invalid`/unsafe 映射固定 persistence reason。计算 active render 大小和完整 serializer 存储大小后再 `_atomic_write_bytes`，写后重新解析成功才更新 manager；每次成功写生成 `secrets.token_hex(16)` revision，并保留 header 的 migration fields。
+  `apply` 在 admission 后、获取锁前检查 `source in _SOURCE_PROJECTION`；无效 runtime 值返回 `rejected/invalid_source`，clock 为 naive 或抛错时返回固定 `persistence_error/invalid_clock`，不得传播 exception。把 project 分支改为锁内严格读取 snapshot：`none` 创建 v2，`v1` 返回 `migration_required`，`v2` 合并 record，`invalid`/unsafe 映射固定 persistence reason。计算 active render 大小和完整 serializer 存储大小后再 `_atomic_write_bytes`，写后重新解析成功才更新 manager；每次成功写生成 `secrets.token_hex(16)` revision，并保留 header 的 migration fields。
 
 - [ ] **Step 4: 在可信调用点传递 source**
 
@@ -662,7 +744,29 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
       assert "language" not in text
   ```
 
-  再增加参数化测试：`expires_at == now`、`review_after == now` 均不渲染；`None` 日期继续渲染；naive clock、非法时间、错误 key、v1/invalid storage 均固定拒绝；audit/diagnostic repr 不含正文、绝对 root 或底层 exception。
+  用以下精确测试补齐时间边界；另建 `test_lifecycle_failures_use_fixed_public_reasons`，依次传入 naive clock、`review_after="2026-07-31"`、非法 key 和 v1 文件，断言方法返回固定 `invalid_clock`、`invalid_timestamp`、`invalid_key`、`migration_required` 且 result/audit/diagnostic repr 不含正文、绝对 root 或 monkeypatch exception：
+
+  ```python
+  @pytest.mark.parametrize(
+      ("field", "value", "visible"),
+      [
+          ("expires_at", "2026-07-31T12:00:00Z", False),
+          ("review_after", "2026-07-31T12:00:00Z", False),
+          ("expires_at", None, True),
+          ("review_after", None, True),
+      ],
+  )
+  def test_lifecycle_boundary_is_inclusive(tmp_path, field, value, visible):
+      now = datetime(2026, 7, 31, 12, 0, tzinfo=UTC)
+      manager = MemoryManager(str(tmp_path), clock=lambda: now)
+      candidate = MemoryCandidate(
+          scope="project", kind="fact", key="editor", content="nvim"
+      )
+      manager.apply(candidate)
+      manager.correct_project(candidate, _governance(**{field: value}))
+
+      assert ("editor: nvim" in manager.render()) is visible
+  ```
 
 - [ ] **Step 2: 运行 lifecycle RED 测试**
 
@@ -844,7 +948,7 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
       ).read_text()
   ```
 
-  再添加测试覆盖：manifest 必须显式 `kind` 且 metadata kind/why 对应；source 只能为 `legacy_manifest`；backup directory/file symlink 拒绝；backup 名已存在不得覆盖；oversize/畸形 v1 在备份前停止；result/audit 不含正文、root、manifest 或 monkeypatch exception 文本。
+  增加具名测试 `test_manifest_requires_explicit_matching_kind_and_legacy_source`、`test_backup_directory_and_file_symlinks_are_rejected`、`test_existing_backup_name_is_not_overwritten`、`test_oversize_or_noncanonical_v1_stops_before_backup`、`test_migration_result_and_audit_are_minimally_disclosing`。每个测试都先保存原 v1 bytes，失败后断言 bytes 相等且没有虚假成功；collision test 用 `monkeypatch.setattr(memory_module.secrets, "token_hex", lambda _size: "a" * 32)` 固定名称；symlink tests 断言项目外目标 bytes 不变；脱敏 test 断言 `PRIVATE_VALUE`、`str(tmp_path)`、完整 manifest 和注入的 `OSError("private failure")` 均不在 result/audit/diagnostic repr。
 
 - [ ] **Step 2: 运行 migration RED 测试**
 
@@ -868,7 +972,7 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
       task_id: str | None = None,
   ) -> MemoryOperationResult:
       with self._project_lock():
-          before = self._read_snapshot()
+          before = self._read_snapshot(canonical_v1=True)
           if before.format_version != "v1":
               return self._operation_result("not_required", before, "not_legacy", task_id)
           records, reason = self._validate_manifest(before, manifest)
@@ -883,20 +987,26 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
               before, round_trip, migration_id, revision
           ):
               return self._operation_result("rejected", before, "verification_failed", task_id)
-          backup = self._create_backup(migration_id, before.raw or b"")
+          try:
+              backup = self._create_backup(migration_id, before.raw or b"")
+          except OSError:
+              return self._operation_result(
+                  "persistence_error", before, "backup_write_failed", task_id
+              )
           try:
               self._atomic_write_bytes(raw_v2)
-              after = self._read_snapshot()
-              if not self._verify_migration_snapshot(
-                  before, after, migration_id, revision
-              ):
-                  raise _MigrationVerificationError
-          except _MigrationVerificationError:
-              return self._restore_after_failed_migration(before, backup, migration_id, task_id)
           except OSError:
               return self._operation_result(
                   "persistence_error", before, "migration_write_failed", task_id
               )
+          try:
+              after = self._read_snapshot(canonical_v1=True)
+              if not self._verify_migration_snapshot(
+                  before, after, migration_id, revision
+              ):
+                  raise _MigrationVerificationError
+          except (OSError, _MigrationVerificationError):
+              return self._restore_after_failed_migration(before, backup, migration_id, task_id)
           self._install_snapshot(after)
           return self._operation_result("migrated", after, "verified", task_id)
   ```
@@ -1036,7 +1146,17 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
       assert "language: python" in manager.render()
   ```
 
-  再增加测试覆盖：id 不是 32 位小写 hex、id 不匹配 header、backup 缺失、backup symlink、backup mode 不是 `0600`、backup 不是 canonical v1、恢复后重读失败；所有分支不得暴露路径/正文/exception；inspect signature 证明没有 `force` 参数。
+  增加具名测试 `test_rollback_rejects_non_hex_or_mismatched_id`、`test_rollback_rejects_missing_symlink_or_non_private_backup`、`test_rollback_rejects_noncanonical_v1_backup`、`test_rollback_reread_failure_returns_recovery_failed` 和以下签名测试。所有失败测试都断言当前 v2 bytes 不变，且 result/audit/diagnostic repr 不含路径、正文或 exception：
+
+  ```python
+  def test_rollback_has_no_force_override():
+      import inspect
+
+      parameters = inspect.signature(MemoryManager.rollback_migration).parameters
+
+      assert "force" not in parameters
+      assert set(parameters) == {"self", "migration_id", "task_id"}
+  ```
 
 - [ ] **Step 2: 运行恢复/rollback RED 测试**
 
@@ -1059,7 +1179,7 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
       try:
           backup_raw = self._read_safe_backup(backup)
           self._atomic_write_bytes(backup_raw)
-          restored = self._read_snapshot()
+          restored = self._read_snapshot(canonical_v1=True)
       except OSError:
           return MemoryOperationResult(
               "recovery_failed", len(before.entries), "restore_unconfirmed", migration_id
@@ -1110,7 +1230,7 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
                       "backup_unavailable", current, "invalid_backup", task_id
                   )
               self._atomic_write_bytes(backup_raw)
-              restored = self._read_snapshot()
+              restored = self._read_snapshot(canonical_v1=True)
               if restored.format_version != "v1" or restored.raw != backup_raw:
                   return self._operation_result(
                       "recovery_failed", restored, "restore_unconfirmed", task_id
@@ -1218,7 +1338,7 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
       assert "private" not in result.stdout
   ```
 
-  再添加 tests：manifest symlink、invalid JSON、oversize JSON、verify v1、rollback invalid id、故障 exception；所有 stdout/stderr 不含 fixture 正文、secret、root 或 raw exception。
+  增加具名 tests `test_manifest_symlink_is_rejected_without_following_target`、`test_invalid_or_oversize_manifest_has_fixed_reason`、`test_verify_reports_legacy_without_modifying_it`、`test_rollback_invalid_id_is_rejected`、`test_script_never_prints_runtime_exception`。前两项分别断言 `manifest_path` 和 `manifest_format`/`manifest_file`；verify 断言 `not_current/legacy_format` 且 bytes 不变；rollback 断言 `backup_unavailable/invalid_migration_id`；故障 test monkeypatch 脚本调用边界抛出含 private marker 的 exception，并断言 stdout/stderr 均无 marker、secret 或 root。
 
 - [ ] **Step 2: 运行脚本 RED 测试**
 
@@ -1246,25 +1366,49 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
   _MAX_MANIFEST_BYTES = 64 * 1024
 
 
+  class ManifestInputError(Exception):
+      def __init__(self, reason: str) -> None:
+          self.reason = reason
+
+
   def _load_manifest(root: Path, relative_name: str) -> dict[str, object]:
       relative = Path(relative_name)
       if relative.is_absolute() or ".." in relative.parts:
-          raise ValueError("manifest_path")
+          raise ManifestInputError("manifest_path")
       candidate = root / relative
-      descriptor = os.open(
-          candidate,
-          os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0),
-      )
+      current = root
+      for part in relative.parts:
+          current = current / part
+          if current.is_symlink():
+              raise ManifestInputError("manifest_path")
+      no_follow = getattr(os, "O_NOFOLLOW", None)
+      if no_follow is None:
+          raise ManifestInputError("manifest_path")
+      try:
+          descriptor = os.open(
+              candidate,
+              os.O_RDONLY | no_follow | getattr(os, "O_CLOEXEC", 0),
+          )
+      except OSError:
+          raise ManifestInputError("manifest_file") from None
       try:
           info = os.fstat(descriptor)
           if not stat.S_ISREG(info.st_mode) or info.st_size > _MAX_MANIFEST_BYTES:
-              raise ValueError("manifest_file")
-          raw = os.read(descriptor, _MAX_MANIFEST_BYTES + 1)
+              raise ManifestInputError("manifest_file")
+          with os.fdopen(descriptor, "rb") as handle:
+              descriptor = -1
+              raw = handle.read(_MAX_MANIFEST_BYTES + 1)
+      except OSError:
+          raise ManifestInputError("manifest_file") from None
       finally:
-          os.close(descriptor)
-      value = json.loads(raw.decode("utf-8"))
+          if descriptor >= 0:
+              os.close(descriptor)
+      try:
+          value = json.loads(raw.decode("utf-8"))
+      except (UnicodeError, json.JSONDecodeError):
+          raise ManifestInputError("manifest_format") from None
       if not isinstance(value, dict):
-          raise ValueError("manifest_format")
+          raise ManifestInputError("manifest_format")
       return value
 
 
@@ -1297,18 +1441,33 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
               result = manager.migrate_legacy(manifest)
           else:
               result = manager.rollback_migration(args.migration_id)
-      except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
-          print(json.dumps({"entry_count": 0, "reason": "manifest_path", "status": "rejected"}, sort_keys=True))
+      except ManifestInputError as error:
+          print(
+              json.dumps(
+                  {"entry_count": 0, "reason": error.reason, "status": "rejected"},
+                  sort_keys=True,
+                  separators=(",", ":"),
+              )
+          )
           return 2
       print(json.dumps(asdict(result), sort_keys=True, separators=(",", ":")))
-      return 0 if result.status in {"no_data", "legacy_ready", "current", "verified", "migrated", "not_required", "rolled_back"} else 2
+      success = {
+          "no_data",
+          "legacy_ready",
+          "current",
+          "verified",
+          "migrated",
+          "not_required",
+          "rolled_back",
+      }
+      return 0 if result.status in success else 2
 
 
   if __name__ == "__main__":
       raise SystemExit(main())
   ```
 
-  实现时把 JSON decode 与 path/file 错误分别映射为 `manifest_format`、`manifest_path`、`manifest_file`；示例 except 的单一 reason 只作为控制结构，不得抹平测试要求的固定分类。
+  `ManifestInputError.reason` 只允许 `manifest_format`、`manifest_path`、`manifest_file` 三个固定值；不得把底层 exception 文本写入 stdout/stderr。
 
 - [ ] **Step 4: 运行脚本 GREEN 与真实仓库 readiness**
 
@@ -1336,7 +1495,6 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
 - Create: `docs/memory-migration.md`
 - Modify: `README.md`
 - Modify: `docs/threat-model.md`
-- Modify: `docs/agent-governance-gates.md`
 - Create: `tests/test_memory_migration_docs.py`
 
 **Interfaces:**
@@ -1372,11 +1530,16 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
           assert required in text, required
 
 
-  def test_memory_migration_is_linked_from_project_governance():
-      for relative in ("README.md", "docs/threat-model.md", "docs/agent-governance-gates.md"):
+  def test_memory_migration_is_linked_from_project_entry_points():
+      for relative in ("README.md", "docs/threat-model.md"):
           text = (ROOT / relative).read_text(encoding="utf-8")
           assert "docs/memory-migration.md" in text, relative
           assert "M42" in text, relative
+
+
+  def test_memory_migration_runbook_links_the_existing_governance_gate():
+      text = (ROOT / "docs" / "memory-migration.md").read_text(encoding="utf-8")
+      assert "docs/agent-governance-gates.md" in text
   ```
 
 - [ ] **Step 2: 运行文档 RED 测试**
@@ -1417,7 +1580,7 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
 
   - README Memory 小节增加 `[Project Memory v2 与迁移](docs/memory-migration.md)`，说明 v1 只读和新写入需先迁移。
   - `docs/threat-model.md` T15 增加 host-owned metadata、inactive prompt exclusion、private backup、revision conflict 和残余风险“错误但未到复核期的 host assertion 仍可能被使用”。
-  - `docs/agent-governance-gates.md` Memory 四问下增加 M42 verifier 链接，明确治理模板不替代运行时 metadata 校验。
+  - 新 runbook 链接现有 `docs/agent-governance-gates.md`，明确 M32 治理模板不替代 M42 运行时 metadata 校验；该治理文件是用户既有未跟踪输入，本 change 不修改、不暂存它。
 
 - [ ] **Step 5: 运行文档 GREEN 测试**
 
@@ -1434,13 +1597,13 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
 
   ```bash
   git add docs/memory-migration.md tests/test_memory_migration_docs.py
-  git add -p README.md docs/threat-model.md docs/agent-governance-gates.md
-  git diff --cached -- README.md docs/threat-model.md docs/agent-governance-gates.md
+  git add -p README.md docs/threat-model.md
+  git diff --cached -- README.md docs/threat-model.md
   git diff --cached --check
   git commit -m "docs(memory): document migration operations"
   ```
 
-  Expected: cached diff 只含 M42 链接与 Memory 治理条款；不含发布退役、HTTP、M41 或其他用户既有文档 hunk。
+  Expected: cached diff 只含 M42 链接与 Memory 治理条款；不含发布退役、HTTP、M41 或其他用户既有文档 hunk；`docs/agent-governance-gates.md` 仍保持未跟踪且内容不变。
 
 ### Task 8: 完成全量验证、两轮自评和 M42 收尾
 
@@ -1477,7 +1640,7 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
 
 - [ ] **Step 3: 做第一轮代码/契约自评**
 
-  逐项核对 delta spec 五个 requirements 和全部 scenarios，并用以下搜索确认没有遗漏：
+  逐项核对 delta spec 六个 requirements 和全部 scenarios，并用以下搜索确认没有遗漏：
 
   ```bash
   rg -n "MemoryCandidate|MemoryGovernance|readiness|migrate_legacy|verify_project|rollback_migration|correct_project|delete_project|revalidate_project" src tests scripts docs

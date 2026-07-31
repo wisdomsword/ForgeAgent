@@ -1,8 +1,128 @@
 import pytest
 
 import forgeagent.memory as memory_module
-from forgeagent.memory import MemoryManager
+from forgeagent.memory import MemoryGovernance, MemoryManager
 from forgeagent.protocol import MemoryCandidate
+
+
+def _write_v1(root, entries: dict[str, str]) -> bytes:
+    raw = (
+        "<!-- forgeagent-memory-v1 -->\n"
+        + "".join(f"- {key}: {entries[key]}\n" for key in sorted(entries))
+    ).encode("utf-8")
+    path = root / ".forgeagent" / "MEMORY.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(raw)
+    return raw
+
+
+def _legacy_manifest(*keys: str) -> dict[str, dict[str, object]]:
+    return {
+        key: {
+            "kind": "fact",
+            "why_remember": "cross_task_fact",
+            "source": "legacy_manifest",
+            "writer": "unknown",
+            "who_can_write": "host_only",
+            "truth_source": "unknown",
+            "visibility": "project",
+            "written_at": "2026-07-31T00:00:00Z",
+            "expires_at": None,
+            "review_after": "2026-07-31T00:00:00Z",
+            "revalidate_on": "conflict_or_explicit_review",
+            "recovery": "project_memory_file",
+            "delete_or_correct": "host_replace_delete_or_revalidate",
+        }
+        for key in keys
+    }
+
+
+def _governance(**changes: object) -> MemoryGovernance:
+    values: dict[str, object] = {
+        "why_remember": "cross_task_fact",
+        "source": "host_api",
+        "writer": "host_api",
+        "who_can_write": "host_only",
+        "truth_source": "host_assertion",
+        "visibility": "project",
+        "written_at": "2026-07-31T10:00:00Z",
+        "expires_at": None,
+        "review_after": None,
+        "revalidate_on": "conflict_or_explicit_review",
+        "recovery": "project_memory_file",
+        "delete_or_correct": "host_replace_delete_or_revalidate",
+    }
+    values.update(changes)
+    return MemoryGovernance(**values)
+
+
+def test_readiness_no_data_is_read_only_and_minimally_disclosing(tmp_path):
+    manager = MemoryManager(str(tmp_path))
+    before = tuple(tmp_path.rglob("*"))
+
+    result = manager.readiness()
+
+    assert result.status == "no_data"
+    assert result.format_version == "none"
+    assert result.entry_count == 0
+    assert result.reason == "memory_absent"
+    assert tuple(tmp_path.rglob("*")) == before
+
+
+def test_readiness_v1_requires_exact_manifest_without_modifying_bytes(tmp_path):
+    original = _write_v1(tmp_path, {"editor": "nvim", "language": "python"})
+    manager = MemoryManager(str(tmp_path))
+
+    missing = manager.readiness(_legacy_manifest("editor"))
+    ready = manager.readiness(_legacy_manifest("editor", "language"))
+
+    assert (missing.status, missing.reason) == (
+        "legacy_needs_metadata",
+        "manifest_key_mismatch",
+    )
+    assert (ready.status, ready.format_version, ready.entry_count, ready.reason) == (
+        "legacy_ready",
+        "v1",
+        2,
+        "manifest_valid",
+    )
+    assert (tmp_path / ".forgeagent" / "MEMORY.md").read_bytes() == original
+    assert not (tmp_path / ".forgeagent" / "memory-backups").exists()
+
+
+@pytest.mark.parametrize(
+    ("body", "reason"),
+    [
+        (b"not-memory\n", "invalid_header"),
+        (b"<!-- forgeagent-memory-v1 -->\n- editor: nvim\n- editor: vim\n", "duplicate_key"),
+        (b"<!-- forgeagent-memory-v2: {} -->\n", "invalid_header"),
+    ],
+)
+def test_readiness_rejects_noncanonical_or_malformed_files(tmp_path, body, reason):
+    path = tmp_path / ".forgeagent" / "MEMORY.md"
+    path.parent.mkdir()
+    path.write_bytes(body)
+
+    result = MemoryManager(str(tmp_path)).readiness()
+
+    assert result.status == "repair_required"
+    assert result.reason == reason
+    assert str(tmp_path) not in repr(result)
+    assert "nvim" not in repr(result)
+
+
+def test_readiness_rejects_memory_symlink_without_following_it(tmp_path):
+    outside = tmp_path.parent / f"{tmp_path.name}-outside-memory"
+    outside.write_text("private-content", encoding="utf-8")
+    directory = tmp_path / ".forgeagent"
+    directory.mkdir()
+    (directory / "MEMORY.md").symlink_to(outside)
+
+    result = MemoryManager(str(tmp_path)).readiness()
+
+    assert (result.status, result.reason) == ("unsafe", "storage_path")
+    assert "private-content" not in repr(result)
+    assert str(outside) not in repr(result)
 
 
 def test_procedure_candidate_is_rejected_without_write(tmp_path):

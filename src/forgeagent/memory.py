@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import stat
 import tempfile
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal
+from typing import Literal, TypeAlias
 
 from .audit import AuditEvent, AuditSink, emit_audit
 from .protocol import MemoryCandidate
@@ -25,12 +27,138 @@ _KEY = re.compile(r"^[a-z0-9][a-z0-9._-]{0,79}$")
 _LINE = re.compile(r"^- ([a-z0-9][a-z0-9._-]{0,79}): ([^\r\n]{1,512})$")
 _MAX_ENTRIES = 64
 _MAX_RENDER_BYTES = 32 * 1024
+_MAX_STORAGE_BYTES = 64 * 1024
+_V1_HEADER = "<!-- forgeagent-memory-v1 -->"
+_V2_HEADER_PREFIX = "<!-- forgeagent-memory-v2: "
+_META_PREFIX = "<!-- forgeagent-memory-meta: "
+_COMMENT_SUFFIX = " -->"
+_OPAQUE_ID = re.compile(r"^[0-9a-f]{32}$")
+_RFC3339_UTC = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+_KINDS = frozenset({"fact", "preference", "decision"})
+_WHY = frozenset({"cross_task_fact", "cross_task_preference", "cross_task_decision"})
+_SOURCES = frozenset({"host_api", "model_candidate", "user_command", "legacy_manifest"})
+_WRITERS = frozenset({"host_api", "task_host", "interactive_host", "unknown"})
+_TRUTH_SOURCES = frozenset(
+    {"host_assertion", "model_output_unverified", "user_statement", "unknown"}
+)
+_REVALIDATE_ON = frozenset({"conflict_or_explicit_review", "source_change", "explicit_review"})
+_WHY_BY_KIND = {
+    "fact": "cross_task_fact",
+    "preference": "cross_task_preference",
+    "decision": "cross_task_decision",
+}
+_GOVERNANCE_FIELDS = frozenset(
+    {
+        "why_remember",
+        "source",
+        "writer",
+        "who_can_write",
+        "truth_source",
+        "visibility",
+        "written_at",
+        "expires_at",
+        "review_after",
+        "revalidate_on",
+        "recovery",
+        "delete_or_correct",
+    }
+)
+_METADATA_FIELDS = _GOVERNANCE_FIELDS | {"kind"}
 _INJECTION_PATTERNS = (
     re.compile(r"ignore\s+(?:all\s+)?previous", re.IGNORECASE),
     re.compile(r"reveal\s+(?:the\s+)?(?:secret|api\s*key|token)", re.IGNORECASE),
     re.compile(r"system\s+prompt", re.IGNORECASE),
     re.compile(r"execute\s+(?:a\s+)?command", re.IGNORECASE),
 )
+
+MemoryWriteSource: TypeAlias = Literal["host_api", "model_candidate", "user_command"]
+MemoryFormat: TypeAlias = Literal["none", "v1", "v2", "invalid"]
+
+
+def _parse_timestamp(value: str) -> datetime:
+    if _RFC3339_UTC.fullmatch(value) is None:
+        raise ValueError("invalid timestamp")
+    return datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
+
+
+def _format_timestamp(value: datetime) -> str:
+    if value.tzinfo is None:
+        raise ValueError("clock must return an aware datetime")
+    return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+@dataclass(frozen=True)
+class MemoryGovernance:
+    why_remember: str
+    source: str
+    writer: str
+    who_can_write: str
+    truth_source: str
+    visibility: str
+    written_at: str
+    expires_at: str | None
+    review_after: str | None
+    revalidate_on: str
+    recovery: str
+    delete_or_correct: str
+
+
+@dataclass(frozen=True)
+class ProjectMemoryRecord:
+    candidate: MemoryCandidate
+    governance: MemoryGovernance | None
+
+
+@dataclass(frozen=True)
+class MemoryFileHeader:
+    revision: str
+    migration_id: str | None = None
+    migration_revision: str | None = None
+
+
+@dataclass(frozen=True)
+class MemoryReadiness:
+    status: Literal[
+        "no_data",
+        "legacy_needs_metadata",
+        "legacy_ready",
+        "current",
+        "repair_required",
+        "unsafe",
+    ]
+    format_version: Literal["none", "v1", "v2", "unknown"]
+    entry_count: int
+    reason: str
+
+
+@dataclass(frozen=True)
+class MemoryOperationResult:
+    status: Literal[
+        "migrated",
+        "not_required",
+        "rejected",
+        "persistence_error",
+        "recovery_failed",
+        "verified",
+        "not_current",
+        "repair_required",
+        "unsafe",
+        "rolled_back",
+        "rollback_conflict",
+        "backup_unavailable",
+    ]
+    entry_count: int
+    reason: str
+    migration_id: str | None = None
+
+
+@dataclass(frozen=True)
+class _ProjectSnapshot:
+    format_version: MemoryFormat
+    entries: dict[str, ProjectMemoryRecord]
+    header: MemoryFileHeader | None
+    raw: bytes | None
+    reason: str = ""
 
 
 @dataclass(frozen=True)
@@ -53,6 +181,7 @@ class MemoryManager:
         enabled: bool = True,
         allow_project: bool = True,
         diagnostic: Callable[[str], None] | None = None,
+        clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._root = Path(allowed_root).resolve()
         self._path = self._root / ".forgeagent" / "MEMORY.md"
@@ -60,37 +189,70 @@ class MemoryManager:
         self._diagnostic = diagnostic
         self._enabled = enabled
         self._allow_project = allow_project
+        self._clock = clock or (lambda: datetime.now(UTC))
         self._session: dict[str, MemoryCandidate] = {}
         self._project: dict[str, MemoryCandidate] = {}
+        self._project_records: dict[str, ProjectMemoryRecord] = {}
+        self._project_format: MemoryFormat = "none"
+        self._header: MemoryFileHeader | None = None
+        self._lifecycle_notices: set[tuple[str, str, str]] = set()
 
     @property
     def enabled(self) -> bool:
         return self._enabled
 
+    def readiness(self, manifest: Mapping[str, object] | None = None) -> MemoryReadiness:
+        """Inspect project Memory without creating files or exposing stored values."""
+        try:
+            snapshot = self._read_snapshot(canonical_v1=True)
+        except OSError:
+            return MemoryReadiness("unsafe", "unknown", 0, "storage_path")
+        if snapshot.format_version == "none":
+            return MemoryReadiness("no_data", "none", 0, "memory_absent")
+        if snapshot.format_version == "invalid":
+            return MemoryReadiness(
+                "repair_required",
+                "unknown",
+                len(snapshot.entries),
+                snapshot.reason or "invalid_format",
+            )
+        if snapshot.format_version == "v2":
+            return MemoryReadiness("current", "v2", len(snapshot.entries), "valid_v2")
+        records, reason = self._validate_manifest(snapshot, manifest)
+        if records is None:
+            return MemoryReadiness("legacy_needs_metadata", "v1", len(snapshot.entries), reason)
+        return MemoryReadiness("legacy_ready", "v1", len(records), "manifest_valid")
+
     def load(self) -> None:
         if not self._enabled or not self._allow_project:
             self._project = {}
+            self._project_records = {}
+            self._project_format = "none"
+            self._header = None
             return
         try:
-            path = self._safe_storage_path()
+            snapshot = self._read_snapshot(diagnose=True)
         except OSError:
             self._diagnose("memory file ignored: unsafe path")
             self._project = {}
+            self._project_records = {}
+            self._project_format = "invalid"
+            self._header = None
             return
-        if path is None:
+        if snapshot.format_version == "none":
             self._project = {}
+            self._project_records = {}
+            self._project_format = "none"
+            self._header = None
             return
-        try:
-            if path.stat().st_size > _MAX_RENDER_BYTES:
-                self._diagnose("memory file ignored: memory_limit")
-                self._project = {}
-                return
-            lines = path.read_text(encoding="utf-8").splitlines()
-        except (OSError, UnicodeError):
-            self._diagnose("memory file ignored: unreadable")
+        if snapshot.format_version == "invalid":
+            self._diagnose(f"memory file ignored: {snapshot.reason or 'invalid_format'}")
             self._project = {}
+            self._project_records = {}
+            self._project_format = "invalid"
+            self._header = None
             return
-        self._project = self._parse_project_lines(lines, diagnose=True)
+        self._install_snapshot(snapshot)
 
     def disable(self) -> None:
         if self._enabled:
@@ -102,11 +264,13 @@ class MemoryManager:
     def clear_project(self) -> None:
         """Drop project entries when identity trust no longer permits them."""
         self._project.clear()
+        self._project_records.clear()
 
     def set_project_access(self, allowed: bool) -> None:
         self._allow_project = allowed
         if not allowed:
             self._project.clear()
+            self._project_records.clear()
 
     def copy_session_from(self, source: MemoryManager) -> None:
         """Preserve session-scoped facts while replacing project-backed state."""
@@ -236,6 +400,290 @@ class MemoryManager:
             elif diagnose:
                 self._diagnose("memory entry ignored: invalid content")
         return loaded
+
+    def _read_snapshot(
+        self,
+        *,
+        canonical_v1: bool = False,
+        diagnose: bool = False,
+    ) -> _ProjectSnapshot:
+        path = self._safe_storage_path()
+        if path is None:
+            return _ProjectSnapshot("none", {}, None, None)
+        try:
+            if path.stat().st_size > _MAX_STORAGE_BYTES:
+                return _ProjectSnapshot("invalid", {}, None, None, "memory_limit")
+            raw = path.read_bytes()
+        except OSError:
+            raise
+        try:
+            first_line = raw.decode("utf-8").splitlines()[0]
+        except (UnicodeError, IndexError):
+            return _ProjectSnapshot("invalid", {}, None, raw, "unreadable")
+        if first_line == _V1_HEADER:
+            return self._parse_v1(raw, canonical=canonical_v1, diagnose=diagnose)
+        if first_line.startswith(_V2_HEADER_PREFIX):
+            return self._parse_v2(raw)
+        return _ProjectSnapshot("invalid", {}, None, raw, "invalid_header")
+
+    def _parse_v1(
+        self,
+        raw: bytes,
+        *,
+        canonical: bool,
+        diagnose: bool = False,
+    ) -> _ProjectSnapshot:
+        try:
+            lines = raw.decode("utf-8").splitlines()
+        except UnicodeError:
+            return _ProjectSnapshot("invalid", {}, None, raw, "unreadable")
+        if not lines or lines[0] != _V1_HEADER:
+            return _ProjectSnapshot("invalid", {}, None, raw, "invalid_header")
+        loaded: dict[str, ProjectMemoryRecord] = {}
+        for line in lines[1:]:
+            match = _LINE.fullmatch(line)
+            if match is None:
+                if not line:
+                    continue
+                if canonical:
+                    return _ProjectSnapshot("invalid", loaded, None, raw, "invalid_format")
+                if diagnose:
+                    self._diagnose("memory entry ignored: invalid format")
+                continue
+            key, content = match.groups()
+            if key in loaded:
+                if canonical:
+                    return _ProjectSnapshot("invalid", loaded, None, raw, "duplicate_key")
+                loaded.pop(key)
+            candidate = MemoryCandidate(scope="project", kind="fact", key=key, content=content)
+            reason = self._admission_reason(candidate)
+            if reason is not None:
+                if canonical:
+                    return _ProjectSnapshot("invalid", loaded, None, raw, "invalid_content")
+                if diagnose:
+                    self._diagnose("memory entry ignored: invalid content")
+                continue
+            if len(loaded) >= _MAX_ENTRIES:
+                if canonical:
+                    return _ProjectSnapshot("invalid", loaded, None, raw, "memory_limit")
+                if diagnose:
+                    self._diagnose("memory entry ignored: memory_limit")
+                continue
+            loaded[key] = ProjectMemoryRecord(candidate, None)
+        return _ProjectSnapshot("v1", loaded, None, raw)
+
+    def _parse_v2(self, raw: bytes) -> _ProjectSnapshot:
+        try:
+            lines = raw.decode("utf-8").splitlines()
+        except UnicodeError:
+            return _ProjectSnapshot("invalid", {}, None, raw, "unreadable")
+        if not lines:
+            return _ProjectSnapshot("invalid", {}, None, raw, "invalid_header")
+        try:
+            header_value = self._comment_json(lines[0], _V2_HEADER_PREFIX)
+            if set(header_value) != {"revision", "migration_id", "migration_revision"}:
+                raise ValueError("invalid header fields")
+            revision = header_value["revision"]
+            migration_id = header_value["migration_id"]
+            migration_revision = header_value["migration_revision"]
+            if not isinstance(revision, str) or _OPAQUE_ID.fullmatch(revision) is None:
+                raise ValueError("invalid revision")
+            if (migration_id is None) != (migration_revision is None):
+                raise ValueError("incomplete migration header")
+            for value in (migration_id, migration_revision):
+                if value is not None and (
+                    not isinstance(value, str) or _OPAQUE_ID.fullmatch(value) is None
+                ):
+                    raise ValueError("invalid migration header")
+            header = MemoryFileHeader(revision, migration_id, migration_revision)
+        except (TypeError, ValueError):
+            return _ProjectSnapshot("invalid", {}, None, raw, "invalid_header")
+
+        body = lines[1:]
+        if len(body) % 2:
+            return _ProjectSnapshot("invalid", {}, header, raw, "unpaired_record")
+        loaded: dict[str, ProjectMemoryRecord] = {}
+        for index in range(0, len(body), 2):
+            try:
+                metadata = self._comment_json(body[index], _META_PREFIX)
+                if set(metadata) != _METADATA_FIELDS:
+                    raise ValueError("invalid metadata fields")
+                kind = metadata["kind"]
+                if not isinstance(kind, str) or kind not in _KINDS:
+                    raise ValueError("invalid kind")
+                governance = self._parse_governance(
+                    {key: value for key, value in metadata.items() if key != "kind"}
+                )
+                if governance.why_remember != _WHY_BY_KIND[kind]:
+                    raise ValueError("kind and purpose disagree")
+            except (TypeError, ValueError):
+                return _ProjectSnapshot("invalid", loaded, header, raw, "invalid_metadata")
+            match = _LINE.fullmatch(body[index + 1])
+            if match is None:
+                return _ProjectSnapshot("invalid", loaded, header, raw, "invalid_format")
+            key, content = match.groups()
+            if key in loaded:
+                return _ProjectSnapshot("invalid", loaded, header, raw, "duplicate_key")
+            candidate = MemoryCandidate(scope="project", kind=kind, key=key, content=content)
+            if self._admission_reason(candidate) is not None:
+                return _ProjectSnapshot("invalid", loaded, header, raw, "invalid_content")
+            if len(loaded) >= _MAX_ENTRIES:
+                return _ProjectSnapshot("invalid", loaded, header, raw, "memory_limit")
+            loaded[key] = ProjectMemoryRecord(candidate, governance)
+        return _ProjectSnapshot("v2", loaded, header, raw)
+
+    @staticmethod
+    def _comment_json(line: str, prefix: str) -> dict[str, object]:
+        if not line.startswith(prefix) or not line.endswith(_COMMENT_SUFFIX):
+            raise ValueError("invalid comment")
+        value = json.loads(line[len(prefix) : -len(_COMMENT_SUFFIX)])
+        if not isinstance(value, dict) or not all(isinstance(key, str) for key in value):
+            raise ValueError("comment must contain an object")
+        return value
+
+    @staticmethod
+    def _parse_governance(value: Mapping[str, object]) -> MemoryGovernance:
+        if set(value) != _GOVERNANCE_FIELDS:
+            raise ValueError("invalid governance fields")
+        string_fields = (
+            "why_remember",
+            "source",
+            "writer",
+            "who_can_write",
+            "truth_source",
+            "visibility",
+            "written_at",
+            "revalidate_on",
+            "recovery",
+            "delete_or_correct",
+        )
+        if any(not isinstance(value[field], str) for field in string_fields):
+            raise ValueError("governance strings required")
+        why_remember = str(value["why_remember"])
+        source = str(value["source"])
+        writer = str(value["writer"])
+        truth_source = str(value["truth_source"])
+        if why_remember not in _WHY or source not in _SOURCES:
+            raise ValueError("invalid governance classification")
+        if writer not in _WRITERS or truth_source not in _TRUTH_SOURCES:
+            raise ValueError("invalid provenance")
+        expected_projection = {
+            "host_api": ("host_api", "host_assertion"),
+            "model_candidate": ("task_host", "model_output_unverified"),
+            "user_command": ("interactive_host", "user_statement"),
+        }.get(source)
+        if expected_projection is not None and (writer, truth_source) != expected_projection:
+            raise ValueError("source projection mismatch")
+        if value["who_can_write"] != "host_only" or value["visibility"] != "project":
+            raise ValueError("invalid ownership")
+        if value["revalidate_on"] not in _REVALIDATE_ON:
+            raise ValueError("invalid revalidation policy")
+        if value["recovery"] != "project_memory_file":
+            raise ValueError("invalid recovery policy")
+        if value["delete_or_correct"] != "host_replace_delete_or_revalidate":
+            raise ValueError("invalid correction policy")
+        written_at = str(value["written_at"])
+        _parse_timestamp(written_at)
+        dates: dict[str, str | None] = {}
+        for field in ("expires_at", "review_after"):
+            date_value = value[field]
+            if date_value is not None and not isinstance(date_value, str):
+                raise ValueError("invalid lifecycle date")
+            if isinstance(date_value, str):
+                _parse_timestamp(date_value)
+            dates[field] = date_value
+        if (
+            source == "legacy_manifest"
+            and truth_source == "unknown"
+            and dates["review_after"] is None
+        ):
+            raise ValueError("unknown legacy truth requires review")
+        return MemoryGovernance(
+            why_remember=why_remember,
+            source=source,
+            writer=writer,
+            who_can_write="host_only",
+            truth_source=truth_source,
+            visibility="project",
+            written_at=written_at,
+            expires_at=dates["expires_at"],
+            review_after=dates["review_after"],
+            revalidate_on=str(value["revalidate_on"]),
+            recovery="project_memory_file",
+            delete_or_correct="host_replace_delete_or_revalidate",
+        )
+
+    def _validate_manifest(
+        self,
+        snapshot: _ProjectSnapshot,
+        manifest: Mapping[str, object] | None,
+    ) -> tuple[dict[str, ProjectMemoryRecord] | None, str]:
+        if manifest is None:
+            return None, "manifest_required"
+        if set(manifest) != set(snapshot.entries):
+            return None, "manifest_key_mismatch"
+        records: dict[str, ProjectMemoryRecord] = {}
+        try:
+            for key, raw_metadata in manifest.items():
+                if not isinstance(raw_metadata, Mapping) or set(raw_metadata) != _METADATA_FIELDS:
+                    raise ValueError("invalid manifest record")
+                kind = raw_metadata["kind"]
+                if not isinstance(kind, str) or kind not in _KINDS:
+                    raise ValueError("invalid kind")
+                governance = self._parse_governance(
+                    {field: value for field, value in raw_metadata.items() if field != "kind"}
+                )
+                if governance.source != "legacy_manifest":
+                    raise ValueError("invalid legacy source")
+                if governance.why_remember != _WHY_BY_KIND[kind]:
+                    raise ValueError("kind and purpose disagree")
+                source_candidate = snapshot.entries[key].candidate
+                candidate = MemoryCandidate(
+                    scope="project",
+                    kind=kind,
+                    key=key,
+                    content=source_candidate.content,
+                )
+                if self._admission_reason(candidate) is not None:
+                    raise ValueError("invalid content")
+                records[key] = ProjectMemoryRecord(candidate, governance)
+        except (KeyError, TypeError, ValueError):
+            return None, "manifest_invalid"
+        return records, "manifest_valid"
+
+    def _serialize_v2(
+        self,
+        entries: Mapping[str, ProjectMemoryRecord],
+        header: MemoryFileHeader,
+    ) -> bytes:
+        header_payload = json.dumps(
+            asdict(header), sort_keys=True, separators=(",", ":"), ensure_ascii=True
+        )
+        lines = [f"{_V2_HEADER_PREFIX}{header_payload}{_COMMENT_SUFFIX}"]
+        for key in sorted(entries):
+            record = entries[key]
+            if record.governance is None:
+                raise ValueError("v2 records require governance")
+            metadata = {"kind": record.candidate.kind, **asdict(record.governance)}
+            metadata_payload = json.dumps(
+                metadata, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+            )
+            lines.append(f"{_META_PREFIX}{metadata_payload}{_COMMENT_SUFFIX}")
+            lines.append(f"- {key}: {record.candidate.content}")
+        raw = ("\n".join(lines) + "\n").encode("utf-8")
+        if len(raw) > _MAX_STORAGE_BYTES:
+            raise ValueError("memory file exceeds storage limit")
+        parsed = self._parse_v2(raw)
+        if parsed.format_version != "v2" or set(parsed.entries) != set(entries):
+            raise ValueError("serialized memory did not round trip")
+        return raw
+
+    def _install_snapshot(self, snapshot: _ProjectSnapshot) -> None:
+        self._project_records = dict(snapshot.entries)
+        self._project = {key: record.candidate for key, record in snapshot.entries.items()}
+        self._project_format = snapshot.format_version
+        self._header = snapshot.header
+        self._lifecycle_notices.clear()
 
     @contextmanager
     def _project_lock(self) -> Iterator[None]:
