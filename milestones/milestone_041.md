@@ -58,7 +58,7 @@
 
 - [x] 性能：冷导入/parser 中位数 `110.761/0.547 ms`，低于 `136.140/0.672 ms`。
 - [x] 结构：`cli.py` 1789 行；四模块 306/230/615/780 行；无反向 `forgeagent.cli` import。
-- [x] 聚焦测试：`483 passed`；全量：`2549 passed, 10 skipped in 166.20s`。
+- [x] 聚焦测试：`483 passed`；归档后全量：`2549 passed, 10 skipped in 168.06s`。
 - [x] Ruff check、134 文件 format check、`uv build`、diff check 通过。
 - [x] OpenSpec strict：`32 passed, 0 failed`；Comet change 已归档。
 

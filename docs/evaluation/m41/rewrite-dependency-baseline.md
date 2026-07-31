@@ -35,7 +35,7 @@
 ## 最终同口径复测
 
 - `performance`：15 个独立进程的冷导入中位数 `110.761 ms`、最大样本 `118.191 ms`；`build_parser()` 中位数 `0.547 ms`、最大样本 `0.623 ms`，均低于 `136.140/0.672 ms` 硬阈值。
-- `reliability`：边界聚焦测试 `483 passed`；全量测试 `2549 passed, 10 skipped in 166.20s`，未增加 skip。
+- `reliability`：边界聚焦测试 `483 passed`；归档后全量测试 `2549 passed, 10 skipped in 168.06s`，未增加 skip。
 - `maintenance cost`：`cli.py` 为 1789 行、70572 字节、48 个顶层符号、44 条顶层 import；`_cli_parser.py` 306 行、`_cli_collaboration.py` 230 行、`_cli_repl.py` 615 行、`_cli_http.py` 780 行；8 个运行时直接依赖。
 - `compatibility`：7 组帮助输出由 `tests/test_m41_cli_boundaries.py` 逐字节校验；旧门面导入和运行时 monkeypatch 绑定由新增回归覆盖。
 - `team capability`：仍仅使用 Python、pytest、Ruff 与 uv；未新增框架、注册器、生成器或依赖。

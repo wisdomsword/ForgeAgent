@@ -45,7 +45,7 @@ M41 符合四个内部边界、兼容门面和六项 Rewrite/Dependency 门禁�
 ## 六项终值
 
 - 性能：15 个独立进程，冷导入中位数 `110.761 ms`，parser 中位数 `0.547 ms`，低于 `136.140/0.672 ms` 阈值。
-- 可靠性：聚焦 `483 passed`；全量 `2549 passed, 10 skipped in 166.20s`，M41 未新增 skip。
+- 可靠性：聚焦 `483 passed`；归档后全量 `2549 passed, 10 skipped in 168.06s`，M41 未新增 skip。
 - 维护成本：`cli.py` 1789 行；四个边界分别为 306、230、615、780 行；8 个运行时直接依赖。
 - 兼容性：帮助输出字节哈希、旧导入、动态 monkeypatch、HTTP shape、取消和资源关闭回归均通过。
 - 团队能力：仅使用现有 Python、pytest、Ruff 与 uv，无新框架、注册器或代码生成。
@@ -53,7 +53,7 @@ M41 符合四个内部边界、兼容门面和六项 Rewrite/Dependency 门禁�
 
 ## 验证证据
 
-- `uv run pytest -q`：`2549 passed, 10 skipped in 166.20s`。
+- `uv run pytest -q`：归档后最终复验 `2549 passed, 10 skipped in 168.06s`。
 - 聚焦 pytest：`483 passed in 7.58s`。
 - `uv run ruff check .`：通过。
 - `uv run ruff format --check .`：`134 files already formatted`。
