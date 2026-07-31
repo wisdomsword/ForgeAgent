@@ -9,7 +9,6 @@ from pathlib import Path
 
 import pytest
 
-
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_ROOT = ROOT / "src" / "forgeagent"
 BOUNDARY_MODULES = (
@@ -84,6 +83,14 @@ def test_cli_extraction_does_not_add_runtime_dependencies() -> None:
     assert len(project["project"]["dependencies"]) == 8
 
 
+def test_cli_reexports_parser_boundary() -> None:
+    import forgeagent.cli as cli
+    from forgeagent import _cli_parser
+
+    assert cli.build_parser is _cli_parser.build_parser
+    assert cli._load_strict_json is _cli_parser.load_strict_json
+
+
 @pytest.mark.parametrize(("argv", "stdout_bytes", "stdout_sha256"), HELP_BASELINE)
 def test_cli_help_output_matches_m41_baseline(
     argv: tuple[str, ...], stdout_bytes: int, stdout_sha256: str
@@ -92,8 +99,7 @@ def test_cli_help_output_matches_m41_baseline(
         [sys.executable, "-m", "forgeagent.cli", *argv],
         cwd=ROOT,
         check=False,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        capture_output=True,
     )
 
     assert result.returncode == 0
