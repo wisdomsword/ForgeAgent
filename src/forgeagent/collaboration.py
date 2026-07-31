@@ -22,6 +22,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
+from .attention import Attention, attention_for_reason
 from .audit import AuditEvent, AuditSink, emit_audit
 from .check_runner import CheckDefinition, CheckStatus, candidate_snapshot_digest, run_check
 from .external_actions import ExternalActionReceiptStore
@@ -146,6 +147,11 @@ def _public_text(value: str, *, maximum: int = MAX_EVIDENCE_CHARS) -> str:
         else:
             rendered.append(character)
     return "".join(rendered)[:maximum]
+
+
+def _public_handoff_goal(goal: str) -> str:
+    """Project the execution goal for a public role-boundary packet."""
+    return _public_text(_safe_text(goal, field="goal", maximum=MAX_GOAL_CHARS))
 
 
 def _safe_evaluation_item(item: EvaluationItem) -> EvaluationItem:
@@ -335,7 +341,7 @@ class HandoffPacket(BaseModel):
     @field_validator("goal")
     @classmethod
     def _validate_goal(cls, value: Any) -> str:
-        return _public_text(_safe_text(value, field="goal", maximum=MAX_GOAL_CHARS))
+        return _public_handoff_goal(value)
 
     @field_validator("scope", mode="before")
     @classmethod
@@ -430,12 +436,92 @@ def _duo_plan(goal: str) -> tuple[AcceptanceItem, ...]:
 _STOP_REASONS: dict[str, frozenset[str | None]] = {
     "active": frozenset({None}),
     "completed": frozenset({"completed"}),
-    "stopped": frozenset({"needs_confirmation", "rejection_limit"}),
+    "stopped": frozenset(
+        {
+            "needs_confirmation",
+            "rejection_limit",
+            "needs_input",
+            "blocked",
+            "external_action_pending",
+            "max_rounds",
+            "wall_clock",
+            "token_budget",
+            "token_usage_unavailable",
+            "consecutive_failures",
+        }
+    ),
     "cancelled": frozenset({"cancelled"}),
     "failed": frozenset(
-        {"state_failure", "unrecoverable_failure", "invalid_role_submission", "role_failed"}
+        {
+            "state_failure",
+            "unrecoverable_failure",
+            "invalid_role_submission",
+            "role_failed",
+            "checkpoint_error",
+            "client_error:network",
+            "client_error:rate_limit",
+            "client_error:timeout",
+            "client_error:unknown",
+        }
     ),
 }
+_RESOURCE_STOP_REASONS = frozenset(
+    {
+        "max_rounds",
+        "wall_clock",
+        "token_budget",
+        "token_usage_unavailable",
+        "consecutive_failures",
+    }
+)
+_KNOWN_CLIENT_ERROR_REASONS = frozenset(
+    {
+        "client_error:network",
+        "client_error:rate_limit",
+        "client_error:timeout",
+        "client_error:unknown",
+    }
+)
+_KNOWN_FAILURE_REASONS = frozenset(
+    {
+        "state_failure",
+        "unrecoverable_failure",
+        "invalid_role_submission",
+        "role_failed",
+        "checkpoint_error",
+    }
+)
+
+
+def _project_collaboration_stop(
+    reason: str, attention: Attention | None = None
+) -> tuple[str, str, Attention | None]:
+    """Map Task/Loop terminal reasons to a stable collaboration projection."""
+    if reason == "completed":
+        return "completed", "completed", None
+    if reason in {"needs_confirmation", "rejection_limit"}:
+        return "stopped", reason, None
+    if reason == "cancelled":
+        return "cancelled", "cancelled", None
+    if reason in {"needs_info", "needs_input"}:
+        projected = (
+            attention if attention is not None and attention.state == "needs_input" else None
+        )
+        return "stopped", "needs_input", projected or attention_for_reason("needs_info")
+    if reason in {"blocked", "external_action_pending"}:
+        projected = attention if attention is not None and attention.state == "blocked" else None
+        return "stopped", reason, projected or attention_for_reason(reason)
+    if reason in _RESOURCE_STOP_REASONS:
+        return "stopped", reason, None
+    if reason in _UNRECOVERABLE_TASK_REASONS:
+        return "failed", "unrecoverable_failure", None
+    if reason in _KNOWN_CLIENT_ERROR_REASONS:
+        return "failed", reason, None
+    if reason in _KNOWN_FAILURE_REASONS:
+        return "failed", reason, None
+    return "failed", "role_failed", None
+
+
 _ALLOWED_PHASE_TRANSITIONS = {
     "planning": frozenset({"planning", "needs_confirmation", "stopped", "cancelled", "failed"}),
     "needs_confirmation": frozenset(
@@ -526,6 +612,7 @@ class CollaborationState(BaseModel):
     status: CollaborationStatus = "active"
     phase: CollaborationPhase = "planning"
     stop_reason: str | None = None
+    attention: Attention | None = None
     revision: int = 0
     goal: str
     plan: tuple[AcceptanceItem, ...] = ()
@@ -625,6 +712,18 @@ class CollaborationState(BaseModel):
     def _validate_invariants(self) -> CollaborationState:
         if self.stop_reason not in _STOP_REASONS[self.status]:
             raise ValueError("state status and stop reason are inconsistent")
+        if self.stop_reason == "needs_input" and (
+            self.attention is None or self.attention.state != "needs_input"
+        ):
+            raise ValueError("attention does not match stop reason")
+        if self.stop_reason in {"blocked", "external_action_pending"} and (
+            self.attention is None or self.attention.state != "blocked"
+        ):
+            raise ValueError("attention does not match stop reason")
+        if self.stop_reason not in {"needs_input", "blocked", "external_action_pending"} and (
+            self.attention is not None
+        ):
+            raise ValueError("attention does not match stop reason")
         if not _status_phase_is_valid(self.status, self.phase):
             raise ValueError("state status and phase are inconsistent")
         if self.rejections > self.max_rejections:
@@ -772,7 +871,7 @@ def build_handoff_packet(
             if attempt is not None
             else (state.generator_attempts if role == "generator" else state.evaluator_attempts)
         ),
-        goal=state.goal,
+        goal=_public_handoff_goal(state.goal),
         scope=tuple(item.id for item in state.plan[:MAX_HANDOFF_SCOPE_ITEMS]),
         plan_digest=state.plan_digest,
         verified_facts=tuple(facts[:MAX_HANDOFF_FACTS]),
@@ -805,6 +904,7 @@ class CollaborationReport(BaseModel):
     mode: Literal["duo", "triad"]
     status: CollaborationStatus
     stop_reason: str | None
+    attention: Attention | None = None
     phase: CollaborationPhase
     plan_item_count: int
     passed_item_count: int
@@ -860,8 +960,22 @@ class CollaborationReport(BaseModel):
 
     @model_validator(mode="after")
     def _validate_counts(self) -> CollaborationReport:
+        if self.stop_reason not in _STOP_REASONS[self.status]:
+            raise ValueError("stop reason is not valid for report status")
         if self.passed_item_count + self.failed_item_count > self.plan_item_count:
             raise ValueError("report counts are inconsistent")
+        if self.stop_reason == "needs_input" and (
+            self.attention is None or self.attention.state != "needs_input"
+        ):
+            raise ValueError("attention does not match stop reason")
+        if self.stop_reason in {"blocked", "external_action_pending"} and (
+            self.attention is None or self.attention.state != "blocked"
+        ):
+            raise ValueError("attention does not match stop reason")
+        if self.stop_reason not in {"needs_input", "blocked", "external_action_pending"} and (
+            self.attention is not None
+        ):
+            raise ValueError("attention does not match stop reason")
         return self
 
     @classmethod
@@ -875,6 +989,7 @@ class CollaborationReport(BaseModel):
             mode=state.mode,
             status=state.status,
             stop_reason=state.stop_reason,
+            attention=state.attention,
             phase=state.phase,
             plan_item_count=len(state.plan),
             passed_item_count=sum(item.passed for item in state.last_evaluation),
@@ -1981,7 +2096,7 @@ class CollaborationRunner:
         if not planner.status.completed and not submitted and self._recover_role_failures:
             if _failed_submission(planner, "SubmitPlan"):
                 return self._finish("failed", "invalid_role_submission")
-            return self._finish_without_save("failed", "role_failed")
+            return self._task_failure(planner)
         if not submitted:
             return self._finish("failed", "invalid_role_submission")
         self._emit_plan("submitted")
@@ -2359,9 +2474,12 @@ class CollaborationRunner:
             raise CollaborationError("collaboration plan changed")
 
     def _task_failure(self, outcome: TaskOutcome) -> CollaborationReport:
-        if outcome.status.reason in _UNRECOVERABLE_TASK_REASONS:
-            return self._finish("failed", "unrecoverable_failure")
-        return self._role_failure()
+        status, reason, attention = _project_collaboration_stop(
+            outcome.status.reason, outcome.status.attention
+        )
+        if self._recover_role_failures and status == "failed" and reason == "role_failed":
+            return self._finish_without_save(status, reason, attention=attention)
+        return self._finish(status, reason, attention=attention)
 
     def _role_failure(self) -> CollaborationReport:
         if self._recover_role_failures:
@@ -2372,18 +2490,27 @@ class CollaborationRunner:
         self,
         status: Literal["completed", "stopped", "cancelled", "failed"],
         reason: str,
+        *,
+        attention: Attention | None = None,
     ) -> CollaborationReport:
         try:
             candidate = self._state.model_copy(
-                update={"status": status, "phase": status, "stop_reason": reason}
+                update={
+                    "status": status,
+                    "phase": status,
+                    "stop_reason": reason,
+                    "attention": attention,
+                }
             )
             self._state = self._store.save(candidate, expected_revision=self._state.revision)
         except (CollaborationError, ValidationError):
             if reason != "state_failure":
                 return self._finish_without_save("failed", "state_failure")
-        return self._finish_without_save(status, reason)
+        return self._finish_without_save(status, reason, attention=attention)
 
-    def _finish_without_save(self, status: str, reason: str) -> CollaborationReport:
+    def _finish_without_save(
+        self, status: str, reason: str, *, attention: Attention | None = None
+    ) -> CollaborationReport:
         self._emit(
             "collaboration.stop",
             {
@@ -2397,7 +2524,12 @@ class CollaborationRunner:
         )
         if self._state.status != status or self._state.stop_reason != reason:
             projected = self._state.model_copy(
-                update={"status": status, "phase": status, "stop_reason": reason}
+                update={
+                    "status": status,
+                    "phase": status,
+                    "stop_reason": reason,
+                    "attention": attention,
+                }
             )
             return CollaborationReport.from_state(projected)
         return CollaborationReport.from_state(self._state)

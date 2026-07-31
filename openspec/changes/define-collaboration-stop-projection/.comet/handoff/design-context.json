@@ -1,0 +1,15 @@
+{
+  "change": "define-collaboration-stop-projection",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "114010c4c045dfe965b3440f0502b224c4143d5441b3abb11efce1b1d401921d",
+  "files": [
+    { "path": "openspec/changes/define-collaboration-stop-projection/proposal.md", "sha256": "94500864ba98fdf5440ff6f6f8f5be9833aef805622c240c0511974f0c7d803e" },
+    { "path": "openspec/changes/define-collaboration-stop-projection/design.md", "sha256": "8d727a572d6fa07eba03dea53c1b9193f247c45cad7fc98193acbb2ff6a47df5" },
+    { "path": "openspec/changes/define-collaboration-stop-projection/tasks.md", "sha256": "892d3a0309adc818d567253d7614ab871dfeb88b8460ee5a6291ae39c9ca5231" },
+    { "path": "openspec/changes/define-collaboration-stop-projection/specs/runtime-collaboration/spec.md", "sha256": "7cec6d7d97b6dc79ebbb0ea62280c8fbc8e9cdb160042f36e6218a720114c203" },
+    { "path": "openspec/changes/define-collaboration-stop-projection/specs/structured-collaboration-handoff/spec.md", "sha256": "f27000e9d9236e31438656d82a17a9a9a9320bc54672fd338ce78c42d1d8c5d4" }
+  ]
+}
