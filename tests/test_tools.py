@@ -167,9 +167,7 @@ def test_mcp_describe_is_read_only_and_bounded():
 
 
 def test_mcp_describe_uses_real_manager_snapshot_without_dispatch(monkeypatch):
-    manager = MCPManager(
-        {"alpha": MCPServerConfig(command="unused", auto_approve=["echo"])}
-    )
+    manager = MCPManager({"alpha": MCPServerConfig(command="unused", auto_approve=["echo"])})
     state = manager._states["alpha"]
     state.status = "available"
     state.tools = [
