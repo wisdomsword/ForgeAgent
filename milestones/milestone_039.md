@@ -31,10 +31,10 @@ M39 按三个顺序执行的 Comet change 完成：
 
 ## 验收证据
 
-- M39 全量 pytest: `2525 passed, 10 skipped`。
+- M39 全量 pytest: `2526 passed, 10 skipped`。
 - Duo/Collaboration/HTTP focused: `390 passed`；Duo/store/tools focused 收尾: `117 passed`。
 - Ruff check、Ruff format check、`uv build` 通过。
-- `openspec validate --all --strict --no-interactive`: `31 passed, 0 failed`。
+- `openspec validate --all --strict --no-interactive`: `30 passed, 0 failed`（归档前含 active change 的 strict 校验为 `31/31`）。
 - 三个 Comet change 均已完成 build/verify 并归档；归档目录包含对应 proposal/design/spec/tasks 与验证报告。
 
 ## 条件候选

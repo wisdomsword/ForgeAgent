@@ -16,7 +16,7 @@ release_actions: paused
 - RED：新增 golden tests 在旧实现上 `4 failed`；旧 snapshot 兼容测试在首次实现后继续失败，证明兼容缺口真实存在。
 - Focused：`116 passed`，覆盖 Duo golden、store、runner 和 tools。
 - Collaboration/HTTP：`390 passed`。
-- Full pytest：`2525 passed, 10 skipped`。
+- Full pytest：`2526 passed, 10 skipped`。
 - Ruff check：通过；Ruff format check：`122 files already formatted`。
 - OpenSpec strict：`31 passed, 0 failed`。
 - `uv build`：成功生成 wheel 与 sdist，但未上传。
