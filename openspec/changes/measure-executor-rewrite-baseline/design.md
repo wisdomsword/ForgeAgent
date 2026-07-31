@@ -32,7 +32,8 @@ ForgeAgent 的 `TrustedBackend` 在宿主进程执行 Python，`RestrictedBacken
 ### 2. 三条执行路径按可验证边界分层
 
 - trusted 与 restricted 必须真实测量构造、简单 block 延迟和顺序吞吐。
-- restricted 必须验证 worker 异常退出与 timeout 后的下一次执行仍成功。
+- restricted 必须验证 worker 异常退出与 timeout 后的下一次执行仍成功，并以每个故障 block 各写
+  一次临时哨兵、宿主最终只读到一个字节来观测没有重放；哨兵路径和代码正文不进入报告。
 - container 只有 Docker daemon 和既定镜像本地可用时才真实测量；否则记录固定 `not_available` reason，不能进入性能比较或被计为可靠性通过。
 
 不自动拉取镜像、不启动 daemon、不访问网络。容器缺证据不阻止建立 Python 主路径基线，但会让任何以 container 替换为目标的后续试验保持 `insufficient_evidence`。
@@ -48,7 +49,8 @@ ForgeAgent 的 `TrustedBackend` 在宿主进程执行 Python，`RestrictedBacken
 3. compatibility、team capability、migration/rollback risk 三项均满足试验准入；
 4. 对应边界有真实 verifier，不依赖未运行的 Docker 或推测数据。
 
-否则输出 `keep_python`；关键证据缺失或测量失败则输出 `insufficient_evidence`。该 verdict 只决定是否可以另建试验 change，不会切换运行时。
+否则输出 `keep_python`；关键证据缺失、测量失败或 metric status 不在对应固定词表内则输出
+`insufficient_evidence`。该 verdict 只决定是否可以另建试验 change，不会切换运行时。
 
 ### 4. 阈值不伪装成跨机器 SLA
 

@@ -44,6 +44,19 @@ FEASIBILITY_METRICS = (
     "team_capability",
     "migration_rollback_risk",
 )
+_ALLOWED_METRIC_STATUSES = {
+    "performance": {"within_threshold", "threshold_crossed", "confirmed_bottleneck", "failed"},
+    "reliability": {"within_threshold", "threshold_crossed", "confirmed_bottleneck", "failed"},
+    "maintenance_cost": {
+        "within_threshold",
+        "threshold_crossed",
+        "confirmed_bottleneck",
+        "failed",
+    },
+    "compatibility": {"ready", "not_ready", "failed"},
+    "team_capability": {"ready", "not_ready", "failed"},
+    "migration_rollback_risk": {"ready", "not_ready", "failed"},
+}
 CONTAINER_IMAGE = "python:3.11-slim"
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -82,6 +95,8 @@ def evaluate_readiness(metrics: dict[str, dict[str, object]]) -> str:
     if any(set(metrics[name]) != GOVERNANCE_FIELDS for name in METRIC_NAMES):
         return "insufficient_evidence"
     statuses = {name: metrics[name]["status"] for name in METRIC_NAMES}
+    if any(statuses[name] not in _ALLOWED_METRIC_STATUSES[name] for name in METRIC_NAMES):
+        return "insufficient_evidence"
     if any(status == "failed" for status in statuses.values()):
         return "insufficient_evidence"
     if any(status == "threshold_crossed" for status in statuses.values()):
@@ -200,16 +215,38 @@ def _measure_reliability(reliability_runs: int) -> dict[str, object]:
             int(restricted.execute(_TRIVIAL_CODE, Runtime()).success)
             for _ in range(reliability_runs)
         )
-        crashed = restricted.execute("import os; os._exit(7)", Runtime())
+        crash_sentinel = Path(allowed_root) / "crash-replay-sentinel"
+        crash_code = (
+            f"with open({str(crash_sentinel)!r}, 'a', encoding='utf-8') as marker:\n"
+            "    marker.write('x')\n"
+            "import os\n"
+            "os._exit(7)"
+        )
+        crashed = restricted.execute(crash_code, Runtime())
         crash_recovered = restricted.execute("value = 2 + 2", Runtime())
+        try:
+            crash_written_once = crash_sentinel.read_text(encoding="utf-8") == "x"
+        except OSError:
+            crash_written_once = False
 
         timeout_backend = RestrictedBackend(
             allowed_root=allowed_root,
             timeout_seconds=1.0,
             secret_values=set(),
         )
-        timed_out = timeout_backend.execute("while True:\n    pass", Runtime())
+        timeout_sentinel = Path(allowed_root) / "timeout-replay-sentinel"
+        timeout_code = (
+            f"with open({str(timeout_sentinel)!r}, 'a', encoding='utf-8') as marker:\n"
+            "    marker.write('x')\n"
+            "while True:\n"
+            "    pass"
+        )
+        timed_out = timeout_backend.execute(timeout_code, Runtime())
         timeout_recovered = timeout_backend.execute("value = 3 + 3", Runtime())
+        try:
+            timeout_written_once = timeout_sentinel.read_text(encoding="utf-8") == "x"
+        except OSError:
+            timeout_written_once = False
 
     baseline = {
         "trusted": {
@@ -237,6 +274,8 @@ def _measure_reliability(reliability_runs: int) -> dict[str, object]:
                 "timeout_recovery",
             )
         )
+        and crash_written_once
+        and timeout_written_once
     )
     return {
         "baseline": baseline,
@@ -248,7 +287,9 @@ def _measure_reliability(reliability_runs: int) -> dict[str, object]:
         },
         "evidence": {
             "kind": "real_subprocess_fault_injection",
-            "failed_block_replayed": False,
+            "crash_failed_block_replayed": not crash_written_once,
+            "timeout_failed_block_replayed": not timeout_written_once,
+            "failed_block_replayed": not (crash_written_once and timeout_written_once),
         },
         "migration": _MIGRATION_RULE,
         "rollback_trigger": (
@@ -368,6 +409,7 @@ def _measure_team_capability() -> dict[str, object]:
             "target_build_rehearsal_required": True,
             "debug_rehearsal_required": True,
             "package_integration_rehearsal_required": True,
+            "profiling_rehearsal_required": True,
             "rollback_rehearsal_required": True,
         },
         "evidence": {

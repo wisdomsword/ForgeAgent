@@ -71,9 +71,9 @@ def write_report(path: Path, report: dict[str, object]) -> None: ...
 
 trusted 与 restricted 各执行 `reliability_runs` 次简单 block，控制面失败必须为零。restricted 额外执行：
 
-1. `os._exit(7)` 造成 worker 无结果退出，父进程必须得到结构化失败；
-2. 无限循环触发 `1.0s` timeout；
-3. 每个失败之后立即执行新 block，必须成功且不得重放失败代码。
+1. 在临时允许目录写入一个字节后，以 `os._exit(7)` 造成 worker 无结果退出，父进程必须得到结构化失败；
+2. 在另一个临时哨兵写入一个字节后，以无限循环触发 `1.0s` timeout；
+3. 每个失败之后立即执行新 block，必须成功，且宿主读取的对应哨兵必须仍精确为一个字节。
 
 阈值为零正常执行控制面失败、两类故障后恢复均为 `true`。失败只有在同口径复现且影响真实路径时才构成 reliability bottleneck；M43 不自动将 bug 改写为 rewrite 理由。
 
@@ -113,6 +113,7 @@ M43 baseline 为零 schema/config/data migration。未来试验必须只替换�
 
 `environment` 只允许 Python version、`sys.platform`、machine architecture 和短 Git commit。每个 metric 必须包含 `baseline`、`threshold`、`evidence`、`migration`、`rollback_trigger`、`status`。backend evidence 状态只允许 `measured`、`not_available`、`failed`。
 
+每项 status 使用按 metric 固定的允许集合；任何未知或拼写错误的 status 都是证据不完整。
 `evaluate_readiness()` 按以下顺序判定：
 
 1. 缺 metric、缺治理字段、required measurement 为 `failed` → `insufficient_evidence`；

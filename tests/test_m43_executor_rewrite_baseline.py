@@ -107,6 +107,15 @@ def test_readiness_rejects_missing_or_failed_required_evidence():
     assert module.evaluate_readiness(failed) == "insufficient_evidence"
 
 
+@pytest.mark.parametrize("metric_name", ["performance", "compatibility"])
+def test_readiness_rejects_unknown_metric_status(metric_name):
+    module = _load_module()
+    metrics = _metrics()
+    metrics[metric_name]["status"] = "typo_status"
+
+    assert module.evaluate_readiness(metrics) == "insufficient_evidence"
+
+
 def test_readiness_does_not_depend_on_metric_mapping_order():
     module = _load_module()
     reordered = dict(reversed(list(_metrics().items())))
@@ -189,6 +198,25 @@ def test_main_does_not_swallow_keyboard_interrupt(monkeypatch, tmp_path):
 
     with pytest.raises(KeyboardInterrupt):
         module.main(["--output", str(tmp_path / "evidence.json"), "--samples", "1"])
+
+
+def test_reliability_observes_crash_and_timeout_without_replay():
+    module = _load_module()
+
+    metric = module._measure_reliability(1)
+
+    assert metric["status"] == "within_threshold"
+    assert metric["evidence"]["failed_block_replayed"] is False
+    assert metric["evidence"]["crash_failed_block_replayed"] is False
+    assert metric["evidence"]["timeout_failed_block_replayed"] is False
+
+
+def test_team_capability_requires_profiling_rehearsal():
+    module = _load_module()
+
+    metric = module._measure_team_capability()
+
+    assert metric["threshold"]["profiling_rehearsal_required"] is True
 
 
 def test_write_report_is_atomic_when_replace_fails(monkeypatch, tmp_path):
