@@ -12,6 +12,6 @@
 
 ## 3. 阈值与回归验证
 
-- [ ] 3.1 重新运行性能、结构、依赖、帮助哈希、聚焦 pytest、全量 pytest、Ruff、format、build、diff check 和 OpenSpec strict 验证。
-- [ ] 3.2 对行为漂移、依赖环、隐藏 monkeypatch 断裂、资源所有权、过度设计、遗漏和阈值合规做两轮最终自审；修复并重新验证每个发现。
-- [ ] 3.3 编写验证报告，更新 ACTION_PLAN 与 M41 里程碑追溯，归档 change，并确认分发动作仍排除在外。
+- [x] 3.1 重新运行性能、结构、依赖、帮助哈希、聚焦 pytest、全量 pytest、Ruff、format、build、diff check 和 OpenSpec strict 验证。
+- [x] 3.2 对行为漂移、依赖环、隐藏 monkeypatch 断裂、资源所有权、过度设计、遗漏和阈值合规做两轮最终自审；修复并重新验证每个发现。
+- [x] 3.3 编写验证报告，更新 ACTION_PLAN 与 M41 里程碑追溯，归档 change，并确认分发动作仍排除在外。
