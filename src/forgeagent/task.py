@@ -16,6 +16,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from .attention import Attention, attention_for_reason
 from .audit import AuditEvent, AuditSink, emit_audit
 from .client import ModelClient
 from .context import ContextConfig, ContextPolicy, SlidingWindowContextPolicy
@@ -69,6 +70,7 @@ class TaskStatus(BaseModel):
     # A Termination value (or "client_error:<kind>"); "no_rounds"/"unknown" as fallbacks.
     reason: str
     detail: str | None = None
+    attention: Attention | None = None
 
     @property
     def solved(self) -> bool:
@@ -267,11 +269,25 @@ class Task:
                 result_status=status.reason,
             ),
         )
+        if status.attention is not None:
+            emit_audit(
+                self._audit_sink,
+                AuditEvent(
+                    event_type="task.attention",
+                    task_id=self._task_id,
+                    parameters=status.attention.model_dump(mode="json"),
+                    result_status=status.attention.state,
+                ),
+            )
         return outcome
 
     def _derive_status(self, rounds: list[RoundResult]) -> TaskStatus:
         if not rounds:
-            return TaskStatus(completed=False, reason="no_rounds")
+            return TaskStatus(
+                completed=False,
+                reason="no_rounds",
+                attention=attention_for_reason("no_rounds"),
+            )
         last = rounds[-1]
         reason = str(last.stopped_reason or "unknown")
         completed = reason == Termination.COMPLETED
@@ -286,4 +302,10 @@ class Task:
             detail = last.stopped_detail
         else:
             detail = last.text or None
-        return TaskStatus(completed=completed, reason=reason, detail=detail)
+        attention = last.attention or attention_for_reason(reason, detail)
+        return TaskStatus(
+            completed=completed,
+            reason=reason,
+            detail=detail,
+            attention=attention,
+        )

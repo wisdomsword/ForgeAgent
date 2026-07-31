@@ -102,6 +102,23 @@ def test_task_emits_bounded_terminal_outcome_for_evaluation():
     assert terminal[0].parameters == {"completed": True, "round_count": 1}
 
 
+def test_task_projects_legacy_needs_info_and_audits_attention():
+    sink = _RecordingAuditSink()
+    outcome = Task(
+        MockClient(script=[_reply(_tool_call("Survey", question="which file?"))]),
+        audit_sink=sink,
+        task_id="task-attention",
+    ).run("choose a file")
+
+    assert outcome.status.reason == Termination.NEEDS_INFO
+    assert outcome.status.attention is not None
+    assert outcome.status.attention.state == "needs_input"
+    events = [event for event in sink.events if event.event_type == "task.attention"]
+    assert len(events) == 1
+    assert events[0].task_id == "task-attention"
+    assert events[0].parameters["state"] == "needs_input"
+
+
 def test_task_constructs_default_context_policy_once_and_forwards_it(monkeypatch):
     constructed = []
     policies = []
