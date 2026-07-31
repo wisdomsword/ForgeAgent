@@ -22,6 +22,15 @@ M42_VERIFY_REPORT = (
     ROOT / "docs" / "superpowers" / "reports" / "2026-07-31-memory-metadata-migration-verify.md"
 )
 M42_ARCHIVE = ROOT / "openspec" / "changes" / "archive" / "2026-07-31-migrate-memory-metadata"
+M43_MILESTONE = ROOT / "milestones" / "milestone_043.md"
+M43_VERIFY_REPORT = (
+    ROOT / "docs" / "superpowers" / "reports" / "2026-07-31-executor-rewrite-baseline-verify.md"
+)
+M43_ARCHIVE = (
+    ROOT / "openspec" / "changes" / "archive" / "2026-07-31-measure-executor-rewrite-baseline"
+)
+M43_BASELINE = ROOT / "docs" / "evaluation" / "m43" / "rewrite-dependency-baseline.md"
+M43_EVIDENCE = ROOT / "docs" / "evaluation" / "m43" / "executor-rewrite-baseline.json"
 RETIRED_RELEASE_CHANGE = (
     ROOT
     / "openspec"
@@ -73,18 +82,20 @@ def test_process_review_links_to_the_archived_receipt_change() -> None:
     assert expected_link in process
 
 
-def test_review_documents_track_m42_runtime_baseline() -> None:
+def test_review_documents_track_m43_runtime_baseline() -> None:
     borrowing = _read(BORROWING)
     process = _read(PROCESS)
-    assert "forgeagent_baseline: M42" in borrowing
-    assert "milestones/milestone_042.md" in borrowing
-    assert "当前基线：ForgeAgent M42" in process
+    assert "forgeagent_baseline: M43" in borrowing
+    assert "milestones/milestone_043.md" in borrowing
+    assert "当前基线：ForgeAgent M43" in process
     assert "runtime-skill-exit-contract" in process
     assert "运行时 Skill 自动拒绝已由" in process
     assert "change 落地并归档" in process
     assert "M42 Memory 元数据迁移能力均已归档" in process
     assert "真实 readiness 为 `no_data`" in borrowing
-    assert "未来新的 Rewrite/依赖变更" in process
+    assert "M43" in process
+    assert "最终 verdict 为 `keep_python`" in process
+    assert "单模块试验" in process
     assert "M41 首次" in process
     assert "运行时依赖仍为 8" in process
 
@@ -101,7 +112,7 @@ def test_http_action_approval_binding_remains_conditional() -> None:
 
 def test_next_step_summary_lists_all_conditional_items() -> None:
     borrowing = _read(BORROWING)
-    expected = "未来新的 Rewrite/依赖变更与 HTTP 远程动作审批绑定"
+    expected = "未来新的单模块 Rewrite/依赖试验与 HTTP 远程动作审批绑定"
     assert expected in borrowing
     assert "真实触发后另立 change" in borrowing
 
@@ -112,7 +123,8 @@ def test_m33_and_receipt_purpose_are_traceable() -> None:
     assert "M40" in _read(PLAN)
     assert "M41" in _read(PLAN)
     assert "M42" in _read(PLAN)
-    assert _read(LATEST).strip() == "milestone_042.md"
+    assert "M43" in _read(PLAN)
+    assert _read(LATEST).strip() == "milestone_043.md"
     assert "Purpose: TBD" not in _read(RECEIPT_SPEC)
     assert "durable, bounded" in _read(RECEIPT_SPEC)
     assert "Purpose: TBD" not in _read(BORROWING_SPEC)
@@ -130,6 +142,22 @@ def test_m33_and_receipt_purpose_are_traceable() -> None:
     assert "M41 无未完成任务" in _read(M41_MILESTONE)
     assert "四处兼容/归属问题" in _read(M41_MILESTONE)
     assert "M42 无未完成任务" in _read(M42_MILESTONE)
+
+
+def test_m43_rewrite_baseline_completion_is_traceable() -> None:
+    assert M43_ARCHIVE.is_dir()
+    assert "archived: true" in _read(M43_ARCHIVE / ".comet.yaml")
+    baseline = _read(M43_BASELINE)
+    assert "最终 verdict：`keep_python`" in baseline
+    assert "不授权 Rust 重写" in baseline
+    assert '"verdict": "keep_python"' in _read(M43_EVIDENCE)
+    report = _read(M43_VERIFY_REPORT)
+    assert "六项指标" in report
+    assert "container" in report
+    assert "not_available" in report
+    milestone = _read(M43_MILESTONE)
+    assert "M43 无未完成任务" in milestone
+    assert "openspec/changes/archive/2026-07-31-measure-executor-rewrite-baseline" in milestone
 
 
 def test_m42_memory_migration_completion_is_traceable() -> None:
