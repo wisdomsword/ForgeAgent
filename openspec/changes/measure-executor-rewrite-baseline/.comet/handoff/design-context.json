@@ -1,0 +1,14 @@
+{
+  "change": "measure-executor-rewrite-baseline",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "b58f55ca1e58640bb4cc8d797374ef5c75b8334e2e1e760a377bcc7b3b2be932",
+  "files": [
+    { "path": "openspec/changes/measure-executor-rewrite-baseline/proposal.md", "sha256": "a0ca3b197e7623da02939afeb6d0558d8da61bd2e1fdfbc2f698c95e92ae2fe4" },
+    { "path": "openspec/changes/measure-executor-rewrite-baseline/design.md", "sha256": "2833651059fce8dedff55ccf6b3fe873bd285b1ad3b9323b08fa7980158d0aee" },
+    { "path": "openspec/changes/measure-executor-rewrite-baseline/tasks.md", "sha256": "c15c70b1dd3111dce151bdbc2959aae661a8ff47d96c9811c446d93806e68130" },
+    { "path": "openspec/changes/measure-executor-rewrite-baseline/specs/execution-backend-rewrite-readiness/spec.md", "sha256": "dcb2ca4bc55ff84d8a756c43a859afa577599dbd20bc0dde59638c86f55c38fc" }
+  ]
+}
