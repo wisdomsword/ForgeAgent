@@ -1828,6 +1828,32 @@ def test_tools_prompt_is_bounded_directory_without_input_schema():
     assert "`write` [confirmation required]" in prompt
 
 
+def test_describe_tool_reads_available_snapshot_and_returns_deep_copy():
+    manager = MCPManager({"alpha": MCPServerConfig(command="unused")})
+    state = manager._states["alpha"]
+    state.status = "available"
+    state.tools = [
+        MCPToolInfo(
+            server="alpha",
+            name="echo",
+            description="Echo description",
+            input_schema={"properties": {"text": {"type": "string"}}},
+        )
+    ]
+
+    described = manager.describe_tool("alpha", "echo")
+
+    assert described is not None
+    described.description = "changed"
+    described.input_schema["properties"]["text"]["type"] = "integer"
+    assert state.tools[0].description == "Echo description"
+    assert state.tools[0].input_schema["properties"]["text"]["type"] == "string"
+    assert manager.describe_tool("alpha", "missing") is None
+
+    state.status = "unavailable"
+    assert manager.describe_tool("alpha", "echo") is None
+
+
 def test_discovery_masks_descriptions_excludes_sensitive_names_and_routes_safe_tool(monkeypatch):
     secret = "discovery-secret"
     monkeypatch.setattr(mcp_manager_module, "sensitive_env_values", lambda: {secret})
