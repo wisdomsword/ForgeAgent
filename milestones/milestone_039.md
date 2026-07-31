@@ -5,7 +5,7 @@
 - 状态: 已完成
 - 日期: 2026-07-31
 - 对应 ACTION_PLAN 行: M39
-- 前置里程碑: [milestone_038](milestone_038.md)
+- 前置里程碑: [milestone_038](milestone_038.md)；M38 分发目标退役；规划基线可追溯至 M37
 - 分发边界: PyPI、tag、push 和发布自动化继续暂停
 
 ## 目标与范围
