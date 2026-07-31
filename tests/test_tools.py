@@ -195,6 +195,48 @@ def test_mcp_describe_uses_real_manager_snapshot_without_dispatch(monkeypatch):
     assert "auto-approved" in outcome.detail
     assert "properties" in outcome.detail
 
+    repeated = MCPDescribeTool().run(
+        MCPDescribeArgs(server="alpha", tool="echo"),
+        _mcp_ctx(mcp=manager),
+    )
+    missing = MCPDescribeTool().run(
+        MCPDescribeArgs(server="alpha", tool="missing"),
+        _mcp_ctx(mcp=manager),
+    )
+
+    assert repeated == outcome
+    assert missing.success is False
+
+
+def test_mcp_describe_bounds_oversized_description_and_schema():
+    class _OversizedMCP:
+        def describe_tool(self, server: str, tool: str):
+            assert (server, tool) == ("alpha", "huge")
+            return type(
+                "Info",
+                (),
+                {
+                    "description": "x" * 3000,
+                    "input_schema": {"oversized_marker": "y" * 7000},
+                },
+            )()
+
+        def is_auto_approved(self, _server: str, _tool: str) -> bool:
+            return False
+
+    outcome = MCPDescribeTool().run(
+        MCPDescribeArgs(server="alpha", tool="huge"),
+        _mcp_ctx(mcp=_OversizedMCP()),
+    )
+    description_line = next(
+        line for line in outcome.detail.splitlines() if line.startswith("description: ")
+    )
+
+    assert outcome.success is True
+    assert len(description_line.removeprefix("description: ")) == 2000
+    assert "oversized_marker" not in outcome.detail
+    assert "input_schema: {}" in outcome.detail
+
 
 def test_registry_later_registration_overrides_earlier():
     class _OtherDummy(_DummyTool):

@@ -8,12 +8,12 @@ subagent_dispatch: null
 tdd_mode: tdd
 review_mode: thorough
 isolation: worktree
-verify_mode: null
+verify_mode: full
 auto_transition: true
 base_ref: 8513bef069ef75ec7b9959a3112e0863722239a0
 design_doc: docs/superpowers/specs/2026-08-01-mcp-progressive-disclosure-baseline-repair-design.md
 plan: docs/superpowers/plans/2026-08-01-mcp-progressive-disclosure-baseline-repair.md
-verify_result: pending
+verify_result: fail
 verification_report: null
 branch_status: pending
 created_at: 2026-07-31
