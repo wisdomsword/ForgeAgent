@@ -28,11 +28,11 @@ M40 的实现符合结构化 Loop handoff、旧 checkpoint 兼容迁移、宿主
 ## 验证证据
 
 - Loop/Step/CLI/Task/Collaboration 专项：`550 passed`。
-- 全量 pytest：待最终门禁回填。
-- Ruff check / format：待最终门禁回填。
-- `uv build`：verify 前已通过，最终门禁待回填；未上传产物。
-- OpenSpec strict：verify 前 `31 passed, 0 failed`，归档后待回填。
-- `git diff --check`：verify 前通过，最终门禁待回填。
+- 全量 pytest：`2534 passed, 10 skipped in 164.56s`。
+- `uv run ruff check .`：通过；`uv run ruff format --check .`：`129 files already formatted`。
+- `uv build`：成功生成 sdist 与 wheel；未上传产物。
+- OpenSpec strict：verify 前 `31 passed, 0 failed`，归档后结果记录在 M40 里程碑。
+- `git diff --check`：通过。
 
 ## 范围与边界
 
