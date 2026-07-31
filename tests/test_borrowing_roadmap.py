@@ -7,6 +7,7 @@ PLAN = ROOT / "ACTION_PLAN.md"
 M33_MILESTONE = ROOT / "milestones" / "milestone_033.md"
 LATEST_MILESTONE = ROOT / "milestones" / "milestone_034.md"
 CURRENT_MILESTONE = ROOT / "milestones" / "milestone_039.md"
+M40_MILESTONE = ROOT / "milestones" / "milestone_040.md"
 LATEST = ROOT / "milestones" / "latest"
 RECEIPT_SPEC = ROOT / "openspec" / "specs" / "external-action-receipts" / "spec.md"
 BORROWING_SPEC = ROOT / "openspec" / "specs" / "borrowing-review-baseline" / "spec.md"
@@ -82,7 +83,8 @@ def test_next_step_summary_lists_all_conditional_items() -> None:
 def test_m33_and_receipt_purpose_are_traceable() -> None:
     assert "M33" in _read(PLAN)
     assert "M34" in _read(PLAN)
-    assert "milestone_039.md" in _read(LATEST)
+    assert "M40" in _read(PLAN)
+    assert _read(LATEST).strip() == "milestone_040.md"
     assert "Purpose: TBD" not in _read(RECEIPT_SPEC)
     assert "durable, bounded" in _read(RECEIPT_SPEC)
     assert "Purpose: TBD" not in _read(BORROWING_SPEC)
@@ -93,6 +95,8 @@ def test_m33_and_receipt_purpose_are_traceable() -> None:
     assert "M37" in _read(CURRENT_MILESTONE)
     assert "M38" in _read(CURRENT_MILESTONE)
     assert "M39" in _read(CURRENT_MILESTONE)
+    assert "M40" in _read(M40_MILESTONE)
+    assert "loop-handoff-contract" in _read(M40_MILESTONE)
 
 
 def test_removed_distribution_goal_is_retired_and_traceable() -> None:
