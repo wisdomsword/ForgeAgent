@@ -2,6 +2,8 @@
 comet_change: harden-loop-protocol-correctness
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-07-31-harden-loop-protocol-correctness
+status: final
 ---
 
 # Hardening Loop Protocol Correctness
@@ -44,3 +46,4 @@ AssistantMessage
 ## 风险与不做事项
 
 不修改 M27 迁移规则，不引入新依赖，不处理 Loop handoff 结构化和 Collaboration stop-reason 映射，不触发 PyPI、tag、push 或发布自动化。
+

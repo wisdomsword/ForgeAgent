@@ -2,6 +2,7 @@
 change: harden-loop-protocol-correctness
 design-doc: docs/superpowers/specs/2026-07-31-harden-loop-protocol-correctness-design.md
 base-ref: 6a304bc6273a3acfd06aae81dd265ce3eeef6347
+archived-with: 2026-07-31-harden-loop-protocol-correctness
 ---
 
 # Hardening Loop Protocol Correctness Implementation Plan
@@ -201,3 +202,4 @@ Check off Tasks 1-6 only after their tests and checks pass; preserve evidence in
 - M27 migration compatibility is explicitly tested and unchanged.
 - No task introduces dependencies, publication, or unrelated handoff/stop-reason redesign.
 - Full-suite environment failures are evidence to record, not reasons to alter runtime behavior.
+
