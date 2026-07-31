@@ -2,6 +2,7 @@
 change: reconcile-m29-m38-artifacts
 design-doc: docs/superpowers/specs/2026-08-01-reconcile-m29-m38-artifacts-design.md
 base-ref: 1b65c5635baa267012c3fb3f1a3e9551b5622867
+archived-with: 2026-07-31-reconcile-m29-m38-artifacts
 ---
 
 # M29-M38 生命周期工件对账实施计划

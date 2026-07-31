@@ -1,6 +1,6 @@
 workflow: full
 language: zh-CN
-phase: verify
+phase: archive
 context_compression: off
 build_mode: executing-plans
 build_pause: null
@@ -13,12 +13,12 @@ auto_transition: true
 base_ref: 1b65c5635baa267012c3fb3f1a3e9551b5622867
 design_doc: docs/superpowers/specs/2026-08-01-reconcile-m29-m38-artifacts-design.md
 plan: docs/superpowers/plans/2026-08-01-reconcile-m29-m38-artifacts.md
-verify_result: pending
+verify_result: pass
 verification_report: docs/superpowers/reports/2026-08-01-reconcile-m29-m38-artifacts-verify.md
 branch_status: handled
 created_at: 2026-07-31
-verified_at: null
-archived: false
+verified_at: 2026-07-31
+archived: true
 direct_override: null
 handoff_context: openspec/changes/reconcile-m29-m38-artifacts/.comet/handoff/design-context.json
 handoff_hash: 6376f18c699eef51fe79ba40c3233e7a3aa7306b257327db752c4efda6e10852

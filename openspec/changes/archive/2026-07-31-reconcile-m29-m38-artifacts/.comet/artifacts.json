@@ -4,5 +4,6 @@
   "openspec_tasks": "openspec/changes/reconcile-m29-m38-artifacts/tasks.md",
   "openspec_delta_spec": "openspec/changes/reconcile-m29-m38-artifacts/specs/agent-governance-gates/spec.md",
   "handoff_context": "openspec/changes/reconcile-m29-m38-artifacts/.comet/handoff/design-context.json",
-  "handoff_markdown": "openspec/changes/reconcile-m29-m38-artifacts/.comet/handoff/design-context.md"
+  "handoff_markdown": "openspec/changes/reconcile-m29-m38-artifacts/.comet/handoff/design-context.md",
+  "archive_directory": "openspec/changes/archive/2026-07-31-reconcile-m29-m38-artifacts"
 }

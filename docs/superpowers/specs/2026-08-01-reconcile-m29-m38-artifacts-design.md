@@ -2,6 +2,8 @@
 comet_change: reconcile-m29-m38-artifacts
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-07-31-reconcile-m29-m38-artifacts
+status: final
 ---
 
 # M29-M38 生命周期工件对账技术设计
