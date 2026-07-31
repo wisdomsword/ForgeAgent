@@ -9,6 +9,7 @@ M34_MILESTONE = ROOT / "milestones" / "milestone_034.md"
 CURRENT_MILESTONE = ROOT / "milestones" / "milestone_039.md"
 M40_MILESTONE = ROOT / "milestones" / "milestone_040.md"
 M41_MILESTONE = ROOT / "milestones" / "milestone_041.md"
+M42_MILESTONE = ROOT / "milestones" / "milestone_042.md"
 LATEST = ROOT / "milestones" / "latest"
 RECEIPT_SPEC = ROOT / "openspec" / "specs" / "external-action-receipts" / "spec.md"
 BORROWING_SPEC = ROOT / "openspec" / "specs" / "borrowing-review-baseline" / "spec.md"
@@ -17,6 +18,10 @@ M41_VERIFY_REPORT = (
     ROOT / "docs" / "superpowers" / "reports" / "2026-07-31-cli-boundary-extraction-verify.md"
 )
 M41_DOCUMENT_AUDIT = ROOT / "docs" / "reviews" / "2026-07-31-M41文档完成度审计.md"
+M42_VERIFY_REPORT = (
+    ROOT / "docs" / "superpowers" / "reports" / "2026-07-31-memory-metadata-migration-verify.md"
+)
+M42_ARCHIVE = ROOT / "openspec" / "changes" / "archive" / "2026-07-31-migrate-memory-metadata"
 RETIRED_RELEASE_CHANGE = (
     ROOT
     / "openspec"
@@ -68,15 +73,17 @@ def test_process_review_links_to_the_archived_receipt_change() -> None:
     assert expected_link in process
 
 
-def test_review_documents_track_m41_runtime_baseline() -> None:
+def test_review_documents_track_m42_runtime_baseline() -> None:
     borrowing = _read(BORROWING)
     process = _read(PROCESS)
-    assert "forgeagent_baseline: M41" in borrowing
-    assert "milestones/milestone_041.md" in borrowing
-    assert "当前基线：ForgeAgent M41" in process
+    assert "forgeagent_baseline: M42" in borrowing
+    assert "milestones/milestone_042.md" in borrowing
+    assert "当前基线：ForgeAgent M42" in process
     assert "runtime-skill-exit-contract" in process
-    assert "运行时 Skill 自动拒绝已由 `runtime-skill-exit-contract` change 落地并归档" in process
-    assert "既有 Memory 元数据迁移" in process
+    assert "运行时 Skill 自动拒绝已由" in process
+    assert "change 落地并归档" in process
+    assert "M42 Memory 元数据迁移能力均已归档" in process
+    assert "真实 readiness 为 `no_data`" in borrowing
     assert "未来新的 Rewrite/依赖变更" in process
     assert "M41 首次" in process
     assert "运行时依赖仍为 8" in process
@@ -94,7 +101,7 @@ def test_http_action_approval_binding_remains_conditional() -> None:
 
 def test_next_step_summary_lists_all_conditional_items() -> None:
     borrowing = _read(BORROWING)
-    expected = "既有 Memory 元数据迁移、未来新的 Rewrite/依赖变更，以及 HTTP 远程动作审批绑定"
+    expected = "未来新的 Rewrite/依赖变更与 HTTP 远程动作审批绑定"
     assert expected in borrowing
     assert "真实触发后另立 change" in borrowing
 
@@ -104,7 +111,8 @@ def test_m33_and_receipt_purpose_are_traceable() -> None:
     assert "M34" in _read(PLAN)
     assert "M40" in _read(PLAN)
     assert "M41" in _read(PLAN)
-    assert _read(LATEST).strip() == "milestone_041.md"
+    assert "M42" in _read(PLAN)
+    assert _read(LATEST).strip() == "milestone_042.md"
     assert "Purpose: TBD" not in _read(RECEIPT_SPEC)
     assert "durable, bounded" in _read(RECEIPT_SPEC)
     assert "Purpose: TBD" not in _read(BORROWING_SPEC)
@@ -121,6 +129,19 @@ def test_m33_and_receipt_purpose_are_traceable() -> None:
     assert "loop-handoff-contract" in _read(M40_MILESTONE)
     assert "M41 无未完成任务" in _read(M41_MILESTONE)
     assert "四处兼容/归属问题" in _read(M41_MILESTONE)
+    assert "M42 无未完成任务" in _read(M42_MILESTONE)
+
+
+def test_m42_memory_migration_completion_is_traceable() -> None:
+    assert M42_ARCHIVE.is_dir()
+    assert "archived: true" in _read(M42_ARCHIVE / ".comet.yaml")
+    report = _read(M42_VERIFY_REPORT)
+    assert "6/6 requirements、23/23 scenarios" in report
+    assert "2635 passed, 10 skipped" in report
+    assert "migration_skipped" in report
+    milestone = _read(M42_MILESTONE)
+    assert "memory_absent" in milestone
+    assert "openspec/changes/archive/2026-07-31-migrate-memory-metadata" in milestone
 
 
 def test_m41_documented_requirement_and_scenario_counts_match_the_spec() -> None:

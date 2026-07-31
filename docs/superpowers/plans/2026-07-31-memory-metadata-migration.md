@@ -2,6 +2,7 @@
 change: migrate-memory-metadata
 design-doc: docs/superpowers/specs/2026-07-31-memory-metadata-migration-design.md
 base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
+archived-with: 2026-07-31-migrate-memory-metadata
 ---
 
 # Memory 元数据迁移实施计划
@@ -29,6 +30,7 @@ base-ref: 35fe8cce29cdb781fcfcd385c54791c7e1a10795
 - 工作区已有大量用户改动。开始前和每次提交前都运行 `git status --short` 与相关文件的 `git diff`；不得 stash、reset、checkout 或覆盖用户改动。
 - `src/forgeagent/task.py` 和 `src/forgeagent/cli.py` 已有非 M42 hunks。修改这两个文件时只增加本计划给出的 source 参数 hunk，使用 `git add -p` 选择性暂存，并用 `git diff --cached -- <file>` 证明没有暂存既有 hunk。
 
+archived-with: 2026-07-31-migrate-memory-metadata
 ---
 
 ## File Map

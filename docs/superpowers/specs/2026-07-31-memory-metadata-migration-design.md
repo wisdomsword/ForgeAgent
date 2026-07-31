@@ -2,6 +2,8 @@
 comet_change: migrate-memory-metadata
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-07-31-migrate-memory-metadata
+status: final
 ---
 
 # Memory 元数据迁移技术设计

@@ -5,7 +5,7 @@
 - 日期：2026-07-31
 - 验证模式：full
 - 基线提交：`35fe8cce29cdb781fcfcd385c54791c7e1a10795`
-- 归档：待 Comet verify 后更新
+- 归档：`openspec/changes/archive/2026-07-31-migrate-memory-metadata/`
 
 ## 结论
 
@@ -17,7 +17,7 @@ M42 已实现项目 Memory v2 的宿主治理元数据、只读 readiness、v1 �
 
 | Dimension | Status |
 | --- | --- |
-| Completeness | 16/16 build tasks；6/6 requirements 有实现证据 |
+| Completeness | 16/16 build tasks；6/6 requirements、23/23 scenarios 有实现证据 |
 | Correctness | readiness、迁移、恢复、回滚、生命周期和最小披露场景均有回归 |
 | Coherence | v1 只读兼容；v2 单文件、单锁、宿主元数据；无新依赖 |
 
@@ -27,7 +27,7 @@ M42 已实现项目 Memory v2 的宿主治理元数据、只读 readiness、v1 �
 - WARNING：无未处理项。
 - SUGGESTION：备份保留周期、跨设备同步、检索/排序需等真实长期数据和使用证据后独立立项。
 
-最终判断：build 与 pre-verify 门禁通过；等待 Comet verify、主规格同步和归档。
+最终判断：build 与 full verify 门禁通过；主规格已同步，Comet change 已归档。
 
 ## 范围与实现
 
@@ -47,11 +47,14 @@ M42 已实现项目 Memory v2 的宿主治理元数据、只读 readiness、v1 �
 ## 验证证据
 
 - M42/Task/CLI/Golden 聚焦：`426 passed in 6.10s`。
-- 最终审查修复后全量：`2632 passed, 10 skipped in 181.65s`。
+- 最终审查修复后全量：`2635 passed, 10 skipped in 176.70s`。
+- 动态敏感 key 回归：session render、project render、lifecycle audit 共 `3 passed`；Memory 专项
+  `89 passed`。
 - 敏感公开面：`13 passed, 74 deselected`；静态敏感表达式搜索无命中。
 - `uv run ruff check .`：通过。
 - `uv run ruff format --check .`：`139 files already formatted`。
-- `openspec validate --all --strict --no-interactive`：`33 passed, 0 failed`。
+- `openspec validate --all --strict --no-interactive`：归档前 `33 passed, 0 failed`，归档后
+  `32 passed, 0 failed`。
 - `git diff --check`：通过。
 - 真实 readiness：`{"entry_count":0,"format_version":"none","reason":"memory_absent","status":"no_data"}`。
 - `.forgeagent` 文件清单为空；没有 `MEMORY.md` 或 `memory-backups/`。
@@ -65,12 +68,14 @@ M42 已实现项目 Memory v2 的宿主治理元数据、只读 readiness、v1 �
   session 与 project verifier 的职责分离，以及 unknown truth 的永久待复核语义。
 - 独立 reviewer 发现并验证 source/writer 被复核改写、非法/secret key 泄漏、悬空治理文档链接
   和运行手册旧三元组表述；续审又发现 unknown manifest 的非法复核时间可能在解析前被字符串
-  比较覆盖。以上问题均以 RED/GREEN 回归修复，时间收敛现只比较已解析的 UTC datetime。
+  比较覆盖，以及写入后才进入敏感集合的 key 仍可能进入渲染和生命周期审计。以上问题均以
+  RED/GREEN 回归修复：时间收敛只比较已解析的 UTC datetime，渲染与审计在公开边界重新投影 key。
 
 ## 迁移决策与未执行动作
 
 当前仓库为 `no_data`，结论是 `migration_skipped`。没有创建 manifest、Memory 文件或恢复副本；
 没有访问网络、凭据或项目外数据。未执行包索引发布、package build、tag、push 或发布自动化。
+用户已预授权本里程碑的非破坏性决策点；两轮自审后选择保留当前分支并确认归档，未执行合并或远程操作。
 
 ## 剩余边界
 
