@@ -103,10 +103,14 @@ class StartupDisplay:
         *,
         live_type: Callable[..., Any] = Live,
         monotonic: Callable[[], float] = time.monotonic,
+        mark_available: Callable[[Console], bool] = startup_mark_available,
+        ui_available: Callable[[Console], bool] = startup_ui_available,
     ) -> None:
         self._console = console
         self._live_type = live_type
         self._monotonic = monotonic
+        self._mark_available = mark_available
+        self._ui_available = ui_available
         self._stage: str | None = None
         self._live: Any | None = None
         self._static_mark_rendered = False
@@ -134,9 +138,9 @@ class StartupDisplay:
 
     def start(self, stage: str) -> None:
         self._stage = stage
-        if startup_ui_available(self._console):
+        if self._ui_available(self._console):
             self._start_live()
-        elif startup_mark_available(self._console) and not self._static_mark_rendered:
+        elif self._mark_available(self._console) and not self._static_mark_rendered:
             self._console.print(self.static_logo_renderable())
             self._static_mark_rendered = True
 
@@ -160,7 +164,7 @@ class StartupDisplay:
             self._live = None
 
     def _start_live(self) -> None:
-        if self._live is not None or not startup_ui_available(self._console):
+        if self._live is not None or not self._ui_available(self._console):
             return
         self._live = self._live_type(
             console=self._console,

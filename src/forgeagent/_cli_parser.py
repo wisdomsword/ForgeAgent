@@ -8,9 +8,13 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import yaml
 from rich.console import Console
 
 from .client import ModelClient
+from .collaboration import normalize_required_candidate_files
+from .context import ContextConfig, load_context_config
+from .model_registry import RegistryError
 
 if TYPE_CHECKING:
     from .evaluation import EvaluationRecord, TrendAppendResult
@@ -18,6 +22,40 @@ if TYPE_CHECKING:
 
 
 DEFAULT_MODEL = "claude-sonnet-5"
+
+
+def load_cli_context_config(
+    raw_override: str | None,
+    *,
+    context_loader: Callable[..., ContextConfig] = load_context_config,
+    json_loader: Callable[[str], object] = json.loads,
+) -> ContextConfig:
+    """Load context configuration while preserving the CLI's bounded errors."""
+    try:
+        if raw_override is None:
+            return context_loader()
+        override = json_loader(raw_override)
+        if not isinstance(override, Mapping):
+            raise ValueError("context configuration root must be a mapping")
+        return context_loader(data=override)
+    except RecursionError:
+        raise RegistryError("Invalid context configuration: nesting is too deep") from None
+    except (OSError, ValueError, yaml.YAMLError) as exc:
+        raise RegistryError(f"Invalid context configuration: {exc}") from exc
+
+
+def load_required_candidate_files(
+    raw: str | None,
+    *,
+    json_loader: Callable[[str], object] = json.loads,
+    normalizer: Callable[[object], tuple[str, ...]] = normalize_required_candidate_files,
+) -> tuple[str, ...]:
+    if raw is None:
+        return ()
+    try:
+        return normalizer(json_loader(raw))
+    except (json.JSONDecodeError, RecursionError, TypeError, ValueError):
+        raise RegistryError("Invalid candidate file configuration") from None
 
 
 def build_parser() -> argparse.ArgumentParser:

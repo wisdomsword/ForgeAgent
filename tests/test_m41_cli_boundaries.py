@@ -8,6 +8,7 @@ import tomllib
 from pathlib import Path
 
 import pytest
+from rich.console import Console
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_ROOT = ROOT / "src" / "forgeagent"
@@ -89,6 +90,48 @@ def test_cli_reexports_parser_boundary() -> None:
 
     assert cli.build_parser is _cli_parser.build_parser
     assert cli._load_strict_json is _cli_parser.load_strict_json
+    assert callable(_cli_parser.load_cli_context_config)
+    assert callable(_cli_parser.load_required_candidate_files)
+
+
+def test_real_client_facade_resolves_the_current_registry_loader(monkeypatch) -> None:
+    import forgeagent.cli as cli
+    from forgeagent import _cli_http
+
+    registry = object()
+    client = object()
+    captured: dict[str, object] = {}
+
+    def fake_build(model, env=None, *, registry=None):
+        captured.update(model=model, env=env, registry=registry)
+        return client
+
+    monkeypatch.setattr(cli, "load_registry", lambda: registry)
+    monkeypatch.setattr(_cli_http, "build_real_client", fake_build)
+
+    assert cli.build_real_client("model", env={"API_KEY": "secret"}) is client
+    assert captured == {
+        "model": "model",
+        "env": {"API_KEY": "secret"},
+        "registry": registry,
+    }
+
+
+def test_startup_display_resolves_current_facade_capability_checks(monkeypatch) -> None:
+    import forgeagent.cli as cli
+    from forgeagent import _cli_repl
+
+    console = Console(record=True, force_terminal=True, color_system="standard")
+    monkeypatch.setattr(_cli_repl, "startup_ui_available", lambda _console: True)
+    monkeypatch.setattr(cli, "_startup_ui_available", lambda _console: False)
+    monkeypatch.setattr(cli, "_startup_mark_available", lambda _console: False)
+    monkeypatch.setattr(
+        cli,
+        "Live",
+        lambda **_kwargs: pytest.fail("facade capability check was bypassed"),
+    )
+
+    cli._StartupDisplay(console).start("Loading identity")
 
 
 def test_cli_collaboration_boundary_exposes_explicit_bindings() -> None:

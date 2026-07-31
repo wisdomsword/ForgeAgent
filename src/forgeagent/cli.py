@@ -23,13 +23,12 @@ import sys
 import threading
 import time
 import unicodedata
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 from urllib.parse import parse_qsl, quote, unquote, urlencode, urlsplit, urlunsplit
 from uuid import uuid4
 
-import yaml
 from prompt_toolkit import PromptSession
 from pydantic import BaseModel
 from rich.console import Console
@@ -131,7 +130,18 @@ _HttpRuntimeSettings = _cli_http.HttpRuntimeSettings
 # the environment; tests pass a factory returning a MockClient.
 ClientFactory = Callable[[str], ModelClient]
 
-build_real_client = _cli_http.build_real_client
+
+def build_real_client(
+    model: str,
+    env: dict[str, str] | None = None,
+    *,
+    registry: Registry | None = None,
+) -> ModelClient:
+    """Build a client using the facade's current registry binding."""
+    resolved_registry = registry if registry is not None else load_registry()
+    return _cli_http.build_real_client(model, env, registry=resolved_registry)
+
+
 _validate_context_policy = _cli_http.validate_context_policy
 _validate_client_context_policy = _cli_http.validate_client_context_policy
 
@@ -1198,7 +1208,13 @@ _render_startup_summary = _cli_repl.render_startup_summary
 
 class _StartupDisplay(_cli_repl.StartupDisplay):
     def __init__(self, console: Console) -> None:
-        super().__init__(console, live_type=Live, monotonic=lambda: time.monotonic())
+        super().__init__(
+            console,
+            live_type=Live,
+            monotonic=lambda: time.monotonic(),
+            mark_available=_startup_mark_available,
+            ui_available=_startup_ui_available,
+        )
 
 
 def repl(
@@ -1379,29 +1395,19 @@ def print_models(console: Console, registry: Registry | None = None) -> None:
 
 
 def _load_cli_context_config() -> ContextConfig:
-    """Translate context parsing failures to the CLI's existing config-error path."""
-    try:
-        raw_override = os.environ.get(_CONTEXT_CONFIG_ENVIRONMENT)
-        if raw_override is None:
-            return load_context_config()
-        override = json.loads(raw_override)
-        if not isinstance(override, Mapping):
-            raise ValueError("context configuration root must be a mapping")
-        return load_context_config(data=override)
-    except RecursionError:
-        raise RegistryError("Invalid context configuration: nesting is too deep") from None
-    except (OSError, ValueError, yaml.YAMLError) as exc:
-        raise RegistryError(f"Invalid context configuration: {exc}") from exc
+    return _cli_parser.load_cli_context_config(
+        os.environ.get(_CONTEXT_CONFIG_ENVIRONMENT),
+        context_loader=load_context_config,
+        json_loader=json.loads,
+    )
 
 
 def _load_required_candidate_files_from_environment() -> tuple[str, ...]:
-    raw = os.environ.get(_CANDIDATE_FILES_ENVIRONMENT)
-    if raw is None:
-        return ()
-    try:
-        return normalize_required_candidate_files(json.loads(raw))
-    except (json.JSONDecodeError, RecursionError, TypeError, ValueError):
-        raise RegistryError("Invalid candidate file configuration") from None
+    return _cli_parser.load_required_candidate_files(
+        os.environ.get(_CANDIDATE_FILES_ENVIRONMENT),
+        json_loader=json.loads,
+        normalizer=normalize_required_candidate_files,
+    )
 
 
 _load_http_runtime_settings = _cli_http.load_http_runtime_settings
