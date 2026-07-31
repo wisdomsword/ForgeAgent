@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 
@@ -155,5 +156,10 @@ def test_m34_runtime_skill_contract_keeps_executable_verifiers() -> None:
         "test_project_governed_exit_change_reconfirms_effective_digest",
     )
 
-    missing = [name for name in required_tests if f"def {name}(" not in skill_tests]
+    declared_tests = {
+        node.name
+        for node in ast.parse(skill_tests).body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    missing = [name for name in required_tests if name not in declared_tests]
     assert not missing, f"missing M34 runtime Skill verifiers: {missing}"
