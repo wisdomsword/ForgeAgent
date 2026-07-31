@@ -1794,6 +1794,40 @@ def test_tools_prompt_groups_by_server_and_flags_external():
         mgr.close()
 
 
+def test_tools_prompt_is_bounded_directory_without_input_schema():
+    manager = MCPManager(
+        {
+            "alpha": MCPServerConfig(command="unused", auto_approve=["echo"]),
+            "beta": MCPServerConfig(command="unused"),
+        }
+    )
+    manager._states["alpha"].status = "available"
+    manager._states["alpha"].tools = [
+        MCPToolInfo(
+            server="alpha",
+            name="echo",
+            description="first\nsecond\x01 " + ("x" * 300),
+            input_schema={"type": "object", "secret_schema_marker": True},
+        )
+    ]
+    manager._states["beta"].status = "available"
+    manager._states["beta"].tools = [
+        MCPToolInfo(server="beta", name="write", description="Writes data"),
+    ]
+
+    prompt = manager.tools_prompt()
+    echo_line = next(line for line in prompt.splitlines() if line.startswith("- `echo`"))
+    echo_summary = echo_line.split(" — ", 1)[1]
+
+    assert "MCPDescribe" in prompt
+    assert "first second" in echo_summary
+    assert "\x01" not in echo_summary
+    assert len(echo_summary) <= 160
+    assert "secret_schema_marker" not in prompt
+    assert "`echo` [auto-approved]" in prompt
+    assert "`write` [confirmation required]" in prompt
+
+
 def test_discovery_masks_descriptions_excludes_sensitive_names_and_routes_safe_tool(monkeypatch):
     secret = "discovery-secret"
     monkeypatch.setattr(mcp_manager_module, "sensitive_env_values", lambda: {secret})

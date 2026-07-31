@@ -20,6 +20,7 @@ from forgeagent.external_actions import (
 )
 from forgeagent.headless import HeadlessConfirmer
 from forgeagent.http_action_approvals import HttpActionApprovalStore
+from forgeagent.mcp_manager import MCPManager, MCPServerConfig, MCPToolInfo
 from forgeagent.policy import CodeAnalyzer
 from forgeagent.protocol import (
     EditArgs,
@@ -163,6 +164,38 @@ def test_mcp_describe_is_read_only_and_bounded():
     )
     assert missing.success is False
     assert "unavailable" in missing.detail
+
+
+def test_mcp_describe_uses_real_manager_snapshot_without_dispatch(monkeypatch):
+    manager = MCPManager(
+        {"alpha": MCPServerConfig(command="unused", auto_approve=["echo"])}
+    )
+    state = manager._states["alpha"]
+    state.status = "available"
+    state.tools = [
+        MCPToolInfo(
+            server="alpha",
+            name="echo",
+            description="Echo description",
+            input_schema={"type": "object", "properties": {"text": {"type": "string"}}},
+        )
+    ]
+
+    def fail_dispatch(*_args, **_kwargs):
+        raise AssertionError("metadata lookup must not access the MCP event loop")
+
+    monkeypatch.setattr(manager, "_submit", fail_dispatch)
+
+    outcome = MCPDescribeTool().run(
+        MCPDescribeArgs(server="alpha", tool="echo"),
+        _mcp_ctx(mcp=manager),
+    )
+
+    assert outcome.success is True
+    assert outcome.block_name == "alpha:echo"
+    assert "Echo description" in outcome.detail
+    assert "auto-approved" in outcome.detail
+    assert "properties" in outcome.detail
 
 
 def test_registry_later_registration_overrides_earlier():
