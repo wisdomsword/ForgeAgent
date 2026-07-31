@@ -4,5 +4,6 @@
   "openspec_tasks": "openspec/changes/bind-http-remote-action-approvals/tasks.md",
   "openspec_delta_spec": "openspec/changes/bind-http-remote-action-approvals/specs/external-action-receipts/spec.md",
   "handoff_context": "openspec/changes/bind-http-remote-action-approvals/.comet/handoff/design-context.json",
-  "handoff_markdown": "openspec/changes/bind-http-remote-action-approvals/.comet/handoff/design-context.md"
+  "handoff_markdown": "openspec/changes/bind-http-remote-action-approvals/.comet/handoff/design-context.md",
+  "archive_directory": "openspec/changes/archive/2026-07-31-bind-http-remote-action-approvals"
 }

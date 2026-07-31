@@ -2,6 +2,8 @@
 comet_change: bind-http-remote-action-approvals
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-07-31-bind-http-remote-action-approvals
+status: final
 ---
 
 # M44 HTTP 远程动作审批绑定技术设计

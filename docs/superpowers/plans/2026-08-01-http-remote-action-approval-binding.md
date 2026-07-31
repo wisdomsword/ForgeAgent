@@ -2,6 +2,7 @@
 change: bind-http-remote-action-approvals
 design-doc: docs/superpowers/specs/2026-08-01-http-remote-action-approval-binding-design.md
 base-ref: 6b5b2476c1369f37f1c01c89c55d83fb0f1ab47a
+archived-with: 2026-07-31-bind-http-remote-action-approvals
 ---
 
 # M44 HTTP Remote Action Approval Binding Implementation Plan
@@ -23,6 +24,7 @@ base-ref: 6b5b2476c1369f37f1c01c89c55d83fb0f1ab47a
 - 保持旧 task 请求、静态 allowlist、CLI/REPL autoApprove 和 receipt 磁盘 schema 兼容。
 - 不执行 PyPI、tag 或发布自动化。
 
+archived-with: 2026-07-31-bind-http-remote-action-approvals
 ---
 
 ### Task 1: 恢复干净检出基线

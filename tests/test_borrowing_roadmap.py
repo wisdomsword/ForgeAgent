@@ -23,6 +23,7 @@ M42_VERIFY_REPORT = (
 )
 M42_ARCHIVE = ROOT / "openspec" / "changes" / "archive" / "2026-07-31-migrate-memory-metadata"
 M43_MILESTONE = ROOT / "milestones" / "milestone_043.md"
+M44_MILESTONE = ROOT / "milestones" / "milestone_044.md"
 M43_VERIFY_REPORT = (
     ROOT / "docs" / "superpowers" / "reports" / "2026-07-31-executor-rewrite-baseline-verify.md"
 )
@@ -83,12 +84,12 @@ def test_process_review_links_to_the_archived_receipt_change() -> None:
     assert expected_link in process
 
 
-def test_review_documents_track_m43_runtime_baseline() -> None:
+def test_review_documents_track_m44_runtime_baseline() -> None:
     borrowing = _read(BORROWING)
     process = _read(PROCESS)
-    assert "forgeagent_baseline: M43" in borrowing
-    assert "milestones/milestone_043.md" in borrowing
-    assert "当前基线：ForgeAgent M43" in process
+    assert "forgeagent_baseline: M44" in borrowing
+    assert "milestones/milestone_044.md" in borrowing
+    assert "当前基线：ForgeAgent M44" in process
     assert "runtime-skill-exit-contract" in process
     assert "运行时 Skill 自动拒绝已由" in process
     assert "change 落地并归档" in process
@@ -101,19 +102,19 @@ def test_review_documents_track_m43_runtime_baseline() -> None:
     assert "运行时依赖仍为 8" in process
 
 
-def test_http_action_approval_binding_remains_conditional() -> None:
+def test_http_action_approval_binding_is_complete_but_remote_exposure_is_conditional() -> None:
     borrowing = _read(BORROWING)
     process = _read(PROCESS)
     assert "HTTP 远程动作审批绑定" in borrowing
-    assert "当前 HTTP 仅 loopback" in borrowing
-    assert "外部 HTTP 动作控制面" in process
+    assert "M44 已交付“HTTP 远程动作审批绑定”的 loopback 控制面范围" in borrowing
+    assert "外部可达 HTTP 控制面" in process
     assert "当前 HTTP 仍是 loopback-only" in process
-    assert "真实 verifier" in process
+    assert "复用 M44 已交付的审批绑定" in process
 
 
 def test_next_step_summary_lists_all_conditional_items() -> None:
     borrowing = _read(BORROWING)
-    expected = "未来新的单模块 Rewrite/依赖试验与 HTTP 远程动作审批绑定"
+    expected = "未来仅保留新的单模块 Rewrite/依赖试验与外部可达 HTTP 控制面扩展"
     assert expected in borrowing
     assert "真实触发后另立 change" in borrowing
 
@@ -125,7 +126,8 @@ def test_m33_and_receipt_purpose_are_traceable() -> None:
     assert "M41" in _read(PLAN)
     assert "M42" in _read(PLAN)
     assert "M43" in _read(PLAN)
-    assert _read(LATEST).strip() == "milestone_043.md"
+    assert "M44" in _read(PLAN)
+    assert _read(LATEST).strip() == "milestone_044.md"
     assert "Purpose: TBD" not in _read(RECEIPT_SPEC)
     assert "durable, bounded" in _read(RECEIPT_SPEC)
     assert "Purpose: TBD" not in _read(BORROWING_SPEC)
@@ -143,6 +145,7 @@ def test_m33_and_receipt_purpose_are_traceable() -> None:
     assert "M41 无未完成任务" in _read(M41_MILESTONE)
     assert "四处兼容/归属问题" in _read(M41_MILESTONE)
     assert "M42 无未完成任务" in _read(M42_MILESTONE)
+    assert "M44 无未完成任务" in _read(M44_MILESTONE)
 
 
 def test_m43_rewrite_baseline_completion_is_traceable() -> None:

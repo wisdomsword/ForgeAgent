@@ -4,7 +4,6 @@
 Protect approved non-read-only MCP actions with durable, bounded, secret-masked receipts and
 explicit reconciliation. This capability records dispatch certainty, blocks Loop resume while an
 open receipt is unresolved, and never silently replays an external action.
-
 ## Requirements
 ### Requirement: External action receipts are durable and strictly bounded
 ForgeAgent SHALL persist one versioned receipt for every approved, non-read-only external action before dispatch. The receipt MUST use the phases `prepared`, `dispatched`, `confirmed`, and `unknown`, MUST preserve a stable action identifier and request digest, and MUST store only bounded, secret-masked target metadata and evidence references. Receipt writes and phase transitions MUST be atomic and fail closed when the authoritative receipt cannot be persisted.
@@ -61,3 +60,18 @@ Receipt records SHALL be scoped to the canonical allowed project root and MAY ca
 #### Scenario: Receipt file is replaced or malformed
 - **WHEN** a receipt path is a symlink, outside the allowed root, malformed, or contains an unknown schema
 - **THEN** ForgeAgent rejects the record, reports a fixed receipt-store error, and does not dispatch related actions
+
+### Requirement: Authenticated HTTP reconciliation preserves receipt authority
+ForgeAgent SHALL permit its authenticated loopback HTTP control plane to read bounded open receipt projections and apply explicit reconciliation decisions through the authoritative receipt store. HTTP reconciliation MUST use the current receipt revision, MUST preserve receipt history, and MUST NOT dispatch, retry, resume, or fabricate delivery evidence.
+
+#### Scenario: HTTP confirmation records external evidence only
+- **WHEN** an authenticated caller confirms an open receipt with the current revision and bounded evidence
+- **THEN** ForgeAgent updates only the receipt resolution/evidence and does not call the external server
+
+#### Scenario: HTTP retry approval does not replay
+- **WHEN** an authenticated caller marks an open receipt `retry_approved`
+- **THEN** ForgeAgent closes the original receipt without dispatch and requires a separate future action with a new ID and valid authorization
+
+#### Scenario: Process restarts after an unknown action
+- **WHEN** a durable `unknown` receipt remains after restart while process-local action approvals have disappeared
+- **THEN** the HTTP control plane can reconcile the receipt explicitly, but it cannot reconstruct or silently replay the expired approval
