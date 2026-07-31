@@ -92,6 +92,11 @@ Planner approval policy.
 | `POST` | `/tasks` | `202` with `task_id` and initial status |
 | `GET` | `/tasks/{32-hex-id}` | `200` bounded lifecycle/result projection |
 | `POST` | `/tasks/{32-hex-id}/cancel` | `200` or `202` idempotent cancellation acknowledgement |
+| `POST` | `/action-approvals` | `201` with one short-lived MCP `allow_once` approval |
+| `GET` | `/action-approvals/{32-hex-id}` | `200` bounded approval state projection |
+| `POST` | `/action-approvals/{32-hex-id}/revoke` | `200` with the serialized revoke/consume result |
+| `GET` | `/tasks/{task-id}/receipts` | `200` with the retained task's open receipts |
+| `POST` | `/tasks/{task-id}/receipts/{action-id}/resolve` | `200` after revision-guarded explicit resolution |
 
 Accepted task bodies include:
 
@@ -122,8 +127,47 @@ Loop resume remains `{"mode":"loop","resume_loop_id":"..."}` and cannot include
 goal, collaboration mode or budget replacements. No collaboration-specific endpoint
 is added; collaboration state paths and IDs are server-owned implementation details.
 
+### One-time MCP action approvals
+
+An authenticated controller may sign one exact MCP action before task submission:
+
+```json
+{
+  "action_type": "mcp",
+  "server": "github",
+  "tool": "create_issue",
+  "request_digest": "<sha256 of canonical arguments JSON>",
+  "mode": "allow_once",
+  "expires_in_seconds": 60
+}
+```
+
+The digest is SHA-256 over UTF-8 JSON with keys sorted, ASCII escaping, no insignificant
+whitespace, and non-finite values rejected. The returned approval ID may then be placed
+in `POST /tasks` as `"approval_ids":["<id>"]`. The parser accepts 1-16 unique lowercase
+32-hex IDs and keeps them out of task options, prompts and model context. `TaskService`
+binds the complete set to its newly generated task ID before worker publication; if any
+ID is missing, expired or already claimed, the whole submission returns
+`approval_unavailable` without creating a task or partially binding approvals.
+
+The host-owned state machine is `issued -> bound -> consumed`, with terminal
+`revoked` and `expired` states. Consumption requires the bound task ID, exact normalized
+`mcp/<server>/<tool>` scope and exact arguments digest. A static server allowlist still
+takes priority and does not consume a dynamic approval. Revoke and consume are serialized;
+whichever succeeds first determines the terminal outcome. A consumed approval is never
+restored, including when receipt persistence later fails. Unused bound approvals are
+revoked when scheduling fails, a queued task is cancelled, a worker ends, or the service
+shuts down.
+
+Approvals are intentionally process-local and expire after 1-3600 seconds. Restarting
+the service discards unconsumed approvals, so a controller must issue new ones. This does
+not discard receipts, which remain the durable execution evidence. M44 does not add
+wildcards, permanent grants, FileWrite/WebFetch grants, non-loopback listening, TLS,
+Gateway or multi-tenant authorization.
+
 There is no HTTP shutdown or health-control endpoint. The process owner controls
-shutdown and closes the listener, task workers, and shared MCP manager in that order.
+shutdown and closes the listener, task workers, shared receipt store, and shared MCP
+manager in that order.
 The JSON error shape is always `{"error":{"kind":"...","detail":"..."}}`.
 It contains stable safe text, never a traceback, bearer token, API key, host path,
 prompt, raw tool arguments, or file content.
@@ -161,10 +205,13 @@ HTTP tasks use the same allowed-root receipt store for approved non-read-only MC
 actions. A receipt is durably prepared before dispatch; protocol responses become
 `confirmed`, while timeout/cancel/exception uncertainty becomes `unknown`. An open
 receipt blocks Loop resume/next iteration with `external_action_pending`. HTTP does
-not expose an automatic replay or reconciliation endpoint: operators use the bounded
-local receipt commands, and any new attempt receives a new action ID. MCP `autoApprove`
-is not inherited by HTTP, and receipt audit entries remain masked projections rather
-than authoritative delivery records.
+not expose automatic replay. An authenticated controller can list open receipts for a
+retained task and apply a revision-guarded `confirmed`, `abandoned`, or `retry_approved`
+resolution. `confirmed` requires bounded evidence, but responses and audit expose only a
+fixed evidence code. Listing and resolution never call MCP or resume a task;
+`retry_approved` merely closes the old receipt, and any future attempt needs a new action
+ID and independent approval. MCP `autoApprove` is not inherited by HTTP, and receipt
+audit entries remain masked projections rather than authoritative delivery records.
 
 Headless HTTP confirmation uses exact typed keys only:
 

@@ -16,6 +16,6 @@
 
 ## 4. 验证、文档与里程碑
 
-- [ ] 4.1 增加真实 loopback verifier，覆盖审批签发、任务绑定、一次消费、receipt 确认和 unknown 显式恢复，并扫描公开面无 secret、goal、raw arguments、路径或异常泄漏。
+- [x] 4.1 增加真实 loopback verifier，覆盖审批签发、任务绑定、一次消费、receipt 确认和 unknown 显式恢复，并扫描公开面无 secret、goal、raw arguments、路径或异常泄漏。
 - [ ] 4.2 更新 HTTP/threat-model 文档，完成两轮代码与契约自审，修复发现后通过聚焦/全量 pytest、Ruff、format、OpenSpec strict 和 Comet verify。
 - [ ] 4.3 同步主规格、归档 change，产出 M44 里程碑记录并推送开发分支；不执行 PyPI、tag 或发布自动化。
