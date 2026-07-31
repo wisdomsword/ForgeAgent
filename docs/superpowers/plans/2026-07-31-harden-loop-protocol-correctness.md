@@ -31,24 +31,24 @@ base-ref: 6a304bc6273a3acfd06aae81dd265ce3eeef6347
 **Interfaces:**
 - Produces `LoopCheckpoint` and `LoopReport` models that accept and emit the public `schema` key through Pydantic aliases.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add tests that validate a legacy JSON dict with `schema`, assert `model_dump(by_alias=True)` contains `schema` and not `schema_`, and assert the existing M27 migration test still maps legacy collaborative checkpoints to `explicit`.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `UV_CACHE_DIR=/tmp/forgeagent-m39-review-uv-cache rtk uv run pytest -q tests/test_loop_checkpoint.py`
 Expected: alias serialization assertions fail before implementation.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Remove warning suppression, set `model_config = ConfigDict(frozen=True, extra="forbid", populate_by_name=True, serialize_by_alias=True)`, and replace both `schema` declarations with `schema_: Literal[LOOP_SCHEMA] = Field(default=LOOP_SCHEMA, alias="schema")`.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run the same focused command; expected all checkpoint tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 `git add src/forgeagent/loop.py tests/test_loop_checkpoint.py && git commit -m "fix: use stable loop schema aliases"`
 
@@ -61,24 +61,24 @@ Run the same focused command; expected all checkpoint tests pass.
 **Interfaces:**
 - `parse()` returns at most one dispatchable call per explicit ID and emits a bounded `ParseError` for conflicting duplicate IDs.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add text/native tests for equivalent duplicate IDs (one call), conflicting same IDs (parse error and zero calls for that ID), and distinct IDs (both calls).
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `UV_CACHE_DIR=/tmp/forgeagent-m39-review-uv-cache rtk uv run pytest -q tests/test_protocol.py`
 Expected: duplicate currently yields two calls and conflict has no error.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Add a deterministic post-parse merge helper comparing `name` and `arguments.model_dump(mode="python")`; preserve first-seen order, append `INVALID_FORMAT` with a bounded message for conflicts, and remove conflicted IDs from the final list.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run the same command; expected protocol tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 `git add src/forgeagent/protocol.py tests/test_protocol.py && git commit -m "fix: deduplicate dual-channel tool calls"`
 
@@ -91,24 +91,24 @@ Run the same command; expected protocol tests pass.
 **Interfaces:**
 - Empty/whitespace prose remains `EMPTY_RESPONSE`; `_apply_edit` is imported from `forgeagent.tools`, not re-exported by `step`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add a two-round Step regression where both bodies are empty/whitespace and assert no `ANSWERED_IN_PROSE`; update the import ownership assertion to `forgeagent.tools._apply_edit`.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `UV_CACHE_DIR=/tmp/forgeagent-m39-review-uv-cache rtk uv run pytest -q tests/test_step.py`
 Expected: the ownership assertion fails while the empty-body behavior remains covered.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Remove `_apply_edit` from `step` imports and `__all__`; retain the existing `if not rr.body` guard and add no new completion path.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run the same command; expected all step tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 `git add src/forgeagent/step.py tests/test_step.py && git commit -m "refactor: keep edit helper private to tools"`
 
@@ -122,24 +122,24 @@ Run the same command; expected all step tests pass.
 **Interfaces:**
 - `forgeagent.text_safety.safe_text(value, field, maximum, allow_empty)` preserves existing caller semantics.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add direct helper tests for control/format characters, maximum length, blank rejection, and allow-empty preservation; update continuation assertions to English-first phrases.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `UV_CACHE_DIR=/tmp/forgeagent-m39-review-uv-cache rtk uv run pytest -q tests/test_loop_checkpoint.py tests/test_collaboration_handoff.py tests/test_tools.py tests/test_step.py`
 Expected: helper import/English assertions fail.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Move the shared Unicode category check into `text_safety.py`, replace three local implementations, and rewrite only model-facing continuation constants in `tools.py` to concise English while retaining symbolic names and length limits.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run the same focused command; expected all tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 `git add src/forgeagent/text_safety.py src/forgeagent/loop.py src/forgeagent/collaboration.py src/forgeagent/external_actions.py src/forgeagent/tools.py tests && git commit -m "refactor: share safe text and normalize feedback"`
 
@@ -152,24 +152,24 @@ Run the same focused command; expected all tests pass.
 **Interfaces:**
 - Capability and receipt projection fallbacks emit stable warning records with event name and exception type only.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Use failing registry/receipt doubles and `caplog` to assert fixed event names, exception type presence, and absence of exception text, absolute paths, or secret values.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `UV_CACHE_DIR=/tmp/forgeagent-m39-review-uv-cache rtk uv run pytest -q tests/test_collaboration_handoff.py`
 Expected: no projection log records exist.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Add a module logger and warning calls such as `handoff.capability_projection_failed` and `handoff.receipt_projection_failed`, passing only `type(exc).__name__`; preserve safe empty/unavailable fallback.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run the same command; expected collaboration handoff tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 `git add src/forgeagent/collaboration.py tests/test_collaboration_handoff.py && git commit -m "fix: make handoff projection failures observable"`
 
@@ -178,20 +178,20 @@ Run the same command; expected collaboration handoff tests pass.
 **Files:**
 - Modify: `openspec/changes/harden-loop-protocol-correctness/tasks.md`
 
-- [ ] **Step 1: Run focused and static checks**
+- [x] **Step 1: Run focused and static checks**
 
 Run focused pytest, `rtk ruff check src tests`, `rtk ruff format --check src tests`, and `rtk openspec validate --strict`.
 
-- [ ] **Step 2: Run full pytest with temporary uv cache**
+- [x] **Step 2: Run full pytest with temporary uv cache**
 
 Run: `UV_CACHE_DIR=/tmp/forgeagent-m39-review-uv-cache rtk uv run pytest -q`
 Record any environment-only loopback/offline build failures without changing product code.
 
-- [ ] **Step 3: Mark tasks complete**
+- [x] **Step 3: Mark tasks complete**
 
 Check off Tasks 1-6 only after their tests and checks pass; preserve evidence in the Comet verification report.
 
-- [ ] **Step 4: Commit task state**
+- [x] **Step 4: Commit task state**
 
 `git add openspec/changes/harden-loop-protocol-correctness/tasks.md && git commit -m "chore: complete loop protocol hardening tasks"`
 
