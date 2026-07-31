@@ -416,6 +416,57 @@ def test_lifecycle_boundary_is_inclusive(tmp_path, field, value, visible):
     assert ("editor: nvim" in manager.render()) is visible
 
 
+@pytest.mark.parametrize("scope", ["session", "project"])
+def test_render_redacts_key_that_becomes_secret_after_write(tmp_path, monkeypatch, scope):
+    secret = "later-secret-token"
+    monkeypatch.setattr(memory_module, "sensitive_env_values", lambda: set())
+    manager = MemoryManager(str(tmp_path))
+    candidate = MemoryCandidate(scope=scope, kind="fact", key=secret, content="nvim")
+    assert manager.apply(candidate).status == "accepted"
+
+    monkeypatch.setattr(memory_module, "sensitive_env_values", lambda: {secret})
+
+    rendered = manager.render()
+    assert secret not in rendered
+
+
+def test_lifecycle_audit_redacts_key_that_becomes_secret_after_write(tmp_path, monkeypatch):
+    class Sink:
+        def __init__(self):
+            self.events = []
+
+        def emit(self, event):
+            self.events.append(event)
+            return True
+
+    secret = "later-secret-token"
+    monkeypatch.setattr(memory_module, "sensitive_env_values", lambda: set())
+    now = datetime(2026, 7, 31, 12, 0, tzinfo=UTC)
+    sink = Sink()
+    manager = MemoryManager(
+        str(tmp_path),
+        clock=lambda: now,
+        audit_sink=sink,
+    )
+    candidate = MemoryCandidate(scope="project", kind="fact", key=secret, content="nvim")
+    assert manager.apply(candidate).status == "accepted"
+    assert (
+        manager.correct_project(
+            candidate,
+            _governance(review_after="2026-07-31T12:00:00Z"),
+        ).status
+        == "replaced"
+    )
+    sink.events.clear()
+
+    monkeypatch.setattr(memory_module, "sensitive_env_values", lambda: {secret})
+    assert manager.render() == ""
+
+    assert len(sink.events) == 1
+    assert sink.events[0].parameters["key"] == ""
+    assert secret not in repr(sink.events)
+
+
 def test_lifecycle_failures_use_fixed_public_reasons(tmp_path):
     candidate = MemoryCandidate(scope="project", kind="fact", key="editor", content="nvim")
     manager = MemoryManager(str(tmp_path))

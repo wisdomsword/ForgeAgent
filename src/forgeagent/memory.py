@@ -796,18 +796,27 @@ class MemoryManager:
     ) -> str:
         sections: list[str] = []
         if session:
-            sections.append(self._render_section("Session memory", session))
+            section = self._render_section("Session memory", session)
+            if section:
+                sections.append(section)
         if project:
-            sections.append(self._render_section("Project memory", project))
+            section = self._render_section("Project memory", project)
+            if section:
+                sections.append(section)
         rendered = "\n\n".join(sections)
         return rendered
 
     def _render_section(self, title: str, entries: dict[str, MemoryCandidate]) -> str:
-        lines = [f"## {title}"]
+        lines: list[str] = []
         for key in sorted(entries):
+            public_key = self._public_key(key)
+            if not public_key:
+                continue
             value = mask_secrets(entries[key].content, sensitive_env_values())
-            lines.append(f"- {key}: {value}")
-        return "\n".join(lines)
+            lines.append(f"- {public_key}: {value}")
+        if not lines:
+            return ""
+        return "\n".join([f"## {title}", *lines])
 
     def _atomic_write_bytes(self, content: bytes) -> None:
         path = self._safe_storage_path(for_write=True)
@@ -1736,10 +1745,11 @@ class MemoryManager:
         *,
         revision: str | None = None,
     ) -> None:
+        public_key = self._public_key(key)
         parameters = {
             "scope": scope,
             "kind": kind,
-            "key": key[:80],
+            "key": public_key[:80],
             "reason": reason[:80],
         }
         if revision is not None:

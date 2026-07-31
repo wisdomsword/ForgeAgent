@@ -240,7 +240,7 @@ revalidate_project(key, *, review_after, expires_at, truth_source, task_id=None)
 - 临时文件和备份文件显式 `fchmod(0o600)`；备份目录显式 `chmod(0o700)`。
 - 公开 exception 只映射固定 reason。底层异常只用于控制流，不拼接到 diagnostic、CLI JSON 或 AuditEvent。
 - migration id/revision 是随机 opaque 值；不用内容 hash，避免对短正文做离线猜测。
-- audit event：`memory.readiness`、`memory.migrated`、`memory.migration_failed`、`memory.verified`、`memory.rolled_back`、`memory.rollback_conflict`、`memory.expired`、`memory.review_due`、`memory.deleted`、`memory.revalidated`。
+- `readiness` 保持只读，不写 audit event。状态变更与失败使用实现中的固定事件名：`memory.migrated`、`memory.verified`、`memory.rolled_back`、`memory.rollback_conflict`、`memory.rejected`、`memory.persistence_error`、`memory.recovery_failed`、`memory.expired`、`memory.review_due`、`memory.deleted`、`memory.revalidated`。所有事件在 `_audit` 边界重新投影 key；若 key 在写入后才进入敏感集合，公开审计中的 key 仍为空。
 
 ## 10. 离线运维入口
 
