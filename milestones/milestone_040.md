@@ -48,12 +48,13 @@
 - [x] 修复全局两次恢复导致独立 Collaboration 行为回归，改为默认一次、Loop 显式两次。
 - [x] 修复工作区原有 receipt 改动恢复时误传 CLI Store 参数的问题；用户原有改动保持未提交。
 - [x] 删除两处全局方案遗留的未消费 Collaboration mock 回复，使测试轮数与最终契约一致。
+- [x] 推进规划追溯测试到 M40，避免 `milestones/latest` 合法更新被旧 M39 断言拦截。
 - [x] 修复归档脚本在实施计划正文产生的重复注解。
 
 ### 验收评审
 
 - [x] 专项验证：`550 passed`。
-- [x] 全量验证：`2534 passed, 10 skipped in 164.56s`。
+- [x] 全量验证：`2534 passed, 10 skipped in 163.81s`。
 - [x] Ruff check 通过；format check 为 `129 files already formatted`；`git diff --check` 通过。
 - [x] `uv build` 成功生成本地 sdist/wheel，未上传。
 - [x] OpenSpec strict 在归档前后均为 `31 passed, 0 failed`；Comet archive `7/7` 通过。

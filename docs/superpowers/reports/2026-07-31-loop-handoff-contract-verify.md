@@ -25,11 +25,13 @@ M40 的实现符合结构化 Loop handoff、旧 checkpoint 兼容迁移、宿主
 - 全量回归首次发现把两次恢复设为全局默认会改变独立 Collaboration 的失败语义；已改为默认一次、Loop 入口显式两次。
 - 恢复工作区原有改动后的专项复验发现一处错误的 CLI `CollaborationStore(receipt_store=...)` 参数；已撤销该误恢复，原有五处 receipt 投影改动保持未提交。
 - 最终 commit-range 审查删除两处全局方案遗留的未消费 Collaboration mock 回复；相关专项 `30 passed`。
+- 最终全量首次发现规划追溯测试仍固定指向 M39，已推进到 M40 并以 `6 passed` 验证。
+- 一次全量与一次隔离运行遇到既有 M16 黑盒 server readiness 时序波动；保留证据复验和随后连续 5 次隔离运行均通过，最终全量也通过，未把无关脚本修改纳入 M40。
 
 ## 验证证据
 
 - Loop/Step/CLI/Task/Collaboration 专项：`550 passed`。
-- 全量 pytest：`2534 passed, 10 skipped in 164.56s`。
+- 全量 pytest：`2534 passed, 10 skipped in 163.81s`。
 - `uv run ruff check .`：通过；`uv run ruff format --check .`：`129 files already formatted`。
 - `uv build`：成功生成 sdist 与 wheel；未上传产物。
 - OpenSpec strict：verify 前和归档后均为 `31 passed, 0 failed`。
