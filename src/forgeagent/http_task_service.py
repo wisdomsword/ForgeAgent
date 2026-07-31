@@ -22,6 +22,12 @@ from .collaboration import (
     emit_collaboration_route,
     resolve_collaboration_mode,
 )
+from .external_actions import (
+    ExternalActionReceipt,
+    ExternalActionReceiptStore,
+    ReceiptError,
+    ReceiptResolution,
+)
 from .http_action_approvals import ApprovalUnavailableError, HttpActionApprovalStore
 from .http_config import HttpServiceConfig
 from .loop import LoopReport
@@ -74,6 +80,18 @@ class TaskNotFound(KeyError):
         super().__init__(task_id)
         self.task_id = task_id
         self.expired = expired
+
+
+class TaskReceiptNotFound(RuntimeError):
+    """A receipt is unavailable under the requested retained task."""
+
+
+class TaskReceiptConflict(RuntimeError):
+    """A receipt is no longer open at the expected revision."""
+
+
+class ReceiptServiceUnavailable(RuntimeError):
+    """The receipt authority cannot complete a safe operation."""
 
 
 @dataclass
@@ -181,6 +199,7 @@ class TaskService:
         shared_mcp_manager: _Closeable | None = None,
         audit_sink: AuditSink | None = None,
         approval_store: HttpActionApprovalStore | None = None,
+        receipt_store: ExternalActionReceiptStore | None = None,
     ) -> None:
         self._factory = factory
         self._config = config
@@ -188,6 +207,7 @@ class TaskService:
         self._shared_mcp_manager = shared_mcp_manager
         self._audit_sink = audit_sink
         self._approval_store = approval_store
+        self._receipt_store = receipt_store
         self._audit_degraded = False
         self._records: dict[str, TaskRecord] = {}
         self._active_resume_ids: dict[str, str] = {}
@@ -222,6 +242,82 @@ class TaskService:
         """Remember a service-level audit failure for all current and future views."""
         with self._lock:
             self._audit_degraded = True
+
+    def issue_action_approval(
+        self,
+        *,
+        server: str,
+        tool: str,
+        request_digest: str,
+        expires_in_seconds: int,
+    ) -> dict[str, object]:
+        if self._approval_store is None:
+            raise ApprovalUnavailableError
+        return self._approval_store.issue(
+            server=server,
+            tool=tool,
+            request_digest=request_digest,
+            expires_in_seconds=expires_in_seconds,
+        ).public_view()
+
+    def get_action_approval(self, approval_id: str) -> dict[str, object]:
+        if self._approval_store is None:
+            raise ApprovalUnavailableError
+        return self._approval_store.get(approval_id).public_view()
+
+    def revoke_action_approval(self, approval_id: str) -> dict[str, object]:
+        if self._approval_store is None:
+            raise ApprovalUnavailableError
+        return self._approval_store.revoke(approval_id).public_view()
+
+    def list_task_receipts(self, task_id: str) -> tuple[dict[str, object], ...]:
+        self._require_retained_task(task_id)
+        if self._receipt_store is None:
+            raise ReceiptServiceUnavailable
+        try:
+            receipts = self._receipt_store.list_pending(task_id=task_id)
+        except ReceiptError:
+            raise ReceiptServiceUnavailable from None
+        return tuple(_receipt_public_view(receipt) for receipt in receipts)
+
+    def resolve_task_receipt(
+        self,
+        task_id: str,
+        action_id: str,
+        *,
+        expected_revision: int,
+        decision: ReceiptResolution,
+        evidence: str = "",
+    ) -> dict[str, object]:
+        self._require_retained_task(task_id)
+        if self._receipt_store is None:
+            raise ReceiptServiceUnavailable
+        try:
+            receipt = self._receipt_store.load(action_id)
+        except ReceiptError as error:
+            if isinstance(error.__cause__, FileNotFoundError):
+                raise TaskReceiptNotFound from None
+            raise ReceiptServiceUnavailable from None
+        if receipt.task_id != task_id:
+            raise TaskReceiptNotFound
+        if receipt.resolution != "open" or receipt.revision != expected_revision:
+            raise TaskReceiptConflict
+        try:
+            updated = self._receipt_store.resolve(
+                action_id,
+                expected_revision,
+                decision,
+                evidence,
+            )
+        except ReceiptError as error:
+            if str(error) in {
+                "receipt revision is stale",
+                "receipt is already resolved",
+                "invalid receipt transition",
+            }:
+                raise TaskReceiptConflict from None
+            raise ReceiptServiceUnavailable from None
+        return _receipt_public_view(updated)
 
     def submit(
         self,
@@ -572,6 +668,10 @@ class TaskService:
             raise TaskNotFound(task_id, expired=task_id in self._expired_ids)
         return record
 
+    def _require_retained_task(self, task_id: str) -> None:
+        with self._lock:
+            self._get_record_locked(task_id)
+
     def _purge_expired_locked(self) -> None:
         now = self._clock()
         expired = [
@@ -624,6 +724,28 @@ def _record_loop_id(record: TaskRecord) -> str | None:
         return None
     value = record.options.get("resume_loop_id")
     return value if isinstance(value, str) else record.task_id
+
+
+def _receipt_public_view(receipt: ExternalActionReceipt) -> dict[str, object]:
+    known_evidence_codes = {"result_unknown", "protocol_response", "no_dispatch"}
+    evidence_code = (
+        receipt.evidence_ref if receipt.evidence_ref in known_evidence_codes else "provided"
+    )
+    if not receipt.evidence_ref:
+        evidence_code = ""
+    return {
+        "action_id": receipt.action_id,
+        "action_type": receipt.action_type,
+        "server_label": receipt.server_label,
+        "tool_label": receipt.tool_label,
+        "request_digest": receipt.request_digest,
+        "phase": receipt.phase,
+        "resolution": receipt.resolution,
+        "dispatch_certainty": receipt.dispatch_certainty,
+        "remote_ok": receipt.remote_ok,
+        "evidence_code": evidence_code,
+        "revision": receipt.revision,
+    }
 
 
 def _usage_summary(outcome: TaskOutcome | None) -> dict[str, int] | None:

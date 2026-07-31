@@ -11,7 +11,7 @@ import pytest
 
 from forgeagent.audit import AuditEvent
 from forgeagent.collaboration import CollaborationReport, CollaborationUsage
-from forgeagent.external_actions import canonical_request_digest
+from forgeagent.external_actions import ExternalActionReceiptStore, canonical_request_digest
 from forgeagent.http_action_approvals import (
     ApprovalUnavailableError,
     HttpActionApprovalStore,
@@ -21,6 +21,8 @@ from forgeagent.http_task_service import (
     ServiceCapacityError,
     ServiceClosedError,
     TaskNotFound,
+    TaskReceiptConflict,
+    TaskReceiptNotFound,
     TaskRecord,
     TaskService,
     _usage_summary,
@@ -627,6 +629,76 @@ def test_queued_cancel_and_shutdown_release_bound_approvals() -> None:
     finally:
         release_first.set()
         service.shutdown(1.0)
+
+
+def test_receipt_wrappers_are_task_scoped_and_revision_guarded(tmp_path) -> None:
+    receipt_store = ExternalActionReceiptStore(str(tmp_path))
+    service = TaskService(
+        factory=_instant_factory,
+        config=CONFIG,
+        receipt_store=receipt_store,
+    )
+    try:
+        owner = service.submit("owner", {})
+        other = service.submit("other", {})
+        service.wait(owner.task_id, timeout=1.0)
+        service.wait(other.task_id, timeout=1.0)
+        receipt = receipt_store.create_prepared(
+            task_id=owner.task_id,
+            server_label="github",
+            tool_label="create_issue",
+            request_digest="f" * 64,
+        )
+        receipt = receipt_store.mark_dispatched(receipt.action_id, receipt.revision)
+        receipt = receipt_store.mark_unknown(receipt.action_id, receipt.revision, "result_unknown")
+
+        assert service.list_task_receipts(owner.task_id) == (
+            {
+                "action_id": receipt.action_id,
+                "action_type": "mcp",
+                "server_label": "github",
+                "tool_label": "create_issue",
+                "request_digest": "f" * 64,
+                "phase": "unknown",
+                "resolution": "open",
+                "dispatch_certainty": "unknown",
+                "remote_ok": None,
+                "evidence_code": "result_unknown",
+                "revision": 2,
+            },
+        )
+        assert service.list_task_receipts(other.task_id) == ()
+        with pytest.raises(TaskReceiptNotFound):
+            service.resolve_task_receipt(
+                other.task_id,
+                receipt.action_id,
+                expected_revision=receipt.revision,
+                decision="confirmed",
+                evidence="provider event secret-123",
+            )
+        with pytest.raises(TaskReceiptConflict):
+            service.resolve_task_receipt(
+                owner.task_id,
+                receipt.action_id,
+                expected_revision=receipt.revision - 1,
+                decision="confirmed",
+                evidence="provider event secret-123",
+            )
+
+        resolved = service.resolve_task_receipt(
+            owner.task_id,
+            receipt.action_id,
+            expected_revision=receipt.revision,
+            decision="confirmed",
+            evidence="provider event secret-123",
+        )
+        assert resolved["resolution"] == "confirmed"
+        assert resolved["evidence_code"] == "provided"
+        assert "secret-123" not in repr(resolved)
+        assert service.list_task_receipts(owner.task_id) == ()
+    finally:
+        service.shutdown(1.0)
+        receipt_store.close()
 
 
 @pytest.mark.parametrize("raised", [RuntimeError("submit failed"), KeyboardInterrupt()])
