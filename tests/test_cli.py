@@ -1426,6 +1426,7 @@ def test_collaborative_loop_shares_remaining_rounds_and_forwards_loop_context(
     monkeypatch, tmp_path
 ):
     task_round_limits: list[int] = []
+    task_recovery_limits: list[int] = []
     forwarded: dict[str, object] = {}
     role_outcomes = iter(
         [
@@ -1443,6 +1444,7 @@ def test_collaborative_loop_shares_remaining_rounds_and_forwards_loop_context(
     class RecordingTask:
         def __init__(self, _client, **kwargs):
             task_round_limits.append(kwargs["max_rounds"])
+            task_recovery_limits.append(kwargs["max_submission_recovery_attempts"])
 
         def run(self, _goal, *, cancel_event=None):
             del cancel_event
@@ -1509,6 +1511,7 @@ def test_collaborative_loop_shares_remaining_rounds_and_forwards_loop_context(
 
     assert report.status == "completed"
     assert task_round_limits == [3, 1]
+    assert task_recovery_limits == [2, 2]
     assert "UNTRUSTED LOOP STATE" in forwarded["task_data_suffix"]
     assert "Checkpoint" in forwarded["generator_registry"].arg_schemas()
     assert forwarded["recover_role_failures"] is True

@@ -32,7 +32,7 @@ M40 只收敛 Loop checkpoint 的 handoff 所有权和提交恢复边界。Loop 
 
 ## 有界提交恢复
 
-Step 将 required completion 的恢复状态从集合改为每个工具的计数，`MAX_SUBMISSION_RECOVERY_ATTEMPTS=2`。缺失或无效提交时：计数未达到上限则只追加一次固定纠正提示；达到上限则设置 `Termination.FAILED`。恢复期间不调用历史 `ToolCall`，不复制 native/text dispatch，不触碰 receipt store；Loop 发现 pending/unknown receipt 仍沿用 `external_action_pending` 停止门禁。
+Step 将 required completion 的恢复状态从集合改为每个工具的计数。普通 `Task`/Collaboration 保持既有一次恢复的兼容默认值；Loop 创建的宿主任务显式使用最多两次恢复。缺失或无效提交时：计数未达到该任务上限则只追加一次固定纠正提示；达到上限则设置 `Termination.FAILED`。恢复期间不调用历史 `ToolCall`，不复制 native/text dispatch，不触碰 receipt store；Loop 发现 pending/unknown receipt 仍沿用 `external_action_pending` 停止门禁。
 
 ## 测试矩阵
 
@@ -41,7 +41,7 @@ Step 将 required completion 的恢复状态从集合改为每个工具的计数
 3. 新旧属性读取一致；冲突迁移、危险 Unicode、超限候选、控制面额外字段均拒绝。
 4. CheckpointTool 保留完成项、拒绝删除、CAS 失败不改盘。
 5. Runner suffix 只包含结构化 handoff 和不可信标记，不泄漏公开报告正文。
-6. required submission 可恢复两次，第三次失败；恢复过程中工具调用计数保持不变。
+6. Loop 的 required submission 可恢复两次，第三次失败；普通 Task/Collaboration 仍一次恢复后失败；恢复过程中工具调用计数保持不变。
 
 ## 两轮设计自评结论
 

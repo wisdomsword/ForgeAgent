@@ -998,6 +998,7 @@ def run_loop_once(
                 memory_manager=memory_manager,
                 skills=skills,
                 tool_registry=registry,
+                max_submission_recovery_attempts=2,
             )
         except BaseException:
             close_client()
@@ -1055,6 +1056,7 @@ def run_loop_once(
                     skills=skills if role == "generator" else None,
                     tool_registry=registry,
                     receipt_store=receipt_store if role == "generator" else None,
+                    max_submission_recovery_attempts=2,
                 )
             except Exception as error:
                 if task is not None:
@@ -2345,6 +2347,7 @@ def serve_http(
                         skills=skills,
                         tool_registry=registry,
                         receipt_store=receipt_store,
+                        max_submission_recovery_attempts=2,
                     )
 
                     class OwnedLoopTask:
@@ -2410,6 +2413,7 @@ def serve_http(
                                 skills=skills if role == "generator" else None,
                                 tool_registry=registry,
                                 receipt_store=receipt_store if role == "generator" else None,
+                                max_submission_recovery_attempts=2,
                             )
                         except Exception as error:
                             close = getattr(client, "close", None)

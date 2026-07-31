@@ -21,7 +21,7 @@
 
 1. **双模型边界。** `LoopHandoff` 是宿主持久化模型，使用冻结、禁止额外字段的 `completed_items`、`open_questions`、`summary` 字段；`LoopHandoffCandidate`/`CheckpointArgs` 只表达模型可提交的三项内容。CheckpointTool 从候选更新 handoff，其他 checkpoint 字段直接沿用当前快照。相比让模型提交完整 checkpoint，这能在 Pydantic 校验前后都阻断越权字段。
 2. **兼容迁移。** `LoopCheckpoint` 的 before validator 接受旧字符串 `handoff`，转换为 `LoopHandoff(summary=<旧字符串>)`；缺失 handoff 使用空结构。读取旧文件不会原地改写，下一次正常保存才以结构化对象序列化。这样旧文件可恢复，且迁移不扩大读取权限。
-3. **恢复边界。** required completion submission 的恢复提示由宿主计数并设置固定上限；达到上限后失败。恢复消息只要求模型重新提交当前状态，不调用历史 ToolCall、不复制外部动作、不改变 receipt 状态。若已有未知/待处理收据，Loop 在现有 `external_action_pending` 门禁处停止。
+3. **恢复边界。** required completion submission 的恢复提示由宿主计数并设置固定上限；普通 Task/Collaboration 保持一次恢复的兼容默认值，Loop 宿主任务显式允许两次，达到上限后失败。恢复消息只要求模型重新提交当前状态，不调用历史 ToolCall、不复制外部动作、不改变 receipt 状态。若已有未知/待处理收据，Loop 在现有 `external_action_pending` 门禁处停止。
 4. **不可回退的进度。** `completed_items` 仍只能追加；`open_questions` 与 `summary` 可替换但受相同安全文本和大小限制。模型不能清除已完成项，也不能通过 handoff 候选改变 goal、budgets、permissions、collaboration_mode、plan_digest、status、stop_reason 或 attention。
 5. **提示投影。** `_render_suffix()` 只注入结构化 handoff 的 JSON 投影，并显式标记为不可信 Loop 状态；公开报告继续只输出计数，不泄漏 handoff 正文。
 

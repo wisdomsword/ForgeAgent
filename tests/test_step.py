@@ -812,7 +812,13 @@ def test_completion_tool_finishes_without_standalone_status():
 
 def test_required_submission_recovery_is_bounded_without_replaying_tools():
     client = MockClient(script=[_reply(_done()), _reply(_done()), _reply(_done())])
-    step = Step(client, TrustedBackend(), Runtime(), registry=_completion_registry())
+    step = Step(
+        client,
+        TrustedBackend(),
+        Runtime(),
+        registry=_completion_registry(),
+        max_submission_recovery_attempts=2,
+    )
 
     rounds = step.run(_user())
 
@@ -846,8 +852,8 @@ def test_completion_tool_skips_later_native_tool_call_and_audit():
     assert len(tool_events) == 1
 
 
-def test_required_completion_gets_two_recoveries_then_fails():
-    client = MockClient(script=[_reply(_done()), _reply(_done()), _reply(_done())])
+def test_required_completion_gets_one_recovery_then_fails():
+    client = MockClient(script=[_reply(_done()), _reply(_done())])
     step = Step(
         client,
         TrustedBackend(),
@@ -858,15 +864,13 @@ def test_required_completion_gets_two_recoveries_then_fails():
 
     rounds = step.run(_user())
 
-    assert len(rounds) == 3
+    assert len(rounds) == 2
     assert "Finish must be called successfully" in rounds[0].parse_errors[0]
     assert rounds[-1].stopped_reason == Termination.FAILED
 
 
-def test_required_completion_prose_gets_same_two_recoveries_then_fails():
-    client = _RecordingClient(
-        script=[_reply("done"), _reply("still done"), _reply("still not submitted")]
-    )
+def test_required_completion_prose_gets_same_one_recovery_then_fails():
+    client = _RecordingClient(script=[_reply("done"), _reply("still done")])
     step = Step(
         client,
         TrustedBackend(),
@@ -878,7 +882,7 @@ def test_required_completion_prose_gets_same_two_recoveries_then_fails():
     rounds = step.run(_user())
 
     recovery = str(client.seen_messages[1][-1].content)
-    assert len(rounds) == 3
+    assert len(rounds) == 2
     assert (
         'Finish must be called successfully before completion. Use <!-- ToolCall: {"name":"Finish"'
         in recovery

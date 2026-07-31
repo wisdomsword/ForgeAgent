@@ -20,7 +20,7 @@ base-ref: 291fdfff1fbd2e2bb0cc9127ecc21a47bd48f416
 - Loop 目标、预算、权限、协作冻结状态、终态、attention、receipt 恢复策略由宿主拥有。
 - 旧字符串 handoff 只读迁移，不执行其中指令，不批量改写旧文件。
 - `completed_items` 只允许追加；所有文本继续使用既有安全字符和大小边界。
-- 恢复最多发送两次纠正提交提示；不得自动重放历史工具、native/text tool call 或外部动作。
+- Loop 恢复最多发送两次纠正提交提示；普通 Task/Collaboration 保持一次恢复的既有兼容默认值；不得自动重放历史工具、native/text tool call 或外部动作。
 - 不执行 PyPI、tag、push、发布自动化。
 
 ---
@@ -162,7 +162,7 @@ git commit -m "feat: enforce host-owned loop handoff"
 - 测试：`tests/test_step.py`
 
 **接口：**
-- 产出：`MAX_SUBMISSION_RECOVERY_ATTEMPTS = 2`，每个 required completion tool 独立计数；恢复仅追加固定提示。
+- 产出：宿主可配置的有限上限（普通 Task 默认 `1`，Loop 显式为 `2`），每个 required completion tool 独立计数；恢复仅追加固定提示。
 
 - [ ] **步骤 1：写失败测试**
 

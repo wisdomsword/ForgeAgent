@@ -27,7 +27,13 @@ from .memory import MemoryManager, MemoryResult
 from .models import GenerationParams, ImageItem, Message, Role, StreamEventKind, TextItem
 from .runtime import Runtime
 from .skills import SkillRegistry
-from .step import RoundResult, Step, Termination
+from .step import (
+    DEFAULT_SUBMISSION_RECOVERY_ATTEMPTS,
+    MAX_SUBMISSION_RECOVERY_ATTEMPTS,
+    RoundResult,
+    Step,
+    Termination,
+)
 from .tools import Asker, Confirmer, Tier, ToolRegistry
 
 
@@ -106,7 +112,13 @@ class Task:
         skills: SkillRegistry | None = None,
         tool_registry: ToolRegistry | None = None,
         receipt_store: ExternalActionReceiptStore | None = None,
+        max_submission_recovery_attempts: int = DEFAULT_SUBMISSION_RECOVERY_ATTEMPTS,
     ):
+        if not 1 <= max_submission_recovery_attempts <= MAX_SUBMISSION_RECOVERY_ATTEMPTS:
+            raise ValueError(
+                "max_submission_recovery_attempts must be between 1 and "
+                f"{MAX_SUBMISSION_RECOVERY_ATTEMPTS}"
+            )
         self._client = client
         self._tier = tier
         # Resolved once here so backend and ToolContext (File tools/WebFetch, §3.7) share
@@ -140,6 +152,7 @@ class Task:
         self._skills = skills
         self._tool_registry = tool_registry
         self._receipt_store = receipt_store
+        self._max_submission_recovery_attempts = max_submission_recovery_attempts
         self._context_policy = context_policy or SlidingWindowContextPolicy(
             client.capability,
             params,
@@ -223,6 +236,7 @@ class Task:
             skills=self._skills,
             registry=self._tool_registry,
             receipt_store=self._receipt_store,
+            max_submission_recovery_attempts=self._max_submission_recovery_attempts,
         )
         rounds = step.run(messages)
         status = self._derive_status(rounds)

@@ -104,6 +104,7 @@ class Termination(StrEnum):
 # reconciled here rather than in the clients.
 _REFUSAL_STOP_REASONS = frozenset({"refusal", "content_filter"})
 _TRUNCATED_STOP_REASONS = frozenset({"max_tokens", "length"})
+DEFAULT_SUBMISSION_RECOVERY_ATTEMPTS = 1
 MAX_SUBMISSION_RECOVERY_ATTEMPTS = 2
 
 # Declared non-completion statuses (protocol front matter) -> terminal reason.
@@ -215,7 +216,13 @@ class Step:
         skills: SkillRegistry | None = None,
         context_config: ContextConfig | None = None,
         receipt_store: ExternalActionReceiptStore | None = None,
+        max_submission_recovery_attempts: int = DEFAULT_SUBMISSION_RECOVERY_ATTEMPTS,
     ):
+        if not 1 <= max_submission_recovery_attempts <= MAX_SUBMISSION_RECOVERY_ATTEMPTS:
+            raise ValueError(
+                "max_submission_recovery_attempts must be between 1 and "
+                f"{MAX_SUBMISSION_RECOVERY_ATTEMPTS}"
+            )
         self._client = client
         self._backend = backend
         self._runtime = runtime
@@ -251,6 +258,7 @@ class Step:
         self._registry = registry or default_registry(with_mcp=mcp is not None, skills=skills)
         self._successful_tools: set[str] = set()
         self._submission_recovery_attempts: dict[str, int] = {}
+        self._max_submission_recovery_attempts = max_submission_recovery_attempts
         # One context shared across the task's tool dispatches (blocks/state persist).
         self._ctx = ToolContext(
             blocks=self.blocks,
@@ -596,7 +604,7 @@ class Step:
 
     def _request_submission_recovery(self, tool_name: str) -> bool:
         attempts = self._submission_recovery_attempts.get(tool_name, 0)
-        if attempts >= MAX_SUBMISSION_RECOVERY_ATTEMPTS:
+        if attempts >= self._max_submission_recovery_attempts:
             return False
         self._submission_recovery_attempts[tool_name] = attempts + 1
         return True

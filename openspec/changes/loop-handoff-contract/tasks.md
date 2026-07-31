@@ -13,5 +13,5 @@
 ## 3. 验证与文档
 
 - [x] 3.1 增加回归测试：合法更新、旧数据迁移、schema 别名、控制面拒绝、完成项只增、上下文投影和有限非重放恢复。
-- [ ] 3.2 运行专项测试、全量 pytest、Ruff check/format、OpenSpec strict 校验和 `uv build`；修复回归但不发布。
-- [ ] 3.3 记录 M40 验收证据，更新 `ACTION_PLAN.md`，创建 `milestones/milestone_040.md`，更新 `milestones/latest` 并归档 Comet change。
+- [x] 3.2 运行专项测试、全量 pytest、Ruff check/format、OpenSpec strict 校验和 `uv build`；修复回归但不发布。
+- [x] 3.3 记录 M40 验收证据，更新 `ACTION_PLAN.md`，创建 `milestones/milestone_040.md`，更新 `milestones/latest` 并归档 Comet change。

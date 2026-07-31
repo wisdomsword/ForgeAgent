@@ -448,15 +448,7 @@ def test_duo_new_generator_attempt_must_rerun_checks_before_passing(tmp_path: Pa
 
 
 def test_duo_requires_generator_strict_completion(tmp_path: Path):
-    builder = _RoleBuilder(
-        {
-            ("generator", 1): [
-                _reply("plain answer"),
-                _reply("still plain"),
-                _reply("still not submitted"),
-            ]
-        }
-    )
+    builder = _RoleBuilder({("generator", 1): [_reply("plain answer"), _reply("still plain")]})
     runner = _runner(tmp_path, builder)
 
     report = runner.run("write PRIVATE_GOAL artifact")
@@ -488,12 +480,9 @@ def test_execution_tier_and_loop_id_are_validated(tmp_path: Path):
 @pytest.mark.parametrize(
     ("script", "reason"),
     [
-        ([_reply(_done()), _reply(_done()), _reply(_done())], "invalid_role_submission"),
+        ([_reply(_done()), _reply(_done())], "invalid_role_submission"),
         ([ClientError(message="bad key", kind="auth", attempts=1)], "unrecoverable_failure"),
-        (
-            [_reply("cannot"), _reply("still cannot"), _reply("still not submitted")],
-            "invalid_role_submission",
-        ),
+        ([_reply("cannot"), _reply("still cannot")], "invalid_role_submission"),
     ],
 )
 def test_duo_evaluator_failures_have_stable_reasons(tmp_path: Path, script, reason):
@@ -785,7 +774,7 @@ def test_duo_does_not_reuse_previous_evaluation_submission(tmp_path: Path):
             ("generator", 1): [_candidate()],
             ("evaluator", 1): [_evaluation(passed=False)],
             ("generator", 2): [_candidate()],
-            ("evaluator", 2): [_reply(_done()), _reply(_done()), _reply(_done())],
+            ("evaluator", 2): [_reply(_done()), _reply(_done())],
         }
     )
 
