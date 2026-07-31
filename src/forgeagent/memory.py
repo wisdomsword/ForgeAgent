@@ -363,6 +363,100 @@ class MemoryManager:
             operation="verify",
         )
 
+    def rollback_migration(
+        self,
+        migration_id: str,
+        *,
+        task_id: str | None = None,
+    ) -> MemoryOperationResult:
+        if _OPAQUE_ID.fullmatch(migration_id) is None:
+            return MemoryOperationResult("backup_unavailable", 0, "invalid_migration_id")
+        try:
+            with self._project_lock():
+                current = self._read_snapshot(canonical_v1=True)
+                header = current.header
+                if current.format_version != "v2" or header is None:
+                    return self._operation_result(
+                        "not_current",
+                        current,
+                        "not_current",
+                        task_id,
+                        operation="rollback",
+                    )
+                if header.migration_id != migration_id:
+                    return self._operation_result(
+                        "rollback_conflict",
+                        current,
+                        "migration_id_mismatch",
+                        task_id,
+                        operation="rollback",
+                    )
+                if header.revision != header.migration_revision:
+                    return self._operation_result(
+                        "rollback_conflict",
+                        current,
+                        "revision_changed",
+                        task_id,
+                        migration_id=migration_id,
+                        operation="rollback",
+                    )
+                try:
+                    backup_path = self._safe_backup_path(migration_id)
+                    backup_raw = self._read_safe_backup(backup_path)
+                except OSError:
+                    return self._operation_result(
+                        "backup_unavailable",
+                        current,
+                        "backup_unavailable",
+                        task_id,
+                        operation="rollback",
+                    )
+                backup_snapshot = self._parse_v1(backup_raw, canonical=True)
+                if not self._backup_matches_current(backup_snapshot, current):
+                    return self._operation_result(
+                        "backup_unavailable",
+                        current,
+                        "invalid_backup",
+                        task_id,
+                        operation="rollback",
+                    )
+                try:
+                    self._atomic_write_bytes(backup_raw)
+                    restored = self._read_snapshot(canonical_v1=True)
+                except OSError:
+                    return self._operation_result(
+                        "recovery_failed",
+                        current,
+                        "restore_unconfirmed",
+                        task_id,
+                        migration_id=migration_id,
+                        operation="rollback",
+                    )
+                if (
+                    restored.format_version != "v1"
+                    or restored.raw != backup_raw
+                    or set(restored.entries) != set(current.entries)
+                ):
+                    return self._operation_result(
+                        "recovery_failed",
+                        restored,
+                        "restore_unconfirmed",
+                        task_id,
+                        migration_id=migration_id,
+                        operation="rollback",
+                    )
+        except OSError:
+            return MemoryOperationResult("backup_unavailable", 0, "storage_path")
+        self._install_snapshot(restored)
+        return self._operation_result(
+            "rolled_back",
+            restored,
+            "verified_v1",
+            task_id,
+            migration_id=migration_id,
+            operation="rollback",
+        )
+
     def load(self) -> None:
         if not self._enabled or not self._allow_project:
             self._project = {}
@@ -720,6 +814,43 @@ class MemoryManager:
         return path
 
     @staticmethod
+    def _read_safe_backup(path: Path) -> bytes:
+        no_follow = getattr(os, "O_NOFOLLOW", None)
+        if no_follow is None:
+            raise OSError("safe memory backup read is unavailable")
+        descriptor = os.open(
+            path,
+            os.O_RDONLY | no_follow | getattr(os, "O_CLOEXEC", 0),
+        )
+        try:
+            info = os.fstat(descriptor)
+            if not stat.S_ISREG(info.st_mode):
+                raise OSError("memory backup is not regular")
+            if stat.S_IMODE(info.st_mode) != 0o600 or info.st_size > _MAX_STORAGE_BYTES:
+                raise OSError("memory backup metadata is invalid")
+            with os.fdopen(descriptor, "rb") as handle:
+                descriptor = -1
+                raw = handle.read(_MAX_STORAGE_BYTES + 1)
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+        if len(raw) > _MAX_STORAGE_BYTES:
+            raise OSError("memory backup exceeds limit")
+        return raw
+
+    @staticmethod
+    def _backup_matches_current(
+        backup: _ProjectSnapshot,
+        current: _ProjectSnapshot,
+    ) -> bool:
+        if backup.format_version != "v1" or set(backup.entries) != set(current.entries):
+            return False
+        return all(
+            backup.entries[key].candidate.content == current.entries[key].candidate.content
+            for key in backup.entries
+        )
+
+    @staticmethod
     def _verify_migration_snapshot(
         before: _ProjectSnapshot,
         after: _ProjectSnapshot,
@@ -751,12 +882,16 @@ class MemoryManager:
         task_id: str | None,
     ) -> MemoryOperationResult:
         try:
-            backup_raw = backup.read_bytes()
+            backup_raw = self._read_safe_backup(backup)
             if backup_raw != before.raw:
                 raise OSError("memory backup mismatch")
             self._atomic_write_bytes(backup_raw)
             restored = self._read_snapshot(canonical_v1=True)
-            if restored.format_version != "v1" or restored.raw != before.raw:
+            if (
+                restored.format_version != "v1"
+                or restored.raw != before.raw
+                or set(restored.entries) != set(before.entries)
+            ):
                 raise OSError("memory restore verification failed")
         except OSError:
             return self._operation_result(
@@ -771,7 +906,7 @@ class MemoryManager:
         return self._operation_result(
             "persistence_error",
             restored,
-            "verification_failed_restored",
+            "verification_failed",
             task_id,
             migration_id=migration_id,
             operation="migrate",

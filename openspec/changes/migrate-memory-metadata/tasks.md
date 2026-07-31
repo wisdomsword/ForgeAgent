@@ -13,10 +13,10 @@
 
 ## 3. 备份、迁移、验证与回滚
 
-- [ ] 3.1 先添加失败测试，覆盖 manifest 缺失/额外 key、symlink 备份、故障注入自动恢复和公开结果脱敏。
+- [x] 3.1 先添加失败测试，覆盖 manifest 缺失/额外 key、symlink 备份、故障注入自动恢复和公开结果脱敏。
 - [x] 3.2 实现锁内 v1 重验、完整 manifest 校验、项目内 `0600` 恢复副本和 v2 原子迁移。
-- [ ] 3.3 实现写后语义 verifier，验证 key/content 等价、元数据完整、revision 与大小边界，并在失败时自动恢复。
-- [ ] 3.4 先添加失败测试并实现 revision 绑定 rollback；迁移后任意写入必须返回 `rollback_conflict`，不得无条件重放。
+- [x] 3.3 实现写后语义 verifier，验证 key/content 等价、元数据完整、revision 与大小边界，并在失败时自动恢复。
+- [x] 3.4 先添加失败测试并实现 revision 绑定 rollback；迁移后任意写入必须返回 `rollback_conflict`，不得无条件重放。
 
 ## 4. 运维入口与文档
 

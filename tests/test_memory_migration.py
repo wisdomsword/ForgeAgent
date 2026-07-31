@@ -5,6 +5,7 @@ import pytest
 
 import forgeagent.memory as memory_module
 from forgeagent.memory import MemoryManager
+from forgeagent.protocol import MemoryCandidate
 
 PRIVATE_VALUE = "migration-private-value"
 
@@ -166,3 +167,144 @@ def test_oversize_or_noncanonical_v1_stops_before_backup(tmp_path, raw):
     assert result.status == "repair_required"
     assert path.read_bytes() == raw
     assert not (path.parent / "memory-backups").exists()
+
+
+def test_post_write_verification_failure_restores_exact_v1_bytes(tmp_path, monkeypatch):
+    original = _write_v1(tmp_path, {"editor": PRIVATE_VALUE})
+    manager = MemoryManager(str(tmp_path))
+    real_verify = manager._verify_migration_snapshot
+    calls = 0
+
+    def fail_disk_verification(before, after, migration_id, migration_revision):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            return False
+        return real_verify(before, after, migration_id, migration_revision)
+
+    monkeypatch.setattr(manager, "_verify_migration_snapshot", fail_disk_verification)
+
+    result = manager.migrate_legacy(_manifest("editor"))
+
+    assert (result.status, result.reason) == (
+        "persistence_error",
+        "verification_failed",
+    )
+    assert (tmp_path / ".forgeagent" / "MEMORY.md").read_bytes() == original
+    assert PRIVATE_VALUE not in repr(result)
+
+
+def test_failed_restore_reports_unknown_without_claiming_success(tmp_path, monkeypatch):
+    _write_v1(tmp_path, {"editor": PRIVATE_VALUE})
+    manager = MemoryManager(str(tmp_path))
+    real_write = manager._atomic_write_bytes
+    writes = 0
+
+    def corrupt_then_fail_restore(raw):
+        nonlocal writes
+        writes += 1
+        if writes == 1:
+            real_write(b"corrupt-after-replace\n")
+            return
+        raise OSError("private restore failure")
+
+    monkeypatch.setattr(manager, "_atomic_write_bytes", corrupt_then_fail_restore)
+
+    result = manager.migrate_legacy(_manifest("editor"))
+
+    assert (result.status, result.reason) == (
+        "recovery_failed",
+        "restore_unconfirmed",
+    )
+    assert "private restore failure" not in repr(result)
+    assert PRIVATE_VALUE not in repr(result)
+
+
+def test_rollback_restores_unchanged_migration_but_rejects_later_revision(tmp_path):
+    original = _write_v1(tmp_path, {"editor": PRIVATE_VALUE})
+    manager = MemoryManager(str(tmp_path))
+    migrated = manager.migrate_legacy(_manifest("editor"))
+    assert migrated.migration_id is not None
+
+    rolled_back = manager.rollback_migration(migrated.migration_id)
+
+    assert (rolled_back.status, rolled_back.reason) == (
+        "rolled_back",
+        "verified_v1",
+    )
+    assert (tmp_path / ".forgeagent" / "MEMORY.md").read_bytes() == original
+
+    migrated_again = manager.migrate_legacy(_manifest("editor"))
+    assert migrated_again.migration_id is not None
+    assert (
+        manager.apply(
+            MemoryCandidate(scope="project", kind="fact", key="language", content="python")
+        ).status
+        == "accepted"
+    )
+    current = (tmp_path / ".forgeagent" / "MEMORY.md").read_bytes()
+
+    conflict = manager.rollback_migration(migrated_again.migration_id)
+
+    assert (conflict.status, conflict.reason) == (
+        "rollback_conflict",
+        "revision_changed",
+    )
+    assert (tmp_path / ".forgeagent" / "MEMORY.md").read_bytes() == current
+    assert "language: python" in manager.render()
+
+
+def test_rollback_rejects_non_hex_or_mismatched_id(tmp_path):
+    _write_v1(tmp_path, {"editor": PRIVATE_VALUE})
+    manager = MemoryManager(str(tmp_path))
+    migrated = manager.migrate_legacy(_manifest("editor"))
+    assert migrated.migration_id is not None
+    current = (tmp_path / ".forgeagent" / "MEMORY.md").read_bytes()
+
+    invalid = manager.rollback_migration("not-an-id")
+    mismatched = manager.rollback_migration("f" * 32)
+
+    assert (invalid.status, invalid.reason) == (
+        "backup_unavailable",
+        "invalid_migration_id",
+    )
+    assert (mismatched.status, mismatched.reason) == (
+        "rollback_conflict",
+        "migration_id_mismatch",
+    )
+    assert (tmp_path / ".forgeagent" / "MEMORY.md").read_bytes() == current
+
+
+@pytest.mark.parametrize("unsafe", ["missing", "symlink", "mode", "noncanonical"])
+def test_rollback_rejects_unsafe_backup(tmp_path, unsafe):
+    _write_v1(tmp_path, {"editor": PRIVATE_VALUE})
+    manager = MemoryManager(str(tmp_path))
+    migrated = manager.migrate_legacy(_manifest("editor"))
+    assert migrated.migration_id is not None
+    current = (tmp_path / ".forgeagent" / "MEMORY.md").read_bytes()
+    backup = tmp_path / ".forgeagent" / "memory-backups" / f"{migrated.migration_id}.memory-v1.bak"
+    if unsafe == "missing":
+        backup.unlink()
+    elif unsafe == "symlink":
+        backup.unlink()
+        backup.symlink_to(tmp_path / ".forgeagent" / "MEMORY.md")
+    elif unsafe == "mode":
+        backup.chmod(0o644)
+    else:
+        backup.write_bytes(b"<!-- forgeagent-memory-v1 -->\ninvalid\n")
+
+    result = manager.rollback_migration(migrated.migration_id)
+
+    assert result.status == "backup_unavailable"
+    assert (tmp_path / ".forgeagent" / "MEMORY.md").read_bytes() == current
+    assert PRIVATE_VALUE not in repr(result)
+    assert str(tmp_path) not in repr(result)
+
+
+def test_rollback_has_no_force_override():
+    import inspect
+
+    parameters = inspect.signature(MemoryManager.rollback_migration).parameters
+
+    assert "force" not in parameters
+    assert set(parameters) == {"self", "migration_id", "task_id"}
