@@ -15,12 +15,15 @@ import pytest
 from forgeagent.audit import AuditEvent
 from forgeagent.client import MockClient
 from forgeagent.context import ContextConfig
+from forgeagent.external_actions import ExternalActionReceiptStore
+from forgeagent.http_action_approvals import HttpActionApprovalStore
 from forgeagent.http_config import HttpServiceConfig
 from forgeagent.http_server import (
     ForgeRequestHandler,
     HttpError,
     _ForgeHttpServer,
     _parse_content_length,
+    _parse_task_request,
     _parse_task_submission,
     create_http_server,
 )
@@ -266,6 +269,342 @@ def running_server(tmp_path):
         server.server_close()
         service.shutdown(1.0)
         thread.join(timeout=1.0)
+
+
+@pytest.fixture
+def action_control_server(tmp_path):
+    sink = RecordingSink()
+    config = HttpServiceConfig(
+        token="test-token",
+        max_workers=1,
+        max_queue=4,
+        max_records=8,
+    )
+    approval_store = HttpActionApprovalStore(max_records=config.max_records, audit_sink=sink)
+    receipt_store = ExternalActionReceiptStore(str(tmp_path), audit_sink=sink)
+    service = TaskService(
+        factory=lambda _record: FakeTask(_outcome()),
+        config=config,
+        audit_sink=sink,
+        approval_store=approval_store,
+        receipt_store=receipt_store,
+    )
+    server = SimpleNamespace(config=config, task_service=service, audit_sink=sink)
+    try:
+        yield server, approval_store, receipt_store, service, sink
+    finally:
+        service.shutdown(1.0)
+        receipt_store.close()
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"goal": "task"},
+        {"goal": "task", "mode": "duo"},
+        {
+            "goal": "loop",
+            "mode": "loop",
+            "token_budget": 10,
+            "max_rounds": 2,
+            "wall_clock_seconds": 30,
+            "max_consecutive_failures": 1,
+        },
+        {"mode": "loop", "resume_loop_id": "b" * 32},
+    ],
+)
+def test_task_parser_accepts_bounded_approval_ids_without_putting_them_in_options(
+    body,
+):
+    approval_ids = ["a" * 32]
+    extended = body | {"approval_ids": approval_ids}
+
+    goal, options, parsed_ids = _parse_task_request(extended)
+    legacy_goal, legacy_options = _parse_task_submission(extended)
+
+    assert parsed_ids == ("a" * 32,)
+    assert "approval_ids" not in options
+    assert (legacy_goal, legacy_options) == (goal, options)
+
+
+@pytest.mark.parametrize(
+    "approval_ids",
+    [
+        [],
+        ["a" * 32, "a" * 32],
+        ["A" * 32],
+        ["a" * 31],
+        [123],
+        [f"{index:032x}" for index in range(17)],
+    ],
+)
+def test_task_parser_rejects_invalid_approval_id_lists(approval_ids) -> None:
+    with pytest.raises(HttpError, match="invalid_request"):
+        _parse_task_request({"goal": "task", "approval_ids": approval_ids})
+
+
+def test_http_approval_issue_query_revoke_and_task_claim(action_control_server) -> None:
+    server, _approval_store, _receipt_store, service, sink = action_control_server
+    issue_body = {
+        "action_type": "mcp",
+        "server": "github",
+        "tool": "create_issue",
+        "request_digest": "f" * 64,
+        "mode": "allow_once",
+        "expires_in_seconds": 60,
+    }
+
+    status, issued, raw = _request_via_handler(server, "POST", "/action-approvals", body=issue_body)
+    assert status == 201
+    assert issued is not None
+    approval_id = issued["approval_id"]
+    assert issued["status"] == "issued"
+    assert "github" in issued["scope"]
+    assert "create_issue" in issued["scope"]
+    assert b"test-token" not in raw
+
+    status, queried, _raw = _request_via_handler(server, "GET", f"/action-approvals/{approval_id}")
+    assert status == 200
+    assert queried == issued
+
+    status, submitted, _raw = _request_via_handler(
+        server,
+        "POST",
+        "/tasks",
+        body={"goal": "use exact action", "approval_ids": [approval_id]},
+    )
+    assert status == 202
+    assert submitted is not None
+    assert "approval" not in repr(submitted)
+    service.wait(str(submitted["task_id"]), timeout=1.0)
+
+    second_status, second, _raw = _request_via_handler(
+        server, "POST", "/action-approvals", body=issue_body
+    )
+    assert second_status == 201
+    second_id = second["approval_id"]
+    status, revoked, _raw = _request_via_handler(
+        server, "POST", f"/action-approvals/{second_id}/revoke", body={}
+    )
+    assert status == 200
+    assert revoked["status"] == "revoked"
+    assert {event.event_type for event in sink.events} >= {
+        "http.approval_issue",
+        "http.approval_query",
+        "http.approval_revoke",
+    }
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {},
+        {
+            "action_type": "mcp",
+            "server": "github",
+            "tool": "create_issue",
+            "request_digest": "f" * 64,
+            "mode": "allow_once",
+            "expires_in_seconds": 0,
+        },
+        {
+            "action_type": "mcp",
+            "server": "github",
+            "tool": "create_issue",
+            "request_digest": "f" * 64,
+            "mode": "allow_forever",
+            "expires_in_seconds": 60,
+        },
+        {
+            "action_type": "mcp",
+            "server": "github",
+            "tool": "create_issue",
+            "request_digest": "f" * 64,
+            "mode": "allow_once",
+            "expires_in_seconds": 60,
+            "goal": "smuggled authority",
+        },
+    ],
+)
+def test_http_approval_issue_rejects_non_exact_body(action_control_server, body) -> None:
+    server, *_rest = action_control_server
+    status, response, _raw = _request_via_handler(server, "POST", "/action-approvals", body=body)
+    assert status == 400
+    assert response["error"]["kind"] == "invalid_request"
+
+
+def test_http_approval_routes_use_fixed_not_found_unavailable_and_auth_errors(
+    action_control_server,
+) -> None:
+    server, *_rest = action_control_server
+    status, response, raw = _request_via_handler(server, "GET", f"/action-approvals/{'0' * 32}")
+    assert status == 404
+    assert response["error"]["kind"] == "approval_not_found"
+    assert b"ApprovalNotFound" not in raw
+
+    status, response, _raw = _request_via_handler(
+        server,
+        "POST",
+        "/tasks",
+        body={"goal": "invalid claim", "approval_ids": ["0" * 32]},
+    )
+    assert status == 409
+    assert response["error"]["kind"] == "approval_unavailable"
+
+    status, response, _raw = _request_via_handler(
+        server, "GET", f"/action-approvals/{'0' * 32}", token="wrong"
+    )
+    assert status == 401
+    assert response["error"]["kind"] == "unauthorized"
+
+
+def _retained_task(service: TaskService, goal: str) -> TaskRecord:
+    record = service.submit(goal, {})
+    service.wait(record.task_id, timeout=1.0)
+    return record
+
+
+def _unknown_receipt(
+    store: ExternalActionReceiptStore,
+    task_id: str,
+    marker: str,
+):
+    receipt = store.create_prepared(
+        task_id=task_id,
+        server_label="github",
+        tool_label="create_issue",
+        request_digest=marker * 64,
+    )
+    receipt = store.mark_dispatched(receipt.action_id, receipt.revision)
+    return store.mark_unknown(receipt.action_id, receipt.revision, "result_unknown")
+
+
+def test_http_receipt_list_and_confirm_are_task_scoped_without_evidence_leak(
+    action_control_server,
+) -> None:
+    server, _approval_store, receipt_store, service, sink = action_control_server
+    owner = _retained_task(service, "owner")
+    other = _retained_task(service, "other")
+    receipt = _unknown_receipt(receipt_store, owner.task_id, "a")
+
+    status, listed, raw = _request_via_handler(server, "GET", f"/tasks/{owner.task_id}/receipts")
+    assert status == 200
+    assert listed == {"receipts": [service.list_task_receipts(owner.task_id)[0]]}
+    assert b"owner" not in raw
+
+    status, hidden, _raw = _request_via_handler(
+        server,
+        "POST",
+        f"/tasks/{other.task_id}/receipts/{receipt.action_id}/resolve",
+        body={
+            "expected_revision": receipt.revision,
+            "decision": "confirmed",
+            "evidence": "provider event private-evidence-123",
+        },
+    )
+    assert status == 404
+    assert hidden["error"]["kind"] == "receipt_not_found"
+
+    status, stale, _raw = _request_via_handler(
+        server,
+        "POST",
+        f"/tasks/{owner.task_id}/receipts/{receipt.action_id}/resolve",
+        body={
+            "expected_revision": receipt.revision - 1,
+            "decision": "confirmed",
+            "evidence": "provider event private-evidence-123",
+        },
+    )
+    assert status == 409
+    assert stale["error"]["kind"] == "receipt_conflict"
+
+    status, resolved, raw = _request_via_handler(
+        server,
+        "POST",
+        f"/tasks/{owner.task_id}/receipts/{receipt.action_id}/resolve",
+        body={
+            "expected_revision": receipt.revision,
+            "decision": "confirmed",
+            "evidence": "provider event private-evidence-123",
+        },
+    )
+    assert status == 200
+    assert resolved["resolution"] == "confirmed"
+    assert resolved["evidence_code"] == "provided"
+    assert b"private-evidence-123" not in raw
+    assert {event.event_type for event in sink.events} >= {
+        "http.receipt_list",
+        "http.receipt_resolve",
+    }
+
+
+@pytest.mark.parametrize("decision", ["abandoned", "retry_approved"])
+def test_http_receipt_closure_never_dispatches(action_control_server, decision) -> None:
+    server, _approval_store, receipt_store, service, _sink = action_control_server
+    owner = _retained_task(service, "owner")
+    receipt = _unknown_receipt(receipt_store, owner.task_id, "b")
+    dispatch_count = 0
+
+    status, resolved, _raw = _request_via_handler(
+        server,
+        "POST",
+        f"/tasks/{owner.task_id}/receipts/{receipt.action_id}/resolve",
+        body={"expected_revision": receipt.revision, "decision": decision},
+    )
+
+    assert status == 200
+    assert resolved["resolution"] == decision
+    assert dispatch_count == 0
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {},
+        {"expected_revision": -1, "decision": "abandoned"},
+        {"expected_revision": 1, "decision": "retry"},
+        {"expected_revision": 1, "decision": "confirmed"},
+        {"expected_revision": 1, "decision": "confirmed", "evidence": ""},
+        {"expected_revision": 1, "decision": "abandoned", "evidence": 42},
+        {"expected_revision": 1, "decision": "abandoned", "extra": True},
+    ],
+)
+def test_http_receipt_resolve_rejects_invalid_body(action_control_server, body) -> None:
+    server, _approval_store, _receipt_store, service, _sink = action_control_server
+    owner = _retained_task(service, "owner")
+    status, response, _raw = _request_via_handler(
+        server,
+        "POST",
+        f"/tasks/{owner.task_id}/receipts/{'0' * 32}/resolve",
+        body=body,
+    )
+    assert status == 400
+    assert response["error"]["kind"] == "invalid_request"
+
+
+def test_http_receipt_routes_use_fixed_task_receipt_and_store_errors(
+    action_control_server,
+) -> None:
+    server, _approval_store, receipt_store, service, _sink = action_control_server
+    status, response, _raw = _request_via_handler(server, "GET", f"/tasks/{'0' * 32}/receipts")
+    assert status == 404
+    assert response["error"]["kind"] == "not_found"
+
+    owner = _retained_task(service, "owner")
+    status, response, raw = _request_via_handler(
+        server,
+        "POST",
+        f"/tasks/{owner.task_id}/receipts/{'0' * 32}/resolve",
+        body={"expected_revision": 0, "decision": "abandoned"},
+    )
+    assert status == 404
+    assert response["error"]["kind"] == "receipt_not_found"
+    assert b"ReceiptError" not in raw
+
+    receipt_store.close()
+    status, response, _raw = _request_via_handler(server, "GET", f"/tasks/{owner.task_id}/receipts")
+    assert status == 503
+    assert response["error"]["kind"] == "receipt_unavailable"
 
 
 def test_submit_query_cancel_and_auth(running_server):

@@ -15,11 +15,19 @@ from typing import cast
 from urllib.parse import urlsplit
 
 from .audit import AuditEvent, AuditSink, emit_audit
+from .http_action_approvals import (
+    ApprovalCapacityError,
+    ApprovalNotFoundError,
+    ApprovalUnavailableError,
+)
 from .http_config import MAX_BEARER_TOKEN_LENGTH, HttpServiceConfig
 from .http_task_service import (
+    ReceiptServiceUnavailable,
     ServiceCapacityError,
     ServiceClosedError,
     TaskNotFound,
+    TaskReceiptConflict,
+    TaskReceiptNotFound,
     TaskService,
 )
 
@@ -27,7 +35,12 @@ _logger = logging.getLogger(__name__)
 _READ_TIMEOUT_SECONDS = 10.0
 _TASK_PATH = re.compile(r"/tasks/([0-9a-f]{32})\Z")
 _CANCEL_PATH = re.compile(r"/tasks/([0-9a-f]{32})/cancel\Z")
+_APPROVAL_PATH = re.compile(r"/action-approvals/([0-9a-f]{32})\Z")
+_APPROVAL_REVOKE_PATH = re.compile(r"/action-approvals/([0-9a-f]{32})/revoke\Z")
+_RECEIPTS_PATH = re.compile(r"/tasks/([0-9a-f]{32})/receipts\Z")
+_RECEIPT_RESOLVE_PATH = re.compile(r"/tasks/([0-9a-f]{32})/receipts/([0-9a-f]{32})/resolve\Z")
 _LOOP_ID = re.compile(r"[0-9a-f]{32}\Z")
+_APPROVAL_ID = re.compile(r"[0-9a-f]{32}\Z")
 _NEW_LOOP_KEYS = frozenset(
     {
         "goal",
@@ -53,6 +66,12 @@ _ERROR_DETAILS = {
     "invalid_target": "Request target must use origin form.",
     "capacity_exceeded": "Task service capacity is exhausted.",
     "service_closed": "Task service is shutting down.",
+    "approval_not_found": "Action approval not found.",
+    "approval_unavailable": "Action approval is unavailable.",
+    "approval_capacity": "Action approval capacity is exhausted.",
+    "receipt_not_found": "External action receipt not found.",
+    "receipt_conflict": "External action receipt state changed.",
+    "receipt_unavailable": "External action receipt service is unavailable.",
     "internal_error": "Request failed.",
 }
 
@@ -168,6 +187,27 @@ class ForgeRequestHandler(BaseHTTPRequestHandler):
             if method == "POST" and path.path == "/tasks":
                 self._submit()
                 return
+            if method == "POST" and path.path == "/action-approvals":
+                self._issue_approval()
+                return
+            approval_match = _APPROVAL_PATH.fullmatch(path.path)
+            if method == "GET" and approval_match:
+                self._query_approval(approval_match.group(1))
+                return
+            revoke_approval_match = _APPROVAL_REVOKE_PATH.fullmatch(path.path)
+            if method == "POST" and revoke_approval_match:
+                self._revoke_approval(revoke_approval_match.group(1))
+                return
+            receipt_list_match = _RECEIPTS_PATH.fullmatch(path.path)
+            if method == "GET" and receipt_list_match:
+                self._list_receipts(receipt_list_match.group(1))
+                return
+            receipt_resolve_match = _RECEIPT_RESOLVE_PATH.fullmatch(path.path)
+            if method == "POST" and receipt_resolve_match:
+                self._resolve_receipt(
+                    receipt_resolve_match.group(1), receipt_resolve_match.group(2)
+                )
+                return
             query_match = _TASK_PATH.fullmatch(path.path)
             if method == "GET" and query_match:
                 self._query(query_match.group(1))
@@ -176,7 +216,15 @@ class ForgeRequestHandler(BaseHTTPRequestHandler):
             if method == "POST" and cancel_match:
                 self._cancel(cancel_match.group(1))
                 return
-            if path.path == "/tasks" or _TASK_PATH.fullmatch(path.path) or cancel_match:
+            if (
+                path.path in {"/tasks", "/action-approvals"}
+                or _TASK_PATH.fullmatch(path.path)
+                or cancel_match
+                or approval_match
+                or revoke_approval_match
+                or receipt_list_match
+                or receipt_resolve_match
+            ):
                 raise HttpError(405, "method_not_allowed")
             raise HttpError(404, "not_found")
         except HttpError as error:
@@ -238,19 +286,98 @@ class ForgeRequestHandler(BaseHTTPRequestHandler):
 
     def _submit(self) -> None:
         body = self._read_json()
-        goal, options = _parse_task_submission(body)
+        goal, options, approval_ids = _parse_task_request(body)
         try:
-            response = self.server.task_service.submit_view(goal, options)
+            if approval_ids:
+                response = self.server.task_service.submit_view(
+                    goal, options, approval_ids=approval_ids
+                )
+            else:
+                response = self.server.task_service.submit_view(goal, options)
         except ServiceCapacityError:
             self._audit("http.capacity_rejection", result_status="capacity_exceeded")
             raise HttpError(429, "capacity_exceeded") from None
         except ServiceClosedError:
             raise HttpError(503, "service_closed") from None
+        except ApprovalUnavailableError:
+            raise HttpError(409, "approval_unavailable") from None
         task_id = cast(str, response["task_id"])
         self._audit("http.submit", task_id=task_id, result_status="accepted")
         if self.server.task_service.audit_degraded:
             response["audit_degraded"] = True
         self._send_json(202, response)
+
+    def _issue_approval(self) -> None:
+        body = self._read_json()
+        server, tool, request_digest, expires_in_seconds = _parse_approval_request(body)
+        try:
+            response = self.server.task_service.issue_action_approval(
+                server=server,
+                tool=tool,
+                request_digest=request_digest,
+                expires_in_seconds=expires_in_seconds,
+            )
+        except ValueError:
+            raise HttpError(400, "invalid_request") from None
+        except ApprovalCapacityError:
+            raise HttpError(429, "approval_capacity") from None
+        except ApprovalUnavailableError:
+            raise HttpError(409, "approval_unavailable") from None
+        self._audit("http.approval_issue", result_status="issued")
+        self._send_json(201, response)
+
+    def _query_approval(self, approval_id: str) -> None:
+        try:
+            response = self.server.task_service.get_action_approval(approval_id)
+        except ApprovalNotFoundError:
+            raise HttpError(404, "approval_not_found") from None
+        except ApprovalUnavailableError:
+            raise HttpError(409, "approval_unavailable") from None
+        self._audit("http.approval_query", result_status=str(response["status"]))
+        self._send_json(200, response)
+
+    def _revoke_approval(self, approval_id: str) -> None:
+        if self._read_json():
+            raise HttpError(400, "invalid_request")
+        try:
+            response = self.server.task_service.revoke_action_approval(approval_id)
+        except ApprovalNotFoundError:
+            raise HttpError(404, "approval_not_found") from None
+        except ApprovalUnavailableError:
+            raise HttpError(409, "approval_unavailable") from None
+        self._audit("http.approval_revoke", result_status=str(response["status"]))
+        self._send_json(200, response)
+
+    def _list_receipts(self, task_id: str) -> None:
+        try:
+            receipts = self.server.task_service.list_task_receipts(task_id)
+        except TaskNotFound:
+            raise HttpError(404, "not_found") from None
+        except ReceiptServiceUnavailable:
+            raise HttpError(503, "receipt_unavailable") from None
+        self._audit("http.receipt_list", task_id=task_id, result_status="ok")
+        self._send_json(200, {"receipts": list(receipts)})
+
+    def _resolve_receipt(self, task_id: str, action_id: str) -> None:
+        expected_revision, decision, evidence = _parse_receipt_resolution(self._read_json())
+        try:
+            response = self.server.task_service.resolve_task_receipt(
+                task_id,
+                action_id,
+                expected_revision=expected_revision,
+                decision=decision,
+                evidence=evidence,
+            )
+        except TaskNotFound:
+            raise HttpError(404, "not_found") from None
+        except TaskReceiptNotFound:
+            raise HttpError(404, "receipt_not_found") from None
+        except TaskReceiptConflict:
+            raise HttpError(409, "receipt_conflict") from None
+        except ReceiptServiceUnavailable:
+            raise HttpError(503, "receipt_unavailable") from None
+        self._audit("http.receipt_resolve", task_id=task_id, result_status=decision)
+        self._send_json(200, response)
 
     def _query(self, task_id: str) -> None:
         try:
@@ -373,6 +500,32 @@ def create_http_server(
 
 
 def _parse_task_submission(body: dict[str, object]) -> tuple[str, dict[str, object]]:
+    goal, options, _approval_ids = _parse_task_request(body)
+    return goal, options
+
+
+def _parse_task_request(
+    body: dict[str, object],
+) -> tuple[str, dict[str, object], tuple[str, ...]]:
+    task_body = dict(body)
+    raw_approval_ids = task_body.pop("approval_ids", None)
+    approval_ids: tuple[str, ...] = ()
+    if raw_approval_ids is not None:
+        if not isinstance(raw_approval_ids, list) or not 1 <= len(raw_approval_ids) <= 16:
+            raise HttpError(400, "invalid_request")
+        if any(
+            not isinstance(approval_id, str) or _APPROVAL_ID.fullmatch(approval_id) is None
+            for approval_id in raw_approval_ids
+        ):
+            raise HttpError(400, "invalid_request")
+        approval_ids = tuple(cast(list[str], raw_approval_ids))
+        if len(approval_ids) != len(set(approval_ids)):
+            raise HttpError(400, "invalid_request")
+    goal, options = _parse_task_body(task_body)
+    return goal, options, approval_ids
+
+
+def _parse_task_body(body: dict[str, object]) -> tuple[str, dict[str, object]]:
     keys = frozenset(body)
     if keys == {"goal"}:
         goal = body["goal"]
@@ -404,6 +557,54 @@ def _parse_task_submission(body: dict[str, object]) -> tuple[str, dict[str, obje
             raise HttpError(400, "invalid_request")
         return goal, {name: body[name] for name in body if name != "goal"}
     raise HttpError(400, "invalid_request")
+
+
+def _parse_approval_request(body: dict[str, object]) -> tuple[str, str, str, int]:
+    if frozenset(body) != {
+        "action_type",
+        "server",
+        "tool",
+        "request_digest",
+        "mode",
+        "expires_in_seconds",
+    }:
+        raise HttpError(400, "invalid_request")
+    server = body["server"]
+    tool = body["tool"]
+    request_digest = body["request_digest"]
+    expires_in_seconds = body["expires_in_seconds"]
+    if (
+        body["action_type"] != "mcp"
+        or body["mode"] != "allow_once"
+        or not isinstance(server, str)
+        or not isinstance(tool, str)
+        or not isinstance(request_digest, str)
+        or type(expires_in_seconds) is not int
+        or not 1 <= expires_in_seconds <= 3600
+    ):
+        raise HttpError(400, "invalid_request")
+    return server, tool, request_digest, expires_in_seconds
+
+
+def _parse_receipt_resolution(body: dict[str, object]) -> tuple[int, str, str]:
+    if frozenset(body) not in {
+        frozenset({"expected_revision", "decision"}),
+        frozenset({"expected_revision", "decision", "evidence"}),
+    }:
+        raise HttpError(400, "invalid_request")
+    expected_revision = body["expected_revision"]
+    decision = body["decision"]
+    evidence = body.get("evidence", "")
+    if (
+        type(expected_revision) is not int
+        or expected_revision < 0
+        or decision not in {"confirmed", "abandoned", "retry_approved"}
+        or not isinstance(evidence, str)
+        or len(evidence) > 1000
+        or (decision == "confirmed" and not evidence.strip())
+    ):
+        raise HttpError(400, "invalid_request")
+    return expected_revision, cast(str, decision), evidence
 
 
 def _positive_integer(value: object) -> bool:
