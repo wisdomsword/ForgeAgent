@@ -111,16 +111,18 @@ def test_canonical_specs_have_descriptive_purpose_and_no_delta_headers() -> None
         assert purpose and "TBD - created by archiving" not in purpose, (
             f"placeholder Purpose: {spec.parent.name}"
         )
-        for heading in ("## ADDED Requirements", "## MODIFIED Requirements", "## REMOVED Requirements"):
+        for heading in (
+            "## ADDED Requirements",
+            "## MODIFIED Requirements",
+            "## REMOVED Requirements",
+        ):
             assert heading not in text, f"delta heading in canonical spec: {spec.parent.name}"
 
 
 def test_current_baseline_is_not_replaced_by_historical_sources() -> None:
     latest_name = _read(ROOT / "milestones" / "latest").strip()
     latest_number = int(re.search(r"(\d+)", latest_name).group(1))
-    borrowing = _read(
-        ROOT / "docs" / "reviews" / "2026-07-30-agent开发指南评审-借鉴清单.md"
-    )
+    borrowing = _read(ROOT / "docs" / "reviews" / "2026-07-30-agent开发指南评审-借鉴清单.md")
     baseline_number = int(re.search(r"forgeagent_baseline: M(\d+)", borrowing).group(1))
 
     assert (ROOT / "milestones" / latest_name).exists()
