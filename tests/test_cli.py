@@ -4944,7 +4944,7 @@ def test_serve_builds_server_owned_task_factory_and_closes_in_order(monkeypatch,
     mcp = FakeMCP()
 
     class FakeService:
-        def __init__(self, *, factory, config, shared_mcp_manager, audit_sink):
+        def __init__(self, *, factory, config, shared_mcp_manager, audit_sink, **_kwargs):
             captured.update(
                 factory=factory,
                 config=config,
@@ -5070,7 +5070,7 @@ def test_serve_task_factory_does_not_inherit_mcp_auto_approve(monkeypatch, tmp_p
     mcp = AutoApprovedMCP()
 
     class FakeService:
-        def __init__(self, *, factory, config, shared_mcp_manager, audit_sink):
+        def __init__(self, *, factory, config, shared_mcp_manager, audit_sink, **_kwargs):
             captured["factory"] = factory
             self.shared_mcp_manager = shared_mcp_manager
 
@@ -5304,6 +5304,97 @@ def test_serve_closes_listener_service_and_mcp_when_startup_output_fails(
         )
 
     assert events == ["server.shutdown", "service.shutdown", "mcp.close", "server.close"]
+
+
+def test_serve_wires_single_approval_and_receipt_authorities(monkeypatch, tmp_path):
+    import forgeagent.cli as cli_module
+    import forgeagent.http_server as http_server_module
+
+    config_path = tmp_path / "http.yaml"
+    config_path.write_text(
+        f"token: file-token\nno_identity: true\nallowed_root: {tmp_path}\n"
+        f"audit_path: {tmp_path / 'audit.jsonl'}\n"
+    )
+    captured = {}
+
+    class FakeAuditSink:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+    class FakeApprovalStore:
+        def __init__(self, *, max_records, audit_sink):
+            captured["approval_store"] = self
+            captured["approval_max_records"] = max_records
+            captured["approval_audit"] = audit_sink
+
+    class FakeReceiptStore:
+        def __init__(self, _root, *, audit_sink):
+            captured["receipt_store"] = self
+            captured["receipt_audit"] = audit_sink
+
+        def close(self):
+            pass
+
+    class FakeConfirmer:
+        def __init__(self, _allowlist, *, audit, root, approval_store):
+            captured["confirmer_approval"] = approval_store
+            captured["confirmer_audit"] = audit
+            captured["confirmer_root"] = root
+
+    class FakeService:
+        def __init__(
+            self,
+            *,
+            factory,
+            config,
+            shared_mcp_manager,
+            audit_sink,
+            approval_store,
+            receipt_store,
+        ):
+            captured["factory"] = factory
+            captured["service_approval"] = approval_store
+            captured["service_receipt"] = receipt_store
+            captured["service_audit"] = audit_sink
+
+        def shutdown(self, timeout):
+            pass
+
+    monkeypatch.setattr(cli_module, "JsonlAuditSink", FakeAuditSink)
+    monkeypatch.setattr(cli_module, "HttpActionApprovalStore", FakeApprovalStore, raising=False)
+    monkeypatch.setattr(cli_module, "ExternalActionReceiptStore", FakeReceiptStore)
+    monkeypatch.setattr(cli_module, "HeadlessConfirmer", FakeConfirmer)
+    monkeypatch.setattr(cli_module, "TaskService", FakeService)
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: None)
+    monkeypatch.setattr(cli_module, "load_registry", lambda: object())
+    monkeypatch.setattr(cli_module, "_validate_context_policy", lambda *_args: None)
+    monkeypatch.setattr(cli_module, "_validate_client_context_policy", lambda *_args: None)
+    monkeypatch.setattr(cli_module, "resolve_cli_identity", lambda **_kwargs: None)
+    monkeypatch.setattr(cli_module, "_load_skill_registry", lambda **_kwargs: None)
+    monkeypatch.setattr(cli_module, "_make_memory_manager", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        http_server_module,
+        "create_http_server",
+        lambda _config, _service: SimpleNamespace(server_address=("127.0.0.1", 8765)),
+    )
+    monkeypatch.setattr(
+        cli_module._cli_http,
+        "run_owned_http_server",
+        lambda _server, _service, **_kwargs: None,
+    )
+
+    cli_module.serve_http(
+        config_path,
+        client_factory=lambda _model: MockClient(script=[]),
+        console=_console(),
+        once=True,
+    )
+
+    assert captured["confirmer_approval"] is captured["approval_store"]
+    assert captured["service_approval"] is captured["approval_store"]
+    assert captured["service_receipt"] is captured["receipt_store"]
+    assert captured["approval_audit"] is captured["service_audit"]
+    assert captured["receipt_audit"] is captured["service_audit"]
 
 
 def test_http_owner_restores_partial_signal_install_and_closes_resources(monkeypatch):

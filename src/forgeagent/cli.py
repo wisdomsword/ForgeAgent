@@ -54,6 +54,7 @@ from .context import ContextConfig, load_context_config
 from .executor import ContainerRuntimeError
 from .external_actions import ExternalActionReceiptStore, ReceiptError
 from .headless import HeadlessConfirmer
+from .http_action_approvals import HttpActionApprovalStore
 from .http_task_service import TaskService
 from .identity import (
     ApprovedIdentity,
@@ -1435,6 +1436,7 @@ def serve_http(
             loop_runner_type=LoopRunner,
             collaboration_runner_type=CollaborationRunner,
             collaboration_store_type=CollaborationStore,
+            approval_store_type=HttpActionApprovalStore,
             receipt_store_type=ExternalActionReceiptStore,
             audit_sink_type=JsonlAuditSink,
             headless_confirmer_type=HeadlessConfirmer,

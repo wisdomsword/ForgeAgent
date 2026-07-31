@@ -537,6 +537,13 @@ class TaskService:
             self._shutdown_complete = True
             manager = self._shared_mcp_manager
             self._shared_mcp_manager = None
+            receipt_store = self._receipt_store
+            self._receipt_store = None
+        if receipt_store is not None:
+            try:
+                receipt_store.close()
+            except Exception:
+                _logger.error("shared receipt store close failed")
         if manager is not None:
             try:
                 manager.close()

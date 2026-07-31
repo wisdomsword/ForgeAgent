@@ -31,6 +31,7 @@ from .collaboration import (
 from .context import ContextConfig, SlidingWindowContextPolicy
 from .external_actions import ExternalActionReceiptStore
 from .headless import HeadlessConfirmer
+from .http_action_approvals import HttpActionApprovalStore
 from .http_config import HttpServiceConfig
 from .http_task_service import TaskRecord, TaskService
 from .loop import LoopBudgets, LoopCheckpointError, LoopRunner
@@ -69,6 +70,7 @@ class HttpBindings:
     loop_runner_type: type[LoopRunner]
     collaboration_runner_type: type[CollaborationRunner]
     collaboration_store_type: type[CollaborationStore]
+    approval_store_type: type[HttpActionApprovalStore]
     receipt_store_type: type[ExternalActionReceiptStore]
     audit_sink_type: type[JsonlAuditSink]
     headless_confirmer_type: type[HeadlessConfirmer]
@@ -401,10 +403,15 @@ def serve_http(
             max_bytes=settings.service.audit_max_bytes,
             retention_files=settings.service.audit_retention_files,
         )
+        approval_store = bindings.approval_store_type(
+            max_records=settings.service.max_records,
+            audit_sink=audit_sink,
+        )
         headless_confirmer = bindings.headless_confirmer_type(
             settings.service.allowlist,
             audit=audit_sink,
             root=settings.allowed_root,
+            approval_store=approval_store,
         )
     except (OSError, ValueError) as error:
         raise HttpStartupError("HTTP audit or allowlist configuration is invalid.") from error
@@ -425,6 +432,7 @@ def serve_http(
     )
     mcp: MCPManager | None = None
     service: TaskService | None = None
+    receipt_store: ExternalActionReceiptStore | None = None
     try:
         mcp = bindings.build_mcp_manager()
         receipt_store = bindings.receipt_store_type(settings.allowed_root, audit_sink=audit_sink)
@@ -567,6 +575,7 @@ def serve_http(
                             audit_sink=audit_sink,
                             task_id=record.task_id,
                             loop_id=loop_runner._checkpoint.loop_id,
+                            receipt_store=receipt_store,
                         )
                         state = store.load(collaboration_id)
                         collaboration = bindings.collaboration_runner_type(
@@ -583,6 +592,7 @@ def serve_http(
                             audit_sink=audit_sink,
                             task_id=record.task_id,
                             loop_id=loop_runner._checkpoint.loop_id,
+                            receipt_store=receipt_store,
                         )
                     else:
                         collaboration = bindings.collaboration_runner_type.create(
@@ -695,6 +705,7 @@ def serve_http(
                             memory_manager=memory_manager if role == "generator" else None,
                             skills=skills if role == "generator" else None,
                             tool_registry=registry,
+                            receipt_store=receipt_store if role == "generator" else None,
                         )
                     except Exception as error:
                         close = getattr(client, "close", None)
@@ -730,6 +741,7 @@ def serve_http(
                     execution_tier=settings.tier,
                     audit_sink=audit_sink,
                     task_id=record.task_id,
+                    receipt_store=receipt_store,
                 )
             return bindings.task_type(
                 task_client_factory(settings.model),
@@ -753,13 +765,18 @@ def serve_http(
             config=settings.service,
             shared_mcp_manager=mcp,
             audit_sink=audit_sink,
+            approval_store=approval_store,
+            receipt_store=receipt_store,
         )
         server = http_server.create_http_server(settings.service, service)
     except BaseException as error:
         if service is not None:
             service.shutdown(timeout=settings.shutdown_timeout_seconds)
-        elif mcp is not None:
-            mcp.close()
+        else:
+            if receipt_store is not None:
+                receipt_store.close()
+            if mcp is not None:
+                mcp.close()
         if not isinstance(error, Exception):
             raise
         if isinstance(error, (bindings.mcp_startup_error_type, HttpStartupError)):

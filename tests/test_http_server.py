@@ -999,7 +999,7 @@ def test_serve_real_client_uses_one_validated_registry_snapshot_for_tasks(monkey
         return MockClient(script=[])
 
     class FakeService:
-        def __init__(self, *, factory, config, shared_mcp_manager, audit_sink):
+        def __init__(self, *, factory, config, shared_mcp_manager, audit_sink, **_kwargs):
             captured["factory"] = factory
             captured["config"] = config
 
@@ -1067,7 +1067,7 @@ def test_serve_task_factory_passes_only_server_context_to_task(monkeypatch, tmp_
             self.closed = True
 
     class FakeService:
-        def __init__(self, *, factory, config, shared_mcp_manager, audit_sink):
+        def __init__(self, *, factory, config, shared_mcp_manager, audit_sink, **_kwargs):
             captured["factory"] = factory
             captured["config"] = config
 
@@ -1125,7 +1125,7 @@ def test_serve_factory_selects_server_owned_new_and_resumed_loop(monkeypatch, tm
     loop_calls = []
 
     class FakeService:
-        def __init__(self, *, factory, config, shared_mcp_manager, audit_sink):
+        def __init__(self, *, factory, config, shared_mcp_manager, audit_sink, **_kwargs):
             captured["factory"] = factory
 
         def shutdown(self, timeout):

@@ -1095,6 +1095,47 @@ def test_worker_closes_task_then_client_and_shutdown_closes_shared_manager():
     assert raised.value.kind == "service_closed"
 
 
+def test_shutdown_closes_shared_receipt_store_once_after_worker_exits() -> None:
+    worker_started = threading.Event()
+    release_worker = threading.Event()
+    receipt_closed = threading.Event()
+    close_calls = 0
+
+    class ReceiptStore:
+        def close(self) -> None:
+            nonlocal close_calls
+            close_calls += 1
+            receipt_closed.set()
+
+    def factory(_record: TaskRecord) -> _FakeTask:
+        return _FakeTask(
+            lambda _goal, _cancel: (
+                worker_started.set(),
+                release_worker.wait(1.0),
+                _outcome(),
+            )[-1]
+        )
+
+    service = TaskService(
+        factory=factory,
+        config=CONFIG,
+        receipt_store=ReceiptStore(),
+    )
+    record = service.submit("goal", {})
+    assert worker_started.wait(1.0)
+
+    service.shutdown(0.0)
+    assert receipt_closed.is_set() is False
+
+    release_worker.set()
+    service.wait(record.task_id, timeout=1.0)
+    assert receipt_closed.wait(1.0)
+    assert close_calls == 1
+
+    service.shutdown(0.0)
+    assert close_calls == 1
+
+
 def test_shutdown_cancels_queued_tasks_without_constructing_them():
     first_started = threading.Event()
     release_first = threading.Event()
