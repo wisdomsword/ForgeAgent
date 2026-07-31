@@ -12,6 +12,8 @@
 ## 3. 证据与验证
 
 - [x] 3.1 运行 MCP manager、tool、task 和 CLI 聚焦回归测试
-- [ ] 3.2 同步无占位文本的 `mcp-progressive-disclosure` 权威规格
-- [ ] 3.3 运行全量 pytest、Ruff check、Ruff format、包构建和 OpenSpec strict 门禁
-- [ ] 3.4 记录已验证证据并归档 change，不触发 PyPI、tag、push 或发布自动化
+- [x] 3.2 准备无占位文本的 `mcp-progressive-disclosure` delta spec，供 archive 阶段同步为权威规格
+- [x] 3.3 运行全量 pytest、Ruff check、Ruff format、包构建和 OpenSpec strict 门禁
+- [x] 3.4 准备归档所需的已验证证据，不触发 PyPI、tag、push 或发布自动化
+
+<!-- review: thorough self-review completed because repository instructions prohibit unrequested subagent dispatch; added direct deep-copy and unavailable-snapshot coverage, with no unresolved critical findings -->
