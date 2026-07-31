@@ -47,7 +47,7 @@ M42 已实现项目 Memory v2 的宿主治理元数据、只读 readiness、v1 �
 ## 验证证据
 
 - M42/Task/CLI/Golden 聚焦：`426 passed in 6.10s`。
-- 最终审查修复后全量：`2635 passed, 10 skipped in 176.70s`。
+- 归档与文档追溯提交后最终全量：`2636 passed, 10 skipped in 175.92s`。
 - 动态敏感 key 回归：session render、project render、lifecycle audit 共 `3 passed`；Memory 专项
   `89 passed`。
 - 敏感公开面：`13 passed, 74 deselected`；静态敏感表达式搜索无命中。

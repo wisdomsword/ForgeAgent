@@ -137,7 +137,7 @@ def test_m42_memory_migration_completion_is_traceable() -> None:
     assert "archived: true" in _read(M42_ARCHIVE / ".comet.yaml")
     report = _read(M42_VERIFY_REPORT)
     assert "6/6 requirements、23/23 scenarios" in report
-    assert "2635 passed, 10 skipped" in report
+    assert "2636 passed, 10 skipped" in report
     assert "migration_skipped" in report
     milestone = _read(M42_MILESTONE)
     assert "memory_absent" in milestone

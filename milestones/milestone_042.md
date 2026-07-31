@@ -67,7 +67,7 @@
 
 ### 验收评审
 
-- [x] Memory 专项 `89 passed`；最终全量 `2635 passed, 10 skipped in 176.70s`。
+- [x] Memory 专项 `89 passed`；最终全量 `2636 passed, 10 skipped in 175.92s`。
 - [x] Ruff check、139 文件 format check、`git diff --check` 与真实 readiness 通过。
 - [x] OpenSpec strict 归档前 `33/33`、归档后 `32/32`；Comet full verify 与 archive `7/7` 通过。
 - [x] `.forgeagent` 没有 Memory 或 backup 文件；未执行 package build、PyPI、tag、push 或发布自动化。
