@@ -10,7 +10,7 @@ import stat
 import tempfile
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal, TypeAlias
@@ -308,9 +308,7 @@ class MemoryManager:
                 with self._project_lock():
                     snapshot = self._read_snapshot(canonical_v1=True)
                     if snapshot.format_version == "v1":
-                        return self._result(
-                            candidate, "rejected", "migration_required", task_id
-                        )
+                        return self._result(candidate, "rejected", "migration_required", task_id)
                     if snapshot.format_version == "invalid":
                         return self._result(
                             candidate, "persistence_error", "project_read_failed", task_id
@@ -320,9 +318,7 @@ class MemoryManager:
                     if not replaced and len(records) >= _MAX_ENTRIES:
                         return self._result(candidate, "rejected", "memory_limit", task_id)
                     records[candidate.key] = ProjectMemoryRecord(candidate, governance)
-                    new_project = {
-                        key: record.candidate for key, record in records.items()
-                    }
+                    new_project = {key: record.candidate for key, record in records.items()}
                     rendered_size = len(
                         self._render_memory(self._session, new_project).encode("utf-8")
                     )
@@ -374,7 +370,118 @@ class MemoryManager:
     def render(self) -> str:
         if not self._enabled:
             return ""
-        return self._render_memory(self._session, self._project)
+        try:
+            project = self._active_project(emit_notices=True)
+        except (TypeError, ValueError):
+            revision = self._header.revision if self._header is not None else "legacy"
+            notice = (revision, "", "invalid_time")
+            if notice not in self._lifecycle_notices:
+                self._lifecycle_notices.add(notice)
+                self._diagnose("memory record inactive: invalid_time")
+                self._audit("invalid_time", "project", "", "", "invalid_time")
+            project = {}
+        return self._render_memory(self._session, project)
+
+    def correct_project(
+        self,
+        candidate: MemoryCandidate,
+        governance: MemoryGovernance,
+        *,
+        task_id: str | None = None,
+    ) -> MemoryResult:
+        if not self._enabled:
+            return self._result(candidate, "disabled", "memory_disabled", task_id)
+        if not self._allow_project:
+            return self._result(candidate, "rejected", "project_memory_untrusted", task_id)
+        if candidate.scope != "project":
+            return self._result(candidate, "rejected", "invalid_scope", task_id)
+        reason = self._admission_reason(candidate)
+        if reason is not None:
+            return self._result(candidate, "rejected", reason, task_id)
+        try:
+            validated = self._parse_governance(asdict(governance))
+        except (TypeError, ValueError):
+            return self._result(candidate, "rejected", "invalid_metadata", task_id)
+
+        def replace_record(
+            records: dict[str, ProjectMemoryRecord],
+            _current: ProjectMemoryRecord,
+        ) -> None:
+            records[candidate.key] = ProjectMemoryRecord(candidate, validated)
+
+        return self._mutate_current_v2(
+            candidate.key,
+            success_status="replaced",
+            event_status="replaced",
+            task_id=task_id,
+            mutate=replace_record,
+        )
+
+    def delete_project(self, key: str, *, task_id: str | None = None) -> MemoryResult:
+        if not _KEY.fullmatch(key):
+            return self._key_result(key, "rejected", "invalid_key", task_id=task_id)
+
+        def delete_record(
+            records: dict[str, ProjectMemoryRecord],
+            _current: ProjectMemoryRecord,
+        ) -> None:
+            del records[key]
+
+        return self._mutate_current_v2(
+            key,
+            success_status="accepted",
+            event_status="deleted",
+            task_id=task_id,
+            mutate=delete_record,
+        )
+
+    def revalidate_project(
+        self,
+        key: str,
+        *,
+        review_after: str | None,
+        expires_at: str | None,
+        truth_source: str,
+        task_id: str | None = None,
+    ) -> MemoryResult:
+        if not _KEY.fullmatch(key):
+            return self._key_result(key, "rejected", "invalid_key", task_id=task_id)
+        if truth_source not in {
+            "host_assertion",
+            "model_output_unverified",
+            "user_statement",
+        }:
+            return self._key_result(key, "rejected", "invalid_truth_source", task_id=task_id)
+        try:
+            for value in (review_after, expires_at):
+                if value is not None:
+                    _parse_timestamp(value)
+        except (TypeError, ValueError):
+            return self._key_result(key, "rejected", "invalid_timestamp", task_id=task_id)
+
+        def revalidate_record(
+            records: dict[str, ProjectMemoryRecord],
+            current: ProjectMemoryRecord,
+        ) -> None:
+            if current.governance is None:
+                raise ValueError("missing governance")
+            records[key] = ProjectMemoryRecord(
+                current.candidate,
+                replace(
+                    current.governance,
+                    review_after=review_after,
+                    expires_at=expires_at,
+                    truth_source=truth_source,
+                ),
+            )
+
+        return self._mutate_current_v2(
+            key,
+            success_status="accepted",
+            event_status="revalidated",
+            task_id=task_id,
+            mutate=revalidate_record,
+        )
 
     def _render_memory(
         self,
@@ -722,6 +829,124 @@ class MemoryManager:
         self._header = snapshot.header
         self._lifecycle_notices.clear()
 
+    def _inactive_reason(self, record: ProjectMemoryRecord) -> str | None:
+        governance = record.governance
+        if governance is None:
+            return None
+        now = self._clock()
+        if now.tzinfo is None:
+            raise ValueError("clock must return an aware datetime")
+        now = now.astimezone(UTC)
+        if governance.expires_at is not None and now >= _parse_timestamp(governance.expires_at):
+            return "expired"
+        if governance.review_after is not None and now >= _parse_timestamp(governance.review_after):
+            return "review_due"
+        return None
+
+    def _active_project(self, *, emit_notices: bool) -> dict[str, MemoryCandidate]:
+        active: dict[str, MemoryCandidate] = {}
+        revision = self._header.revision if self._header is not None else "legacy"
+        for key, record in self._project_records.items():
+            reason = self._inactive_reason(record)
+            if reason is None:
+                active[key] = record.candidate
+                continue
+            if not emit_notices:
+                continue
+            notice = (revision, key, reason)
+            if notice not in self._lifecycle_notices:
+                self._lifecycle_notices.add(notice)
+                self._diagnose(f"memory record inactive: {reason}")
+                self._audit(reason, "project", record.candidate.kind, key, reason)
+        return active
+
+    def _mutate_current_v2(
+        self,
+        key: str,
+        *,
+        success_status: Literal["accepted", "replaced"],
+        event_status: str,
+        task_id: str | None,
+        mutate: Callable[[dict[str, ProjectMemoryRecord], ProjectMemoryRecord], None],
+    ) -> MemoryResult:
+        if not self._enabled:
+            return self._key_result(key, "disabled", "memory_disabled", task_id=task_id)
+        if not self._allow_project:
+            return self._key_result(key, "rejected", "project_memory_untrusted", task_id=task_id)
+        try:
+            with self._project_lock():
+                snapshot = self._read_snapshot(canonical_v1=True)
+                if snapshot.format_version == "v1":
+                    return self._key_result(key, "rejected", "migration_required", task_id=task_id)
+                if snapshot.format_version == "none":
+                    return self._key_result(key, "rejected", "not_found", task_id=task_id)
+                if snapshot.format_version != "v2" or snapshot.header is None:
+                    return self._key_result(
+                        key,
+                        "persistence_error",
+                        "project_read_failed",
+                        task_id=task_id,
+                    )
+                current = snapshot.entries.get(key)
+                if current is None:
+                    return self._key_result(key, "rejected", "not_found", task_id=task_id)
+                records = dict(snapshot.entries)
+                try:
+                    mutate(records, current)
+                except ValueError:
+                    return self._key_result(key, "rejected", "invalid_metadata", task_id=task_id)
+                try:
+                    active = self._active_candidates(records)
+                except (TypeError, ValueError):
+                    return self._key_result(
+                        key,
+                        "persistence_error",
+                        "invalid_clock",
+                        task_id=task_id,
+                    )
+                if (
+                    len(self._render_memory(self._session, active).encode("utf-8"))
+                    > _MAX_RENDER_BYTES
+                ):
+                    return self._key_result(key, "rejected", "memory_limit", task_id=task_id)
+                header = replace(snapshot.header, revision=secrets.token_hex(16))
+                try:
+                    raw = self._serialize_v2(records, header)
+                except ValueError:
+                    return self._key_result(key, "rejected", "memory_limit", task_id=task_id)
+                self._atomic_write_bytes(raw)
+                persisted = self._read_snapshot(canonical_v1=True)
+                if (
+                    persisted.format_version != "v2"
+                    or persisted.header != header
+                    or persisted.entries != records
+                ):
+                    raise OSError("project memory write verification failed")
+        except OSError:
+            return self._key_result(
+                key, "persistence_error", "project_write_failed", task_id=task_id
+            )
+        self._install_snapshot(persisted)
+        record = current if event_status == "deleted" else persisted.entries[key]
+        return self._key_result(
+            key,
+            success_status,
+            "",
+            kind=record.candidate.kind,
+            task_id=task_id,
+            event_status=event_status,
+            revision=header.revision,
+        )
+
+    def _active_candidates(
+        self, records: Mapping[str, ProjectMemoryRecord]
+    ) -> dict[str, MemoryCandidate]:
+        return {
+            key: record.candidate
+            for key, record in records.items()
+            if self._inactive_reason(record) is None
+        }
+
     def _governance_for_write(
         self,
         candidate: MemoryCandidate,
@@ -836,6 +1061,28 @@ class MemoryManager:
         self._audit(status, candidate.scope, candidate.kind, candidate.key, reason, task_id)
         return MemoryResult(status, candidate.scope, candidate.kind, candidate.key, reason)
 
+    def _key_result(
+        self,
+        key: str,
+        status: Literal["accepted", "replaced", "rejected", "persistence_error", "disabled"],
+        reason: str,
+        *,
+        kind: str = "",
+        task_id: str | None = None,
+        event_status: str | None = None,
+        revision: str | None = None,
+    ) -> MemoryResult:
+        self._audit(
+            event_status or status,
+            "project",
+            kind,
+            key,
+            reason,
+            task_id,
+            revision=revision,
+        )
+        return MemoryResult(status, "project", kind, key[:80], reason)
+
     def _audit(
         self,
         status: str,
@@ -844,18 +1091,23 @@ class MemoryManager:
         key: str,
         reason: str,
         task_id: str | None = None,
+        *,
+        revision: str | None = None,
     ) -> None:
+        parameters = {
+            "scope": scope,
+            "kind": kind,
+            "key": key[:80],
+            "reason": reason[:80],
+        }
+        if revision is not None:
+            parameters["revision"] = revision
         emit_audit(
             self._audit_sink,
             AuditEvent(
                 event_type=f"memory.{status}",
                 task_id=task_id,
-                parameters={
-                    "scope": scope,
-                    "kind": kind,
-                    "key": key[:80],
-                    "reason": reason[:80],
-                },
+                parameters=parameters,
                 result_status=status,
             ),
         )

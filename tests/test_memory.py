@@ -146,12 +146,8 @@ def test_readiness_rejects_memory_symlink_without_following_it(tmp_path):
         ("user_command", "interactive_host", "user_statement"),
     ],
 )
-def test_project_write_metadata_comes_from_trusted_source(
-    tmp_path, source, writer, truth_source
-):
-    manager = MemoryManager(
-        str(tmp_path), clock=lambda: datetime(2026, 7, 31, 10, 0, tzinfo=UTC)
-    )
+def test_project_write_metadata_comes_from_trusted_source(tmp_path, source, writer, truth_source):
+    manager = MemoryManager(str(tmp_path), clock=lambda: datetime(2026, 7, 31, 10, 0, tzinfo=UTC))
     candidate = MemoryCandidate(scope="project", kind="fact", key="editor", content="nvim")
 
     result = manager.apply(candidate, source=source)
@@ -202,9 +198,9 @@ def test_project_write_rejects_unknown_source_and_invalid_clock(tmp_path):
     candidate = MemoryCandidate(scope="project", kind="fact", key="editor", content="nvim")
 
     invalid_source = MemoryManager(str(tmp_path)).apply(candidate, source="untrusted")
-    invalid_clock = MemoryManager(
-        str(tmp_path), clock=lambda: datetime(2026, 7, 31, 10, 0)
-    ).apply(candidate)
+    invalid_clock = MemoryManager(str(tmp_path), clock=lambda: datetime(2026, 7, 31, 10, 0)).apply(
+        candidate
+    )
 
     assert (invalid_source.status, invalid_source.reason) == ("rejected", "invalid_source")
     assert (invalid_clock.status, invalid_clock.reason) == (
@@ -212,6 +208,107 @@ def test_project_write_rejects_unknown_source_and_invalid_clock(tmp_path):
         "invalid_clock",
     )
     assert not (tmp_path / ".forgeagent" / "MEMORY.md").exists()
+
+
+def test_render_excludes_expired_and_review_due_records_once_per_revision(tmp_path):
+    messages: list[str] = []
+    now = datetime(2026, 7, 31, 12, 0, tzinfo=UTC)
+    manager = MemoryManager(str(tmp_path), clock=lambda: now, diagnostic=messages.append)
+    candidate = MemoryCandidate(scope="project", kind="fact", key="editor", content="nvim")
+    assert manager.apply(candidate).status == "accepted"
+    assert (
+        manager.correct_project(
+            candidate,
+            _governance(review_after="2026-07-31T12:00:00Z"),
+        ).status
+        == "replaced"
+    )
+
+    assert "editor" not in manager.render()
+    assert "editor" not in manager.render()
+    assert messages.count("memory record inactive: review_due") == 1
+    assert "editor: nvim" in (tmp_path / ".forgeagent" / "MEMORY.md").read_text()
+
+
+def test_correct_delete_and_revalidate_are_atomic_and_change_revision(tmp_path):
+    now = datetime(2026, 7, 31, 12, 0, tzinfo=UTC)
+    manager = MemoryManager(str(tmp_path), clock=lambda: now)
+    editor = MemoryCandidate(scope="project", kind="fact", key="editor", content="nvim")
+    language = MemoryCandidate(scope="project", kind="fact", key="language", content="python")
+    assert manager.apply(editor).status == "accepted"
+    assert manager.apply(language).status == "accepted"
+    path = tmp_path / ".forgeagent" / "MEMORY.md"
+    before = json.loads(path.read_text().splitlines()[0][len("<!-- forgeagent-memory-v2: ") : -4])[
+        "revision"
+    ]
+
+    corrected = MemoryCandidate(scope="project", kind="fact", key="editor", content="helix")
+    assert manager.correct_project(corrected, _governance()).status == "replaced"
+    assert manager.delete_project("language").status == "accepted"
+    assert (
+        manager.revalidate_project(
+            "editor",
+            review_after="2026-08-31T00:00:00Z",
+            expires_at=None,
+            truth_source="host_assertion",
+        ).status
+        == "accepted"
+    )
+
+    text = path.read_text()
+    after = json.loads(text.splitlines()[0][len("<!-- forgeagent-memory-v2: ") : -4])["revision"]
+    assert after != before
+    assert "editor: helix" in manager.render()
+    assert "language" not in text
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "visible"),
+    [
+        ("expires_at", "2026-07-31T12:00:00Z", False),
+        ("review_after", "2026-07-31T12:00:00Z", False),
+        ("expires_at", None, True),
+        ("review_after", None, True),
+    ],
+)
+def test_lifecycle_boundary_is_inclusive(tmp_path, field, value, visible):
+    now = datetime(2026, 7, 31, 12, 0, tzinfo=UTC)
+    manager = MemoryManager(str(tmp_path), clock=lambda: now)
+    candidate = MemoryCandidate(scope="project", kind="fact", key="editor", content="nvim")
+    assert manager.apply(candidate).status == "accepted"
+    assert manager.correct_project(candidate, _governance(**{field: value})).status == "replaced"
+
+    assert ("editor: nvim" in manager.render()) is visible
+
+
+def test_lifecycle_failures_use_fixed_public_reasons(tmp_path):
+    candidate = MemoryCandidate(scope="project", kind="fact", key="editor", content="nvim")
+    manager = MemoryManager(str(tmp_path))
+    assert manager.apply(candidate).status == "accepted"
+
+    invalid_time = manager.revalidate_project(
+        "editor",
+        review_after="2026-07-31",
+        expires_at=None,
+        truth_source="host_assertion",
+    )
+    invalid_key = manager.delete_project("INVALID KEY")
+
+    legacy_root = tmp_path / "legacy"
+    original = _write_v1(legacy_root, {"editor": "private-value"})
+    legacy = MemoryManager(str(legacy_root))
+    legacy_result = legacy.correct_project(candidate, _governance())
+
+    assert (invalid_time.status, invalid_time.reason) == ("rejected", "invalid_timestamp")
+    assert (invalid_key.status, invalid_key.reason) == ("rejected", "invalid_key")
+    assert (legacy_result.status, legacy_result.reason) == (
+        "rejected",
+        "migration_required",
+    )
+    assert (legacy_root / ".forgeagent" / "MEMORY.md").read_bytes() == original
+    public = repr((invalid_time, invalid_key, legacy_result))
+    assert "private-value" not in public
+    assert str(tmp_path) not in public
 
 
 def test_procedure_candidate_is_rejected_without_write(tmp_path):
