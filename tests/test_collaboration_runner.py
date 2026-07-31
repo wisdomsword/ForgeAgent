@@ -405,7 +405,6 @@ def test_duo_resume_with_pending_evaluation_does_not_reuse_check_evidence(tmp_pa
                 _evaluation(passed=True),
                 _reply(_done()),
                 _reply(_done()),
-                _reply(_done()),
             ]
         }
     )
@@ -804,7 +803,6 @@ def test_duo_invalid_evaluation_tool_call_is_invalid_submission(tmp_path: Path):
             ("generator", 1): [_candidate()],
             ("evaluator", 1): [
                 _reply(f"<!-- ToolCall: {json.dumps(marker)} -->"),
-                _reply(_done()),
                 _reply(_done()),
                 _reply(_done()),
             ],
