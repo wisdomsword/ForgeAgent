@@ -2,6 +2,7 @@
 change: define-duo-acceptance-contract
 design-doc: docs/superpowers/specs/2026-07-31-define-duo-acceptance-contract-design.md
 base-ref: 853789103f24001a67a01de8d1ee3848da6ac35c
+archived-with: 2026-07-31-define-duo-acceptance-contract
 ---
 
 # Duo Acceptance Contract Implementation Plan
@@ -21,6 +22,7 @@ base-ref: 853789103f24001a67a01de8d1ee3848da6ac35c
 - 模板 English-first，不包含 raw goal、绝对路径、secret 或原始 prompt。
 - 不改变 Triad Planner，不执行 PyPI、tag、push 或发布自动化。
 
+archived-with: 2026-07-31-define-duo-acceptance-contract
 ---
 
 ### Task 1: Golden acceptance templates

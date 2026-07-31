@@ -2,6 +2,8 @@
 comet_change: define-duo-acceptance-contract
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-07-31-define-duo-acceptance-contract
+status: final
 ---
 
 # Duo Acceptance Contract Design

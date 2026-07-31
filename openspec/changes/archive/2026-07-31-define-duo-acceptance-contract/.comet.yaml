@@ -1,6 +1,6 @@
 workflow: full
 language: zh-CN
-phase: build
+phase: archive
 context_compression: off
 build_mode: executing-plans
 build_pause: null
@@ -13,12 +13,12 @@ auto_transition: true
 base_ref: 853789103f24001a67a01de8d1ee3848da6ac35c
 design_doc: docs/superpowers/specs/2026-07-31-define-duo-acceptance-contract-design.md
 plan: docs/superpowers/plans/2026-07-31-define-duo-acceptance-contract.md
-verify_result: pending
-verification_report: null
-branch_status: pending
+verify_result: pass
+verification_report: docs/superpowers/reports/2026-07-31-define-duo-acceptance-contract-verify.md
+branch_status: handled
 created_at: 2026-07-31
-verified_at: null
-archived: false
+verified_at: 2026-07-31
+archived: true
 direct_override: null
 handoff_context: openspec/changes/define-duo-acceptance-contract/.comet/handoff/design-context.json
 handoff_hash: 2250e4268f6a8e118d3cf305511001e6f918fcb215a26183547b315c77a91f8e
