@@ -14,7 +14,7 @@ M44 通过完整验证，可以进入规格同步与归档。实现保持 HTTP l
 
 | 维度 | 结果 |
 | --- | --- |
-| 完整性 | 10 项任务中 9 项完成；仅剩归档、M44 里程碑和已授权分支 push 的生命周期收尾 |
+| 完整性 | 10/10 build tasks 完成；规格同步、归档、M44 里程碑和已授权分支 push 由后续生命周期阶段执行 |
 | 正确性 | 6/6 requirements、21/21 scenarios 有实现与测试或真实 verifier 证据 |
 | 一致性 | OpenSpec design、Superpowers Design Doc、实现和公开文档一致，无未记录偏差 |
 | 安全性 | loopback + Bearer 保持不变；权限精确绑定 scope/digest/task/TTL；无自动重放；公开投影无 goal、raw arguments、secret、路径、evidence 正文或 raw exception |
@@ -69,6 +69,7 @@ M44 通过完整验证，可以进入规格同步与归档。实现保持 HTTP l
 - `uv run ruff check .` -> `All checks passed!`。
 - `uv run ruff format --check .` -> `144 files already formatted`。
 - `openspec validate --all --strict --no-interactive` -> `29 passed, 0 failed`。
+- `uv build` -> 本地 sdist 与 wheel 构建成功；未上传、未创建 tag、未执行发布自动化。
 - `git diff --check` -> 通过。
 - `uv run python scripts/m44_http_action_approval_smoke.py` ->
   `{"approval_status":"consumed","dispatch_count":1,"receipt_phase":"confirmed","reconcile_dispatch_delta":0,"unknown_resolution":"confirmed"}`。
