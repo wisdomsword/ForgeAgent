@@ -3,6 +3,8 @@ from __future__ import annotations
 import ast
 import hashlib
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).parents[1]
@@ -58,8 +60,8 @@ RESTORED_CAPABILITIES = (
     "structured-collaboration-handoff",
 )
 MARKDOWN_LINK = re.compile(r"\[[^]]+\]\(([^)]+)\)")
-M34_SKILL_VERIFIER_DIGEST = "61e10f7a43a19dc8f53cc9b15a5920578e6a20256f443443cd10ffde11bb0a30"
-M34_TOOL_VERIFIER_DIGEST = "5a4104bf6a2747b6b40f76dcd43be63caa7365337596c0f33bd78806b11eef4c"
+M34_SKILL_VERIFIER_DIGEST = "16b81f2b349a79cd8e55cbdb967df40504766d0a913eeb64bf3ffde75791673c"
+M34_TOOL_VERIFIER_DIGEST = "131666f42abe0139c180d601c8b0608b9b9419e9848efaae9396a70b7eafba9b"
 
 
 def _read(path: Path) -> str:
@@ -71,7 +73,8 @@ def _verifier_bundle_digest(
     required_functions: tuple[str, ...],
     required_assignments: tuple[str, ...] = (),
 ) -> tuple[str, list[str]]:
-    tree = ast.parse(_read(path))
+    source = _read(path)
+    tree = ast.parse(source)
     functions = {
         node.name: node
         for node in tree.body
@@ -90,7 +93,13 @@ def _verifier_bundle_digest(
         return "", missing
     nodes = [assignments[name] for name in required_assignments]
     nodes.extend(functions[name] for name in required_functions)
-    payload = "\n".join(ast.dump(node, include_attributes=False) for node in nodes).encode()
+    selected_sources = [
+        (ast.get_source_segment(source, node) or "")
+        .replace("\r\n", "\n")
+        .replace("\r", "\n")
+        for node in nodes
+    ]
+    payload = "\n\n".join(selected_sources).encode("utf-8")
     return hashlib.sha256(payload).hexdigest(), []
 
 
@@ -201,3 +210,68 @@ def test_m34_runtime_skill_contract_keeps_executable_verifiers() -> None:
     )
     assert not missing, f"missing M34 SkillTool verifiers: {missing}"
     assert tool_digest == M34_TOOL_VERIFIER_DIGEST, "M34 SkillTool verifier changed"
+
+
+def test_m34_verifier_digest_detects_selected_source_mutation(tmp_path: Path) -> None:
+    source = """\
+def keep(value):
+    return value + 1
+"""
+    path = tmp_path / "verifier.py"
+    path.write_text(source, encoding="utf-8")
+
+    original, missing = _verifier_bundle_digest(path, ("keep",))
+    assert not missing
+
+    path.write_text(source.replace("+ 1", "+ 2"), encoding="utf-8")
+    mutated, missing = _verifier_bundle_digest(path, ("keep",))
+    assert not missing
+    assert mutated != original
+
+
+def test_m34_verifier_digest_is_stable_across_supported_interpreters() -> None:
+    interpreters = [
+        shutil.which(f"python{version}")
+        for version in ("3.11", "3.12", "3.14")
+    ]
+    if not all(interpreters):
+        return
+
+    probe = """
+import importlib.util
+import pathlib
+import sys
+
+module_path = pathlib.Path(sys.argv[1])
+spec = importlib.util.spec_from_file_location("lifecycle", module_path)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+digest, missing = module._verifier_bundle_digest(
+    module.ROOT / "tests" / "test_skills.py",
+    (
+        "_governed_skill_with",
+        "test_registry_accepts_512_utf8_byte_exit_text",
+        "test_registry_accepts_governed_skill_and_reads_exit_conditions",
+        "test_registry_rejects_invalid_governed_exit_contract",
+        "test_registry_rejects_unsupported_format_version",
+        "test_registry_rejects_duplicate_nested_exit_keys",
+        "test_registry_isolates_recursive_yaml_alias",
+        "test_registry_rejects_control_characters_in_exit_contract",
+        "test_registry_keeps_legacy_skill_explicitly_version_one",
+        "test_skill_definition_exit_conditions_are_immutable",
+        "test_governed_exit_conditions_mask_sensitive_values",
+        "test_project_governed_exit_change_reconfirms_effective_digest",
+    ),
+    ("_FULL_REVIEW_SKILL", "_GOVERNED_REVIEW_SKILL"),
+)
+assert not missing, missing
+print(digest)
+"""
+    digests = [
+        subprocess.check_output(
+            [interpreter, "-c", probe, str(Path(__file__))],
+            text=True,
+        ).strip()
+        for interpreter in interpreters
+    ]
+    assert len(set(digests)) == 1
