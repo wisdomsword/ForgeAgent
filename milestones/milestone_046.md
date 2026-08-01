@@ -29,8 +29,8 @@
 
 - [x] `docs/README.md` — 当前文档导航、分类和边界说明。
 - [x] `tests/test_documentation_index.py` — 离线入口、链接和生命周期契约。
-- [x] `docs/platform-support.md` — 当前 M45 基线汇总与既有历史平台证据分离。
-- [x] `openspec/changes/organize-documentation-index/` — Comet tweak 生命周期工件。
+- [x] `docs/platform-support.md` — 当前 M46 基线汇总与既有历史平台证据分离。
+- [x] `openspec/changes/archive/2026-08-01-organize-documentation-index/` — Comet tweak 生命周期工件。
 - [x] `milestones/latest` — 验证完成后指向本里程碑。
 
 ## 三次评审
