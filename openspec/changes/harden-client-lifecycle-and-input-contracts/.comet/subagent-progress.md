@@ -1,0 +1,25 @@
+# M47 Subagent Progress
+
+- Change: `harden-client-lifecycle-and-input-contracts`
+- Review mode: `thorough`
+- TDD mode: `tdd`
+- Build mode: `subagent-driven-development`
+- Current task: Task 5 (implementing)
+- Current phase: `done`
+- Implementer: `8289b5c` (+ `3efa933`)
+- Reviewer: APPROVED
+- Review-fix round: 0/2
+- RED/GREEN evidence: RED 4 expected failures; GREEN 87 passed
+- Risk signals: Anthropic discovery client remains out of scope; injected transports external
+- Review findings: close-after-use reopens/leaks; close exceptions escape; ownership tests weak; Ruff failures; duplicated accessor logic
+- Recheck findings: injected transport close assertions were empty; safe close log lacked positive assertion
+- Task 1 final: approved after fix commit `a402968`
+- Task 2 review findings: run_once stream callback and evaluate import outside cleanup boundary; HTTP construction-failure cleanup lacked TDD tests; report stale at 98baaf8
+- Task 2 final: approved after fix commit `e8e7544`
+- Task 3 review findings: missing Anthropic positive override test; registry load error projection lacks zero/negative boundary tests
+- Task 3 final: approved after test commit `a82f8fd`
+- Task 4 review finding: cross-version probe silently returns when supported interpreter is unavailable; must explicitly skip/report environment gate
+- Task 4 final: approved after fix commit `c7168a8`
+- Task 5 evidence: pytest 2781 passed/11 skipped; Ruff/format clean; uv build success; OpenSpec strict 37/37; supported interpreter focused 511 passed/1 skipped; real digest probe passed
+- Comet state: archive guard passed; archived=true; verify_result=pass; branch_status=handled
+- OpenSpec checkoff: pending
