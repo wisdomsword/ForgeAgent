@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 import re
 from pathlib import Path
 
@@ -57,10 +58,40 @@ RESTORED_CAPABILITIES = (
     "structured-collaboration-handoff",
 )
 MARKDOWN_LINK = re.compile(r"\[[^]]+\]\(([^)]+)\)")
+M34_SKILL_VERIFIER_DIGEST = "61e10f7a43a19dc8f53cc9b15a5920578e6a20256f443443cd10ffde11bb0a30"
+M34_TOOL_VERIFIER_DIGEST = "5a4104bf6a2747b6b40f76dcd43be63caa7365337596c0f33bd78806b11eef4c"
 
 
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
+
+
+def _verifier_bundle_digest(
+    path: Path,
+    required_functions: tuple[str, ...],
+    required_assignments: tuple[str, ...] = (),
+) -> tuple[str, list[str]]:
+    tree = ast.parse(_read(path))
+    functions = {
+        node.name: node
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    assignments = {
+        node.targets[0].id: node
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        and len(node.targets) == 1
+        and isinstance(node.targets[0], ast.Name)
+    }
+    missing = [name for name in required_functions if name not in functions]
+    missing.extend(name for name in required_assignments if name not in assignments)
+    if missing:
+        return "", missing
+    nodes = [assignments[name] for name in required_assignments]
+    nodes.extend(functions[name] for name in required_functions)
+    payload = "\n".join(ast.dump(node, include_attributes=False) for node in nodes).encode()
+    return hashlib.sha256(payload).hexdigest(), []
 
 
 def test_m29_m38_lifecycle_whitelist_exists() -> None:
@@ -142,8 +173,9 @@ def test_current_baseline_is_not_replaced_by_historical_sources() -> None:
 
 
 def test_m34_runtime_skill_contract_keeps_executable_verifiers() -> None:
-    skill_tests = _read(ROOT / "tests" / "test_skills.py")
-    required_tests = (
+    required_skill_tests = (
+        "_governed_skill_with",
+        "test_registry_accepts_512_utf8_byte_exit_text",
         "test_registry_accepts_governed_skill_and_reads_exit_conditions",
         "test_registry_rejects_invalid_governed_exit_contract",
         "test_registry_rejects_unsupported_format_version",
@@ -155,11 +187,17 @@ def test_m34_runtime_skill_contract_keeps_executable_verifiers() -> None:
         "test_governed_exit_conditions_mask_sensitive_values",
         "test_project_governed_exit_change_reconfirms_effective_digest",
     )
-
-    declared_tests = {
-        node.name
-        for node in ast.parse(skill_tests).body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-    }
-    missing = [name for name in required_tests if name not in declared_tests]
+    skill_digest, missing = _verifier_bundle_digest(
+        ROOT / "tests" / "test_skills.py",
+        required_skill_tests,
+        ("_FULL_REVIEW_SKILL", "_GOVERNED_REVIEW_SKILL"),
+    )
     assert not missing, f"missing M34 runtime Skill verifiers: {missing}"
+    assert skill_digest == M34_SKILL_VERIFIER_DIGEST, "M34 Skill verifier bundle changed"
+
+    tool_digest, missing = _verifier_bundle_digest(
+        ROOT / "tests" / "test_tools.py",
+        ("test_skill_tool_returns_governed_exit_conditions_section",),
+    )
+    assert not missing, f"missing M34 SkillTool verifiers: {missing}"
+    assert tool_digest == M34_TOOL_VERIFIER_DIGEST, "M34 SkillTool verifier changed"

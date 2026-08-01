@@ -84,11 +84,11 @@ bb26172cedd54c9c8821f21b0a1d7af9cfb4bb82ac2d9126a14fb8668b13694f  openspec/chang
 
 归档后的第二轮基线审计确认：M34 的运行时源码、主规格和历史 change 均已存在，但干净分支的 `tests/test_skills.py` 缺少当时验证过的 version 2 退出契约测试。M45 因此追加顺序 change `restore-runtime-skill-verifiers`，只恢复以下可执行证据：有效契约与分段读取、无效/超限/绝对断言/重复键/alias cycle/控制字符 fail-closed、不支持版本、legacy 兼容、不可变退出映射、secret masking 和 effective trust digest 重新确认。
 
-恢复后的 `tests/test_skills.py` 与只读来源逐字节一致，SHA256 均为 `a19db6e8be68bbcbe81693fc7ca1af120d5ee8b888c4c37d738aec6a621ad07d`。`src/forgeagent/skills.py` 在审计前已与来源一致，因此未复制或修改运行时源码；根工作区中较旧的 HTTP、MCP、发布和文档差异仍明确拒绝。
+初始恢复的 `tests/test_skills.py` 与只读来源逐字节一致，SHA256 均为 `a19db6e8be68bbcbe81693fc7ca1af120d5ee8b888c4c37d738aec6a621ad07d`；独立审查后，当前文件又增加了 canonical 512/513 UTF-8 字节边界、`verifier` 超限和空值/类型/键集合用例。`src/forgeagent/skills.py` 在审计前已与来源一致，因此未复制或修改运行时源码；根工作区中较旧的 HTTP、MCP、发布和文档差异仍明确拒绝。
 
 ## 验证计划与当前状态
 
 - RED 已验证：`tests/test_repository_lifecycle.py` 在恢复前为 `4 failed, 2 passed`，失败原因正是缺失白名单文件、缺少 M45 注记和主规格占位 Purpose。
-- M34 verifier RED 已验证：新增 lifecycle 断言在恢复前列出 10 个缺失测试函数并以 `1 failed` 退出；恢复后 lifecycle + skills 专项为 `37 passed`。
+- M34 verifier RED 已验证：新增 lifecycle 断言在恢复前列出 10 个缺失测试函数并以 `1 failed` 退出；审查补强后 lifecycle + skills 专项为 `47 passed`。
 - 恢复后必须通过 lifecycle、治理、borrowing、skills、attention、collaboration 聚焦回归，再执行全量 `pytest`、Ruff、format、`git diff --check`、`uv build` 和 OpenSpec strict。
 - 不执行 PyPI 上传、正式 tag、发布自动化；普通开发分支 push 只有在用户明确授权后才可进行。

@@ -143,6 +143,21 @@ def _governed_skill_with(replacement: str) -> str:
     )
 
 
+def test_registry_accepts_512_utf8_byte_exit_text(tmp_path):
+    condition = ("界" * 170) + "ab"
+    assert len(condition.encode("utf-8")) == 512
+    document = _governed_skill_with(f"condition: {condition}")
+    _write_raw_skill(tmp_path / "home", "review-python", document)
+
+    registry = SkillRegistry.load(
+        home=str(tmp_path / "home"),
+        allowed_root=str(tmp_path / "root"),
+        allow_project=False,
+    )
+
+    assert registry._definitions["review-python"].exit_conditions["success"].condition == condition
+
+
 def test_registry_accepts_governed_skill_and_reads_exit_conditions(tmp_path):
     _write_raw_skill(tmp_path / "home", "review-python", _GOVERNED_REVIEW_SKILL)
 
@@ -166,6 +181,48 @@ def test_registry_accepts_governed_skill_and_reads_exit_conditions(tmp_path):
         _GOVERNED_REVIEW_SKILL.replace(
             "condition: Review report exists and names each finding.",
             "condition: " + ("x" * 513),
+        ),
+        _governed_skill_with("condition: " + ("界" * 171)),
+        _GOVERNED_REVIEW_SKILL.replace(
+            "verifier: reviewer checks the saved report and finding count.",
+            "verifier: " + ("界" * 171),
+            1,
+        ),
+        _governed_skill_with('condition: ""'),
+        _governed_skill_with("condition: 123"),
+        _GOVERNED_REVIEW_SKILL.replace(
+            "verifier: reviewer checks the saved report and finding count.",
+            'verifier: ""',
+            1,
+        ),
+        _GOVERNED_REVIEW_SKILL.replace(
+            "verifier: reviewer checks the saved report and finding count.",
+            "verifier: 123",
+            1,
+        ),
+        _GOVERNED_REVIEW_SKILL.replace(
+            "    verifier: reviewer checks the saved report and finding count.\n",
+            "",
+            1,
+        ),
+        _GOVERNED_REVIEW_SKILL.replace(
+            "    condition: Review report exists and names each finding.\n",
+            "",
+            1,
+        ),
+        _GOVERNED_REVIEW_SKILL.replace(
+            "    verifier: reviewer checks the saved report and finding count.\n",
+            "    verifier: reviewer checks the saved report and finding count.\n"
+            "    extra: unsupported\n",
+            1,
+        ),
+        _GOVERNED_REVIEW_SKILL.replace(
+            "  timeout_or_budget:\n",
+            "  unexpected:\n"
+            "    condition: Unexpected state exists.\n"
+            "    verifier: test observes the unexpected state.\n"
+            "  timeout_or_budget:\n",
+            1,
         ),
         _governed_skill_with("condition: 100% complete"),
     ],
