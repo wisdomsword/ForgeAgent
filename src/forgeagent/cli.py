@@ -559,6 +559,9 @@ def run_once(
     except ValueError as exc:
         close_client()
         raise RegistryError(f"Invalid context configuration: {exc}") from exc
+    except BaseException:
+        close_client()
+        raise
     live: Live | None = None
     on_stream_text = None
     if stream and console.is_terminal:
@@ -580,6 +583,9 @@ def run_once(
     except ValueError as exc:
         close_client()
         raise RegistryError(f"Invalid context configuration: {exc}") from exc
+    except BaseException:
+        close_client()
+        raise
     try:
         if live is not None:
             with live:

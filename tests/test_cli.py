@@ -1139,6 +1139,34 @@ def test_run_once_closes_client_when_context_preflight_fails(monkeypatch):
     assert client.close_calls == 1
 
 
+def test_run_once_closes_client_when_context_preflight_raises_unexpected_error(monkeypatch):
+    class CloseTrackingClient(MockClient):
+        def __init__(self):
+            super().__init__(script=[])
+            self.close_calls = 0
+
+        def close(self):
+            self.close_calls += 1
+
+    client = CloseTrackingClient()
+    monkeypatch.setattr(
+        cli_module,
+        "_validate_client_context_policy",
+        lambda *_args: (_ for _ in ()).throw(RuntimeError("unexpected context error")),
+    )
+
+    with pytest.raises(RuntimeError, match="unexpected context error"):
+        run_once(
+            "goal",
+            tier="trusted",
+            model="mock",
+            client_factory=lambda _model: client,
+            console=_console(),
+        )
+
+    assert client.close_calls == 1
+
+
 def test_run_once_threads_supplied_skill_snapshot_to_task(monkeypatch):
     import forgeagent.cli as cli_module
 
