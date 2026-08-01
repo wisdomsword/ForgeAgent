@@ -273,9 +273,9 @@ def run_evaluate_command(
         error_console.print("[red]evaluation preflight failed[/red]")
         return 2
 
-    from .evaluator import EvaluationRequest, EvaluatorPreflightError
-
     try:
+        from .evaluator import EvaluationRequest, EvaluatorPreflightError
+
         try:
             artifact_root = Path(args.artifact_root)
             artifacts = validate_manifest(artifact_root, args.artifacts)

@@ -1167,6 +1167,35 @@ def test_run_once_closes_client_when_context_preflight_raises_unexpected_error(m
     assert client.close_calls == 1
 
 
+def test_run_once_closes_client_when_stream_callback_setup_fails(monkeypatch):
+    class CloseTrackingClient(MockClient):
+        def __init__(self):
+            super().__init__(script=[])
+            self.close_calls = 0
+
+        def close(self):
+            self.close_calls += 1
+
+    client = CloseTrackingClient()
+    monkeypatch.setattr(
+        cli_module,
+        "_make_stream_callback",
+        lambda _console: (_ for _ in ()).throw(RuntimeError("stream setup failed")),
+    )
+
+    with pytest.raises(RuntimeError, match="stream setup failed"):
+        run_once(
+            "goal",
+            tier="trusted",
+            model="mock",
+            client_factory=lambda _model: client,
+            console=_terminal_console(),
+            stream=True,
+        )
+
+    assert client.close_calls == 1
+
+
 def test_run_once_threads_supplied_skill_snapshot_to_task(monkeypatch):
     import forgeagent.cli as cli_module
 
@@ -3826,6 +3855,38 @@ def test_evaluate_closes_client_when_manifest_preflight_fails(monkeypatch, tmp_p
 
     assert code == 2
     assert "evaluation preflight failed" in capsys.readouterr().err
+    assert client.close_calls == 1
+
+
+def test_evaluate_closes_client_when_evaluator_import_fails(monkeypatch, tmp_path):
+    import builtins
+
+    class CloseTrackingClient(MockClient):
+        def __init__(self):
+            super().__init__(script=[])
+            self.close_calls = 0
+
+        def close(self):
+            self.close_calls += 1
+
+    client = CloseTrackingClient()
+    original_import = builtins.__import__
+
+    def failing_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "evaluator" and globals and globals.get("__package__") == "forgeagent":
+            raise ImportError("evaluator import failed")
+        return original_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", failing_import)
+
+    with pytest.raises(ImportError, match="evaluator import failed"):
+        cli_module._run_evaluate_command(
+            build_parser().parse_args(_evaluate_argv(tmp_path)),
+            client_factory=lambda _model: client,
+            console=_console(),
+            error_console=_console(),
+        )
+
     assert client.close_calls == 1
 
 

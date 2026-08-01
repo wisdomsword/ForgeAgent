@@ -553,49 +553,47 @@ def run_once(
         if callable(close):
             close()
 
-    resolved_context_config = context_config or ContextConfig()
-    try:
-        _validate_client_context_policy(client, resolved_context_config)
-    except ValueError as exc:
-        close_client()
-        raise RegistryError(f"Invalid context configuration: {exc}") from exc
-    except BaseException:
-        close_client()
-        raise
+    task: Task | None = None
     live: Live | None = None
-    on_stream_text = None
-    if stream and console.is_terminal:
-        live, on_stream_text = _make_stream_callback(console)
     try:
-        task = Task(
-            client,
-            tier=tier,
-            asker=asker,
-            mcp=mcp,
-            confirmer=confirmer,
-            identity=identity,
-            container_image=container_image,
-            on_stream_text=on_stream_text,
-            context_config=resolved_context_config,
-            memory_manager=memory_manager,
-            skills=skills,
-        )
-    except ValueError as exc:
-        close_client()
-        raise RegistryError(f"Invalid context configuration: {exc}") from exc
-    except BaseException:
-        close_client()
-        raise
-    try:
+        resolved_context_config = context_config or ContextConfig()
+        try:
+            _validate_client_context_policy(client, resolved_context_config)
+        except ValueError as exc:
+            raise RegistryError(f"Invalid context configuration: {exc}") from exc
+
+        on_stream_text = None
+        if stream and console.is_terminal:
+            live, on_stream_text = _make_stream_callback(console)
+        try:
+            task = Task(
+                client,
+                tier=tier,
+                asker=asker,
+                mcp=mcp,
+                confirmer=confirmer,
+                identity=identity,
+                container_image=container_image,
+                on_stream_text=on_stream_text,
+                context_config=resolved_context_config,
+                memory_manager=memory_manager,
+                skills=skills,
+            )
+        except ValueError as exc:
+            raise RegistryError(f"Invalid context configuration: {exc}") from exc
+
         if live is not None:
             with live:
                 outcome = task.run(goal, images=images)
         else:
             outcome = task.run(goal, images=images)
     finally:
-        try:
-            task.close()
-        finally:
+        if task is not None:
+            try:
+                task.close()
+            finally:
+                close_client()
+        else:
             close_client()
     render_outcome(outcome, console)
     _accumulate_usage(usage_total, outcome.rounds)
@@ -1359,7 +1357,9 @@ def run_smoke(
                     task.close()
                 ok = outcome.status.solved
                 all_ok = all_ok and ok
-                marker = "[green]PASS[/green]" if ok else f"[red]FAIL[/red] ({outcome.status.reason})"
+                marker = (
+                    "[green]PASS[/green]" if ok else f"[red]FAIL[/red] ({outcome.status.reason})"
+                )
                 console.print(f"  {marker}  {goal}")
         finally:
             close = getattr(client, "close", None)

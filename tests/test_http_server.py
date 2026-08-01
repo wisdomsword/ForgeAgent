@@ -1174,6 +1174,207 @@ def test_serve_task_factory_passes_only_server_context_to_task(monkeypatch, tmp_
         task._client.close()
 
 
+def test_serve_regular_task_construction_failure_closes_client(monkeypatch, tmp_path):
+    import forgeagent.cli as cli_module
+    import forgeagent.http_server as http_server_module
+
+    config_path = tmp_path / "http.yaml"
+    config_path.write_text("token: test-token\nno_identity: true\n")
+    captured = {}
+    events: list[str] = []
+
+    class CloseTrackingClient(MockClient):
+        def close(self):
+            events.append("client.close")
+
+    class FailingTask:
+        def __init__(self, *_args, **_kwargs):
+            events.append("task.construct")
+            raise KeyboardInterrupt("stop")
+
+    class FakeService:
+        def __init__(self, *, factory, **_kwargs):
+            captured["factory"] = factory
+
+        def shutdown(self, timeout):
+            return None
+
+    class FakeServer:
+        server_address = ("127.0.0.1", 8765)
+
+        def serve_forever(self, poll_interval):
+            return None
+
+        def shutdown(self):
+            return None
+
+        def server_close(self):
+            return None
+
+    monkeypatch.setattr(cli_module, "Task", FailingTask)
+    monkeypatch.setattr(cli_module, "TaskService", FakeService)
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: None)
+    monkeypatch.setattr(http_server_module, "create_http_server", lambda *_args: FakeServer())
+
+    cli_module.serve_http(
+        config_path,
+        client_factory=lambda _model: CloseTrackingClient(script=[]),
+        console=SimpleNamespace(print=lambda *_args: None),
+        once=True,
+    )
+    events.clear()
+
+    with pytest.raises(KeyboardInterrupt, match="stop"):
+        captured["factory"](SimpleNamespace(task_id="regular-construction-failure"))
+
+    assert events == ["task.construct", "client.close"]
+
+
+def test_serve_loop_task_construction_failure_closes_client(monkeypatch, tmp_path):
+    import forgeagent.cli as cli_module
+    import forgeagent.http_server as http_server_module
+
+    allowed_root = tmp_path / "project"
+    allowed_root.mkdir()
+    config_path = tmp_path / "http.yaml"
+    config_path.write_text(f"token: test-token\nno_identity: true\nallowed_root: {allowed_root}\n")
+    captured = {}
+    events: list[str] = []
+
+    class CloseTrackingClient(MockClient):
+        def close(self):
+            events.append("client.close")
+
+    class FailingTask:
+        def __init__(self, *_args, **_kwargs):
+            events.append("task.construct")
+            raise KeyboardInterrupt("stop")
+
+    class FakeService:
+        def __init__(self, *, factory, **_kwargs):
+            captured["factory"] = factory
+
+        def shutdown(self, timeout):
+            return None
+
+    class FakeServer:
+        server_address = ("127.0.0.1", 8765)
+
+        def serve_forever(self, poll_interval):
+            return None
+
+        def shutdown(self):
+            return None
+
+        def server_close(self):
+            return None
+
+    class FakeRunner:
+        @classmethod
+        def create(cls, **kwargs):
+            captured["task_builder"] = kwargs["task_builder"]
+            return cls()
+
+    monkeypatch.setattr(cli_module, "Task", FailingTask)
+    monkeypatch.setattr(cli_module, "TaskService", FakeService)
+    monkeypatch.setattr(cli_module, "LoopRunner", FakeRunner)
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: None)
+    monkeypatch.setattr(http_server_module, "create_http_server", lambda *_args: FakeServer())
+
+    cli_module.serve_http(
+        config_path,
+        client_factory=lambda _model: CloseTrackingClient(script=[]),
+        console=SimpleNamespace(print=lambda *_args: None),
+        once=True,
+    )
+    events.clear()
+    captured["factory"](
+        SimpleNamespace(
+            task_id="a" * 32,
+            goal="loop",
+            options={
+                "mode": "loop",
+                "token_budget": 10,
+                "max_rounds": 2,
+                "wall_clock_seconds": 30,
+                "max_consecutive_failures": 1,
+            },
+        )
+    )
+
+    with pytest.raises(KeyboardInterrupt, match="stop"):
+        captured["task_builder"](0, 2, "", object())
+
+    assert events == ["task.construct", "client.close"]
+
+
+def test_serve_collaboration_role_control_failure_closes_client_and_reraises(monkeypatch, tmp_path):
+    import forgeagent.cli as cli_module
+    import forgeagent.http_server as http_server_module
+
+    config_path = tmp_path / "http.yaml"
+    config_path.write_text("token: test-token\nno_identity: true\n")
+    captured = {}
+    events: list[str] = []
+
+    class CloseTrackingClient(MockClient):
+        def close(self):
+            events.append("client.close")
+
+    class FailingTask:
+        def __init__(self, *_args, **_kwargs):
+            events.append("task.construct")
+            raise KeyboardInterrupt("stop")
+
+    class FakeService:
+        def __init__(self, *, factory, **_kwargs):
+            captured["factory"] = factory
+
+        def shutdown(self, timeout):
+            return None
+
+    class FakeCollaborationRunner:
+        @classmethod
+        def create(cls, **kwargs):
+            captured["role_builder"] = kwargs["role_task_builder"]
+            return cls()
+
+        def close(self):
+            return None
+
+    class FakeServer:
+        server_address = ("127.0.0.1", 8765)
+
+        def serve_forever(self, poll_interval):
+            return None
+
+        def shutdown(self):
+            return None
+
+        def server_close(self):
+            return None
+
+    monkeypatch.setattr(cli_module, "Task", FailingTask)
+    monkeypatch.setattr(cli_module, "TaskService", FakeService)
+    monkeypatch.setattr(cli_module, "CollaborationRunner", FakeCollaborationRunner)
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: None)
+    monkeypatch.setattr(http_server_module, "create_http_server", lambda *_args: FakeServer())
+
+    cli_module.serve_http(
+        config_path,
+        client_factory=lambda _model: CloseTrackingClient(script=[]),
+        console=SimpleNamespace(print=lambda *_args: None),
+        once=True,
+    )
+    events.clear()
+    captured["factory"](SimpleNamespace(task_id="b" * 32, goal="duo", options={"mode": "duo"}))
+
+    with pytest.raises(KeyboardInterrupt, match="stop"):
+        captured["role_builder"]("generator", 0, object(), "prompt")
+
+    assert events == ["task.construct", "client.close"]
+
+
 def test_serve_factory_selects_server_owned_new_and_resumed_loop(monkeypatch, tmp_path):
     import forgeagent.cli as cli_module
     import forgeagent.http_server as http_server_module

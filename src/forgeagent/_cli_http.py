@@ -457,7 +457,9 @@ def serve_http(
                             client,
                             tier=settings.tier,
                             allowed_root=settings.allowed_root,
-                            system_prompt=bindings.loop_system_prompt(identity, memory_manager, suffix),
+                            system_prompt=bindings.loop_system_prompt(
+                                identity, memory_manager, suffix
+                            ),
                             max_rounds=remaining_rounds,
                             mcp=mcp,
                             confirmer=headless_confirmer,
@@ -543,10 +545,12 @@ def serve_http(
                                 receipt_store=receipt_store if role == "generator" else None,
                                 max_submission_recovery_attempts=2,
                             )
-                        except Exception as error:
+                        except BaseException as error:
                             close = getattr(client, "close", None)
                             if callable(close):
                                 close()
+                            if isinstance(error, (KeyboardInterrupt, SystemExit)):
+                                raise
                             raise CollaborationRoleConfigurationError from error
 
                         class OwnedRole:
@@ -714,10 +718,12 @@ def serve_http(
                             tool_registry=registry,
                             receipt_store=receipt_store if role == "generator" else None,
                         )
-                    except Exception as error:
+                    except BaseException as error:
                         close = getattr(client, "close", None)
                         if callable(close):
                             close()
+                        if isinstance(error, (KeyboardInterrupt, SystemExit)):
+                            raise
                         raise CollaborationRoleConfigurationError from error
 
                     class OwnedRole:
