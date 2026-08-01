@@ -542,17 +542,6 @@ def run_once(
     console = console or Console()
     usage_total = usage_total if usage_total is not None else TokenUsage()
     client = client_factory(model)
-    client_closed = False
-
-    def close_client() -> None:
-        nonlocal client_closed
-        if client_closed:
-            return
-        client_closed = True
-        close = getattr(client, "close", None)
-        if callable(close):
-            close()
-
     task: Task | None = None
     live: Live | None = None
     try:
@@ -588,13 +577,11 @@ def run_once(
         else:
             outcome = task.run(goal, images=images)
     finally:
-        if task is not None:
-            try:
+        try:
+            if task is not None:
                 task.close()
-            finally:
-                close_client()
-        else:
-            close_client()
+        finally:
+            client.close()
     render_outcome(outcome, console)
     _accumulate_usage(usage_total, outcome.rounds)
     _print_usage(usage_total, console)
@@ -1312,20 +1299,13 @@ def repl(
     )
 
 
-# A tiny set of live goals for the smoke command — deterministic, self-contained,
-# no file I/O so they run under restricted without an allowed-root fuss. "Pass" here
-# means the task completed end-to-end against a real model (a liveness/integration
-# check), NOT full golden-task judging (that is the M5 user-acceptance run).
+# Deterministic live goals with no file I/O, safe for the restricted tier.
 SMOKE_GOALS = [
     "Compute the sum of the integers 10, 20 and 30 and print the result.",
     "Print the 6th Fibonacci number.",
 ]
 
-# Models exercised by `smoke` by default; Fable and the OpenAI-compatible models are
-# opt-in (Fable: cost + refusal risk; OpenAI-compatible: separate API keys the user may
-# not have configured). Order matches docs/m6-openai-compatible-client.md's decision 4:
-# gpt-5.4-mini first (verifies the client skeleton), then glm-5.2/deepseek-v4-flash
-# (verify the thinking/reasoning_effort capability-gating translation).
+# Fable and OpenAI-compatible models remain opt-in because they require separate access.
 SMOKE_MODELS = ("claude-sonnet-5", "claude-haiku-4-5")
 FABLE_MODEL = "claude-fable-5"
 OPENAI_COMPATIBLE_SMOKE_MODELS = ("gpt-5.4-mini", "glm-5.2", "deepseek-v4-flash")
@@ -1362,9 +1342,7 @@ def run_smoke(
                 )
                 console.print(f"  {marker}  {goal}")
         finally:
-            close = getattr(client, "close", None)
-            if callable(close):
-                close()
+            client.close()
     console.print("[green]smoke: all passed[/green]" if all_ok else "[red]smoke: failures[/red]")
     return all_ok
 

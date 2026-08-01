@@ -259,8 +259,10 @@ def test_m34_verifier_digest_is_stable_across_supported_interpreters() -> None:
 import importlib.util
 import pathlib
 import sys
+import types
 
 module_path = pathlib.Path(sys.argv[1])
+sys.modules["pytest"] = types.ModuleType("pytest")
 spec = importlib.util.spec_from_file_location("lifecycle", module_path)
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
