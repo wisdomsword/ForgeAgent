@@ -40,6 +40,32 @@ def test_model_entry_rejects_non_positive_limits(field, value):
         ModelEntry(**values)
 
 
+@pytest.mark.parametrize("field", ["context_window", "max_output_tokens"])
+@pytest.mark.parametrize("value", [0, -1])
+def test_load_registry_projects_invalid_model_limits_as_registry_error(tmp_path, field, value):
+    models_path = tmp_path / "models.yaml"
+    models_path.write_text(
+        yaml.safe_dump(
+            {
+                "models": {
+                    "invalid-model": {
+                        "client_kind": "anthropic",
+                        "context_window": 1,
+                        "max_output_tokens": 1,
+                        "supports_thinking": False,
+                        "thinking_always_on": False,
+                        "supports_effort": False,
+                        field: value,
+                    }
+                }
+            }
+        )
+    )
+
+    with pytest.raises(RegistryError, match="Malformed models.yaml or config.yaml"):
+        _registry(tmp_path, models_path=models_path)
+
+
 # Expected values transcribed from docs/model-capability-matrix.md /
 # docs/m6-openai-compatible-client.md — guards against models.yaml drifting from docs.
 EXPECTED_ANTHROPIC = {

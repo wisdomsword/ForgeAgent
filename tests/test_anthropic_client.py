@@ -93,6 +93,14 @@ def test_max_output_falls_back_to_capability_ceiling():
     )
 
 
+def test_positive_max_output_override_is_preserved_exactly():
+    request = _client("claude-sonnet-5").build_request(
+        _user(), GenerationParams(max_output_tokens=7_000)
+    )
+
+    assert request["max_tokens"] == 7_000
+
+
 def test_effort_passed_through_when_supported():
     req = _client("claude-sonnet-5").build_request(_user(), GenerationParams(effort="xhigh"))
     assert req["output_config"] == {"effort": "xhigh"}
