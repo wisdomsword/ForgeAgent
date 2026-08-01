@@ -40,11 +40,11 @@ base-ref: 599909d2849eb611f5310f78e5dadfb3fa4e4365
 - `ModelClient.close(self) -> None` is a concrete, idempotent base method so existing test doubles remain valid.
 - Provider subclasses own only SDK objects created by their default transports; injected transports remain external.
 
-- [ ] **Step 1: Write failing provider lifecycle tests**
+- [x] **Step 1: Write failing provider lifecycle tests**
 
   Add fake SDK classes that count constructor, request, and close calls. Assert one OpenAI/Anthropic SDK instance serves both complete and stream, repeated provider close calls close once, and injected transports receive no close call. Add a Task test asserting `Task.close()` closes its backend but leaves an injected client open.
 
-- [ ] **Step 2: Run the focused tests and verify the intended failures**
+- [x] **Step 2: Run the focused tests and verify the intended failures**
 
   Run:
 
@@ -54,11 +54,11 @@ base-ref: 599909d2849eb611f5310f78e5dadfb3fa4e4365
 
   Expected: the new reuse/close assertions fail because each transport currently constructs a new SDK client and `ModelClient` has no lifecycle implementation.
 
-- [ ] **Step 3: Implement the minimal lifecycle contract**
+- [x] **Step 3: Implement the minimal lifecycle contract**
 
   Add a concrete no-op `ModelClient.close()`. In each provider client, add a private lazy SDK slot and closed flag; make complete and stream transport accessors share that slot. Close only the owned SDK slot once. Do not add a close call to injected transports or `Task.close()`.
 
-- [ ] **Step 4: Run focused tests and existing provider tests**
+- [x] **Step 4: Run focused tests and existing provider tests**
 
   Run:
 
@@ -68,7 +68,7 @@ base-ref: 599909d2849eb611f5310f78e5dadfb3fa4e4365
 
   Expected: all focused tests pass with no raw close exception in output.
 
-- [ ] **Step 5: Commit the provider lifecycle unit**
+- [x] **Step 5: Commit the provider lifecycle unit**
 
   ```bash
   git add src/forgeagent/client.py src/forgeagent/openai_compatible_client.py src/forgeagent/anthropic_client.py tests/test_openai_compatible_client.py tests/test_anthropic_client.py tests/test_task.py
@@ -89,11 +89,11 @@ base-ref: 599909d2849eb611f5310f78e5dadfb3fa4e4365
 - Each owner path closes `Task` before its owned `ModelClient`.
 - Session-shared REPL and service-shared HTTP clients remain open until their existing session/service shutdown boundary.
 
-- [ ] **Step 1: Add failing early-return and exception cleanup tests**
+- [x] **Step 1: Add failing early-return and exception cleanup tests**
 
   Extend existing close-tracking fakes to cover `run_once` client-factory/context-preflight failure, `run_smoke` model-to-model cleanup, evaluate manifest/persistence failure, and HTTP request cancellation/terminal cleanup. Assert the existing return code and response projection remain unchanged.
 
-- [ ] **Step 2: Run the new lifecycle tests before implementation**
+- [x] **Step 2: Run the new lifecycle tests before implementation**
 
   Run:
 
@@ -103,11 +103,11 @@ base-ref: 599909d2849eb611f5310f78e5dadfb3fa4e4365
 
   Expected: new assertions identify at least the currently unclosed `run_once`/smoke/evaluate paths without changing unrelated baseline tests.
 
-- [ ] **Step 3: Implement `finally`-based cleanup at each owning entry point**
+- [x] **Step 3: Implement `finally`-based cleanup at each owning entry point**
 
   Wrap client creation through terminal return in one cleanup boundary. For smoke, create and close one Task per goal or one explicitly owned model session according to existing behavior, ensuring a failed goal does not skip the model client close. For evaluate, close after preflight failure, persistence failure, evaluation result, and unexpected exception. Preserve existing HTTP service shared-resource ordering and patch only uncovered request-scoped paths.
 
-- [ ] **Step 4: Run focused CLI/HTTP/collaboration lifecycle tests**
+- [x] **Step 4: Run focused CLI/HTTP/collaboration lifecycle tests**
 
   Run:
 
@@ -117,7 +117,7 @@ base-ref: 599909d2849eb611f5310f78e5dadfb3fa4e4365
 
   Expected: all tests pass and no output/status/HTTP shape changes are reported.
 
-- [ ] **Step 5: Commit the entry-point ownership unit**
+- [x] **Step 5: Commit the entry-point ownership unit**
 
   ```bash
   git add src/forgeagent/cli.py src/forgeagent/_cli_parser.py src/forgeagent/_cli_http.py tests/test_cli.py tests/test_http_server.py tests/test_http_task_service.py
@@ -141,11 +141,11 @@ base-ref: 599909d2849eb611f5310f78e5dadfb3fa4e4365
 - `GenerationParams.timeout_seconds` is finite and strictly positive.
 - Model capability and registry window/output limits are strictly positive integers.
 
-- [ ] **Step 1: Add failing invalid-value tests**
+- [x] **Step 1: Add failing invalid-value tests**
 
   Add parametrized cases for zero and negative token/context limits, timeout zero/negative/NaN/infinity, plus positive/default compatibility. Add request-builder assertions that `None` uses the capability ceiling and a positive override is preserved exactly.
 
-- [ ] **Step 2: Run model and request tests to verify RED**
+- [x] **Step 2: Run model and request tests to verify RED**
 
   Run:
 
@@ -155,11 +155,11 @@ base-ref: 599909d2849eb611f5310f78e5dadfb3fa4e4365
 
   Expected: invalid values currently construct successfully or use truthiness fallback, so the new cases fail.
 
-- [ ] **Step 3: Add Pydantic constraints and explicit fallback**
+- [x] **Step 3: Add Pydantic constraints and explicit fallback**
 
   Use existing Pydantic `Field` constraints and finite float validation. Replace `params.max_output_tokens or capability.max_output_tokens` with an explicit `is not None` branch in both provider builders. Keep registry error wrapping and positive existing entries unchanged.
 
-- [ ] **Step 4: Run focused model tests and inspect error projection**
+- [x] **Step 4: Run focused model tests and inspect error projection**
 
   Run:
 
@@ -169,7 +169,7 @@ base-ref: 599909d2849eb611f5310f78e5dadfb3fa4e4365
 
   Expected: all invalid values fail before request construction, all defaults/positive overrides pass, and registry failures retain the existing structured exception path.
 
-- [ ] **Step 5: Commit the input-contract unit**
+- [x] **Step 5: Commit the input-contract unit**
 
   ```bash
   git add src/forgeagent/models.py src/forgeagent/model_registry.py src/forgeagent/openai_compatible_client.py src/forgeagent/anthropic_client.py tests/test_models.py tests/test_model_registry.py tests/test_openai_compatible_client.py tests/test_anthropic_client.py
@@ -185,11 +185,11 @@ base-ref: 599909d2849eb611f5310f78e5dadfb3fa4e4365
 **Interfaces:**
 - `_verifier_bundle_digest(path, required_functions, required_assignments) -> tuple[str, list[str]]` keeps its existing signature and missing-symbol behavior.
 
-- [ ] **Step 1: Add a failing cross-version digest assertion**
+- [x] **Step 1: Add a failing cross-version digest assertion**
 
   Add a focused assertion or subprocess probe that computes the unchanged M34 Skill bundle digest under Python 3.11, 3.12, and 3.14 and expects one value; retain a mutation case that changes a selected source segment and expects a different digest.
 
-- [ ] **Step 2: Run the verifier tests before implementation**
+- [x] **Step 2: Run the verifier tests before implementation**
 
   Run:
 
@@ -200,11 +200,11 @@ base-ref: 599909d2849eb611f5310f78e5dadfb3fa4e4365
 
   Expected: 3.11 and 3.12 fail with different hashes while 3.14 is the current expected value.
 
-- [ ] **Step 3: Hash normalized source slices selected by AST**
+- [x] **Step 3: Hash normalized source slices selected by AST**
 
   Preserve AST lookup and missing-name checks. Use `ast.get_source_segment` for each selected top-level node, normalize CRLF/CR to LF, join with a fixed separator, and hash UTF-8 bytes. Update the stored digest only after the same source produces one stable value on all supported interpreters.
 
-- [ ] **Step 4: Run all three interpreter-focused verifier checks**
+- [x] **Step 4: Run all three interpreter-focused verifier checks**
 
   Run:
 
@@ -216,7 +216,7 @@ base-ref: 599909d2849eb611f5310f78e5dadfb3fa4e4365
 
   Expected: all three pass with the same digest and source mutation detection intact.
 
-- [ ] **Step 5: Commit the compatibility verifier unit**
+- [x] **Step 5: Commit the compatibility verifier unit**
 
   ```bash
   git add tests/test_repository_lifecycle.py
@@ -234,7 +234,7 @@ base-ref: 599909d2849eb611f5310f78e5dadfb3fa4e4365
 **Interfaces:**
 - No runtime interface changes beyond the approved lifecycle and validation contracts.
 
-- [ ] **Step 1: Run full test and quality gates**
+- [x] **Step 1: Run full test and quality gates**
 
   Run:
 
@@ -248,15 +248,15 @@ base-ref: 599909d2849eb611f5310f78e5dadfb3fa4e4365
 
   Expected: all tests pass with no additional skips, Ruff and format are clean, build succeeds, and OpenSpec strict validation passes.
 
-- [ ] **Step 2: Run final two-pass review**
+- [x] **Step 2: Run final two-pass review**
 
   First pass checks ownership/close order, stream reuse, public behavior, invalid-value coverage, and verifier stability. Second pass checks raw exception/secret/path leakage, dependency diff, accidental docs/runtime scope expansion, and clean worktree attribution.
 
-- [ ] **Step 3: Record evidence and milestone state**
+- [x] **Step 3: Record evidence and milestone state**
 
   Write exact commands and outputs to the verification report, update milestone 047 and `milestones/latest`, mark OpenSpec tasks, and run Comet verify guard. Do not run PyPI, tag, release automation, or force push.
 
-- [ ] **Step 4: Commit the verified change**
+- [x] **Step 4: Commit the verified change**
 
   ```bash
   git add src tests openspec/changes/harden-client-lifecycle-and-input-contracts docs/superpowers/specs docs/superpowers/plans docs/superpowers/reports milestones/latest milestones/milestone_047.md
