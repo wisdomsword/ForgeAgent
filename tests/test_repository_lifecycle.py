@@ -7,6 +7,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).parents[1]
 
 RESTORED_MILESTONES = tuple(
@@ -94,9 +96,7 @@ def _verifier_bundle_digest(
     nodes = [assignments[name] for name in required_assignments]
     nodes.extend(functions[name] for name in required_functions)
     selected_sources = [
-        (ast.get_source_segment(source, node) or "")
-        .replace("\r\n", "\n")
-        .replace("\r", "\n")
+        (ast.get_source_segment(source, node) or "").replace("\r\n", "\n").replace("\r", "\n")
         for node in nodes
     ]
     payload = "\n\n".join(selected_sources).encode("utf-8")
@@ -229,13 +229,31 @@ def keep(value):
     assert mutated != original
 
 
-def test_m34_verifier_digest_is_stable_across_supported_interpreters() -> None:
-    interpreters = [
-        shutil.which(f"python{version}")
-        for version in ("3.11", "3.12", "3.14")
-    ]
+def test_verifier_probe_reports_missing_interpreter_as_environment_skip(monkeypatch) -> None:
+    monkeypatch.setattr(
+        shutil,
+        "which",
+        lambda executable: None if executable == "python3.12" else f"/bin/{executable}",
+    )
+
+    with pytest.raises(pytest.skip.Exception, match="supported Python interpreters"):
+        _supported_interpreters_or_skip()
+
+
+def _supported_interpreters_or_skip() -> list[str]:
+    interpreters = [shutil.which(f"python{version}") for version in ("3.11", "3.12", "3.14")]
     if not all(interpreters):
-        return
+        missing = [
+            f"python{version}"
+            for version, interpreter in zip(("3.11", "3.12", "3.14"), interpreters, strict=True)
+            if interpreter is None
+        ]
+        pytest.skip("supported Python interpreters unavailable: " + ", ".join(missing))
+    return [interpreter for interpreter in interpreters if interpreter is not None]
+
+
+def test_m34_verifier_digest_is_stable_across_supported_interpreters() -> None:
+    interpreters = _supported_interpreters_or_skip()
 
     probe = """
 import importlib.util
