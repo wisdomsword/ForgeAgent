@@ -153,7 +153,11 @@ class OpenAICompatibleClient(ModelClient):
             {"role": msg.role.value, "content": _render_content(msg.content)} for msg in messages
         ]
         request: dict[str, Any] = {"model": cap.model_id, "messages": turns}
-        request[cap.max_tokens_param] = params.max_output_tokens or cap.max_output_tokens
+        request[cap.max_tokens_param] = (
+            params.max_output_tokens
+            if params.max_output_tokens is not None
+            else cap.max_output_tokens
+        )
         if params.temperature is not None:
             request["temperature"] = params.temperature
 

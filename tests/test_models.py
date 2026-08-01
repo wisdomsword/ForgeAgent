@@ -1,5 +1,7 @@
 """Unit tests for core data models (M2-2)."""
 
+import math
+
 import pytest
 from pydantic import ValidationError
 
@@ -21,6 +23,18 @@ def test_generation_params_defaults():
     assert p.thinking == "auto"  # safest default: omit thinking param
     assert p.effort is None
     assert p.timeout_seconds == 120.0
+
+
+@pytest.mark.parametrize("value", [0, -1])
+def test_generation_params_rejects_non_positive_output_limit(value):
+    with pytest.raises(ValidationError):
+        GenerationParams(max_output_tokens=value)
+
+
+@pytest.mark.parametrize("value", [0.0, -1.0, math.nan, math.inf, -math.inf])
+def test_generation_params_rejects_non_finite_or_non_positive_timeout(value):
+    with pytest.raises(ValidationError):
+        GenerationParams(timeout_seconds=value)
 
 
 def test_generation_params_thinking_tristate():
@@ -83,6 +97,23 @@ def test_model_capability_fields():
     assert cap.supports_effort is False
     assert cap.client_kind == "anthropic"
     assert cap.max_tokens_param == "max_tokens"
+
+
+@pytest.mark.parametrize("field", ["context_window", "max_output_tokens"])
+@pytest.mark.parametrize("value", [0, -1])
+def test_model_capability_rejects_non_positive_limits(field, value):
+    values = {
+        "model_id": "model",
+        "context_window": 1,
+        "max_output_tokens": 1,
+        "supports_thinking": False,
+        "thinking_always_on": False,
+        "supports_effort": False,
+        "client_kind": "anthropic",
+        field: value,
+    }
+    with pytest.raises(ValidationError):
+        ModelCapability(**values)
 
 
 def test_model_capability_max_tokens_param_defaults_and_override():

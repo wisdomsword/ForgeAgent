@@ -30,7 +30,7 @@ from typing import Literal
 import yaml
 from pydantic import BaseModel, Field, ValidationError
 
-from .models import ModelCapability
+from .models import ModelCapability, PositiveInt
 
 __all__ = [
     "RegistryError",
@@ -62,8 +62,8 @@ class ModelEntry(BaseModel):
     """One model's capabilities, as declared in models.yaml."""
 
     client_kind: Literal["anthropic", "openai_compatible"]
-    context_window: int
-    max_output_tokens: int
+    context_window: PositiveInt
+    max_output_tokens: PositiveInt
     supports_thinking: bool
     thinking_always_on: bool
     supports_effort: bool

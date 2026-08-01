@@ -10,7 +10,10 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, FiniteFloat
+
+PositiveInt = Annotated[int, Field(gt=0)]
+PositiveFiniteFloat = Annotated[FiniteFloat, Field(gt=0)]
 
 
 class Role(StrEnum):
@@ -62,13 +65,13 @@ class GenerationParams(BaseModel):
     unified fields; each client translates them per its own capability
     (see ModelCapability and docs/model-client-contract.md capability-gating)."""
 
-    max_output_tokens: int | None = None
+    max_output_tokens: PositiveInt | None = None
     temperature: float | None = None
     # Tri-state intent: "on" = prefer thinking, "off" = prefer no thinking (NOT a
     # hard guarantee — some models can't disable it), "auto" = use model default.
     thinking: Literal["on", "off", "auto"] = "auto"
     effort: Literal["low", "medium", "high", "xhigh", "max"] | None = None
-    timeout_seconds: float = 120.0
+    timeout_seconds: PositiveFiniteFloat = 120.0
 
 
 class TokenUsage(BaseModel):
@@ -167,8 +170,8 @@ class ModelCapability(BaseModel):
     never branch on model name. Values sourced from docs/model-capability-matrix.md."""
 
     model_id: str
-    context_window: int
-    max_output_tokens: int
+    context_window: PositiveInt
+    max_output_tokens: PositiveInt
     supports_thinking: bool
     thinking_always_on: bool
     supports_effort: bool

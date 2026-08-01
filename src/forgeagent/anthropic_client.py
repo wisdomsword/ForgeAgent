@@ -173,7 +173,11 @@ class AnthropicClient(ModelClient):
         request: dict[str, Any] = {
             "model": cap.model_id,
             "messages": turns,
-            "max_tokens": params.max_output_tokens or cap.max_output_tokens,
+            "max_tokens": (
+                params.max_output_tokens
+                if params.max_output_tokens is not None
+                else cap.max_output_tokens
+            ),
         }
         if system is not None:
             request["system"] = system

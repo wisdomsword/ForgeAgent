@@ -12,14 +12,33 @@ LLM_API_KEY was also set.
 
 import pytest
 import yaml
+from pydantic import ValidationError
 
 from forgeagent.model_registry import (
+    ModelEntry,
     RegistryError,
     list_models,
     load_registry,
     reload_registry,
     resolve_model,
 )
+
+
+@pytest.mark.parametrize("field", ["context_window", "max_output_tokens"])
+@pytest.mark.parametrize("value", [0, -1])
+def test_model_entry_rejects_non_positive_limits(field, value):
+    values = {
+        "client_kind": "anthropic",
+        "context_window": 1,
+        "max_output_tokens": 1,
+        "supports_thinking": False,
+        "thinking_always_on": False,
+        "supports_effort": False,
+        field: value,
+    }
+    with pytest.raises(ValidationError):
+        ModelEntry(**values)
+
 
 # Expected values transcribed from docs/model-capability-matrix.md /
 # docs/m6-openai-compatible-client.md — guards against models.yaml drifting from docs.
