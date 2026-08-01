@@ -51,7 +51,9 @@ def test_documentation_index_tracks_latest_complete_milestone() -> None:
     assert latest.exists()
     milestone_text = _read(latest)
     assert "- 状态: 已完成并归档" in milestone_text
-    assert "M45" in _read(INDEX)
+    index_text = _read(INDEX)
+    assert latest_name in index_text
+    assert re.search(rf"最新里程碑.*{re.escape(latest_name)}", index_text)
 
 
 def test_documentation_index_states_current_boundaries() -> None:

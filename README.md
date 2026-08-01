@@ -6,7 +6,7 @@
 
 ## 当前验证
 
-pytest: `2734 passed, 10 skipped`；OpenSpec strict: `35/35`.
+pytest: `2739 passed, 10 skipped`；OpenSpec strict: `36/36`.
 
 完整 pytest 全绿。M28 RC 专项：`47 passed`；Golden: `20/20`；Ruff 与
 wheel/sdist build 通过。Python 3.11.15 clean-wheel harness 的 `clean-wheel`、`cli`、

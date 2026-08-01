@@ -26,6 +26,7 @@ M42_ARCHIVE = ROOT / "openspec" / "changes" / "archive" / "2026-07-31-migrate-me
 M43_MILESTONE = ROOT / "milestones" / "milestone_043.md"
 M44_MILESTONE = ROOT / "milestones" / "milestone_044.md"
 M45_MILESTONE = ROOT / "milestones" / "milestone_045.md"
+M46_MILESTONE = ROOT / "milestones" / "milestone_046.md"
 M43_VERIFY_REPORT = (
     ROOT / "docs" / "superpowers" / "reports" / "2026-07-31-executor-rewrite-baseline-verify.md"
 )
@@ -117,6 +118,8 @@ def test_review_documents_track_latest_runtime_baseline() -> None:
     assert "运行时依赖仍为 8" in process
     assert "M45" in process
     assert "基线一致性" in process
+    assert "M46" in process
+    assert "文档入口" in process
 
 
 def test_http_action_approval_binding_is_complete_but_remote_exposure_is_conditional() -> None:
@@ -145,7 +148,8 @@ def test_m33_and_receipt_purpose_are_traceable() -> None:
     assert "M43" in _read(PLAN)
     assert "M44" in _read(PLAN)
     assert "M45" in _read(PLAN)
-    assert _read(LATEST).strip() == "milestone_045.md"
+    assert "M46" in _read(PLAN)
+    assert _read(LATEST).strip() == "milestone_046.md"
     assert "Purpose: TBD" not in _read(RECEIPT_SPEC)
     assert "durable, bounded" in _read(RECEIPT_SPEC)
     assert "Purpose: TBD" not in _read(BORROWING_SPEC)
@@ -165,6 +169,8 @@ def test_m33_and_receipt_purpose_are_traceable() -> None:
     assert "M42 无未完成任务" in _read(M42_MILESTONE)
     assert "M44 无未完成任务" in _read(M44_MILESTONE)
     assert "M45 范围内无未完成任务" in _read(M45_MILESTONE)
+    assert "M46" in _read(M46_MILESTONE)
+    assert "文档入口" in _read(M46_MILESTONE)
 
 
 def test_m43_rewrite_baseline_completion_is_traceable() -> None:

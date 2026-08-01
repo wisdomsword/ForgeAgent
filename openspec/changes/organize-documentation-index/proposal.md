@@ -23,6 +23,6 @@ ForgeAgent 的文档已经覆盖计划、里程碑证据、治理规则、运行
 
 ## 影响
 
-- 影响文件：`docs/README.md`、根文档入口、`tests/`、`ACTION_PLAN.md` 和新的里程碑记录。
+- 影响文件：`docs/README.md`、`docs/platform-support.md` 的当前汇总、根文档入口、`tests/`、`ACTION_PLAN.md` 和新的里程碑记录。
 - 不修改生产 Python 代码、公开 API、依赖、网络、凭据或发布行为。
 - 历史工件保持原路径和原有证据语义。
