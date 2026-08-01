@@ -1,6 +1,6 @@
 # M47 验证报告：客户端生命周期与输入契约
 
-- 状态：验证命令已通过，等待 Comet 守卫推进归档
+- 状态：验证命令已通过，Comet 已推进至 archive
 - 日期：2026-08-02（Asia/Shanghai）
 - 变更：`harden-client-lifecycle-and-input-contracts`
 - 基线提交：`599909d2849eb611f5310f78e5dadfb3fa4e4365`
