@@ -12,8 +12,10 @@ lazy SDK import inside the default transport, duck-typed response parsing.
 
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Callable, Iterable, Iterator
+from threading import Lock
 from typing import Any
 
 from .client import AttemptObserver, ModelClient, ProviderAttempt
@@ -31,6 +33,8 @@ from .models import (
 from .transport_errors import TransportError, classify_transport_exception, run_with_retries
 
 __all__ = ["OpenAICompatibleClient"]
+
+_logger = logging.getLogger(__name__)
 
 # request dict + timeout -> raw response object (duck-typed: .choices[0].message/.usage)
 Transport = Callable[[dict, float], Any]
@@ -99,6 +103,7 @@ class OpenAICompatibleClient(ModelClient):
         self._backoff_factor = backoff_factor
         self._base_url = base_url
         self._sdk_client: Any | None = None
+        self._sdk_lock = Lock()
         self._closed = False
         self._transport = transport or self._make_sdk_transport()
         self._stream_transport = stream_transport or self._make_sdk_stream_transport()
@@ -110,15 +115,31 @@ class OpenAICompatibleClient(ModelClient):
         return self._capability
 
     def close(self) -> None:
-        if self._closed:
-            return
-        self._closed = True
-        client = self._sdk_client
-        self._sdk_client = None
+        with self._sdk_lock:
+            if self._closed:
+                return
+            self._closed = True
+            client = self._sdk_client
+            self._sdk_client = None
         if client is not None:
             close = getattr(client, "close", None)
             if callable(close):
-                close()
+                try:
+                    close()
+                except Exception:  # noqa: BLE001 - cleanup must not mask task result
+                    _logger.warning("provider_sdk_close_failed provider=openai_compatible")
+
+    def _sdk_client_for_request(self) -> Any:
+        with self._sdk_lock:
+            if self._closed:
+                raise TransportError("invalid_request", False, "model client is closed")
+            client = self._sdk_client
+            if client is None:
+                import openai
+
+                client = openai.OpenAI(api_key=self._api_key, base_url=self._base_url)
+                self._sdk_client = client
+            return client
 
     def build_request(self, messages: list[Message], params: GenerationParams) -> dict:
         """Translate intent to a Chat Completions request dict via capability-gating.
@@ -155,6 +176,8 @@ class OpenAICompatibleClient(ModelClient):
     def complete(
         self, messages: list[Message], params: GenerationParams | None = None
     ) -> AssistantMessage | ClientError:
+        if self._closed:
+            return ClientError(message="model client is closed", kind="invalid_request", attempts=1)
         if _contains_image(messages) and not self._capability.supports_images:
             return ClientError(
                 message=(f"model {self._capability.model_id!r} does not support image input"),
@@ -186,6 +209,9 @@ class OpenAICompatibleClient(ModelClient):
         argument fragments as text would corrupt the transcript. Same mid-stream-no-
         retry contract as AnthropicClient.stream() (docs/m9 §3.1).
         """
+        if self._closed:
+            yield ClientError(message="model client is closed", kind="invalid_request", attempts=1)
+            return
         if _contains_image(messages) and not self._capability.supports_images:
             yield ClientError(
                 message=(f"model {self._capability.model_id!r} does not support image input"),
@@ -314,12 +340,7 @@ class OpenAICompatibleClient(ModelClient):
         """
 
         def transport(request: dict, timeout_seconds: float) -> Any:
-            import openai
-
-            client = self._sdk_client
-            if client is None:
-                client = openai.OpenAI(api_key=self._api_key, base_url=self._base_url)
-                self._sdk_client = client
+            client = self._sdk_client_for_request()
             try:
                 return client.chat.completions.create(timeout=timeout_seconds, **request)
             except Exception as exc:  # noqa: BLE001 - classified then re-raised
@@ -337,12 +358,7 @@ class OpenAICompatibleClient(ModelClient):
         """
 
         def stream_transport(request: dict, timeout_seconds: float) -> Iterable[Any]:
-            import openai
-
-            client = self._sdk_client
-            if client is None:
-                client = openai.OpenAI(api_key=self._api_key, base_url=self._base_url)
-                self._sdk_client = client
+            client = self._sdk_client_for_request()
             try:
                 return client.chat.completions.create(
                     timeout=timeout_seconds, stream=True, **request

@@ -4,8 +4,8 @@ All tests use an injected transport (no real key, no network). Capability-gating
 response parsing are pure, so they are asserted directly on build_request / _parse_response.
 """
 
-from types import SimpleNamespace
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -336,6 +336,69 @@ def test_default_sdk_transport_reuses_one_client_for_complete_and_stream(monkeyp
     assert calls == {"construct": 1, "close": 1, "complete": 1, "stream": 1}
 
 
+def test_closed_default_sdk_client_rejects_requests_without_reopening(monkeypatch):
+    calls = {"construct": 0, "close": 0, "request": 0}
+
+    class FakeSDK:
+        def __init__(self, **kwargs):
+            calls["construct"] += 1
+            self.messages = self
+
+        def close(self):
+            calls["close"] += 1
+
+        def create(self, **kwargs):
+            calls["request"] += 1
+            return _fake_reply()
+
+    monkeypatch.setitem(sys.modules, "anthropic", SimpleNamespace(Anthropic=FakeSDK))
+    monkeypatch.setattr(
+        "forgeagent.anthropic_client.resolve_effective_model_id",
+        lambda model_id, **kwargs: model_id,
+    )
+    client = AnthropicClient(capability=get_capability("claude-sonnet-5"), api_key="test-key")
+    assert not isinstance(client.complete(_user()), ClientError)
+    client.close()
+
+    result = client.complete(_user())
+    stream_result = list(client.stream(_user()))
+
+    assert isinstance(result, ClientError)
+    assert result.kind == "invalid_request"
+    assert stream_result and isinstance(stream_result[0], ClientError)
+    assert calls == {"construct": 1, "close": 1, "request": 1}
+
+
+def test_sdk_close_failure_is_swallowed_and_does_not_leak_exception(monkeypatch, caplog):
+    class FakeSDK:
+        def __init__(self, **kwargs):
+            self.messages = self
+
+        def close(self):
+            raise RuntimeError("secret-key-must-not-appear")
+
+        def create(self, **kwargs):
+            return _fake_reply()
+
+    monkeypatch.setitem(sys.modules, "anthropic", SimpleNamespace(Anthropic=FakeSDK))
+    monkeypatch.setattr(
+        "forgeagent.anthropic_client.resolve_effective_model_id",
+        lambda model_id, **kwargs: model_id,
+    )
+    client = AnthropicClient(capability=get_capability("claude-sonnet-5"), api_key="test-key")
+    client.complete(_user())
+
+    with caplog.at_level("WARNING"):
+        client.close()
+
+    assert "secret-key-must-not-appear" not in caplog.text
+    client.close()
+
+
 def test_injected_transports_are_not_closed():
-    client = _client("claude-sonnet-5", transport=lambda req, timeout: _fake_reply(), stream_transport=lambda req, timeout: [])
+    client = _client(
+        "claude-sonnet-5",
+        transport=lambda req, timeout: _fake_reply(),
+        stream_transport=lambda req, timeout: [],
+    )
     client.close()

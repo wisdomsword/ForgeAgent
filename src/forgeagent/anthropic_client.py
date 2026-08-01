@@ -10,8 +10,10 @@ Each client translates GenerationParams intent per its own `capability`.
 
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Callable, Iterable, Iterator
+from threading import Lock
 from typing import Any
 
 from .client import AttemptObserver, ModelClient, ProviderAttempt
@@ -34,6 +36,8 @@ __all__ = [
     "TransportError",
     "classify_transport_exception",
 ]
+
+_logger = logging.getLogger(__name__)
 
 # request dict + timeout -> raw response object (duck-typed: .content/.stop_reason/.usage)
 Transport = Callable[[dict, float], Any]
@@ -119,6 +123,7 @@ class AnthropicClient(ModelClient):
         self._backoff_factor = backoff_factor
         self._base_url = base_url
         self._sdk_client: Any | None = None
+        self._sdk_lock = Lock()
         self._closed = False
         self._transport = transport or self._make_sdk_transport()
         self._stream_transport = stream_transport or self._make_sdk_stream_transport()
@@ -130,15 +135,31 @@ class AnthropicClient(ModelClient):
         return self._capability
 
     def close(self) -> None:
-        if self._closed:
-            return
-        self._closed = True
-        client = self._sdk_client
-        self._sdk_client = None
+        with self._sdk_lock:
+            if self._closed:
+                return
+            self._closed = True
+            client = self._sdk_client
+            self._sdk_client = None
         if client is not None:
             close = getattr(client, "close", None)
             if callable(close):
-                close()
+                try:
+                    close()
+                except Exception:  # noqa: BLE001 - cleanup must not mask task result
+                    _logger.warning("provider_sdk_close_failed provider=anthropic")
+
+    def _sdk_client_for_request(self) -> Any:
+        with self._sdk_lock:
+            if self._closed:
+                raise TransportError("invalid_request", False, "model client is closed")
+            client = self._sdk_client
+            if client is None:
+                import anthropic
+
+                client = anthropic.Anthropic(api_key=self._api_key, base_url=self._base_url)
+                self._sdk_client = client
+            return client
 
     def build_request(self, messages: list[Message], params: GenerationParams) -> dict:
         """Translate intent to an Anthropic request dict via capability-gating.
@@ -176,6 +197,8 @@ class AnthropicClient(ModelClient):
     def complete(
         self, messages: list[Message], params: GenerationParams | None = None
     ) -> AssistantMessage | ClientError:
+        if self._closed:
+            return ClientError(message="model client is closed", kind="invalid_request", attempts=1)
         if _contains_image(messages) and not self._capability.supports_images:
             return ClientError(
                 message=(f"model {self._capability.model_id!r} does not support image input"),
@@ -207,6 +230,9 @@ class AnthropicClient(ModelClient):
         single ClientError ends the iteration, so truncated protocol markup never
         reaches the parser.
         """
+        if self._closed:
+            yield ClientError(message="model client is closed", kind="invalid_request", attempts=1)
+            return
         if _contains_image(messages) and not self._capability.supports_images:
             yield ClientError(
                 message=(f"model {self._capability.model_id!r} does not support image input"),
@@ -316,16 +342,11 @@ class AnthropicClient(ModelClient):
 
         def transport(request: dict, timeout_seconds: float) -> Any:
             nonlocal resolved_model_id
-            import anthropic
-
             if resolved_model_id is None:
                 resolved_model_id = resolve_effective_model_id(
                     request["model"], base_url=self._base_url, api_key=self._api_key
                 )
-            client = self._sdk_client
-            if client is None:
-                client = anthropic.Anthropic(api_key=self._api_key, base_url=self._base_url)
-                self._sdk_client = client
+            client = self._sdk_client_for_request()
             try:
                 return client.messages.create(
                     timeout=timeout_seconds, **{**request, "model": resolved_model_id}
@@ -348,16 +369,11 @@ class AnthropicClient(ModelClient):
 
         def stream_transport(request: dict, timeout_seconds: float) -> Iterable[Any]:
             nonlocal resolved_model_id
-            import anthropic
-
             if resolved_model_id is None:
                 resolved_model_id = resolve_effective_model_id(
                     request["model"], base_url=self._base_url, api_key=self._api_key
                 )
-            client = self._sdk_client
-            if client is None:
-                client = anthropic.Anthropic(api_key=self._api_key, base_url=self._base_url)
-                self._sdk_client = client
+            client = self._sdk_client_for_request()
             try:
                 return client.messages.create(
                     timeout=timeout_seconds,

@@ -73,6 +73,7 @@ class ModelClient(ABC):
         The base implementation is intentionally a no-op so lightweight test
         doubles and clients backed by injected transports need no lifecycle code.
         """
+        return None
 
     def set_attempt_observer(self, observer: AttemptObserver | None) -> AttemptObserver | None:
         previous = getattr(self, "_attempt_observer", None)

@@ -6,6 +6,7 @@ import threading
 from forgeagent.audit import AuditEvent
 from forgeagent.client import MockClient
 from forgeagent.context import ContextConfig
+from forgeagent.executor import ExecResult, ExecutorBackend
 from forgeagent.external_actions import ExternalActionReceiptStore
 from forgeagent.identity import ApprovedIdentity
 from forgeagent.memory import MemoryManager
@@ -94,9 +95,21 @@ def test_task_close_does_not_close_injected_client():
         def close(self):
             self.closed += 1
 
+    class RecordingBackend(ExecutorBackend):
+        def __init__(self):
+            self.closed = 0
+
+        def execute(self, code, runtime):
+            return ExecResult(success=True)
+
+        def close(self):
+            self.closed += 1
+
     client = RecordingClient()
-    task = Task(client)
+    backend = RecordingBackend()
+    task = Task(client, backend=backend)
     task.close()
+    assert backend.closed == 1
     assert client.closed == 0
 
 
