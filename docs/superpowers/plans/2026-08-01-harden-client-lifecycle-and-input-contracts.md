@@ -1,3 +1,9 @@
+---
+change: harden-client-lifecycle-and-input-contracts
+design-doc: docs/superpowers/specs/2026-08-01-harden-client-lifecycle-and-input-contracts-design.md
+base-ref: 599909d2849eb611f5310f78e5dadfb3fa4e4365
+---
+
 # Harden Client Lifecycle and Input Contracts Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox syntax for tracking.
