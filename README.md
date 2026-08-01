@@ -2,11 +2,11 @@
 
 轻量级 code-as-action Agent：LLM 把任务目标写成 Python 程序，通过执行程序完成任务。协议是纯文本 Markdown + HTML 注释标记，不依赖厂商 function-calling API，天然模型无关。
 
-设计文档见 [`docs/`](docs/)，行动计划见 [`ACTION_PLAN.md`](ACTION_PLAN.md)，最高宪法见 [`spec.md`](spec.md)。
+文档总入口见 [`docs/README.md`](docs/README.md)；行动计划见 [`ACTION_PLAN.md`](ACTION_PLAN.md)，最高宪法见 [`spec.md`](spec.md)。
 
 ## 当前验证
 
-pytest: `2410 passed, 10 skipped`；OpenSpec strict: `23/23`.
+pytest: `2734 passed, 10 skipped`；OpenSpec strict: `35/35`.
 
 完整 pytest 全绿。M28 RC 专项：`47 passed`；Golden: `20/20`；Ruff 与
 wheel/sdist build 通过。Python 3.11.15 clean-wheel harness 的 `clean-wheel`、`cli`、
