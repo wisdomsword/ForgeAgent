@@ -4,17 +4,17 @@
 - 起止: 2026-08-01 ~ 2026-08-01
 - 对应 ACTION_PLAN 行: M46（见该文件 §四里程碑表）
 - 前置里程碑: [milestone_045](milestone_045.md)
-- OpenSpec change: [organize-documentation-index](../openspec/changes/organize-documentation-index/)
+- OpenSpec change: [organize-documentation-index](../openspec/changes/archive/2026-08-01-organize-documentation-index/)
 
 ## 目标与范围
 
-建立一个可维护的文档入口，归纳当前权威契约、开发流程、里程碑证据、评审治理、运行时参考和历史资料；用离线测试固定本地链接、`milestones/latest`、当前 M45 完成状态及发布/外部 HTTP 边界。历史文档只分类和链接，不整体搬迁、删除或改写；不改变运行时、CLI、HTTP、Memory、Rewrite、依赖或发布行为。
+建立一个可维护的文档入口，归纳当前权威契约、开发流程、里程碑证据、评审治理、运行时参考和历史资料；用离线测试固定本地链接、`milestones/latest`、当前 latest 完成状态及发布/外部 HTTP 边界。历史文档只分类和链接，不整体搬迁、删除或改写；不改变运行时、CLI、HTTP、Memory、Rewrite、依赖或发布行为。
 
 ## 方案设计
 
 - `docs/README.md` 是导航入口，不复制第二份路线图；当前状态仍以 `spec.md`、`ACTION_PLAN.md` 和 `milestones/latest` 为准。
 - 索引测试只解析自身的本地 Markdown 链接和选定当前指针，不遍历所有历史资料、不联网、不读取凭据、不执行发布命令。
-- M45 当前基线同步到 `docs/platform-support.md` 的单一汇总行；历史平台运行段落保持原始证据和限制。
+- M46 当前基线同步到 `docs/platform-support.md` 的单一汇总行；历史平台运行段落保持原始证据和限制。
 - Memory、Rewrite/Dependency 和 HTTP 仍分别是条件触发、`keep_python`、`loopback-only`；PyPI、正式 tag 和发布自动化仍不在当前路线图。
 
 ## 子任务清单
