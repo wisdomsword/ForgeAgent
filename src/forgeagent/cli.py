@@ -542,10 +542,22 @@ def run_once(
     console = console or Console()
     usage_total = usage_total if usage_total is not None else TokenUsage()
     client = client_factory(model)
+    client_closed = False
+
+    def close_client() -> None:
+        nonlocal client_closed
+        if client_closed:
+            return
+        client_closed = True
+        close = getattr(client, "close", None)
+        if callable(close):
+            close()
+
     resolved_context_config = context_config or ContextConfig()
     try:
         _validate_client_context_policy(client, resolved_context_config)
     except ValueError as exc:
+        close_client()
         raise RegistryError(f"Invalid context configuration: {exc}") from exc
     live: Live | None = None
     on_stream_text = None
@@ -566,6 +578,7 @@ def run_once(
             skills=skills,
         )
     except ValueError as exc:
+        close_client()
         raise RegistryError(f"Invalid context configuration: {exc}") from exc
     try:
         if live is not None:
@@ -574,7 +587,10 @@ def run_once(
         else:
             outcome = task.run(goal, images=images)
     finally:
-        task.close()
+        try:
+            task.close()
+        finally:
+            close_client()
     render_outcome(outcome, console)
     _accumulate_usage(usage_total, outcome.rounds)
     _print_usage(usage_total, console)
@@ -1327,13 +1343,22 @@ def run_smoke(
     all_ok = True
     for model in models:
         client = client_factory(model)
-        console.print(f"[bold]smoke[/bold] model={model} tier={tier}")
-        for goal in SMOKE_GOALS:
-            outcome = Task(client, tier=tier).run(goal)
-            ok = outcome.status.solved
-            all_ok = all_ok and ok
-            marker = "[green]PASS[/green]" if ok else f"[red]FAIL[/red] ({outcome.status.reason})"
-            console.print(f"  {marker}  {goal}")
+        try:
+            console.print(f"[bold]smoke[/bold] model={model} tier={tier}")
+            for goal in SMOKE_GOALS:
+                task = Task(client, tier=tier)
+                try:
+                    outcome = task.run(goal)
+                finally:
+                    task.close()
+                ok = outcome.status.solved
+                all_ok = all_ok and ok
+                marker = "[green]PASS[/green]" if ok else f"[red]FAIL[/red] ({outcome.status.reason})"
+                console.print(f"  {marker}  {goal}")
+        finally:
+            close = getattr(client, "close", None)
+            if callable(close):
+                close()
     console.print("[green]smoke: all passed[/green]" if all_ok else "[red]smoke: failures[/red]")
     return all_ok
 

@@ -1069,6 +1069,76 @@ def test_run_once_completes(monkeypatch):
     assert "completed" in console.export_text()
 
 
+def test_run_once_closes_client_after_task_success(monkeypatch):
+    events: list[str] = []
+
+    class CloseTrackingClient(MockClient):
+        def __init__(self):
+            super().__init__(script=[])
+            self.close_calls = 0
+
+        def close(self):
+            self.close_calls += 1
+            events.append("client.close")
+
+    client = CloseTrackingClient()
+
+    class FakeTask:
+        def __init__(self, model_client, **kwargs):
+            assert model_client is client
+            del kwargs
+
+        def run(self, goal, *, images=None):
+            del goal, images
+            return TaskOutcome(
+                status=TaskStatus(completed=True, reason=Termination.COMPLETED), rounds=[]
+            )
+
+        def close(self):
+            events.append("task.close")
+
+    monkeypatch.setattr(cli_module, "Task", FakeTask)
+
+    run_once(
+        "goal",
+        tier="trusted",
+        model="mock",
+        client_factory=lambda _model: client,
+        console=_console(),
+    )
+
+    assert events == ["task.close", "client.close"]
+    assert client.close_calls == 1
+
+
+def test_run_once_closes_client_when_context_preflight_fails(monkeypatch):
+    class CloseTrackingClient(MockClient):
+        def __init__(self):
+            super().__init__(script=[])
+            self.close_calls = 0
+
+        def close(self):
+            self.close_calls += 1
+
+    client = CloseTrackingClient()
+    monkeypatch.setattr(
+        cli_module,
+        "_validate_client_context_policy",
+        lambda *_args: (_ for _ in ()).throw(ValueError("invalid context")),
+    )
+
+    with pytest.raises(RegistryError, match="Invalid context configuration"):
+        run_once(
+            "goal",
+            tier="trusted",
+            model="mock",
+            client_factory=lambda _model: client,
+            console=_console(),
+        )
+
+    assert client.close_calls == 1
+
+
 def test_run_once_threads_supplied_skill_snapshot_to_task(monkeypatch):
     import forgeagent.cli as cli_module
 
@@ -3506,6 +3576,49 @@ def test_smoke_all_pass_with_mock():
     assert "all passed" in console.export_text()
 
 
+def test_smoke_closes_task_before_model_client(monkeypatch):
+    from forgeagent.cli import run_smoke
+
+    events: list[str] = []
+
+    class CloseTrackingClient(MockClient):
+        def __init__(self):
+            super().__init__(script=[])
+            self.close_calls = 0
+
+        def close(self):
+            self.close_calls += 1
+            events.append("client.close")
+
+    client = CloseTrackingClient()
+
+    class FakeTask:
+        def __init__(self, model_client, **kwargs):
+            assert model_client is client
+            del kwargs
+
+        def run(self, goal):
+            del goal
+            return TaskOutcome(
+                status=TaskStatus(completed=True, reason=Termination.COMPLETED), rounds=[]
+            )
+
+        def close(self):
+            events.append("task.close")
+
+    monkeypatch.setattr(cli_module, "Task", FakeTask)
+
+    assert run_smoke(
+        tier="trusted",
+        models=["mock"],
+        client_factory=lambda _model: client,
+        console=_console(),
+    )
+
+    assert events == ["task.close", "task.close", "client.close"]
+    assert client.close_calls == 1
+
+
 def test_smoke_reports_failure_when_not_completed():
     from forgeagent.cli import SMOKE_GOALS, run_smoke
 
@@ -3665,6 +3778,29 @@ def test_evaluate_fails_before_artifact_read_when_model_is_unusable(monkeypatch,
     assert "secret provider detail" not in captured.err
 
 
+def test_evaluate_closes_client_when_manifest_preflight_fails(monkeypatch, tmp_path, capsys):
+    class CloseTrackingClient(MockClient):
+        def __init__(self):
+            super().__init__(script=[])
+            self.close_calls = 0
+
+        def close(self):
+            self.close_calls += 1
+
+    client = CloseTrackingClient()
+    monkeypatch.setattr(
+        cli_module,
+        "validate_artifact_manifest",
+        lambda *_args: (_ for _ in ()).throw(ValueError("bad manifest")),
+    )
+
+    code = main(_evaluate_argv(tmp_path), client_factory=lambda _model: client)
+
+    assert code == 2
+    assert "evaluation preflight failed" in capsys.readouterr().err
+    assert client.close_calls == 1
+
+
 def test_evaluate_constructs_only_declared_isolated_request(monkeypatch, tmp_path, capsys):
     (tmp_path / "result.txt").write_text("ok", encoding="utf-8")
     captured_request: EvaluationRequest | None = None
@@ -3767,6 +3903,39 @@ def test_evaluate_persistence_failure_returns_two_without_claiming_pass(
     assert "evaluation persistence failed" in captured.err
     assert "private path" not in captured.err
     assert "passed" not in captured.out
+
+
+def test_evaluate_closes_client_when_persistence_fails(monkeypatch, tmp_path, capsys):
+    (tmp_path / "result.txt").write_text("ok", encoding="utf-8")
+
+    class CloseTrackingClient(MockClient):
+        def __init__(self):
+            super().__init__(script=[])
+            self.close_calls = 0
+
+        def close(self):
+            self.close_calls += 1
+
+    client = CloseTrackingClient()
+    monkeypatch.setattr(
+        cli_module,
+        "run_evaluator",
+        lambda client, request: EvaluatorResult("passed", (), ()),
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "append_trend",
+        lambda *args, **kwargs: (_ for _ in ()).throw(OSError("private path")),
+    )
+
+    code = main(
+        _evaluate_argv(tmp_path, "--record-dir", str(tmp_path / "records")),
+        client_factory=lambda _model: client,
+    )
+
+    assert code == 2
+    assert "evaluation persistence failed" in capsys.readouterr().err
+    assert client.close_calls == 1
 
 
 def test_evaluate_rejects_relative_record_directory_before_model_call(monkeypatch, tmp_path):

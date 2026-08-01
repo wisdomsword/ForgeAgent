@@ -452,25 +452,31 @@ def serve_http(
                 def build_loop_task(iteration, remaining_rounds, suffix, registry):
                     del iteration
                     client = task_client_factory(settings.model)
-                    task = bindings.task_type(
-                        client,
-                        tier=settings.tier,
-                        allowed_root=settings.allowed_root,
-                        system_prompt=bindings.loop_system_prompt(identity, memory_manager, suffix),
-                        max_rounds=remaining_rounds,
-                        mcp=mcp,
-                        confirmer=headless_confirmer,
-                        allow_auto_approve=False,
-                        container_image=settings.container_image,
-                        audit_sink=audit_sink,
-                        task_id=record.task_id,
-                        context_config=settings.service.context_config,
-                        memory_manager=memory_manager,
-                        skills=skills,
-                        tool_registry=registry,
-                        receipt_store=receipt_store,
-                        max_submission_recovery_attempts=2,
-                    )
+                    try:
+                        task = bindings.task_type(
+                            client,
+                            tier=settings.tier,
+                            allowed_root=settings.allowed_root,
+                            system_prompt=bindings.loop_system_prompt(identity, memory_manager, suffix),
+                            max_rounds=remaining_rounds,
+                            mcp=mcp,
+                            confirmer=headless_confirmer,
+                            allow_auto_approve=False,
+                            container_image=settings.container_image,
+                            audit_sink=audit_sink,
+                            task_id=record.task_id,
+                            context_config=settings.service.context_config,
+                            memory_manager=memory_manager,
+                            skills=skills,
+                            tool_registry=registry,
+                            receipt_store=receipt_store,
+                            max_submission_recovery_attempts=2,
+                        )
+                    except BaseException:
+                        close = getattr(client, "close", None)
+                        if callable(close):
+                            close()
+                        raise
 
                     class OwnedLoopTask:
                         def run(self, goal, *, cancel_event=None):
@@ -744,22 +750,29 @@ def serve_http(
                     task_id=record.task_id,
                     receipt_store=receipt_store,
                 )
-            return bindings.task_type(
-                task_client_factory(settings.model),
-                tier=settings.tier,
-                allowed_root=settings.allowed_root,
-                identity=identity,
-                mcp=mcp,
-                confirmer=headless_confirmer,
-                allow_auto_approve=False,
-                container_image=settings.container_image,
-                audit_sink=audit_sink,
-                task_id=record.task_id,
-                context_config=settings.service.context_config,
-                memory_manager=memory_manager,
-                skills=skills,
-                receipt_store=receipt_store,
-            )
+            client = task_client_factory(settings.model)
+            try:
+                return bindings.task_type(
+                    client,
+                    tier=settings.tier,
+                    allowed_root=settings.allowed_root,
+                    identity=identity,
+                    mcp=mcp,
+                    confirmer=headless_confirmer,
+                    allow_auto_approve=False,
+                    container_image=settings.container_image,
+                    audit_sink=audit_sink,
+                    task_id=record.task_id,
+                    context_config=settings.service.context_config,
+                    memory_manager=memory_manager,
+                    skills=skills,
+                    receipt_store=receipt_store,
+                )
+            except BaseException:
+                close = getattr(client, "close", None)
+                if callable(close):
+                    close()
+                raise
 
         service = bindings.task_service_type(
             factory=task_factory,

@@ -276,31 +276,36 @@ def run_evaluate_command(
     from .evaluator import EvaluationRequest, EvaluatorPreflightError
 
     try:
-        artifact_root = Path(args.artifact_root)
-        artifacts = validate_manifest(artifact_root, args.artifacts)
-        record = make_record(args.golden_report, args.audit_jsonl)
-        record_dir = Path(args.record_dir) if args.record_dir is not None else None
-        if record_dir is not None and not record_dir.is_absolute():
-            raise ValueError("record directory must be absolute")
-    except (EvaluatorPreflightError, OSError, UnicodeError, ValueError, json.JSONDecodeError):
-        error_console.print("[red]evaluation preflight failed[/red]")
-        return 2
-
-    request = EvaluationRequest(
-        task_description=args.task_description,
-        expected_behavior=args.expected_behavior,
-        artifact_root=artifact_root,
-        artifacts=artifacts,
-    )
-    result = evaluate(client, request)
-    trend = None
-    if record_dir is not None:
         try:
-            record_dir.mkdir(parents=True, exist_ok=True)
-            trend = append_record(record_dir, record)
-        except (OSError, ValueError):
-            error_console.print("[red]evaluation persistence failed[/red]")
+            artifact_root = Path(args.artifact_root)
+            artifacts = validate_manifest(artifact_root, args.artifacts)
+            record = make_record(args.golden_report, args.audit_jsonl)
+            record_dir = Path(args.record_dir) if args.record_dir is not None else None
+            if record_dir is not None and not record_dir.is_absolute():
+                raise ValueError("record directory must be absolute")
+        except (EvaluatorPreflightError, OSError, UnicodeError, ValueError, json.JSONDecodeError):
+            error_console.print("[red]evaluation preflight failed[/red]")
             return 2
 
-    render_evaluation(console, result, record, trend, args.artifacts)
-    return 0 if result.status == "passed" else 1
+        request = EvaluationRequest(
+            task_description=args.task_description,
+            expected_behavior=args.expected_behavior,
+            artifact_root=artifact_root,
+            artifacts=artifacts,
+        )
+        result = evaluate(client, request)
+        trend = None
+        if record_dir is not None:
+            try:
+                record_dir.mkdir(parents=True, exist_ok=True)
+                trend = append_record(record_dir, record)
+            except (OSError, ValueError):
+                error_console.print("[red]evaluation persistence failed[/red]")
+                return 2
+
+        render_evaluation(console, result, record, trend, args.artifacts)
+        return 0 if result.status == "passed" else 1
+    finally:
+        close = getattr(client, "close", None)
+        if callable(close):
+            close()
