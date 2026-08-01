@@ -85,6 +85,21 @@ def test_task_completes_normally():
     assert outcome.status.reason == "completed"
 
 
+def test_task_close_does_not_close_injected_client():
+    class RecordingClient(MockClient):
+        def __init__(self):
+            super().__init__(script=[])
+            self.closed = 0
+
+        def close(self):
+            self.closed += 1
+
+    client = RecordingClient()
+    task = Task(client)
+    task.close()
+    assert client.closed == 0
+
+
 def test_task_emits_bounded_terminal_outcome_for_evaluation():
     sink = _RecordingAuditSink()
 

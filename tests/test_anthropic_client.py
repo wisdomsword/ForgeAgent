@@ -5,6 +5,7 @@ response parsing are pure, so they are asserted directly on build_request / _par
 """
 
 from types import SimpleNamespace
+import sys
 
 import pytest
 
@@ -286,3 +287,55 @@ def test_complete_happy_path_across_models(model_id):
     result = _client(model_id).complete(_user())
     assert not isinstance(result, ClientError)
     assert result.content == "ok"
+
+
+def test_default_sdk_transport_reuses_one_client_for_complete_and_stream(monkeypatch):
+    calls = {"construct": 0, "close": 0, "complete": 0, "stream": 0}
+
+    class FakeSDK:
+        def __init__(self, **kwargs):
+            calls["construct"] += 1
+            self.messages = self
+
+        def close(self):
+            calls["close"] += 1
+
+        def create(self, *, stream=False, **kwargs):
+            if stream:
+                calls["stream"] += 1
+                return [
+                    SimpleNamespace(type="message_start", message=SimpleNamespace(usage=None)),
+                    SimpleNamespace(
+                        type="content_block_delta",
+                        delta=SimpleNamespace(type="text_delta", text="stream"),
+                    ),
+                    SimpleNamespace(
+                        type="message_delta",
+                        delta=SimpleNamespace(stop_reason="end_turn"),
+                        usage=SimpleNamespace(input_tokens=1, output_tokens=1),
+                    ),
+                    SimpleNamespace(type="message_stop"),
+                ]
+            calls["complete"] += 1
+            return _fake_reply(text="complete")
+
+    monkeypatch.setitem(sys.modules, "anthropic", SimpleNamespace(Anthropic=FakeSDK))
+    monkeypatch.setattr(
+        "forgeagent.anthropic_client.resolve_effective_model_id",
+        lambda model_id, **kwargs: model_id,
+    )
+    client = AnthropicClient(capability=get_capability("claude-sonnet-5"), api_key="test-key")
+
+    result = client.complete(_user())
+    events = list(client.stream(_user()))
+    client.close()
+    client.close()
+
+    assert result.content == "complete"
+    assert events[-1].message.content == "stream"
+    assert calls == {"construct": 1, "close": 1, "complete": 1, "stream": 1}
+
+
+def test_injected_transports_are_not_closed():
+    client = _client("claude-sonnet-5", transport=lambda req, timeout: _fake_reply(), stream_transport=lambda req, timeout: [])
+    client.close()

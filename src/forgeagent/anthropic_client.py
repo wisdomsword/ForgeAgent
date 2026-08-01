@@ -118,6 +118,8 @@ class AnthropicClient(ModelClient):
         self._backoff_base = backoff_base_seconds
         self._backoff_factor = backoff_factor
         self._base_url = base_url
+        self._sdk_client: Any | None = None
+        self._closed = False
         self._transport = transport or self._make_sdk_transport()
         self._stream_transport = stream_transport or self._make_sdk_stream_transport()
         self._sleep = sleep
@@ -126,6 +128,17 @@ class AnthropicClient(ModelClient):
     @property
     def capability(self) -> ModelCapability:
         return self._capability
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        client = self._sdk_client
+        self._sdk_client = None
+        if client is not None:
+            close = getattr(client, "close", None)
+            if callable(close):
+                close()
 
     def build_request(self, messages: list[Message], params: GenerationParams) -> dict:
         """Translate intent to an Anthropic request dict via capability-gating.
@@ -309,7 +322,10 @@ class AnthropicClient(ModelClient):
                 resolved_model_id = resolve_effective_model_id(
                     request["model"], base_url=self._base_url, api_key=self._api_key
                 )
-            client = anthropic.Anthropic(api_key=self._api_key, base_url=self._base_url)
+            client = self._sdk_client
+            if client is None:
+                client = anthropic.Anthropic(api_key=self._api_key, base_url=self._base_url)
+                self._sdk_client = client
             try:
                 return client.messages.create(
                     timeout=timeout_seconds, **{**request, "model": resolved_model_id}
@@ -338,7 +354,10 @@ class AnthropicClient(ModelClient):
                 resolved_model_id = resolve_effective_model_id(
                     request["model"], base_url=self._base_url, api_key=self._api_key
                 )
-            client = anthropic.Anthropic(api_key=self._api_key, base_url=self._base_url)
+            client = self._sdk_client
+            if client is None:
+                client = anthropic.Anthropic(api_key=self._api_key, base_url=self._base_url)
+                self._sdk_client = client
             try:
                 return client.messages.create(
                     timeout=timeout_seconds,

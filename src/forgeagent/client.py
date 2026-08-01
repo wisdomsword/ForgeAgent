@@ -67,6 +67,13 @@ class ModelClient(ABC):
         yield StreamEvent(kind=StreamEventKind.TEXT_DELTA, text=result.content)
         yield StreamEvent(kind=StreamEventKind.DONE, message=result)
 
+    def close(self) -> None:
+        """Release provider resources owned by this client.
+
+        The base implementation is intentionally a no-op so lightweight test
+        doubles and clients backed by injected transports need no lifecycle code.
+        """
+
     def set_attempt_observer(self, observer: AttemptObserver | None) -> AttemptObserver | None:
         previous = getattr(self, "_attempt_observer", None)
         self._attempt_observer = observer

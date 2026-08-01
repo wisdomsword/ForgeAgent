@@ -7,6 +7,8 @@ so they are asserted directly on build_request / _parse_response.
 
 from types import SimpleNamespace
 
+import pytest
+
 from forgeagent.model_registry import get_capability
 from forgeagent.models import ClientError, GenerationParams, Message, Role
 from forgeagent.openai_compatible_client import OpenAICompatibleClient, _parse_response
@@ -252,3 +254,59 @@ def test_complete_happy_path_across_models():
         result = _client(model_id).complete(_user())
         assert not isinstance(result, ClientError)
         assert result.content == "ok"
+
+
+def test_default_sdk_transport_reuses_one_client_for_complete_and_stream(monkeypatch):
+    calls = {"construct": 0, "close": 0, "complete": 0, "stream": 0}
+
+    class FakeSDK:
+        def __init__(self, **kwargs):
+            calls["construct"] += 1
+            self.chat = SimpleNamespace(completions=self)
+
+        def close(self):
+            calls["close"] += 1
+
+        def create(self, *, stream=False, **kwargs):
+            if stream:
+                calls["stream"] += 1
+                return [
+                    SimpleNamespace(
+                        choices=[
+                            SimpleNamespace(
+                                delta=SimpleNamespace(content="stream", tool_calls=None),
+                                finish_reason="stop",
+                            )
+                        ],
+                        usage=None,
+                    )
+                ]
+            calls["complete"] += 1
+            return _fake_reply(text="complete")
+
+    monkeypatch.setitem(__import__("sys").modules, "openai", SimpleNamespace(OpenAI=FakeSDK))
+    client = OpenAICompatibleClient(capability=get_capability("gpt-5.4-mini"), api_key="test-key")
+
+    result = client.complete(_user())
+    events = list(client.stream(_user()))
+    client.close()
+    client.close()
+
+    assert result.content == "complete"
+    assert events[-1].message.content == "stream"
+    assert calls == {"construct": 1, "close": 1, "complete": 1, "stream": 1}
+
+
+def test_injected_transports_are_not_closed():
+    closed = {"complete": 0, "stream": 0}
+
+    def transport(req, timeout):
+        return _fake_reply()
+
+    def stream_transport(req, timeout):
+        return []
+
+    client = _client("gpt-5.4-mini", transport=transport, stream_transport=stream_transport)
+    client.close()
+
+    assert closed == {"complete": 0, "stream": 0}

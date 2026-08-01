@@ -98,6 +98,8 @@ class OpenAICompatibleClient(ModelClient):
         self._backoff_base = backoff_base_seconds
         self._backoff_factor = backoff_factor
         self._base_url = base_url
+        self._sdk_client: Any | None = None
+        self._closed = False
         self._transport = transport or self._make_sdk_transport()
         self._stream_transport = stream_transport or self._make_sdk_stream_transport()
         self._sleep = sleep
@@ -106,6 +108,17 @@ class OpenAICompatibleClient(ModelClient):
     @property
     def capability(self) -> ModelCapability:
         return self._capability
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        client = self._sdk_client
+        self._sdk_client = None
+        if client is not None:
+            close = getattr(client, "close", None)
+            if callable(close):
+                close()
 
     def build_request(self, messages: list[Message], params: GenerationParams) -> dict:
         """Translate intent to a Chat Completions request dict via capability-gating.
@@ -303,7 +316,10 @@ class OpenAICompatibleClient(ModelClient):
         def transport(request: dict, timeout_seconds: float) -> Any:
             import openai
 
-            client = openai.OpenAI(api_key=self._api_key, base_url=self._base_url)
+            client = self._sdk_client
+            if client is None:
+                client = openai.OpenAI(api_key=self._api_key, base_url=self._base_url)
+                self._sdk_client = client
             try:
                 return client.chat.completions.create(timeout=timeout_seconds, **request)
             except Exception as exc:  # noqa: BLE001 - classified then re-raised
@@ -323,7 +339,10 @@ class OpenAICompatibleClient(ModelClient):
         def stream_transport(request: dict, timeout_seconds: float) -> Iterable[Any]:
             import openai
 
-            client = openai.OpenAI(api_key=self._api_key, base_url=self._base_url)
+            client = self._sdk_client
+            if client is None:
+                client = openai.OpenAI(api_key=self._api_key, base_url=self._base_url)
+                self._sdk_client = client
             try:
                 return client.chat.completions.create(
                     timeout=timeout_seconds, stream=True, **request
