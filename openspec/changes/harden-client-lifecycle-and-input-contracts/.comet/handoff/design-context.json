@@ -1,0 +1,17 @@
+{
+  "change": "harden-client-lifecycle-and-input-contracts",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "96eb8b4b437832b62de0430cad64da6112c03b5c760b6c4d4004802fd492e9dc",
+  "files": [
+    { "path": "openspec/changes/harden-client-lifecycle-and-input-contracts/proposal.md", "sha256": "281336d1f5ac2618a4d6667c686ecd5db5ab615423f50df4d1cb14e87a3099e7" },
+    { "path": "openspec/changes/harden-client-lifecycle-and-input-contracts/design.md", "sha256": "5533cb94f1f9104cb91fe96a895007e259340a26c633ea392194ad9a73257da5" },
+    { "path": "openspec/changes/harden-client-lifecycle-and-input-contracts/tasks.md", "sha256": "42be5db591fcf47ef95884e9498e8bd35c7942066cecc6e48892eca09a5ef314" },
+    { "path": "openspec/changes/harden-client-lifecycle-and-input-contracts/specs/cli-boundary-maintainability/spec.md", "sha256": "4741c1cd59e9d14e0ae7f8753ad1242211e41e5a81b0672d6738f76b5586e76b" },
+    { "path": "openspec/changes/harden-client-lifecycle-and-input-contracts/specs/model-client-lifecycle/spec.md", "sha256": "55f123bd40e1277f97b97551f75f5c46df0a597287b1f01a9004a7ab99ff1195" },
+    { "path": "openspec/changes/harden-client-lifecycle-and-input-contracts/specs/model-input-contracts/spec.md", "sha256": "f3dc0eab5690103397265fb909f825d3c6a59dee1f083fe459ab4e26829be1e8" },
+    { "path": "openspec/changes/harden-client-lifecycle-and-input-contracts/specs/repository-lifecycle-integrity/spec.md", "sha256": "d2d0e07f1e80cf2803b273ca4ddfbe453e30b8053090ec695a8b7359960c4db5" }
+  ]
+}
