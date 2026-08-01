@@ -164,8 +164,8 @@ def test_current_baseline_is_not_replaced_by_historical_sources() -> None:
     baseline_number = int(re.search(r"forgeagent_baseline: M(\d+)", borrowing).group(1))
 
     assert (ROOT / "milestones" / latest_name).exists()
-    assert latest_number >= 44
-    assert baseline_number >= 44
+    assert latest_number >= 45
+    assert baseline_number == latest_number
     assert "manager-owned public discovery snapshot" in _read(
         ROOT / "openspec" / "specs" / "mcp-progressive-disclosure" / "spec.md"
     )

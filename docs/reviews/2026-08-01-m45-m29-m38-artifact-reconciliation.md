@@ -29,7 +29,7 @@ M29-M38 的开发、验证和归档工件此前没有完整进入当前基线，
 
 ## 来源摘要
 
-以下 SHA256 来自来源工作区 `/Users/admin/Code/llm-agent/ForgeAgent`，用于确认恢复前的输入；archive 行是按相对文件名排序后的 tree manifest 摘要。为通过 M45 的基线区间 `git diff --check`，恢复后的 Markdown 只做了去除行尾空白和多余 EOF 空行的语义无关规范化；下列 source SHA 保留原始输入，规范化过程不改变正文语义。
+以下 SHA256 来自只读来源工作区，用于确认恢复前的输入；archive 行是按相对文件名排序后的 tree manifest 摘要。为通过 M45 的基线区间 `git diff --check`，恢复后的 Markdown 只做了去除行尾空白和多余 EOF 空行的语义无关规范化；下列 source SHA 保留原始输入，规范化过程不改变正文语义。
 
 archive tree manifest 的可复算定义为：对 archive 内所有文件按相对路径字典序排列，逐行拼接 `sha256(file) + "  " + relative_path + "\\n"`，再对整个 UTF-8 文本计算 SHA256。
 

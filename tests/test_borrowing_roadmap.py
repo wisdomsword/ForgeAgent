@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).parents[1]
@@ -24,6 +25,7 @@ M42_VERIFY_REPORT = (
 M42_ARCHIVE = ROOT / "openspec" / "changes" / "archive" / "2026-07-31-migrate-memory-metadata"
 M43_MILESTONE = ROOT / "milestones" / "milestone_043.md"
 M44_MILESTONE = ROOT / "milestones" / "milestone_044.md"
+M45_MILESTONE = ROOT / "milestones" / "milestone_045.md"
 M43_VERIFY_REPORT = (
     ROOT / "docs" / "superpowers" / "reports" / "2026-07-31-executor-rewrite-baseline-verify.md"
 )
@@ -84,12 +86,25 @@ def test_process_review_links_to_the_archived_receipt_change() -> None:
     assert expected_link in process
 
 
-def test_review_documents_track_m44_runtime_baseline() -> None:
+def test_review_documents_track_latest_runtime_baseline() -> None:
     borrowing = _read(BORROWING)
     process = _read(PROCESS)
-    assert "forgeagent_baseline: M44" in borrowing
-    assert "milestones/milestone_044.md" in borrowing
-    assert "当前基线：ForgeAgent M44" in process
+    latest_name = _read(LATEST).strip()
+    latest_number = int(latest_name.removeprefix("milestone_").removesuffix(".md"))
+    borrowing_baseline = re.search(
+        r"(?m)^forgeagent_baseline: M(?P<number>\d+).*milestones/(?P<path>milestone_\d+\.md)",
+        borrowing,
+    )
+    process_baseline = re.search(
+        r"(?m)^> 当前基线：ForgeAgent M(?P<number>\d+).*milestones/(?P<path>milestone_\d+\.md)",
+        process,
+    )
+    assert borrowing_baseline is not None
+    assert process_baseline is not None
+    for baseline in (borrowing_baseline, process_baseline):
+        assert int(baseline.group("number")) == latest_number
+        assert baseline.group("path") == latest_name
+    assert "- 状态: 已完成并归档" in _read(ROOT / "milestones" / latest_name)
     assert "runtime-skill-exit-contract" in process
     assert "运行时 Skill 自动拒绝已由" in process
     assert "change 落地并归档" in process
@@ -100,6 +115,8 @@ def test_review_documents_track_m44_runtime_baseline() -> None:
     assert "单模块试验" in process
     assert "M41 首次" in process
     assert "运行时依赖仍为 8" in process
+    assert "M45" in process
+    assert "基线一致性" in process
 
 
 def test_http_action_approval_binding_is_complete_but_remote_exposure_is_conditional() -> None:
@@ -127,7 +144,8 @@ def test_m33_and_receipt_purpose_are_traceable() -> None:
     assert "M42" in _read(PLAN)
     assert "M43" in _read(PLAN)
     assert "M44" in _read(PLAN)
-    assert _read(LATEST).strip() == "milestone_044.md"
+    assert "M45" in _read(PLAN)
+    assert _read(LATEST).strip() == "milestone_045.md"
     assert "Purpose: TBD" not in _read(RECEIPT_SPEC)
     assert "durable, bounded" in _read(RECEIPT_SPEC)
     assert "Purpose: TBD" not in _read(BORROWING_SPEC)
@@ -146,6 +164,7 @@ def test_m33_and_receipt_purpose_are_traceable() -> None:
     assert "四处兼容/归属问题" in _read(M41_MILESTONE)
     assert "M42 无未完成任务" in _read(M42_MILESTONE)
     assert "M44 无未完成任务" in _read(M44_MILESTONE)
+    assert "M45 范围内无未完成任务" in _read(M45_MILESTONE)
 
 
 def test_m43_rewrite_baseline_completion_is_traceable() -> None:
