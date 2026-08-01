@@ -2,5 +2,6 @@
   "openspec_proposal": "openspec/changes/restore-runtime-skill-verifiers/proposal.md",
   "openspec_design": "openspec/changes/restore-runtime-skill-verifiers/design.md",
   "openspec_tasks": "openspec/changes/restore-runtime-skill-verifiers/tasks.md",
-  "openspec_delta_spec": "openspec/changes/restore-runtime-skill-verifiers/specs/repository-lifecycle-integrity/spec.md"
+  "openspec_delta_spec": "openspec/changes/restore-runtime-skill-verifiers/specs/repository-lifecycle-integrity/spec.md",
+  "archive_directory": "openspec/changes/archive/2026-08-01-restore-runtime-skill-verifiers"
 }
