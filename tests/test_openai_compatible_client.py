@@ -342,20 +342,35 @@ def test_sdk_close_failure_is_swallowed_and_does_not_leak_exception(monkeypatch,
     with caplog.at_level("WARNING"):
         client.close()
 
+    assert caplog.messages == ["provider_sdk_close_failed provider=openai_compatible"]
     assert "secret-key-must-not-appear" not in caplog.text
     client.close()
 
 
 def test_injected_transports_are_not_closed():
-    closed = {"complete": 0, "stream": 0}
+    calls = {"complete": 0, "stream": 0, "close": 0}
 
-    def transport(req, timeout):
-        return _fake_reply()
+    class InjectedTransport:
+        def __call__(self, req, timeout):
+            calls["complete"] += 1
+            return _fake_reply()
 
-    def stream_transport(req, timeout):
-        return []
+        def close(self):
+            calls["close"] += 1
 
+    class InjectedStreamTransport:
+        def __call__(self, req, timeout):
+            calls["stream"] += 1
+            return []
+
+        def close(self):
+            calls["close"] += 1
+
+    transport = InjectedTransport()
+    stream_transport = InjectedStreamTransport()
     client = _client("gpt-5.4-mini", transport=transport, stream_transport=stream_transport)
+    client.complete(_user())
+    list(client.stream(_user()))
     client.close()
 
-    assert closed == {"complete": 0, "stream": 0}
+    assert calls == {"complete": 1, "stream": 1, "close": 0}

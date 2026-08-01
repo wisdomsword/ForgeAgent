@@ -391,14 +391,35 @@ def test_sdk_close_failure_is_swallowed_and_does_not_leak_exception(monkeypatch,
     with caplog.at_level("WARNING"):
         client.close()
 
+    assert caplog.messages == ["provider_sdk_close_failed provider=anthropic"]
     assert "secret-key-must-not-appear" not in caplog.text
     client.close()
 
 
 def test_injected_transports_are_not_closed():
-    client = _client(
-        "claude-sonnet-5",
-        transport=lambda req, timeout: _fake_reply(),
-        stream_transport=lambda req, timeout: [],
-    )
+    calls = {"complete": 0, "stream": 0, "close": 0}
+
+    class InjectedTransport:
+        def __call__(self, req, timeout):
+            calls["complete"] += 1
+            return _fake_reply()
+
+        def close(self):
+            calls["close"] += 1
+
+    class InjectedStreamTransport:
+        def __call__(self, req, timeout):
+            calls["stream"] += 1
+            return []
+
+        def close(self):
+            calls["close"] += 1
+
+    transport = InjectedTransport()
+    stream_transport = InjectedStreamTransport()
+    client = _client("claude-sonnet-5", transport=transport, stream_transport=stream_transport)
+    client.complete(_user())
+    list(client.stream(_user()))
     client.close()
+
+    assert calls == {"complete": 1, "stream": 1, "close": 0}
