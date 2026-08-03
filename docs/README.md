@@ -1,6 +1,6 @@
 # ForgeAgent 文档入口
 
-本页是当前文档的导航入口，不复制第二份路线图。当前状态以最高宪法、行动计划和最新里程碑为准；历史文件保留原路径，用于追溯当时的设计、验证和治理证据。本次入口整理记录见 [M46](../milestones/milestone_046.md)；最新生命周期加固记录见 [M47](../milestones/milestone_047.md)。
+本页是当前文档的导航入口，不复制第二份路线图。当前状态以最高宪法、行动计划和最新里程碑为准；历史文件保留原路径，用于追溯当时的设计、验证和治理证据。本次入口整理记录见 [M46](../milestones/milestone_046.md)；最新生命周期加固记录见 [M47](../milestones/milestone_047.md)，对应 [Comet/OpenSpec 归档](../openspec/changes/archive/2026-08-03-harden-client-lifecycle-and-input-contracts/)。
 
 ## 当前权威入口
 
@@ -19,7 +19,7 @@
 
 ## 里程碑与证据
 
-- [最新里程碑](../milestones/milestone_047.md)：当前 latest 指针指向的 M47 客户端生命周期与输入契约加固，已完成并归档；M46 文档入口见 [milestone_046](../milestones/milestone_046.md)。
+- [最新里程碑](../milestones/milestone_047.md)：当前 latest 指针指向的 M47 客户端生命周期与输入契约加固，已完成并归档；生命周期状态见 [归档 change](../openspec/changes/archive/2026-08-03-harden-client-lifecycle-and-input-contracts/)，M46 文档入口见 [milestone_046](../milestones/milestone_046.md)。
 - [`milestones/`](../milestones/)：按 M 编号保存交付范围、验证输出、三次评审和续接指引。
 - [`docs/superpowers/reports/`](superpowers/reports/)：Comet/Superpowers 验证报告；报告是当时执行的证据，不替代当前状态。
 - [`docs/evaluation/`](evaluation/)：离线评估协议、原始运行记录和派生报告；结果只适用于各自记录的模型、平台和日期。

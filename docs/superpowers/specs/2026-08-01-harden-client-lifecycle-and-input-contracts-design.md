@@ -2,6 +2,8 @@
 comet_change: harden-client-lifecycle-and-input-contracts
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-08-03-harden-client-lifecycle-and-input-contracts
+status: final
 ---
 
 # Client Lifecycle and Input Contracts Design

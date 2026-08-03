@@ -203,10 +203,10 @@ def test_m42_memory_migration_completion_is_traceable() -> None:
     assert "openspec/changes/archive/2026-07-31-migrate-memory-metadata" in milestone
 
 
-def test_m41_documented_requirement_and_scenario_counts_match_the_spec() -> None:
+def test_current_cli_spec_and_m41_historical_counts_are_traceable() -> None:
     spec = _read(CLI_BOUNDARY_SPEC)
     assert spec.count("### Requirement:") == 4
-    assert spec.count("#### Scenario:") == 9
+    assert spec.count("#### Scenario:") == 10
     for document in (M41_VERIFY_REPORT, M41_DOCUMENT_AUDIT):
         content = _read(document)
         assert "4/4 requirements" in content

@@ -2,6 +2,7 @@
 change: harden-client-lifecycle-and-input-contracts
 design-doc: docs/superpowers/specs/2026-08-01-harden-client-lifecycle-and-input-contracts-design.md
 base-ref: 599909d2849eb611f5310f78e5dadfb3fa4e4365
+archived-with: 2026-08-03-harden-client-lifecycle-and-input-contracts
 ---
 
 # Harden Client Lifecycle and Input Contracts Implementation Plan
