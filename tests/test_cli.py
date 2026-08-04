@@ -31,6 +31,7 @@ import forgeagent.mcp_manager as mcp_manager_module
 from forgeagent.cli import (
     build_parser,
     main,
+    render_execution_evidence,
     render_outcome,
     repl,
     run_loop_once,
@@ -39,6 +40,12 @@ from forgeagent.cli import (
 from forgeagent.client import MockClient
 from forgeagent.collaboration import CollaborationReport, CollaborationUsage
 from forgeagent.evaluator import EvaluationRequest, EvaluatorResult
+from forgeagent.execution_evidence import (
+    ExecutionEvidence,
+    ProgramArtifact,
+    ToolExecutionRecord,
+    resolve_local_artifact_path,
+)
 from forgeagent.executor import TrustedBackend
 from forgeagent.headless import HeadlessConfirmer
 from forgeagent.loop import LoopBudgets, LoopCheckpointStore
@@ -1370,6 +1377,163 @@ def test_run_once_renders_exec_output():
         console=console,
     )
     assert "hi" in console.export_text()
+
+
+def test_run_once_renders_execution_evidence_once_with_local_program_path(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    console = Console(record=True, width=500, force_terminal=False)
+
+    outcome = run_once(
+        "print hi",
+        tier="trusted",
+        model="claude-sonnet-5",
+        client_factory=_factory([_reply(_exec_call("print('hi')")), _reply(_done())]),
+        console=console,
+    )
+
+    rendered = console.export_text()
+    assert rendered.count("execution evidence:") == 1
+    assert "Exec succeeded" in rendered
+    assert outcome.execution_evidence.records[0].artifact is not None
+    artifact_path = outcome.execution_evidence.records[0].artifact.local_path
+    assert artifact_path is not None
+    assert str(artifact_path) in rendered
+    assert artifact_path.is_absolute()
+
+
+def test_render_outcome_shows_explicit_empty_execution_evidence_for_prose():
+    console = _console()
+    outcome = TaskOutcome(
+        status=TaskStatus(completed=True, reason=Termination.ANSWERED_IN_PROSE),
+        rounds=[RoundResult(text="answer", outcomes=[])],
+    )
+
+    render_outcome(outcome, console)
+
+    assert "execution evidence: no tools or programs executed" in console.export_text()
+
+
+def test_render_execution_evidence_masks_secret_and_control_characters(monkeypatch):
+    secret = "terminal-secret-value"
+    monkeypatch.setenv("FORGEAGENT_TEST_SECRET", secret)
+    evidence = ExecutionEvidence(
+        records=(
+            ToolExecutionRecord(
+                sequence=1,
+                tool=f"Exec {secret}\x1b[31m",
+                status="succeeded",
+                block=f"block-{secret}\n",
+            ),
+        )
+    )
+    console = _console()
+
+    render_execution_evidence(evidence, console)
+
+    rendered = console.export_text()
+    assert secret not in rendered
+    assert "\\x1b" in rendered
+    assert "\\x0a" in rendered
+
+
+def test_render_execution_evidence_marks_missing_local_artifact_unavailable(tmp_path):
+    evidence = ExecutionEvidence(
+        records=(
+            ToolExecutionRecord(
+                sequence=1,
+                tool="Exec",
+                status="succeeded",
+                block="program",
+                artifact=ProgramArtifact(
+                    reference=(
+                        "execution-artifacts/"
+                        "0123456789abcdef0123456789abcdef/programs/0001-program.py"
+                    )
+                ),
+            ),
+        )
+    )
+    console = _console()
+
+    render_execution_evidence(evidence, console, project_root=tmp_path)
+
+    rendered = console.export_text()
+    assert "program unavailable" in rendered
+    assert str(tmp_path) not in rendered
+
+
+def test_render_execution_evidence_marks_symlink_artifact_unavailable(tmp_path):
+    execution_id = "0123456789abcdef0123456789abcdef"
+    programs = tmp_path / ".forgeagent" / "execution-artifacts" / execution_id / "programs"
+    programs.mkdir(parents=True)
+    outside = tmp_path / "outside.py"
+    outside.write_text("print('outside')")
+    (programs / "0001-program.py").symlink_to(outside)
+    reference = f"execution-artifacts/{execution_id}/programs/0001-program.py"
+    evidence = ExecutionEvidence(
+        records=(
+            ToolExecutionRecord(
+                sequence=1,
+                tool="Exec",
+                status="succeeded",
+                artifact=ProgramArtifact(reference=reference),
+            ),
+        )
+    )
+    console = _console()
+
+    render_execution_evidence(evidence, console, project_root=tmp_path)
+
+    assert resolve_local_artifact_path(tmp_path, reference) is None
+    assert "program unavailable" in console.export_text()
+    assert str(outside) not in console.export_text()
+
+
+@pytest.mark.parametrize(
+    "reference",
+    [
+        "../escape.py",
+        "/tmp/program.py",
+        "execution-artifacts/../../programs/0001-program.py",
+    ],
+)
+def test_program_artifact_rejects_unsafe_references(reference):
+    with pytest.raises(ValueError):
+        ProgramArtifact(reference=reference)
+
+
+def test_render_execution_evidence_prints_omitted_count():
+    evidence = ExecutionEvidence(omitted_count=3, truncated=True)
+    console = _console()
+
+    render_execution_evidence(evidence, console)
+
+    rendered = console.export_text()
+    assert "execution evidence: no tools or programs executed" not in rendered
+    assert "omitted=3" in rendered
+
+
+def test_repl_renders_one_execution_evidence_section_per_task(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    inputs = iter(["first", "second", "quit"])
+    console = _console()
+    scripts = iter(
+        [
+            [_reply(_exec_call("print('first')")), _reply(_done())],
+            [_reply(_exec_call("print('second')")), _reply(_done())],
+        ]
+    )
+
+    repl(
+        tier="trusted",
+        model="claude-sonnet-5",
+        client_factory=lambda model: MockClient(script=next(scripts)),
+        console=console,
+        read_line=lambda prompt: next(inputs),
+        confirmation_available=False,
+    )
+
+    assert console.export_text().count("execution evidence:") == 2
 
 
 def test_render_outcome_discloses_only_fixed_webfetch_failure_detail():

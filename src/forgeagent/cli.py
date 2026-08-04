@@ -46,6 +46,11 @@ from .collaboration import (
     normalize_required_candidate_files,
 )
 from .context import ContextConfig, load_context_config
+from .execution_evidence import (
+    ExecutionEvidence,
+    public_execution_evidence,
+    resolve_local_artifact_path,
+)
 from .executor import ContainerRuntimeError
 from .external_actions import ExternalActionReceiptStore, ReceiptError
 from .headless import HeadlessConfirmer
@@ -193,12 +198,50 @@ def render_outcome(
             # The model answered in plain text without calling Exec — still show it,
             # since it's the only place the actual answer lives.
             console.print(rnd.body)
+    render_execution_evidence(outcome.execution_evidence, console, project_root=Path.cwd())
     for result in outcome.memory_results:
         colour = "green" if result.status in {"accepted", "replaced"} else "yellow"
         detail = f" ({result.reason})" if result.reason else ""
         console.print(
             f"[{colour}]memory {result.status}[/{colour}]: {result.scope}/{result.key}{detail}"
         )
+
+
+def render_execution_evidence(
+    evidence: ExecutionEvidence,
+    console: Console,
+    *,
+    project_root: str | Path | None = None,
+) -> None:
+    """Render one bounded terminal summary of the task's execution attempts."""
+    projected = public_execution_evidence(
+        evidence,
+        secret_values=sensitive_env_values(),
+        include_local_paths=True,
+    )
+    if not projected.records:
+        if projected.omitted_count:
+            console.print(f"execution evidence: omitted={projected.omitted_count}")
+        else:
+            console.print("execution evidence: no tools or programs executed")
+        return
+
+    console.print("execution evidence:")
+    for record in projected.records:
+        console.print(f"    {record.sequence} {record.tool} {record.status}")
+        if record.block is not None:
+            console.print(f"      block: {record.block}")
+        if record.iteration is not None or record.role is not None or record.attempt is not None:
+            origin = f"iteration={record.iteration} role={record.role} attempt={record.attempt}"
+            console.print(f"      origin: {origin}")
+        if record.artifact is None:
+            continue
+        path = record.artifact.local_path
+        if path is None and project_root is not None:
+            path = resolve_local_artifact_path(project_root, record.artifact.reference)
+        console.print(f"      program: {path}" if path is not None else "      program unavailable")
+    if projected.omitted_count:
+        console.print(f"    omitted={projected.omitted_count}")
 
 
 def _accumulate_usage(total: TokenUsage, rounds: list[RoundResult]) -> None:
