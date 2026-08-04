@@ -1,13 +1,13 @@
 # ForgeAgent 文档入口
 
-本页是当前文档的导航入口，不复制第二份路线图。当前状态以最高宪法、行动计划和最新里程碑为准；历史文件保留原路径，用于追溯当时的设计、验证和治理证据。本次入口整理记录见 [M46](../milestones/milestone_046.md)；最新生命周期加固记录见 [M47](../milestones/milestone_047.md)，对应 [Comet/OpenSpec 归档](../openspec/changes/archive/2026-08-03-harden-client-lifecycle-and-input-contracts/)。
+本页是当前文档的导航入口，不复制第二份路线图。当前状态以最高宪法、行动计划和最新里程碑为准；历史文件保留原路径，用于追溯当时的设计、验证和治理证据。本次入口整理记录见 [M46](../milestones/milestone_046.md)；最新里程碑见 [M48](../milestones/milestone_048.md)，对应 [执行证据 Comet/OpenSpec 归档](../openspec/changes/archive/2026-08-04-expose-task-execution-evidence/)；M47 生命周期加固记录继续作为历史证据保留。
 
 ## 当前权威入口
 
 - [最高宪法：`spec.md`](../spec.md) — 项目使命、范围和不可违反的工程约束。
 - [`ACTION_PLAN.md`](../ACTION_PLAN.md) — 当前里程碑计划、验证门禁和已裁决路线。
 - [`MILESTONE_GUIDE.md`](../MILESTONE_GUIDE.md) — 里程碑收尾记录格式与续接规则。
-- [`milestones/latest`](../milestones/latest) — 指向最新已完成里程碑文件；当前指针为 `milestone_047.md`。
+- [`milestones/latest`](../milestones/latest) — 指向最新已完成里程碑文件；当前指针为 `milestone_048.md`。
 - [Agent 治理门禁](agent-governance-gates.md) — Prompt/Skill、Memory、Rewrite/Dependency 和分发边界的 canonical 入口。
 
 ## 开发流程
@@ -19,7 +19,7 @@
 
 ## 里程碑与证据
 
-- [最新里程碑](../milestones/milestone_047.md)：当前 latest 指针指向的 M47 客户端生命周期与输入契约加固，已完成并归档；生命周期状态见 [归档 change](../openspec/changes/archive/2026-08-03-harden-client-lifecycle-and-input-contracts/)，M46 文档入口见 [milestone_046](../milestones/milestone_046.md)。
+- [最新里程碑](../milestones/milestone_048.md)：当前 latest 指针指向的 M48 交互行为移植与任务执行证据，四个 change 已完成并归档；执行证据状态见 [归档 change](../openspec/changes/archive/2026-08-04-expose-task-execution-evidence/)，M47 生命周期加固见 [milestone_047](../milestones/milestone_047.md)。
 - [`milestones/`](../milestones/)：按 M 编号保存交付范围、验证输出、三次评审和续接指引。
 - [`docs/superpowers/reports/`](superpowers/reports/)：Comet/Superpowers 验证报告；报告是当时执行的证据，不替代当前状态。
 - [M47 环境依赖复验](superpowers/reports/2026-08-03-m47-environment-revalidation.md)：归档后补证，包含 Docker 隔离、跨 Python digest 和全量回归结果。

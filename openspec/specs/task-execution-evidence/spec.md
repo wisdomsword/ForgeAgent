@@ -1,7 +1,7 @@
 # task-execution-evidence Specification
 
 ## Purpose
-TBD - created by archiving change expose-task-execution-evidence. Update Purpose after archive.
+Define bounded, fail-closed execution evidence and task-owned generated-program artifacts across local, HTTP, Loop, Duo, and Triad terminal projections without exposing private runtime data.
 ## Requirements
 ### Requirement: Task terminal outcomes disclose attempted tools
 Every ForgeAgent Task MUST maintain an ordered, task-scoped record of tools that reached an execution attempt and MUST expose a bounded terminal projection containing each tool's stable name and stable outcome status. The projection MUST remain available when the Task completes, answers in prose, stops, fails, refuses, needs information, or is cancelled, and MUST NOT claim that a tool ran when it was only parsed but never attempted.
@@ -89,4 +89,3 @@ Every public execution-evidence projection MUST enforce a deterministic 32-item 
 #### Scenario: Tool metadata contains sensitive material
 - **WHEN** internal tool metadata, block labels, errors, or artifact metadata contain known secrets or unsafe display characters
 - **THEN** the public projection masks and bounds the value or replaces it with a stable safe value without changing the underlying execution result
-
