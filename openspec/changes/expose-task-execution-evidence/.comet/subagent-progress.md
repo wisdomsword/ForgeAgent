@@ -23,6 +23,6 @@ Worktree: `/Users/admin/Code/llm-agent/ForgeAgent/.worktrees/m48-expose-task-exe
 | 5. HTTP terminal projection | 37a4c96 | reviewed | complete: RED 9 failures/248 passes; GREEN 257 collected (root 247 passed, 10 skipped); Ruff and diff check pass |
 | 6. Loop durable aggregation | 5d774e5 + e4214a4 | reviewed twice | complete: RED 7 failures; GREEN 568 focused passes/10 skips; cumulative omitted-count P1 fixed and re-reviewed; Ruff/diff clean |
 | 7. Duo/Triad durable aggregation | 9752d13 + 28c6191 + 4b17788 | reviewed three times | complete: RED contract failures; GREEN 946 expanded passes/10 skips; atomic-save and disclosure P1s fixed; CLI/Loop contract regressions fixed; Ruff/diff clean |
-| 8. End-to-end validation | pending | pending | pending |
+| 8. End-to-end validation | b52ac8c + f4eefc3 + 7a103ce + db8b8a9 | reviewed whole-change | complete: offline E2E matrix; Step 2 final 1007 passes/10 skips; sandbox full 2921 passes/23 skips with 15 environment failures, all 16 affected tests pass outside sandbox; Ruff/OpenSpec/diff clean; no final P0-P2 findings |
 
 Each completed task must have RED/GREEN test evidence, a clean task review, updated plan/OpenSpec checkboxes, and a focused commit before the next task starts.

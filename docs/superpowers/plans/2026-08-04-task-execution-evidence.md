@@ -652,11 +652,11 @@ base-ref: dfad978d82434b493b17332721484f4e54afedb8
 - Every executed program assertion resolves to a real regular `.py` file containing exact selected UTF-8 bytes。
 - Every public projection assertion checks both required evidence and prohibited fields。
 
-- [ ] **Step 1: 增加一个离线端到端证据矩阵**
+- [x] **Step 1: 增加一个离线端到端证据矩阵**
 
   使用 `MockClient`、recording backends、`tmp_path` 和现有 HTTP test server；禁止 API key 和外网。每种入口同时断言 tool/status/origin/reference，CLI 再断言 local path，HTTP 再断言只有 relative reference。对 prose 明确断言 empty envelope，对取消明确断言 prior-only。
 
-- [ ] **Step 2: 运行新契约与受影响回归集合**
+- [x] **Step 2: 运行新契约与受影响回归集合**
 
   ```bash
   rtk uv run pytest tests/test_execution_evidence.py tests/test_tools.py tests/test_step.py tests/test_task.py tests/test_cli.py tests/test_http_task_service.py tests/test_http_server.py tests/test_loop_runner.py tests/test_collaboration_models.py tests/test_collaboration_runner.py tests/test_collaboration_store.py tests/test_collaboration_integrations.py tests/test_collaboration_stop_projection.py tests/test_executor.py tests/test_m43_executor_rewrite_baseline.py tests/test_m41_cli_boundaries.py -q
@@ -664,7 +664,7 @@ base-ref: dfad978d82434b493b17332721484f4e54afedb8
 
   Expected: 全部通过，无真实 provider/network 依赖；失败时先按 `systematic-debugging` 定位根因并重跑对应最小测试。
 
-- [ ] **Step 3: 运行格式、静态检查、OpenSpec strict 和全量测试**
+- [x] **Step 3: 运行格式、静态检查、OpenSpec strict 和全量测试**
 
   ```bash
   rtk uv run ruff format --check .
@@ -676,11 +676,11 @@ base-ref: dfad978d82434b493b17332721484f4e54afedb8
 
   Expected: Ruff format/check 无问题；OpenSpec strict valid；全量 pytest 全绿（existing skips 原样保留）；`git diff --check` 无输出。
 
-- [ ] **Step 4: 做安全边界审查并修复所有 P1/P2**
+- [x] **Step 4: 做安全边界审查并修复所有 P1/P2**
 
   审查 diff 时逐项验证：directory descriptor/rebinding、temp cleanup、权限和容量、backend fail-closed、reference canonicalization、local path exclusion、secret/control masking、HTTP 无 route、durable state 32 条上限、Loop cumulative 去重、Collaboration atomic role boundary、旧状态空默认。此处由 Comet 的 `review_mode: thorough` 调度正式 task/final reviewer，不再额外调用另一套 review 命令。任何发现先新增可失败回归测试，再最小修复并重跑 Step 2/3。
 
-- [ ] **Step 5: 做兼容性与遗漏复审**
+- [x] **Step 5: 做兼容性与遗漏复审**
 
   对照四份 delta specs 的 8 个 Requirement、35 个 Scenario 建立 test-name 映射，确认 32 条公开上限、128 条内部上限、100/1 MiB/8 MiB 程序上限均有边界两侧测试；确认 `TaskOutcome` 既有字段、Loop/Collaboration schema、HTTP status/reason、CLI stdout/detail/usage 未变。再次执行：
 
@@ -691,7 +691,7 @@ base-ref: dfad978d82434b493b17332721484f4e54afedb8
 
   Expected: 复审集合全绿，diff check 无输出，spec 的每个 Scenario 均能定位到至少一个测试。
 
-- [ ] **Step 6: 记录 build 完成状态并提交**
+- [x] **Step 6: 记录 build 完成状态并提交**
 
   仅在 Step 2-5 全部通过后，把 `openspec/changes/expose-task-execution-evidence/tasks.md` 的 1.3、2.1-2.3、3.1-3.3、4.1-4.2 标记完成，并提交最终测试/清单：
 
