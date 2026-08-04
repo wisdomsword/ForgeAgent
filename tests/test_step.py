@@ -759,9 +759,7 @@ def test_error_feedback_drives_next_round():
     ],
     ids=["tool-outcome", "parse-error"],
 )
-def test_tool_or_parse_activity_without_feedback_is_not_accepted_as_prose(
-    monkeypatch, response
-):
+def test_tool_or_parse_activity_without_feedback_is_not_accepted_as_prose(monkeypatch, response):
     client = MockClient(script=[_reply(response), _reply(_done())])
     step = Step(client, TrustedBackend(), Runtime(), max_rounds=5)
     monkeypatch.setattr(step, "_render_feedback", lambda round_result: "")

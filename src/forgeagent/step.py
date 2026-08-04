@@ -114,6 +114,7 @@ _DECLARED_STATUS: dict[str, Termination] = {
     "failed": Termination.FAILED,
 }
 
+
 def _missing_completion_message(tool_name: str) -> str:
     return (
         f"{tool_name} must be called successfully before completion. Use "
