@@ -1,6 +1,6 @@
 workflow: full
 language: zh-CN
-phase: verify
+phase: archive
 context_compression: off
 build_mode: subagent-driven-development
 build_pause: null
@@ -13,12 +13,12 @@ auto_transition: true
 base_ref: cf51c632a71fa810f81397401d215c8990f1c4ee
 design_doc: docs/superpowers/specs/2026-08-04-task-execution-evidence-design.md
 plan: docs/superpowers/plans/2026-08-04-task-execution-evidence.md
-verify_result: pending
+verify_result: pass
 verification_report: docs/superpowers/reports/2026-08-04-expose-task-execution-evidence-verify.md
 branch_status: handled
 created_at: 2026-08-04
-verified_at: null
-archived: false
+verified_at: 2026-08-04
+archived: true
 direct_override: null
 handoff_context: openspec/changes/expose-task-execution-evidence/.comet/handoff/design-context.json
 handoff_hash: 819fb0b40bf1bb3f31f80013e7c66dff0752021c5240b7e6e408d004b2dea962
