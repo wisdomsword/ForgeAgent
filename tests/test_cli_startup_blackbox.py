@@ -164,10 +164,13 @@ def test_pipe_goal_connects_mcp_and_only_outputs_task_result(
     assert pid_file.exists()
     assert result.stdout == (
         b"completed\n"
-        b"  round 1 [MCP fixture:echo] ok\n"
+        b"  round 1 [MCP] ok\n"
         b"PIPE_RESULT\n"
+        b"execution evidence:\n"
+        b"    1 MCP succeeded\n"
         b"usage: in=0 out=0 cached=0 reasoning=0 (session total) cache_hit=n/a\n"
     )
+    assert b"fixture:echo" not in result.stdout
 
 
 def test_required_mcp_failure_is_stderr_only(isolated_cli_env: dict[str, str]):

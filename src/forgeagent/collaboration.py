@@ -25,6 +25,11 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from .attention import Attention, attention_for_reason
 from .audit import AuditEvent, AuditSink, emit_audit
 from .check_runner import CheckDefinition, CheckStatus, candidate_snapshot_digest, run_check
+from .execution_evidence import (
+    ExecutionEvidence,
+    merge_execution_evidence,
+    public_execution_evidence,
+)
 from .external_actions import ExternalActionReceiptStore
 from .secret_policy import REDACTED_PATH, mask_audit_data, sensitive_env_values
 from .task import TaskOutcome
@@ -648,6 +653,14 @@ def _validate_state_transition(current: CollaborationState, candidate: Collabora
         raise CollaborationError("invalid collaboration state transition")
     if not current.usage_available and candidate.usage_available:
         raise CollaborationError("invalid collaboration state transition")
+    if (
+        candidate.execution_evidence.records[: len(current.execution_evidence.records)]
+        != current.execution_evidence.records
+        or len(candidate.execution_evidence.records) < len(current.execution_evidence.records)
+        or candidate.execution_evidence.omitted_count < current.execution_evidence.omitted_count
+        or (current.execution_evidence.truncated and not candidate.execution_evidence.truncated)
+    ):
+        raise CollaborationError("invalid collaboration state transition")
     if current.plan and candidate.plan != current.plan:
         raise CollaborationError("invalid collaboration state transition")
     if current.plan_digest and candidate.plan_digest != current.plan_digest:
@@ -690,6 +703,7 @@ class CollaborationState(BaseModel):
     rounds: int = 0
     usage: CollaborationUsage = Field(default_factory=CollaborationUsage)
     usage_available: bool = True
+    execution_evidence: ExecutionEvidence = Field(default_factory=ExecutionEvidence)
     last_evaluation: tuple[EvaluationItem, ...] = ()
 
     @property
@@ -740,6 +754,11 @@ class CollaborationState(BaseModel):
         if type(value) is not bool:
             raise ValueError("usage_available must be a bool")
         return value
+
+    @field_validator("execution_evidence", mode="before")
+    @classmethod
+    def _project_execution_evidence(cls, value: Any) -> ExecutionEvidence:
+        return public_execution_evidence(ExecutionEvidence.model_validate(value))
 
     @field_validator("plan", mode="before")
     @classmethod
@@ -978,6 +997,7 @@ class CollaborationReport(BaseModel):
     usage: CollaborationUsage
     usage_available: bool
     evidence: tuple[str, ...] = ()
+    execution_evidence: ExecutionEvidence = Field(default_factory=ExecutionEvidence)
 
     @property
     def schema(self) -> str:
@@ -1063,6 +1083,7 @@ class CollaborationReport(BaseModel):
             usage=state.usage,
             usage_available=state.usage_available,
             evidence=evidence,
+            execution_evidence=public_execution_evidence(state.execution_evidence),
         )
 
 
@@ -1402,11 +1423,64 @@ class _CheckEvidence:
     generator_attempt: int
 
 
+class _SubmissionBoundary:
+    def __init__(
+        self,
+        store: CollaborationStore,
+        state: CollaborationState,
+        role: CollaborationRole,
+        attempt: int,
+    ) -> None:
+        self._store = store
+        self._state = state
+        self._role = role
+        self._attempt = attempt
+        self._candidate: CollaborationState | None = None
+
+    def stage(self, candidate: CollaborationState) -> CollaborationState:
+        self._candidate = candidate
+        return candidate
+
+    def commit(self, raw_outcome: object) -> None:
+        if self._candidate is None:
+            return
+        outcome = TaskOutcome.model_validate(raw_outcome)
+        usage, available = _task_usage(outcome)
+        evidence = merge_execution_evidence(
+            self._state.execution_evidence,
+            public_execution_evidence(outcome.execution_evidence),
+            role=self._role,
+            attempt=self._attempt,
+        )
+        candidate = self._candidate.model_copy(
+            update={
+                "rounds": self._state.rounds + len(outcome.rounds),
+                "usage": self._state.usage.add(usage),
+                "usage_available": self._state.usage_available and available,
+                "execution_evidence": evidence,
+            }
+        )
+        try:
+            self._store.save(candidate, expected_revision=self._state.revision)
+        except Exception as error:
+            raise _SubmissionBoundaryError from error
+
+
+class _SubmissionBoundaryError(CollaborationError):
+    pass
+
+
 class SubmitPlanTool(Tool):
     name, args_model, risk_level = "SubmitPlan", SubmitPlanArgs, "low"
 
-    def __init__(self, store: CollaborationStore, state: CollaborationState) -> None:
+    def __init__(
+        self,
+        store: CollaborationStore,
+        state: CollaborationState,
+        boundary: _SubmissionBoundary | None = None,
+    ) -> None:
         self._store, self._state = store, state
+        self._boundary = boundary
 
     def run(self, args: BaseModel, ctx: ToolContext | None) -> ToolOutcome:
         try:
@@ -1437,7 +1511,11 @@ class SubmitPlanTool(Tool):
                     "phase": "needs_confirmation",
                 }
             )
-            self._state = self._store.save(state, expected_revision=self._state.revision)
+            self._state = (
+                self._boundary.stage(state)
+                if self._boundary is not None
+                else self._store.save(state, expected_revision=self._state.revision)
+            )
             return ToolOutcome(
                 tool=self.name,
                 success=True,
@@ -1522,8 +1600,10 @@ class SubmitCandidateTool(Tool):
         store: CollaborationStore,
         state: CollaborationState,
         required_candidate_files: tuple[str, ...] = (),
+        boundary: _SubmissionBoundary | None = None,
     ) -> None:
         self._store, self._state = store, state
+        self._boundary = boundary
         self._required_candidate_files = normalize_required_candidate_files(
             required_candidate_files
         )
@@ -1556,7 +1636,11 @@ class SubmitCandidateTool(Tool):
                     "last_evaluation": (),
                 }
             )
-            self._state = self._store.save(candidate, expected_revision=self._state.revision)
+            self._state = (
+                self._boundary.stage(candidate)
+                if self._boundary is not None
+                else self._store.save(candidate, expected_revision=self._state.revision)
+            )
             return ToolOutcome(
                 tool=self.name,
                 success=True,
@@ -1580,10 +1664,12 @@ class SubmitEvaluationTool(Tool):
         state: CollaborationState,
         checks: Mapping[str, CheckDefinition] | None = None,
         evidence: dict[str, _CheckEvidence] | None = None,
+        boundary: _SubmissionBoundary | None = None,
     ) -> None:
         self._store, self._state = store, state
         self._checks = dict(checks or {})
         self._evidence = evidence
+        self._boundary = boundary
 
     def run(self, args: BaseModel, ctx: ToolContext | None) -> ToolOutcome:
         try:
@@ -1612,7 +1698,11 @@ class SubmitEvaluationTool(Tool):
                     "evaluator_attempts": self._state.evaluator_attempts + 1,
                 }
             )
-            self._state = self._store.save(state, expected_revision=self._state.revision)
+            self._state = (
+                self._boundary.stage(state)
+                if self._boundary is not None
+                else self._store.save(state, expected_revision=self._state.revision)
+            )
             return ToolOutcome(
                 tool=self.name,
                 success=True,
@@ -1721,9 +1811,17 @@ class RunCheckTool(Tool):
         return ToolOutcome(tool=self.name, success=result.status == "passed", detail=detail)
 
 
-def build_planner_registry(*, store: CollaborationStore, state: CollaborationState) -> ToolRegistry:
+def build_planner_registry(
+    *,
+    store: CollaborationStore,
+    state: CollaborationState,
+    atomic_boundary: bool = False,
+) -> ToolRegistry:
     registry = ToolRegistry()
-    registry.register(SubmitPlanTool(store, state))
+    boundary = _SubmissionBoundary(store, state, "planner", 1) if atomic_boundary else None
+    registry.register(SubmitPlanTool(store, state, boundary))
+    if boundary is not None:
+        registry.set_task_outcome_handler(boundary.commit)
     registry.require_completion("SubmitPlan")
     return registry
 
@@ -1734,8 +1832,16 @@ def build_generator_registry(
     store: CollaborationStore,
     state: CollaborationState,
     required_candidate_files: tuple[str, ...] = (),
+    atomic_boundary: bool = False,
 ) -> ToolRegistry:
-    registry.register(SubmitCandidateTool(store, state, required_candidate_files))
+    boundary = (
+        _SubmissionBoundary(store, state, "generator", state.generator_attempts + 1)
+        if atomic_boundary
+        else None
+    )
+    registry.register(SubmitCandidateTool(store, state, required_candidate_files, boundary))
+    if boundary is not None:
+        registry.set_task_outcome_handler(boundary.commit)
     registry.require_completion("SubmitCandidate")
     return registry
 
@@ -1745,16 +1851,24 @@ def build_evaluator_registry(
     store: CollaborationStore,
     state: CollaborationState,
     checks: Mapping[str, CheckDefinition] | None = None,
+    atomic_boundary: bool = False,
 ) -> ToolRegistry:
     registry = ToolRegistry()
     registry.register(FileReadTool())
     registry.register(FileListTool())
+    boundary = (
+        _SubmissionBoundary(store, state, "evaluator", state.evaluator_attempts + 1)
+        if atomic_boundary
+        else None
+    )
     if checks:
         evidence: dict[str, _CheckEvidence] = {}
         registry.register(RunCheckTool(checks, evidence, state.generator_attempts))
-        registry.register(SubmitEvaluationTool(store, state, checks, evidence))
+        registry.register(SubmitEvaluationTool(store, state, checks, evidence, boundary))
     else:
-        registry.register(SubmitEvaluationTool(store, state))
+        registry.register(SubmitEvaluationTool(store, state, boundary=boundary))
+    if boundary is not None:
+        registry.set_task_outcome_handler(boundary.commit)
     registry.require_completion("SubmitEvaluation")
     return registry
 
@@ -2109,7 +2223,11 @@ class CollaborationRunner:
         if self._cancelled(cancel_event):
             return self._finish("cancelled", "cancelled")
         planner_state = self._state
-        registry = build_planner_registry(store=self._store, state=planner_state)
+        registry = build_planner_registry(
+            store=self._store,
+            state=planner_state,
+            atomic_boundary=True,
+        )
         handoff = build_handoff_packet(
             planner_state,
             "planner",
@@ -2133,6 +2251,8 @@ class CollaborationRunner:
             if self._cancelled(cancel_event):
                 return self._finish("cancelled", "cancelled")
             return self._finish("failed", "unrecoverable_failure")
+        except _SubmissionBoundaryError:
+            return self._finish_without_save("failed", "state_failure")
         except Exception:
             if self._cancelled(cancel_event):
                 return self._finish("cancelled", "cancelled")
@@ -2150,7 +2270,8 @@ class CollaborationRunner:
             self._state = committed
             if not submitted and (owns_submission or committed.revision > planner_state.revision):
                 return self._finish_without_save("failed", "state_failure")
-            self._persist_planner_boundary(planner)
+            if not owns_submission:
+                self._persist_planner_boundary(planner)
         except CollaborationError:
             return self._finish("failed", "state_failure")
         if self._cancelled(cancel_event) or planner.status.reason == "cancelled":
@@ -2199,11 +2320,18 @@ class CollaborationRunner:
 
     def _persist_planner_boundary(self, outcome: TaskOutcome) -> None:
         usage, available = _task_usage(outcome)
+        evidence = merge_execution_evidence(
+            self._state.execution_evidence,
+            public_execution_evidence(outcome.execution_evidence),
+            role="planner",
+            attempt=1,
+        )
         candidate = self._state.model_copy(
             update={
                 "rounds": self._state.rounds + len(outcome.rounds),
                 "usage": self._state.usage.add(usage),
                 "usage_available": self._state.usage_available and available,
+                "execution_evidence": evidence,
             }
         )
         self._state = self._store.save(candidate, expected_revision=self._state.revision)
@@ -2234,10 +2362,15 @@ class CollaborationRunner:
             if self._state.phase == "generator":
                 generator_state = self._state
                 registry = build_generator_registry(
-                    registry=self._generator_registry or default_registry(),
+                    registry=(
+                        self._generator_registry.copy()
+                        if self._generator_registry is not None
+                        else default_registry()
+                    ),
                     store=self._store,
                     state=generator_state,
                     required_candidate_files=self._required_candidate_files,
+                    atomic_boundary=True,
                 )
                 handoff = build_handoff_packet(
                     generator_state,
@@ -2265,6 +2398,8 @@ class CollaborationRunner:
                     if self._cancelled(cancel_event):
                         return self._finish("cancelled", "cancelled")
                     return self._finish("failed", "unrecoverable_failure")
+                except _SubmissionBoundaryError:
+                    return self._finish_without_save("failed", "state_failure")
                 except Exception:
                     if self._cancelled(cancel_event):
                         return self._finish("cancelled", "cancelled")
@@ -2282,11 +2417,11 @@ class CollaborationRunner:
                         and not committed.last_evaluation
                     )
                     self._state = committed
-                    if submitted_candidate:
-                        self._persist_role_statistics(generator)
-                    elif owns_submission or committed.revision > generator_state.revision:
+                    if not submitted_candidate and (
+                        owns_submission or committed.revision > generator_state.revision
+                    ):
                         return self._finish_without_save("failed", "state_failure")
-                    else:
+                    if not owns_submission:
                         self._persist_failed_role_boundary("generator", generator)
                 except CollaborationError:
                     return self._finish("failed", "state_failure")
@@ -2309,6 +2444,7 @@ class CollaborationRunner:
                     store=self._store,
                     state=evaluator_state,
                     checks=self._evaluator_checks,
+                    atomic_boundary=True,
                 )
                 handoff = build_handoff_packet(
                     evaluator_state,
@@ -2336,6 +2472,8 @@ class CollaborationRunner:
                     if self._cancelled(cancel_event):
                         return self._finish("cancelled", "cancelled")
                     return self._finish("failed", "unrecoverable_failure")
+                except _SubmissionBoundaryError:
+                    return self._finish_without_save("failed", "state_failure")
                 except Exception:
                     if self._cancelled(cancel_event):
                         return self._finish("cancelled", "cancelled")
@@ -2353,11 +2491,11 @@ class CollaborationRunner:
                         and bool(committed.last_evaluation)
                     )
                     self._state = committed
-                    if submitted_evaluation:
-                        self._persist_role_statistics(evaluator)
-                    elif owns_submission or committed.revision > evaluator_state.revision:
+                    if not submitted_evaluation and (
+                        owns_submission or committed.revision > evaluator_state.revision
+                    ):
                         return self._finish_without_save("failed", "state_failure")
-                    else:
+                    if not owns_submission:
                         self._persist_failed_role_boundary("evaluator", evaluator)
                 except CollaborationError:
                     return self._finish("failed", "state_failure")
@@ -2502,19 +2640,6 @@ class CollaborationRunner:
             duration_ms=max(0, int((time.monotonic() - started) * 1000)),
         )
 
-    def _persist_role_statistics(self, outcome: TaskOutcome) -> None:
-        self._state = self._store.load(self._state.collaboration_id)
-        self._assert_frozen_plan(self._state)
-        usage, available = _task_usage(outcome)
-        candidate = self._state.model_copy(
-            update={
-                "rounds": self._state.rounds + len(outcome.rounds),
-                "usage": self._state.usage.add(usage),
-                "usage_available": self._state.usage_available and available,
-            }
-        )
-        self._state = self._store.save(candidate, expected_revision=self._state.revision)
-
     def _persist_failed_role_boundary(
         self,
         role: Literal["generator", "evaluator"],
@@ -2523,13 +2648,21 @@ class CollaborationRunner:
         self._state = self._store.load(self._state.collaboration_id)
         self._assert_frozen_plan(self._state)
         usage, available = _task_usage(outcome)
+        attempt = getattr(self._state, f"{role}_attempts") + 1
+        evidence = merge_execution_evidence(
+            self._state.execution_evidence,
+            public_execution_evidence(outcome.execution_evidence),
+            role=role,
+            attempt=attempt,
+        )
         updates: dict[str, object] = {
             "rounds": self._state.rounds + len(outcome.rounds),
             "usage": self._state.usage.add(usage),
             "usage_available": self._state.usage_available and available,
+            "execution_evidence": evidence,
         }
         counter = f"{role}_attempts"
-        updates[counter] = getattr(self._state, counter) + 1
+        updates[counter] = attempt
         candidate = self._state.model_copy(update=updates)
         self._state = self._store.save(candidate, expected_revision=self._state.revision)
 

@@ -13,7 +13,8 @@ from pydantic import BaseModel, ConfigDict
 from forgeagent.audit import AuditEvent
 from forgeagent.client import MockClient, ProviderAttempt
 from forgeagent.context import ContextBudgetExceeded, ContextConfig, estimate_text_tokens
-from forgeagent.executor import TrustedBackend
+from forgeagent.execution_evidence import ExecutionEvidenceRecorder, ProgramArtifactStore
+from forgeagent.executor import ExecResult, TrustedBackend
 from forgeagent.models import (
     AssistantMessage,
     ClientError,
@@ -49,6 +50,30 @@ def _completion_registry() -> ToolRegistry:
     registry = ToolRegistry()
     registry.register(_CompletionTool())
     registry.require_completion("Finish")
+    return registry
+
+
+class _OutcomeTool(Tool):
+    args_model = _NoArgs
+
+    def __init__(self, name: str, *, success: bool, completes_task: bool = False) -> None:
+        self.name = name
+        self.success = success
+        self.completes_task = completes_task
+
+    def run(self, args: BaseModel, ctx: ToolContext) -> ToolOutcome:
+        assert isinstance(args, _NoArgs)
+        return ToolOutcome(
+            tool=self.name,
+            success=self.success,
+            completes_task=self.completes_task,
+        )
+
+
+def _outcome_registry(*tools: _OutcomeTool) -> ToolRegistry:
+    registry = ToolRegistry()
+    for tool in tools:
+        registry.register(tool)
     return registry
 
 
@@ -556,6 +581,127 @@ def test_step_audits_missing_tool_handler_as_failed_operation():
     assert len(sink.events) == 1
     assert sink.events[0].event_type == "tool.operation"
     assert sink.events[0].result_status == "failed"
+
+
+def test_step_records_only_dispatched_completion_before_later_call_is_skipped():
+    recorder = ExecutionEvidenceRecorder()
+    step = Step(
+        MockClient(script=[_reply(_tool_call("First") + _tool_call("Second"))]),
+        TrustedBackend(),
+        Runtime(),
+        registry=_outcome_registry(
+            _OutcomeTool("First", success=True, completes_task=True),
+            _OutcomeTool("Second", success=False),
+        ),
+        evidence_recorder=recorder,
+    )
+
+    rounds = step.run(_user())
+
+    assert len(rounds[0].outcomes) == 1
+    assert [(item.tool, item.status) for item in recorder.snapshot().records] == [
+        ("First", "succeeded"),
+    ]
+
+
+def test_step_records_success_then_failure_in_dispatch_order():
+    recorder = ExecutionEvidenceRecorder()
+    step = Step(
+        MockClient(script=[_reply(_tool_call("First") + _tool_call("Second")), _reply(_done())]),
+        TrustedBackend(),
+        Runtime(),
+        registry=_outcome_registry(
+            _OutcomeTool("First", success=True),
+            _OutcomeTool("Second", success=False),
+        ),
+        evidence_recorder=recorder,
+    )
+
+    step.run(_user())
+
+    assert [(item.tool, item.status) for item in recorder.snapshot().records] == [
+        ("First", "succeeded"),
+        ("Second", "failed"),
+    ]
+
+
+def test_step_records_artifact_persistence_failure_without_backend_dispatch(tmp_path):
+    recorder = ExecutionEvidenceRecorder()
+
+    class _FailingStore:
+        def persist(self, **_kwargs):
+            from forgeagent.execution_evidence import ProgramArtifactPersistenceError
+
+            raise ProgramArtifactPersistenceError
+
+    class _RecordingBackend(TrustedBackend):
+        def __init__(self) -> None:
+            super().__init__(secret_values=set())
+            self.calls: list[str] = []
+
+        def execute(self, code, runtime):
+            self.calls.append(code)
+            return ExecResult(success=True)
+
+    backend = _RecordingBackend()
+    step = Step(
+        MockClient(script=[_reply(_exec_call("print('never runs')")), _reply(_done())]),
+        backend,
+        Runtime(),
+        evidence_recorder=recorder,
+        program_store=_FailingStore(),
+    )
+
+    step.run(_user())
+
+    assert backend.calls == []
+    assert [(item.tool, item.status, item.artifact) for item in recorder.snapshot().records] == [
+        ("Exec", "artifact_persistence_failed", None),
+    ]
+
+
+def test_step_keeps_dispatched_record_when_cancellation_follows_execution(tmp_path):
+    event = threading.Event()
+    recorder = ExecutionEvidenceRecorder()
+
+    class _CancellingBackend(TrustedBackend):
+        def execute(self, code, runtime):
+            result = super().execute(code, runtime)
+            event.set()
+            return result
+
+    step = Step(
+        MockClient(script=[_reply(_exec_call("print('done')"))]),
+        _CancellingBackend(secret_values=set()),
+        Runtime(),
+        cancel_event=event,
+        evidence_recorder=recorder,
+        program_store=ProgramArtifactStore(tmp_path),
+    )
+
+    rounds = step.run(_user())
+
+    assert rounds[-1].stopped_reason == Termination.CANCELLED
+    records = [(item.tool, item.status) for item in recorder.snapshot().records]
+    assert records == [("Exec", "succeeded")]
+
+
+def test_step_cancellation_before_dispatch_does_not_create_evidence(tmp_path):
+    event = threading.Event()
+    event.set()
+    recorder = ExecutionEvidenceRecorder()
+    step = Step(
+        MockClient(script=[_reply(_exec_call("print('never runs')"))]),
+        TrustedBackend(),
+        Runtime(),
+        cancel_event=event,
+        evidence_recorder=recorder,
+        program_store=ProgramArtifactStore(tmp_path),
+    )
+
+    step.run(_user())
+
+    assert recorder.snapshot().records == ()
 
 
 def test_step_cancel_event_wins_before_completed_result_is_published():

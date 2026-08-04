@@ -21,6 +21,13 @@ from .attention import Attention, attention_for_reason
 from .audit import AuditEvent, AuditSink, emit_audit
 from .client import ModelClient
 from .context import ContextConfig, ContextPolicy, SlidingWindowContextPolicy
+from .execution_evidence import (
+    ExecutionEvidence,
+    ExecutionEvidenceRecorder,
+    ProgramArtifact,
+    ProgramArtifactStore,
+    ProgramArtifactStoreProtocol,
+)
 from .executor import ContainerBackend, ExecutorBackend, RestrictedBackend, TrustedBackend
 from .external_actions import ExternalActionReceiptStore
 from .identity import ApprovedIdentity, compose_system_prompt
@@ -96,6 +103,24 @@ class TaskOutcome(BaseModel):
     status: TaskStatus
     rounds: list[RoundResult]
     memory_results: list[MemoryResult] = Field(default_factory=list)
+    execution_evidence: ExecutionEvidence = Field(default_factory=ExecutionEvidence)
+
+
+class _LazyProgramArtifactStore:
+    """Create the task artifact store only when Exec first needs it."""
+
+    def __init__(self, project_root: str) -> None:
+        self._project_root = project_root
+        self._store: ProgramArtifactStoreProtocol | None = None
+
+    def persist(self, *, block_name: str | None, language: str, code: str) -> ProgramArtifact:
+        if self._store is None:
+            self._store = ProgramArtifactStore(self._project_root)
+        return self._store.persist(block_name=block_name, language=language, code=code)
+
+    def close(self) -> None:
+        if self._store is not None:
+            self._store.close()
 
 
 class Task:
@@ -140,6 +165,10 @@ class Task:
         # Project identity and relative paths stay anchored here even when a task's
         # filesystem authority later broadens to the platform root.
         self._allowed_root = str(Path(allowed_root or Path.cwd()).resolve())
+        self._evidence_recorder = ExecutionEvidenceRecorder()
+        self._program_store: ProgramArtifactStoreProtocol = _LazyProgramArtifactStore(
+            self._allowed_root
+        )
         if explicit_backend_tier in ("restricted", "container"):
             backend_root = Path(backend._allowed_root).resolve()
             if backend_root != Path(self._allowed_root):
@@ -192,6 +221,7 @@ class Task:
     def close(self) -> None:
         """Release backend resources (e.g. ContainerBackend's temp worker skeleton).
         Safe to call for backends without a close()."""
+        self._program_store.close()
         backend_close = getattr(self._backend, "close", None)
         if callable(backend_close):
             backend_close()
@@ -309,6 +339,8 @@ class Task:
             skills=self._skills,
             registry=self._tool_registry,
             receipt_store=self._receipt_store,
+            evidence_recorder=self._evidence_recorder,
+            program_store=self._program_store,
             max_submission_recovery_attempts=self._max_submission_recovery_attempts,
         )
         rounds = step.run(messages)
@@ -330,7 +362,14 @@ class Task:
                             source="model_candidate",
                         )
                     )
-        outcome = TaskOutcome(status=status, rounds=rounds, memory_results=memory_results)
+        outcome = TaskOutcome(
+            status=status,
+            rounds=rounds,
+            memory_results=memory_results,
+            execution_evidence=self._evidence_recorder.snapshot(),
+        )
+        if self._tool_registry is not None:
+            self._tool_registry.handle_task_outcome(outcome)
         emit_audit(
             self._audit_sink,
             AuditEvent(

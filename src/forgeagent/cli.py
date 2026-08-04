@@ -46,6 +46,11 @@ from .collaboration import (
     normalize_required_candidate_files,
 )
 from .context import ContextConfig, load_context_config
+from .execution_evidence import (
+    ExecutionEvidence,
+    public_execution_evidence,
+    resolve_local_artifact_path,
+)
 from .executor import ContainerRuntimeError
 from .external_actions import ExternalActionReceiptStore, ReceiptError
 from .headless import HeadlessConfirmer
@@ -101,7 +106,22 @@ run_evaluator = _cli_parser.run_evaluator
 validate_artifact_manifest = _cli_parser.validate_artifact_manifest
 _console_plan_confirmer = _cli_collaboration.console_plan_confirmer
 _confirmed_collaboration_mode = _cli_collaboration.confirmed_collaboration_mode
-_render_collaboration_report = _cli_collaboration.render_collaboration_report
+
+
+def _render_collaboration_report(
+    report: CollaborationReport,
+    console: Console,
+    *,
+    project_root: str | Path | None = None,
+) -> None:
+    """Compatibility facade for collaboration report rendering."""
+    _cli_collaboration.render_collaboration_report(
+        report,
+        console,
+        project_root=project_root,
+        render_execution_evidence=render_execution_evidence,
+    )
+
 
 _CONTEXT_CONFIG_ENVIRONMENT = "FORGEAGENT_INTERNAL_CONTEXT_CONFIG_JSON"
 _CANDIDATE_FILES_ENVIRONMENT = "FORGEAGENT_INTERNAL_CANDIDATE_REQUIRED_FILES_JSON"
@@ -184,7 +204,7 @@ def render_outcome(
     for i, rnd in enumerate(outcome.rounds, 1):
         for out in rnd.outcomes:
             marker = "[green]ok[/green]" if out.success else "[red]FAILED[/red]"
-            console.print(f"  round {i} [{out.tool} {out.block_name}] {marker}")
+            console.print(f"  round {i} [{out.tool}] {marker}")
             if out.exec_result and out.exec_result.stdout.strip():
                 console.print(f"    {out.exec_result.stdout.strip()}")
             if not out.success and out.detail:
@@ -193,12 +213,51 @@ def render_outcome(
             # The model answered in plain text without calling Exec — still show it,
             # since it's the only place the actual answer lives.
             console.print(rnd.body)
+    render_execution_evidence(outcome.execution_evidence, console, project_root=Path.cwd())
     for result in outcome.memory_results:
         colour = "green" if result.status in {"accepted", "replaced"} else "yellow"
         detail = f" ({result.reason})" if result.reason else ""
         console.print(
             f"[{colour}]memory {result.status}[/{colour}]: {result.scope}/{result.key}{detail}"
         )
+
+
+def render_execution_evidence(
+    evidence: ExecutionEvidence,
+    console: Console,
+    *,
+    project_root: str | Path | None = None,
+) -> None:
+    """Render one bounded terminal summary of the task's execution attempts."""
+    projected = public_execution_evidence(
+        evidence,
+        secret_values=sensitive_env_values(),
+        include_local_paths=True,
+    )
+    if not projected.records:
+        if projected.omitted_count:
+            console.print(f"execution evidence: omitted={projected.omitted_count}", markup=False)
+        else:
+            console.print("execution evidence: no tools or programs executed", markup=False)
+        return
+
+    console.print("execution evidence:", markup=False)
+    for record in projected.records:
+        console.print(f"    {record.sequence} {record.tool} {record.status}", markup=False)
+        if record.iteration is not None or record.role is not None or record.attempt is not None:
+            origin = f"iteration={record.iteration} role={record.role} attempt={record.attempt}"
+            console.print(f"      origin: {origin}", markup=False)
+        if record.artifact is None:
+            continue
+        path = record.artifact.local_path
+        if path is None and project_root is not None:
+            path = resolve_local_artifact_path(project_root, record.artifact.reference)
+        console.print(
+            f"      program: {path}" if path is not None else "      program unavailable",
+            markup=False,
+        )
+    if projected.omitted_count:
+        console.print(f"    omitted={projected.omitted_count}", markup=False)
 
 
 def _accumulate_usage(total: TokenUsage, rounds: list[RoundResult]) -> None:
@@ -503,6 +562,7 @@ def run_collaboration_once(
             runner_type=CollaborationRunner,
             task_type=Task,
             validate_context_policy=_validate_client_context_policy,
+            render_execution_evidence=render_execution_evidence,
         ),
         allowed_root=allowed_root,
         console=console,
@@ -540,7 +600,9 @@ def _loop_system_prompt(
     return f"{compose_system_prompt(base_identity)}\n\n{suffix}"
 
 
-def _render_loop_report(report: LoopReport, console: Console) -> None:
+def _render_loop_report(
+    report: LoopReport, console: Console, *, project_root: str | Path | None = None
+) -> None:
     """Render the fixed public report projection without checkpoint contents."""
     console.print(f"loop id: {report.loop_id}")
     console.print(f"status: {report.status}")
@@ -554,6 +616,7 @@ def _render_loop_report(report: LoopReport, console: Console) -> None:
         f"open_questions={report.open_question_count} "
         f"usage_available={report.usage_available}"
     )
+    render_execution_evidence(report.execution_evidence, console, project_root=project_root)
 
 
 def run_loop_once(
@@ -848,7 +911,7 @@ def run_loop_once(
                 signal.signal(signal.SIGINT, previous_sigint)
     finally:
         runner.close()
-    _render_loop_report(report, console if console is not None else Console())
+    _render_loop_report(report, console if console is not None else Console(), project_root=root)
     return report
 
 

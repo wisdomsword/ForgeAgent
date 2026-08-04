@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import stat
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -10,18 +12,26 @@ import pytest
 
 from forgeagent.attention import attention_for_reason
 from forgeagent.audit import AuditEvent
+from forgeagent.client import MockClient
 from forgeagent.collaboration import CollaborationReport, CollaborationUsage
+from forgeagent.execution_evidence import (
+    ExecutionEvidence,
+    ToolExecutionRecord,
+    resolve_local_artifact_path,
+)
 from forgeagent.loop import (
+    MAX_CHECKPOINT_BYTES,
     MAX_FAILURE_CHARS,
     CheckpointArgs,
     LoopBudgets,
     LoopCheckpointStore,
+    LoopReport,
     LoopRunner,
 )
-from forgeagent.models import TokenUsage
+from forgeagent.models import AssistantMessage, TokenUsage
 from forgeagent.skills import SkillDefinition, SkillRegistry
 from forgeagent.step import RoundResult
-from forgeagent.task import TaskOutcome, TaskStatus
+from forgeagent.task import Task, TaskOutcome, TaskStatus
 from forgeagent.tools import ToolOutcome, default_registry
 
 
@@ -43,10 +53,26 @@ def _outcome(
     detail: str | None = None,
     usage: TokenUsage | None = None,
     rounds: int = 1,
+    execution_evidence: ExecutionEvidence | None = None,
 ) -> TaskOutcome:
     return TaskOutcome(
         status=TaskStatus(completed=completed, reason=reason, detail=detail),
         rounds=[RoundResult(text="", usage=usage) for _ in range(rounds)],
+        execution_evidence=execution_evidence or ExecutionEvidence(),
+    )
+
+
+def _execution_evidence(*, sequence: int = 1, role: str | None = None) -> ExecutionEvidence:
+    return ExecutionEvidence(
+        records=(
+            ToolExecutionRecord(
+                sequence=sequence,
+                tool="Exec",
+                status="succeeded",
+                role=role,
+                attempt=1 if role is not None else None,
+            ),
+        )
     )
 
 
@@ -100,6 +126,22 @@ class _FakeCollaborationRunner:
 
     def close(self) -> None:
         self.closed += 1
+
+
+@dataclass(frozen=True)
+class _AggregateOutcome:
+    """Task-7-shaped result double used without adding collaboration fields yet."""
+
+    status: str
+    stop_reason: str | None
+    rounds: int
+    usage: CollaborationUsage
+    usage_available: bool
+    execution_evidence: ExecutionEvidence
+    passed_item_count: int = 0
+    failed_item_count: int = 1
+    rejections: int = 0
+    plan_digest: str = "d" * 64
 
 
 def _collaboration_report(**overrides: object) -> CollaborationReport:
@@ -268,6 +310,365 @@ def test_create_runs_one_completed_iteration_and_closes_task(tmp_path: Path):
     assert len(builder.calls) == 1
     assert builder.calls[0][4].closed == 1
     runner.close()
+
+
+def test_loop_aggregates_single_execution_evidence_with_iteration_origin(tmp_path: Path):
+    builder = _Builder(
+        [
+            _outcome(reason="retry", execution_evidence=_execution_evidence()),
+            _outcome(
+                completed=True,
+                reason="completed",
+                execution_evidence=_execution_evidence(sequence=2),
+            ),
+        ]
+    )
+    runner = _runner(tmp_path, builder)
+
+    report = runner.run()
+
+    assert [
+        (record.iteration, record.sequence) for record in report.execution_evidence.records
+    ] == [
+        (1, 1),
+        (2, 2),
+    ]
+    runner.close()
+
+
+def test_loop_evidence_is_bounded_with_one_global_omitted_count(tmp_path: Path):
+    builder = _Builder(
+        [
+            _outcome(
+                completed=index == 40,
+                reason="completed" if index == 40 else "retry",
+                execution_evidence=_execution_evidence(sequence=index),
+            )
+            for index in range(1, 41)
+        ]
+    )
+    runner = _runner(tmp_path, builder, max_rounds=40, max_consecutive_failures=40)
+
+    report = runner.run()
+
+    assert len(report.execution_evidence.records) == 32
+    assert report.execution_evidence.truncated is True
+    assert report.execution_evidence.omitted_count == 8
+    assert (
+        tmp_path / ".forgeagent" / "loops" / f"{report.loop_id}.json"
+    ).stat().st_size <= MAX_CHECKPOINT_BYTES
+    runner.close()
+
+
+def test_v1_checkpoint_defaults_to_empty_execution_evidence_and_resume_appends(tmp_path: Path):
+    store = LoopCheckpointStore(str(tmp_path))
+    checkpoint = store.create("finish the work", _budgets(), loop_id="e" * 32)
+    state_path = tmp_path / ".forgeagent" / "loops" / f"{checkpoint.loop_id}.json"
+    payload = json.loads(state_path.read_text())
+    payload.pop("execution_evidence", None)
+    state_path.write_text(json.dumps(payload))
+    loaded = store.load(checkpoint.loop_id)
+    assert loaded.execution_evidence == ExecutionEvidence()
+
+    runner = LoopRunner.resume(
+        allowed_root=str(tmp_path),
+        task_builder=_Builder([]),
+        loop_id=checkpoint.loop_id,
+        trigger="test",
+    )
+    runner._record_outcome(_outcome(reason="retry", execution_evidence=_execution_evidence()))
+    first_prefix = runner._checkpoint.execution_evidence.records
+    runner.close()
+
+    resumed = LoopRunner.resume(
+        allowed_root=str(tmp_path),
+        task_builder=_Builder([]),
+        loop_id=checkpoint.loop_id,
+        trigger="test",
+    )
+    resumed._record_outcome(
+        _outcome(
+            completed=True,
+            reason="completed",
+            execution_evidence=_execution_evidence(sequence=2),
+        )
+    )
+
+    assert resumed._checkpoint.execution_evidence.records[:1] == first_prefix
+    assert [
+        (record.iteration, record.sequence)
+        for record in resumed._checkpoint.execution_evidence.records
+    ] == [
+        (1, 1),
+        (2, 2),
+    ]
+    resumed.close()
+    store.close()
+
+
+def test_loop_resume_preserves_public_references_to_real_task_programs(tmp_path: Path):
+    def task_outcome(code: str, *, completed: bool) -> TaskOutcome:
+        tool_call = json.dumps({"name": "Exec", "arguments": {"code": code}})
+        replies = [
+            AssistantMessage(
+                content=f"<!-- ToolCall: {tool_call} -->",
+                usage=TokenUsage(),
+                stop_reason="end_turn",
+            )
+        ]
+        if completed:
+            replies.append(
+                AssistantMessage(
+                    content="---\ntask_status:\n  completed: true\n  confidence: 0.9\n---",
+                    usage=TokenUsage(),
+                    stop_reason="end_turn",
+                )
+            )
+        task = Task(
+            MockClient(script=replies),
+            tier="trusted",
+            allowed_root=str(tmp_path),
+            max_rounds=2 if completed else 1,
+        )
+        try:
+            return task.run("PRIVATE_LOOP_GOAL")
+        finally:
+            task.close()
+
+    first_code = "loop_matrix_value = '\u4e2d-one'\n"
+    second_code = "loop_matrix_value = '\u4e2d-two'\n"
+    runner = _runner(tmp_path, _Builder([]))
+    runner._record_outcome(task_outcome(first_code, completed=False))
+    loop_id = runner._checkpoint.loop_id
+    runner.close()
+
+    resumed = LoopRunner.resume(
+        allowed_root=str(tmp_path),
+        task_builder=_Builder([]),
+        loop_id=loop_id,
+        trigger="test",
+    )
+    resumed._record_outcome(task_outcome(second_code, completed=True))
+    report = LoopReport.from_checkpoint(resumed._checkpoint)
+    durable = LoopCheckpointStore(str(tmp_path)).load(loop_id)
+
+    records = [
+        (record.tool, record.status, record.iteration)
+        for record in report.execution_evidence.records
+    ]
+    assert records == [
+        ("Exec", "succeeded", 1),
+        ("Exec", "succeeded", 2),
+    ]
+    for record, code in zip(
+        report.execution_evidence.records, (first_code, second_code), strict=True
+    ):
+        assert record.artifact is not None
+        assert record.artifact.local_path is None
+        path = resolve_local_artifact_path(tmp_path, record.artifact.reference)
+        assert path is not None and stat.S_ISREG(path.stat().st_mode)
+        assert path.read_bytes() == code.encode("utf-8")
+    serialized = (tmp_path / ".forgeagent" / "loops" / f"{loop_id}.json").read_text()
+    assert durable.execution_evidence == report.execution_evidence
+    assert "local_path" not in serialized
+    assert first_code not in serialized and second_code not in serialized
+    resumed.close()
+
+
+def test_loop_store_strips_legacy_model_controlled_block_on_load(tmp_path: Path):
+    store = LoopCheckpointStore(str(tmp_path))
+    checkpoint = store.create("finish the work", _budgets(), loop_id="f" * 32)
+    path = tmp_path / ".forgeagent" / "loops" / f"{checkpoint.loop_id}.json"
+    payload = json.loads(path.read_text())
+    payload["execution_evidence"] = {
+        "records": [
+            {
+                "sequence": 1,
+                "tool": "Exec",
+                "status": "succeeded",
+                "block": "/private/legacy.py RAW_ARG_MARKER PROMPT_MARKER NON_ENV_SECRET_MARKER",
+                "iteration": 1,
+            }
+        ],
+        "truncated": False,
+        "omitted_count": 0,
+    }
+    path.write_text(json.dumps(payload))
+
+    loaded = store.load(checkpoint.loop_id)
+    saved = store.save(loaded.model_copy(update={"rounds_used": 1}), expected_revision=0)
+
+    assert loaded.execution_evidence.records[0].block is None
+    assert saved.execution_evidence.records[0].block is None
+    assert "block" not in json.loads(path.read_text())["execution_evidence"]["records"][0]
+    store.close()
+
+
+def test_failed_outcome_save_does_not_advance_counters_or_evidence(tmp_path: Path, monkeypatch):
+    runner = _runner(tmp_path, _Builder([]))
+    before = runner._checkpoint
+
+    def fail_save(*_args, **_kwargs):
+        raise RuntimeError("disk failure")
+
+    monkeypatch.setattr(runner._store, "save", fail_save)
+
+    with pytest.raises(RuntimeError, match="disk failure"):
+        runner._record_outcome(_outcome(reason="retry", execution_evidence=_execution_evidence()))
+
+    durable = LoopCheckpointStore(str(tmp_path)).load(before.loop_id)
+    assert durable.iterations == before.iterations
+    assert durable.rounds_used == before.rounds_used
+    assert durable.execution_evidence == before.execution_evidence
+    runner.close()
+
+
+def test_loop_projection_omits_model_controlled_block_from_checkpoint_and_report(tmp_path: Path):
+    block = "/private/model-block.py RAW_ARG_MARKER PROMPT_MARKER NON_ENV_SECRET_MARKER"
+    evidence = ExecutionEvidence(
+        records=(
+            ToolExecutionRecord(
+                sequence=1,
+                tool="Exec",
+                status="succeeded",
+                block=block,
+            ),
+        )
+    )
+    runner = _runner(
+        tmp_path,
+        _Builder([_outcome(completed=True, reason="completed", execution_evidence=evidence)]),
+    )
+
+    report = runner.run()
+    checkpoint = LoopCheckpointStore(str(tmp_path)).load(report.loop_id)
+    serialized = (tmp_path / ".forgeagent" / "loops" / f"{report.loop_id}.json").read_text()
+
+    assert report.execution_evidence.records[0].block is None
+    assert checkpoint.execution_evidence.records[0].block is None
+    assert '"block"' not in serialized
+    for marker in block.split():
+        assert marker not in report.model_dump_json()
+        assert marker not in serialized
+    runner.close()
+
+
+def test_cumulative_collaboration_evidence_dedupes_roles_across_resume(tmp_path: Path):
+    initial = _AggregateOutcome(
+        status="failed",
+        stop_reason="retry",
+        rounds=1,
+        usage=CollaborationUsage(input_tokens=1),
+        usage_available=True,
+        execution_evidence=_execution_evidence(role="generator"),
+    )
+    runner = LoopRunner.create(
+        allowed_root=str(tmp_path),
+        task_builder=_Builder([]),
+        collaboration_mode="duo",
+        collaboration_id="c" * 32,
+        goal="finish the work",
+        budgets=_budgets(),
+        trigger="test",
+    )
+    runner._record_outcome(initial)
+    runner.close()
+
+    cumulative = ExecutionEvidence(
+        records=(
+            _execution_evidence(role="generator").records[0],
+            _execution_evidence(role="evaluator").records[0],
+        )
+    )
+    resumed = LoopRunner.resume(
+        allowed_root=str(tmp_path),
+        task_builder=_Builder([]),
+        collaboration_builder=lambda *_args: _FakeCollaborationRunner(
+            _AggregateOutcome(
+                status="completed",
+                stop_reason="completed",
+                rounds=2,
+                usage=CollaborationUsage(input_tokens=2),
+                usage_available=True,
+                execution_evidence=cumulative,
+            )
+        ),
+        loop_id=runner._checkpoint.loop_id,
+        trigger="test",
+    )
+
+    report = resumed.run()
+
+    assert [(record.role, record.iteration) for record in report.execution_evidence.records] == [
+        ("generator", 1),
+        ("evaluator", 2),
+    ]
+    assert report.execution_evidence.omitted_count == 0
+    resumed.close()
+
+
+def test_cumulative_collaboration_evidence_keeps_unique_omission_count_on_resume(
+    tmp_path: Path,
+):
+    def cumulative_evidence(count: int) -> ExecutionEvidence:
+        return ExecutionEvidence(
+            records=tuple(
+                ToolExecutionRecord(
+                    sequence=index,
+                    tool="Exec",
+                    status="succeeded",
+                    role="generator",
+                    attempt=1,
+                )
+                for index in range(1, count + 1)
+            )
+        )
+
+    runner = LoopRunner.create(
+        allowed_root=str(tmp_path),
+        task_builder=_Builder([]),
+        collaboration_mode="duo",
+        collaboration_id="c" * 32,
+        goal="finish the work",
+        budgets=_budgets(max_rounds=4),
+        trigger="test",
+    )
+    runner._record_outcome(
+        _AggregateOutcome(
+            status="failed",
+            stop_reason="retry",
+            rounds=1,
+            usage=CollaborationUsage(input_tokens=1),
+            usage_available=True,
+            execution_evidence=cumulative_evidence(40),
+        )
+    )
+    runner.close()
+
+    resumed = LoopRunner.resume(
+        allowed_root=str(tmp_path),
+        task_builder=_Builder([]),
+        collaboration_builder=lambda *_args: _FakeCollaborationRunner(
+            _AggregateOutcome(
+                status="completed",
+                stop_reason="completed",
+                rounds=2,
+                usage=CollaborationUsage(input_tokens=2),
+                usage_available=True,
+                execution_evidence=cumulative_evidence(41),
+            )
+        ),
+        loop_id=runner._checkpoint.loop_id,
+        trigger="test",
+    )
+
+    report = resumed.run()
+
+    assert len(report.execution_evidence.records) == 32
+    assert report.execution_evidence.omitted_count == 9
+    assert report.execution_evidence.truncated is True
+    assert [record.iteration for record in report.execution_evidence.records] == [1] * 32
+    resumed.close()
 
 
 @pytest.mark.parametrize("reason", ["needs_input", "blocked"])
@@ -494,10 +895,19 @@ def test_external_cancel_set_during_completed_task_takes_priority(tmp_path: Path
             cancelled.set()
             return super().run(goal, cancel_event=cancel_event)
 
+    created: list[_FakeTask] = []
+
     def builder(iteration: int, remaining: int, suffix: str, registry: object) -> _FakeTask:
-        return _CancellingCompletedTask(
-            _outcome(completed=True, reason="completed", usage=TokenUsage(input_tokens=1))
+        task = _CancellingCompletedTask(
+            _outcome(
+                completed=True,
+                reason="completed",
+                usage=TokenUsage(input_tokens=1),
+                execution_evidence=_execution_evidence(),
+            )
         )
+        created.append(task)
+        return task
 
     runner = LoopRunner.create(
         allowed_root=str(tmp_path),
@@ -512,6 +922,10 @@ def test_external_cancel_set_during_completed_task_takes_priority(tmp_path: Path
 
     assert report.status == checkpoint.status == "cancelled"
     assert report.stop_reason == checkpoint.stop_reason == "cancelled"
+    assert [
+        (record.iteration, record.sequence) for record in report.execution_evidence.records
+    ] == [(1, 1)]
+    assert len(created) == 1
     runner.close()
 
 

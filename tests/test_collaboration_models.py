@@ -22,6 +22,7 @@ from forgeagent.collaboration import (
     SubmitEvaluationArgs,
     plan_digest,
 )
+from forgeagent.execution_evidence import ExecutionEvidence, ProgramArtifact, ToolExecutionRecord
 
 
 def _plan() -> tuple[AcceptanceItem, ...]:
@@ -130,6 +131,40 @@ def test_completed_state_requires_all_passing_evaluation_and_public_report_masks
     assert report.passed_item_count == 1
     assert "secret-value-for-test" not in report.evidence[0]
     assert "Create an artifact" not in report.model_dump_json()
+
+
+def test_collaboration_execution_evidence_has_bounded_role_origin_and_no_local_path(
+    tmp_path,
+):
+    evidence = ExecutionEvidence(
+        records=tuple(
+            ToolExecutionRecord(
+                sequence=index,
+                tool="Exec",
+                status="succeeded",
+                role="planner" if index == 1 else "generator",
+                attempt=1,
+                artifact=ProgramArtifact(
+                    reference="execution-artifacts/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/programs/0001-private.py",
+                    local_path=tmp_path / "private.py",
+                ),
+            )
+            for index in range(1, 41)
+        )
+    )
+    state = _state(execution_evidence=evidence)
+    report = CollaborationReport.from_state(state)
+
+    assert state.execution_evidence.records[0].role == "planner"
+    assert state.execution_evidence.records[0].attempt == 1
+    assert len(report.execution_evidence.records) == 32
+    assert report.execution_evidence.omitted_count == 8
+    assert str(tmp_path) not in report.model_dump_json()
+
+
+def test_collaboration_models_default_execution_evidence_is_explicitly_empty():
+    assert _state().execution_evidence == ExecutionEvidence()
+    assert CollaborationReport(**_report_values()).execution_evidence == ExecutionEvidence()
 
 
 @pytest.mark.parametrize(

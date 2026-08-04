@@ -31,6 +31,7 @@ import forgeagent.mcp_manager as mcp_manager_module
 from forgeagent.cli import (
     build_parser,
     main,
+    render_execution_evidence,
     render_outcome,
     repl,
     run_loop_once,
@@ -39,7 +40,13 @@ from forgeagent.cli import (
 from forgeagent.client import MockClient
 from forgeagent.collaboration import CollaborationReport, CollaborationUsage
 from forgeagent.evaluator import EvaluationRequest, EvaluatorResult
-from forgeagent.executor import TrustedBackend
+from forgeagent.execution_evidence import (
+    ExecutionEvidence,
+    ProgramArtifact,
+    ToolExecutionRecord,
+    resolve_local_artifact_path,
+)
+from forgeagent.executor import ExecResult, ExecutorBackend, TrustedBackend
 from forgeagent.headless import HeadlessConfirmer
 from forgeagent.loop import LoopBudgets, LoopCheckpointStore
 from forgeagent.mcp_manager import MCPManager, MCPServerConfig, MCPServerDiagnostic
@@ -62,7 +69,7 @@ from forgeagent.protocol import (
 from forgeagent.runtime import Runtime
 from forgeagent.skills import SkillDefinition, SkillRegistry
 from forgeagent.step import RoundResult, Step, Termination
-from forgeagent.task import TaskOutcome, TaskStatus
+from forgeagent.task import Task, TaskOutcome, TaskStatus
 from forgeagent.tools import ToolOutcome, default_registry
 
 
@@ -1360,6 +1367,25 @@ def _exec_call(code: str) -> str:
     return f"<!-- ToolCall: {json.dumps({'name': 'Exec', 'arguments': {'code': code}})} -->"
 
 
+class _MatrixRecordingBackend(ExecutorBackend):
+    def __init__(
+        self,
+        result: ExecResult | None = None,
+        *,
+        cancel_event: threading.Event | None = None,
+    ) -> None:
+        self.calls: list[str] = []
+        self.result = result or ExecResult(success=True)
+        self.cancel_event = cancel_event
+
+    def execute(self, code, runtime):
+        del runtime
+        self.calls.append(code)
+        if self.cancel_event is not None:
+            self.cancel_event.set()
+        return self.result
+
+
 def test_run_once_renders_exec_output():
     console = _console()
     run_once(
@@ -1370,6 +1396,332 @@ def test_run_once_renders_exec_output():
         console=console,
     )
     assert "hi" in console.export_text()
+
+
+def test_run_once_renders_execution_evidence_once_with_local_program_path(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    console = Console(record=True, width=500, force_terminal=False)
+
+    outcome = run_once(
+        "print hi",
+        tier="trusted",
+        model="claude-sonnet-5",
+        client_factory=_factory([_reply(_exec_call("print('hi')")), _reply(_done())]),
+        console=console,
+    )
+
+    rendered = console.export_text()
+    assert rendered.count("execution evidence:") == 1
+    assert "Exec succeeded" in rendered
+    assert outcome.execution_evidence.records[0].artifact is not None
+    artifact_path = outcome.execution_evidence.records[0].artifact.local_path
+    assert artifact_path is not None
+    assert str(artifact_path) in rendered
+    assert artifact_path.is_absolute()
+
+
+@pytest.mark.parametrize("tier", ["trusted", "restricted", "container"])
+@pytest.mark.parametrize("program_form", ["inline", "named", "edited"])
+def test_single_program_matrix_persists_exact_python_and_renders_local_path(
+    tmp_path, monkeypatch, tier, program_form
+):
+    backend = _MatrixRecordingBackend()
+    monkeypatch.setattr(
+        "forgeagent.task._backend_for_tier",
+        lambda selected_tier, **_kwargs: (
+            backend if selected_tier == tier else pytest.fail(f"unexpected tier: {selected_tier}")
+        ),
+    )
+    if program_form == "inline":
+        selected_code = "matrix_value = '中-inline'\n"
+        script = [_reply(_exec_call(selected_code)), _reply(_done())]
+        expected_tools = [("Exec", "succeeded")]
+    else:
+        original = "matrix_value = 'version-one'"
+        block = (
+            '<!-- CodeBlockStart: {"name":"matrix","path":"../../outside.py"} -->\n'
+            f"```python\n{original}\n```\n"
+            '<!-- CodeBlockEnd: {"name":"matrix"} -->'
+        )
+        if program_form == "named":
+            selected_code = original
+            call = '<!-- ToolCall: {"name":"Exec","arguments":{"name":"matrix"}} -->'
+            script = [_reply(f"{block}\n{call}"), _reply(_done())]
+            expected_tools = [("Exec", "succeeded")]
+        else:
+            selected_code = original.replace("one", "two")
+            edit = (
+                '<!-- ToolCall: {"name":"Edit","arguments":'
+                '{"name":"matrix","old":"one","new":"two"}} -->'
+            )
+            execute = '<!-- ToolCall: {"name":"Exec","arguments":{"name":"matrix"}} -->'
+            script = [_reply(f"{block}\n{edit}"), _reply(execute), _reply(_done())]
+            expected_tools = [("Edit", "succeeded"), ("Exec", "succeeded")]
+
+    task = Task(
+        MockClient(script=script),
+        tier=tier,
+        allowed_root=str(tmp_path),
+    )
+    outcome = task.run("PRIVATE_SINGLE_GOAL")
+    task.close()
+    console = Console(record=True, width=500, force_terminal=False)
+    render_outcome(outcome, console)
+
+    assert outcome.status.reason == Termination.COMPLETED
+    assert [(record.tool, record.status) for record in outcome.execution_evidence.records] == (
+        expected_tools
+    )
+    assert backend.calls == [selected_code]
+    exec_record = outcome.execution_evidence.records[-1]
+    assert exec_record.artifact is not None
+    path = resolve_local_artifact_path(tmp_path, exec_record.artifact.reference)
+    assert path is not None and stat.S_ISREG(path.stat().st_mode)
+    assert path.suffix == ".py"
+    assert path.read_bytes() == selected_code.encode("utf-8")
+    rendered = console.export_text()
+    assert rendered.count("execution evidence:") == 1
+    assert rendered.count(str(path)) == 1
+    assert "matrix_value" not in rendered
+    assert "PRIVATE_SINGLE_GOAL" not in rendered
+    assert str(tmp_path.parent / "outside.py") not in rendered
+    assert not (tmp_path.parent / "outside.py").exists()
+    dumped = outcome.execution_evidence.model_dump(mode="json")
+    assert "local_path" not in repr(dumped)
+    assert selected_code not in repr(dumped)
+
+
+@pytest.mark.parametrize(
+    ("terminal", "expected_reason", "expected_status"),
+    [
+        ("prose", Termination.ANSWERED_IN_PROSE, None),
+        ("failure", Termination.REFUSED, "failed"),
+        ("cancelled", Termination.CANCELLED, "succeeded"),
+    ],
+)
+def test_single_terminal_matrix_uses_empty_or_prior_only_evidence(
+    tmp_path, monkeypatch, terminal, expected_reason, expected_status
+):
+    cancel_event = threading.Event() if terminal == "cancelled" else None
+    backend = _MatrixRecordingBackend(
+        ExecResult(success=terminal != "failure", error="private backend failure"),
+        cancel_event=cancel_event,
+    )
+    monkeypatch.setattr("forgeagent.task._backend_for_tier", lambda *_args, **_kwargs: backend)
+    code = "terminal_matrix_value = 'private'\n"
+    if terminal == "prose":
+        script = [_reply("PUBLIC_PROSE_ANSWER")]
+    elif terminal == "failure":
+        script = [_reply(_exec_call(code)), _reply("cannot continue", stop_reason="refusal")]
+    else:
+        script = [_reply(_exec_call(code) + _exec_call("must_not_run = True\n"))]
+
+    task = Task(MockClient(script=script), tier="trusted", allowed_root=str(tmp_path))
+    outcome = task.run("PRIVATE_TERMINAL_GOAL", cancel_event=cancel_event)
+    task.close()
+    console = Console(record=True, width=500, force_terminal=False)
+    render_outcome(outcome, console)
+
+    assert outcome.status.reason == expected_reason
+    if expected_status is None:
+        assert outcome.execution_evidence.model_dump(mode="json") == {
+            "records": [],
+            "truncated": False,
+            "omitted_count": 0,
+        }
+        assert backend.calls == []
+        assert "execution evidence: no tools or programs executed" in console.export_text()
+        return
+
+    assert [(record.tool, record.status) for record in outcome.execution_evidence.records] == [
+        ("Exec", expected_status)
+    ]
+    assert backend.calls == [code]
+    artifact = outcome.execution_evidence.records[0].artifact
+    assert artifact is not None
+    path = resolve_local_artifact_path(tmp_path, artifact.reference)
+    assert path is not None and stat.S_ISREG(path.stat().st_mode)
+    assert path.read_bytes() == code.encode("utf-8")
+    rendered = console.export_text()
+    assert str(path) in rendered
+    assert "PRIVATE_TERMINAL_GOAL" not in rendered
+    evidence_section = rendered.split("execution evidence:", 1)[1]
+    assert "terminal_matrix_value" not in evidence_section
+    assert "private backend failure" not in evidence_section
+
+
+def test_render_outcome_shows_explicit_empty_execution_evidence_for_prose():
+    console = _console()
+    outcome = TaskOutcome(
+        status=TaskStatus(completed=True, reason=Termination.ANSWERED_IN_PROSE),
+        rounds=[RoundResult(text="answer", outcomes=[])],
+    )
+
+    render_outcome(outcome, console)
+
+    assert "execution evidence: no tools or programs executed" in console.export_text()
+
+
+def test_render_execution_evidence_masks_secret_and_control_characters(monkeypatch):
+    secret = "terminal-secret-value"
+    monkeypatch.setenv("FORGEAGENT_TEST_SECRET", secret)
+    evidence = ExecutionEvidence(
+        records=(
+            ToolExecutionRecord(
+                sequence=1,
+                tool=f"Exec {secret}\x1b[31m",
+                status="succeeded",
+                block=(
+                    f"block-{secret}\n /private/model-block.py RAW_ARG_MARKER "
+                    "PROMPT_MARKER NON_ENV_SECRET_MARKER"
+                ),
+            ),
+        )
+    )
+    console = _console()
+
+    render_execution_evidence(evidence, console)
+
+    rendered = console.export_text()
+    assert secret not in rendered
+    assert "\\x1b" in rendered
+    assert "block:" not in rendered
+    for marker in (
+        "/private/model-block.py",
+        "RAW_ARG_MARKER",
+        "PROMPT_MARKER",
+        "NON_ENV_SECRET_MARKER",
+    ):
+        assert marker not in rendered
+
+
+def test_render_execution_evidence_renders_markup_like_fields_literally(monkeypatch):
+    markup = "[link=https://example]x[/link]"
+    evidence = ExecutionEvidence.model_construct(
+        records=(
+            ToolExecutionRecord.model_construct(
+                sequence=1,
+                tool=markup,
+                status="succeeded",
+                block=markup,
+                artifact=ProgramArtifact.model_construct(
+                    reference=(
+                        "execution-artifacts/"
+                        "0123456789abcdef0123456789abcdef/programs/0001-program.py"
+                    ),
+                    local_path=markup,
+                ),
+            ),
+        )
+    )
+    console = Console(record=True, width=100, force_terminal=True, color_system="standard")
+    monkeypatch.setattr(cli_module, "public_execution_evidence", lambda *args, **kwargs: evidence)
+
+    render_execution_evidence(evidence, console)
+
+    rendered = console.export_text()
+    assert rendered.count(markup) == 2
+    assert "\x1b]8;" not in console.export_text(styles=True)
+
+
+def test_render_execution_evidence_marks_missing_local_artifact_unavailable(tmp_path):
+    evidence = ExecutionEvidence(
+        records=(
+            ToolExecutionRecord(
+                sequence=1,
+                tool="Exec",
+                status="succeeded",
+                block="program",
+                artifact=ProgramArtifact(
+                    reference=(
+                        "execution-artifacts/"
+                        "0123456789abcdef0123456789abcdef/programs/0001-program.py"
+                    )
+                ),
+            ),
+        )
+    )
+    console = _console()
+
+    render_execution_evidence(evidence, console, project_root=tmp_path)
+
+    rendered = console.export_text()
+    assert "program unavailable" in rendered
+    assert str(tmp_path) not in rendered
+
+
+def test_render_execution_evidence_marks_symlink_artifact_unavailable(tmp_path):
+    execution_id = "0123456789abcdef0123456789abcdef"
+    programs = tmp_path / ".forgeagent" / "execution-artifacts" / execution_id / "programs"
+    programs.mkdir(parents=True)
+    outside = tmp_path / "outside.py"
+    outside.write_text("print('outside')")
+    (programs / "0001-program.py").symlink_to(outside)
+    reference = f"execution-artifacts/{execution_id}/programs/0001-program.py"
+    evidence = ExecutionEvidence(
+        records=(
+            ToolExecutionRecord(
+                sequence=1,
+                tool="Exec",
+                status="succeeded",
+                artifact=ProgramArtifact(reference=reference),
+            ),
+        )
+    )
+    console = _console()
+
+    render_execution_evidence(evidence, console, project_root=tmp_path)
+
+    assert resolve_local_artifact_path(tmp_path, reference) is None
+    assert "program unavailable" in console.export_text()
+    assert str(outside) not in console.export_text()
+
+
+@pytest.mark.parametrize(
+    "reference",
+    [
+        "../escape.py",
+        "/tmp/program.py",
+        "execution-artifacts/../../programs/0001-program.py",
+    ],
+)
+def test_program_artifact_rejects_unsafe_references(reference):
+    with pytest.raises(ValueError):
+        ProgramArtifact(reference=reference)
+
+
+def test_render_execution_evidence_prints_omitted_count():
+    evidence = ExecutionEvidence(omitted_count=3, truncated=True)
+    console = _console()
+
+    render_execution_evidence(evidence, console)
+
+    rendered = console.export_text()
+    assert "execution evidence: no tools or programs executed" not in rendered
+    assert "omitted=3" in rendered
+
+
+def test_repl_renders_one_execution_evidence_section_per_task(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    inputs = iter(["first", "second", "quit"])
+    console = _console()
+    scripts = iter(
+        [
+            [_reply(_exec_call("print('first')")), _reply(_done())],
+            [_reply(_exec_call("print('second')")), _reply(_done())],
+        ]
+    )
+
+    repl(
+        tier="trusted",
+        model="claude-sonnet-5",
+        client_factory=lambda model: MockClient(script=next(scripts)),
+        console=console,
+        read_line=lambda prompt: next(inputs),
+        confirmation_available=False,
+    )
+
+    assert console.export_text().count("execution evidence:") == 2
 
 
 def test_render_outcome_discloses_only_fixed_webfetch_failure_detail():
@@ -1655,6 +2007,51 @@ def test_run_loop_once_closes_runner_and_reuses_cli_assembly(monkeypatch, tmp_pa
     assert report.tokens_used == 1
 
 
+def test_loop_report_renders_execution_evidence_with_local_program_path(tmp_path):
+    reference = "execution-artifacts/0123456789abcdef0123456789abcdef/programs/0001-program.py"
+    programs = (
+        tmp_path
+        / ".forgeagent"
+        / "execution-artifacts"
+        / "0123456789abcdef0123456789abcdef"
+        / "programs"
+    )
+    programs.mkdir(parents=True)
+    artifact_path = programs / "0001-program.py"
+    artifact_path.write_text("print('ok')\n")
+    report = cli_module.LoopReport(
+        loop_id="a" * 32,
+        status="completed",
+        stop_reason="completed",
+        iterations=1,
+        rounds_used=1,
+        tokens_used=1,
+        elapsed_seconds=0.0,
+        consecutive_failures=0,
+        completed_item_count=0,
+        open_question_count=0,
+        usage_available=True,
+        execution_evidence=ExecutionEvidence(
+            records=(
+                ToolExecutionRecord(
+                    sequence=1,
+                    tool="Exec",
+                    status="succeeded",
+                    artifact=ProgramArtifact(reference=reference),
+                    iteration=1,
+                ),
+            )
+        ),
+    )
+    console = Console(record=True, width=500, force_terminal=False)
+
+    cli_module._render_loop_report(report, console, project_root=tmp_path)
+    rendered = console.export_text()
+
+    assert "execution evidence:" in rendered
+    assert str(artifact_path) in rendered
+
+
 @pytest.mark.parametrize(
     ("collaboration_mode", "expected_source"),
     [(None, "default"), ("single", "explicit"), ("duo", "explicit"), ("triad", "explicit")],
@@ -1678,7 +2075,9 @@ def test_run_loop_once_projects_default_and_explicit_collaboration_source(
             return None
 
     monkeypatch.setattr(cli_module, "LoopRunner", FakeRunner)
-    monkeypatch.setattr(cli_module, "_render_loop_report", lambda _report, _console: None)
+    monkeypatch.setattr(
+        cli_module, "_render_loop_report", lambda _report, _console, **_kwargs: None
+    )
 
     run_loop_once(
         "finish the work",
@@ -3048,7 +3447,7 @@ def test_repl_filesystem_access_decision_resets_between_goals(monkeypatch):
 
     assert prompts.count("approve? [y/N] ") == 2
     output = console.export_text()
-    assert "[RequestFilesystemAccess None] ok" in output
+    assert "[RequestFilesystemAccess] ok" in output
     assert "Full-disk filesystem access was not approved" in output
 
 

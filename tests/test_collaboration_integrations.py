@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import stat
 from types import SimpleNamespace
 
 import pytest
@@ -19,6 +20,12 @@ from forgeagent.collaboration import (
     CollaborationRunner,
     CollaborationUsage,
     headless_plan_confirmer,
+)
+from forgeagent.execution_evidence import (
+    ExecutionEvidence,
+    ProgramArtifactStore,
+    ToolExecutionRecord,
+    resolve_local_artifact_path,
 )
 from forgeagent.models import AssistantMessage, ModelCapability, TokenUsage
 from forgeagent.task import Task
@@ -359,7 +366,7 @@ def test_collaboration_renderer_omits_private_goal_and_absolute_path(monkeypatch
         failed_item_count=1,
         evidence=(f"failed at {tmp_path}/artifact.txt with {secret}",),
     )
-    console = Console(record=True, force_terminal=False)
+    console = Console(record=True, force_terminal=False, width=500)
 
     cli_module._render_collaboration_report(report, console)
 
@@ -367,6 +374,123 @@ def test_collaboration_renderer_omits_private_goal_and_absolute_path(monkeypatch
     assert "rejection_limit" in rendered
     assert secret not in rendered
     assert str(tmp_path) not in rendered
+
+
+def test_collaboration_renderer_uses_safe_shared_execution_evidence_renderer(tmp_path):
+    store = ProgramArtifactStore(tmp_path)
+    artifact = store.persist(block_name="private", language="python", code="SECRET_CODE = 1\n")
+    report = _report(
+        execution_evidence=ExecutionEvidence(
+            records=(
+                ToolExecutionRecord(
+                    sequence=1,
+                    tool="Exec",
+                    status="succeeded",
+                    artifact=artifact,
+                    role="generator",
+                    attempt=1,
+                ),
+            )
+        )
+    )
+    console = Console(record=True, force_terminal=False, width=500)
+
+    cli_module._render_collaboration_report(report, console, project_root=tmp_path)
+
+    rendered = console.export_text()
+    assert str(artifact.local_path) in rendered
+    assert "SECRET_CODE" not in rendered
+    assert "role=generator attempt=1" in rendered
+    store.close()
+
+
+@pytest.mark.parametrize("mode", ["duo", "triad"])
+def test_collaboration_entry_projects_real_generator_program_artifact(tmp_path, mode):
+    code = f"{mode}_matrix_value = '\u4e2d'\n"
+    candidate = {
+        "name": "SubmitCandidate",
+        "arguments": {},
+    }
+    evaluation = {
+        "name": "SubmitEvaluation",
+        "arguments": {
+            "results": [
+                {
+                    "id": "goal",
+                    "passed": True,
+                    "observed": "done",
+                    "expected": "done",
+                    "location": "artifact.txt",
+                }
+            ]
+        },
+    }
+    scripts = {
+        "generator": [
+            _reply(
+                "\n".join(
+                    (
+                        "<!-- ToolCall: "
+                        + json.dumps({"name": "Exec", "arguments": {"code": code}})
+                        + " -->",
+                        "<!-- ToolCall: " + json.dumps(candidate) + " -->",
+                    )
+                )
+            )
+        ],
+        "evaluator": [_reply("<!-- ToolCall: " + json.dumps(evaluation) + " -->")],
+    }
+    if mode == "triad":
+        scripts["planner"] = [
+            _reply(
+                "<!-- ToolCall: "
+                + json.dumps(
+                    {
+                        "name": "SubmitPlan",
+                        "arguments": {
+                            "items": [
+                                {
+                                    "id": "goal",
+                                    "behavior": "Run the program",
+                                    "acceptance": "The program runs",
+                                }
+                            ]
+                        },
+                    }
+                )
+                + " -->"
+            )
+        ]
+
+    console = Console(record=True, force_terminal=False, width=500)
+    report = run_collaboration_once(
+        "PRIVATE_COLLABORATION_GOAL",
+        mode=mode,
+        tier="trusted",
+        model="generator",
+        planner_model="planner" if mode == "triad" else None,
+        evaluator_model="evaluator",
+        max_rejections=2,
+        client_factory=lambda model: MockClient(script=list(scripts[model])),
+        allowed_root=str(tmp_path),
+        console=console,
+        plan_confirmer=lambda _summary: True,
+    )
+
+    exec_record = next(
+        record for record in report.execution_evidence.records if record.tool == "Exec"
+    )
+    assert report.status == report.stop_reason == "completed"
+    assert exec_record.status == "succeeded"
+    assert exec_record.role == "generator" and exec_record.attempt == 1
+    assert exec_record.artifact is not None and exec_record.artifact.local_path is None
+    path = resolve_local_artifact_path(tmp_path, exec_record.artifact.reference)
+    assert path is not None and stat.S_ISREG(path.stat().st_mode)
+    assert path.read_bytes() == code.encode("utf-8")
+    rendered = console.export_text()
+    assert str(path) in rendered
+    assert code not in rendered
+    assert "PRIVATE_COLLABORATION_GOAL" not in rendered
 
 
 def test_loop_context_is_untrusted_role_data_and_checkpoint_only_extends_generator(tmp_path):
