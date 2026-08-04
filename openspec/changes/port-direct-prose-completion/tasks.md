@@ -10,4 +10,4 @@
 
 ## 3. 验证
 
-- [ ] 3.1 运行 Step、Task、CLI、context、collaboration 聚焦测试、Ruff、全量测试和 OpenSpec strict 校验，审查没有重复执行或完成语义升级。
+- [x] 3.1 运行 Step、Task、CLI、context、collaboration 聚焦测试、Ruff、全量测试和 OpenSpec strict 校验，审查没有重复执行或完成语义升级。
