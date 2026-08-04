@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+import stat
+
 import pytest
 from pydantic import ValidationError
 
@@ -7,9 +10,12 @@ from forgeagent.execution_evidence import (
     ExecutionEvidence,
     ExecutionEvidenceRecorder,
     ProgramArtifact,
+    ProgramArtifactPersistenceError,
+    ProgramArtifactStore,
     ToolExecutionRecord,
     merge_execution_evidence,
     public_execution_evidence,
+    resolve_local_artifact_path,
 )
 
 
@@ -111,9 +117,12 @@ def test_origin_role_and_attempt_must_be_supplied_together():
         ToolExecutionRecord(sequence=1, tool="Exec", status="failed", role="planner")
     with pytest.raises(ValidationError):
         ToolExecutionRecord(sequence=1, tool="Exec", status="failed", attempt=1)
-    assert ToolExecutionRecord(
-        sequence=1, tool="Exec", status="failed", role="planner", attempt=1
-    ).role == "planner"
+    assert (
+        ToolExecutionRecord(
+            sequence=1, tool="Exec", status="failed", role="planner", attempt=1
+        ).role
+        == "planner"
+    )
 
 
 def test_references_must_be_canonical_and_bounded():
@@ -245,9 +254,7 @@ def test_public_projection_keeps_first_32_and_accumulates_omitted_count():
 
 def test_merge_adds_origin_and_deduplicates_cumulative_role_records():
     current = ExecutionEvidence(
-        records=(
-            ToolExecutionRecord(sequence=1, tool="Exec", status="succeeded"),
-        )
+        records=(ToolExecutionRecord(sequence=1, tool="Exec", status="succeeded"),)
     )
     incoming = ExecutionEvidence(
         records=(
@@ -330,3 +337,163 @@ def test_merge_public_bound_counts_only_unique_new_records():
     assert len(merged.records) == 32
     assert merged.omitted_count == 3
     assert merged.truncated is True
+
+
+def test_program_store_persists_exact_utf8_bytes_with_private_modes(tmp_path):
+    store = ProgramArtifactStore(tmp_path, execution_id="a" * 32)
+    artifact = store.persist(block_name="Main block", language="python", code="print('中')\n")
+    assert artifact.reference == (
+        "execution-artifacts/" + "a" * 32 + "/programs/0001-main-block.py"
+    )
+    assert artifact.local_path is not None
+    assert artifact.local_path.read_bytes() == "print('中')\n".encode()
+    assert stat.S_IMODE(artifact.local_path.stat().st_mode) == 0o600
+    assert stat.S_IMODE(artifact.local_path.parent.stat().st_mode) == 0o700
+    assert resolve_local_artifact_path(tmp_path, artifact.reference) == artifact.local_path
+    store.close()
+    assert artifact.local_path.exists()
+
+
+def test_program_store_uses_bounded_host_generated_filename(tmp_path, monkeypatch):
+    secret = "artifact-secret-value"
+    monkeypatch.setenv("FORGE_ARTIFACT_TOKEN", secret)
+    store = ProgramArtifactStore(tmp_path, execution_id="b" * 32)
+    artifact = store.persist(
+        block_name=f"../../路径/{secret}\n" + "x" * 100,
+        language="python",
+        code="pass\n",
+    )
+    assert artifact.local_path is not None
+    assert artifact.local_path.suffix == ".py"
+    assert artifact.local_path.name.startswith("0001-")
+    assert len(artifact.local_path.stem.removeprefix("0001-")) <= 64
+    assert secret not in artifact.local_path.name
+    assert "/" not in artifact.local_path.name
+
+
+def test_program_store_enforces_count_and_file_size_limits(tmp_path):
+    count_store = ProgramArtifactStore(tmp_path, execution_id="c" * 32)
+    for index in range(100):
+        count_store.persist(block_name=str(index), language="python", code="")
+    with pytest.raises(
+        ProgramArtifactPersistenceError, match="^program artifact persistence failed$"
+    ):
+        count_store.persist(block_name="overflow", language="python", code="")
+
+    size_store = ProgramArtifactStore(tmp_path, execution_id="d" * 32)
+    size_store.persist(block_name="limit", language="python", code="x" * (1024 * 1024))
+    with pytest.raises(ProgramArtifactPersistenceError):
+        size_store.persist(block_name="overflow", language="python", code="x" * (1024 * 1024 + 1))
+
+
+def test_program_store_enforces_total_size_limit(tmp_path):
+    store = ProgramArtifactStore(tmp_path, execution_id="e" * 32)
+    for index in range(8):
+        store.persist(block_name=str(index), language="python", code="x" * (1024 * 1024))
+    with pytest.raises(ProgramArtifactPersistenceError):
+        store.persist(block_name="overflow", language="python", code="x")
+
+
+@pytest.mark.parametrize(
+    "symlink_level", [".forgeagent", "execution-artifacts", "execution-id", "programs"]
+)
+def test_program_store_rejects_symlinked_artifact_directories(tmp_path, symlink_level):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    sentinel = outside / "sentinel"
+    sentinel.write_text("safe")
+    execution_id = "f" * 32
+    if symlink_level == ".forgeagent":
+        (tmp_path / ".forgeagent").symlink_to(outside, target_is_directory=True)
+    elif symlink_level == "execution-artifacts":
+        forgeagent = tmp_path / ".forgeagent"
+        forgeagent.mkdir()
+        (forgeagent / "execution-artifacts").symlink_to(outside, target_is_directory=True)
+    elif symlink_level == "execution-id":
+        artifacts = tmp_path / ".forgeagent" / "execution-artifacts"
+        artifacts.mkdir(parents=True)
+        (artifacts / execution_id).symlink_to(outside, target_is_directory=True)
+    else:
+        parent = tmp_path / ".forgeagent" / "execution-artifacts" / execution_id
+        parent.mkdir(parents=True)
+        (parent / "programs").symlink_to(outside, target_is_directory=True)
+    store = ProgramArtifactStore(tmp_path, execution_id=execution_id)
+    with pytest.raises(ProgramArtifactPersistenceError):
+        store.persist(block_name="main", language="python", code="pass\n")
+    assert sentinel.read_text() == "safe"
+
+
+def test_program_store_cleans_temp_when_replace_fails(tmp_path, monkeypatch):
+    store = ProgramArtifactStore(tmp_path, execution_id="1" * 32)
+
+    def fail_replace(*args, **kwargs):
+        raise OSError("injected")
+
+    monkeypatch.setattr(os, "replace", fail_replace)
+    with pytest.raises(
+        ProgramArtifactPersistenceError, match="^program artifact persistence failed$"
+    ):
+        store.persist(block_name="main", language="python", code="pass\n")
+    assert list(store._programs_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("operation", ["write", "fsync"])
+def test_program_store_cleans_temp_when_write_or_fsync_fails(tmp_path, monkeypatch, operation):
+    store = ProgramArtifactStore(tmp_path, execution_id="4" * 32)
+
+    def fail(*args, **kwargs):
+        raise OSError("injected")
+
+    monkeypatch.setattr(os, operation, fail)
+    with pytest.raises(
+        ProgramArtifactPersistenceError, match="^program artifact persistence failed$"
+    ):
+        store.persist(block_name="main", language="python", code="pass\n")
+    assert list(store._programs_path.iterdir()) == []
+
+
+def test_program_store_propagates_interrupt_after_cleaning_temp(tmp_path, monkeypatch):
+    store = ProgramArtifactStore(tmp_path, execution_id="5" * 32)
+
+    def interrupt(*args, **kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(os, "write", interrupt)
+    with pytest.raises(KeyboardInterrupt):
+        store.persist(block_name="main", language="python", code="pass\n")
+    assert list(store._programs_path.iterdir()) == []
+
+
+def test_program_store_normalizes_uuid_execution_id(tmp_path):
+    store = ProgramArtifactStore(
+        tmp_path,
+        execution_id="AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA",
+    )
+    artifact = store.persist(block_name="main", language="python", code="pass\n")
+    assert artifact.reference.startswith("execution-artifacts/" + "a" * 32 + "/")
+
+
+def test_program_store_removes_published_file_on_directory_rebind(tmp_path, monkeypatch):
+    store = ProgramArtifactStore(tmp_path, execution_id="2" * 32)
+    original = store._directories_unchanged
+    calls = 0
+
+    def rebound(programs_fd):
+        nonlocal calls
+        calls += 1
+        return False if calls == 3 else original(programs_fd)
+
+    monkeypatch.setattr(store, "_directories_unchanged", rebound)
+    with pytest.raises(ProgramArtifactPersistenceError):
+        store.persist(block_name="main", language="python", code="pass\n")
+    assert list(store._programs_path.iterdir()) == []
+
+
+def test_resolve_local_artifact_path_rejects_invalid_reference_and_symlink(tmp_path):
+    store = ProgramArtifactStore(tmp_path, execution_id="3" * 32)
+    artifact = store.persist(block_name="main", language="python", code="pass\n")
+    assert resolve_local_artifact_path(tmp_path, "../outside.py") is None
+    assert artifact.local_path is not None
+    artifact.local_path.unlink()
+    artifact.local_path.symlink_to(tmp_path / "outside.py")
+    assert resolve_local_artifact_path(tmp_path, artifact.reference) is None

@@ -7,12 +7,15 @@ public data small, deterministic, and free of host-local paths.
 
 from __future__ import annotations
 
+import os
 import re
+import stat
 import threading
 import unicodedata
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Literal
+from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -25,10 +28,29 @@ MAX_INTERNAL_EVIDENCE_RECORDS = 128
 MAX_PUBLIC_EVIDENCE_RECORDS = 32
 MAX_EVIDENCE_LABEL_CHARS = 128
 MAX_ARTIFACT_REFERENCE_CHARS = 512
+MAX_PROGRAMS_PER_TASK = 100
+MAX_PROGRAM_BYTES = 1024 * 1024
+MAX_PROGRAM_TOTAL_BYTES = 8 * 1024 * 1024
 
 _REFERENCE_RE = re.compile(
     r"^execution-artifacts/[0-9a-f]{32}/programs/[0-9]{4}-[a-z0-9-]{1,64}\.py$"
 )
+_PROGRAM_LABEL_RE = re.compile(r"[^a-z0-9]+")
+
+
+class ProgramArtifactPersistenceError(Exception):
+    """Stable public failure for program artifact persistence."""
+
+    def __init__(self) -> None:
+        super().__init__("program artifact persistence failed")
+
+
+def _program_label(value: str) -> str:
+    masked = mask_audit_data(value, sensitive_env_values())
+    if not isinstance(masked, str):
+        masked = "program"
+    label = _PROGRAM_LABEL_RE.sub("-", masked.casefold()).strip("-")
+    return (label or "program")[:64]
 
 
 def _safe_text(value: str, secret_values: Iterable[str] = ()) -> str:
@@ -71,6 +93,216 @@ class ProgramArtifact(BaseModel):
         if not _REFERENCE_RE.fullmatch(value):
             raise ValueError("artifact reference must be canonical")
         return value
+
+
+class ProgramArtifactStore:
+    """Persist generated Python programs below one task-owned artifact root."""
+
+    def __init__(self, project_root: str | Path, *, execution_id: str | None = None) -> None:
+        try:
+            self._project_root = Path(project_root).resolve(strict=True)
+        except OSError as exc:
+            raise ProgramArtifactPersistenceError from exc
+        if not self._project_root.is_dir():
+            raise ProgramArtifactPersistenceError
+        try:
+            self._execution_id = UUID(execution_id).hex if execution_id is not None else uuid4().hex
+        except (ValueError, AttributeError, TypeError) as exc:
+            raise ValueError("execution_id must be a UUID") from exc
+        self._lock = threading.Lock()
+        self._programs_fd: int | None = None
+        self._directory_identities: tuple[tuple[int, int], ...] = ()
+        self._count = 0
+        self._total_bytes = 0
+
+    @property
+    def _programs_path(self) -> Path:
+        return (
+            self._project_root
+            / ".forgeagent"
+            / "execution-artifacts"
+            / self._execution_id
+            / "programs"
+        )
+
+    def _open_programs(self) -> int:
+        if self._programs_fd is not None:
+            return self._programs_fd
+        fds: list[int] = []
+        try:
+            root_fd = os.open(
+                self._project_root,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+            )
+            fds = [root_fd]
+            identities = [os.fstat(root_fd)]
+            for part in (".forgeagent", "execution-artifacts", self._execution_id, "programs"):
+                try:
+                    os.mkdir(part, 0o700, dir_fd=fds[-1])
+                except FileExistsError:
+                    pass
+                fd = os.open(
+                    part,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                    dir_fd=fds[-1],
+                )
+                fds.append(fd)
+                identities.append(os.fstat(fd))
+            for fd in fds[:-1]:
+                os.close(fd)
+            self._programs_fd = fds[-1]
+            self._directory_identities = tuple((item.st_dev, item.st_ino) for item in identities)
+            return self._programs_fd
+        except (OSError, ValueError) as exc:
+            for fd in fds:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+            raise ProgramArtifactPersistenceError from exc
+
+    def _directories_unchanged(self, programs_fd: int) -> bool:
+        fds: list[int] = []
+        try:
+            root_fd = os.open(
+                self._project_root,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+            )
+            fds = [root_fd]
+            identities = [(item.st_dev, item.st_ino) for item in [os.fstat(root_fd)]]
+            for part in (".forgeagent", "execution-artifacts", self._execution_id, "programs"):
+                fd = os.open(
+                    part,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                    dir_fd=fds[-1],
+                )
+                fds.append(fd)
+                info = os.fstat(fd)
+                identities.append((info.st_dev, info.st_ino))
+            held = os.fstat(programs_fd)
+            return tuple(identities) == self._directory_identities and identities[-1] == (
+                held.st_dev,
+                held.st_ino,
+            )
+        except OSError:
+            return False
+        finally:
+            for fd in fds:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+
+    def persist(self, *, block_name: str, language: str, code: str) -> ProgramArtifact:
+        del language
+        try:
+            payload = code.encode("utf-8")
+        except (UnicodeError, AttributeError) as exc:
+            raise ProgramArtifactPersistenceError from exc
+        with self._lock:
+            if len(payload) > MAX_PROGRAM_BYTES:
+                raise ProgramArtifactPersistenceError
+            if (
+                self._count >= MAX_PROGRAMS_PER_TASK
+                or self._total_bytes + len(payload) > MAX_PROGRAM_TOTAL_BYTES
+            ):
+                raise ProgramArtifactPersistenceError
+            programs_fd = self._open_programs()
+            if not self._directories_unchanged(programs_fd):
+                raise ProgramArtifactPersistenceError
+            sequence = self._count + 1
+            label = _program_label(block_name)
+            final_name = f"{sequence:04d}-{label}.py"
+            temp_name = f".tmp-{uuid4().hex}"
+            temp_fd: int | None = None
+            published = False
+            try:
+                temp_fd = os.open(
+                    temp_name,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                    0o600,
+                    dir_fd=programs_fd,
+                )
+                view = memoryview(payload)
+                while view:
+                    written = os.write(temp_fd, view)
+                    if written <= 0:
+                        raise OSError("short write")
+                    view = view[written:]
+                os.fchmod(temp_fd, 0o600)
+                os.fsync(temp_fd)
+                temp_stat = os.fstat(temp_fd)
+                if not stat.S_ISREG(temp_stat.st_mode) or temp_stat.st_size != len(payload):
+                    raise OSError("invalid artifact")
+                if not self._directories_unchanged(programs_fd):
+                    raise OSError("directory changed")
+                os.replace(temp_name, final_name, src_dir_fd=programs_fd, dst_dir_fd=programs_fd)
+                published = True
+                os.fsync(programs_fd)
+                if not self._directories_unchanged(programs_fd):
+                    raise OSError("directory changed")
+                final_stat = os.stat(final_name, dir_fd=programs_fd, follow_symlinks=False)
+                if (temp_stat.st_dev, temp_stat.st_ino) != (final_stat.st_dev, final_stat.st_ino):
+                    raise OSError("published artifact mismatch")
+                local_path = self._programs_path / final_name
+                self._count += 1
+                self._total_bytes += len(payload)
+                return ProgramArtifact(
+                    reference=f"execution-artifacts/{self._execution_id}/programs/{final_name}",
+                    local_path=local_path,
+                )
+            except BaseException as exc:
+                try:
+                    os.unlink(temp_name, dir_fd=programs_fd)
+                except OSError:
+                    pass
+                if published:
+                    try:
+                        os.unlink(final_name, dir_fd=programs_fd)
+                    except OSError:
+                        pass
+                if isinstance(exc, KeyboardInterrupt | SystemExit):
+                    raise
+                if isinstance(exc, OSError | ValueError | UnicodeError):
+                    raise ProgramArtifactPersistenceError from exc
+                raise
+            finally:
+                if temp_fd is not None:
+                    try:
+                        os.close(temp_fd)
+                    except OSError:
+                        pass
+
+    def close(self) -> None:
+        with self._lock:
+            if self._programs_fd is not None:
+                os.close(self._programs_fd)
+                self._programs_fd = None
+
+
+def resolve_local_artifact_path(project_root: str | Path, reference: str) -> Path | None:
+    try:
+        parsed = ProgramArtifact(reference=reference)
+        root = Path(project_root)
+        current = root
+        for part in (
+            ".forgeagent",
+            "execution-artifacts",
+            parsed.reference.split("/")[1],
+            "programs",
+        ):
+            current = current / part
+            info = os.lstat(current)
+            if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+                return None
+        filename = parsed.reference.rsplit("/", 1)[1]
+        target = current / filename
+        info = os.lstat(target)
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+            return None
+        return target
+    except (OSError, ValueError):
+        return None
 
 
 class ToolExecutionRecord(BaseModel):
