@@ -86,6 +86,15 @@ def _console() -> Console:
     return Console(record=True, width=100, force_terminal=False)
 
 
+class _RecordingAuditSink:
+    def __init__(self):
+        self.events = []
+
+    def emit(self, event):
+        self.events.append(event)
+        return True
+
+
 def _terminal_console() -> Console:
     return Console(record=True, width=100, force_terminal=True)
 
@@ -1128,6 +1137,62 @@ def test_run_once_completes(monkeypatch):
     )
     assert outcome.status.completed is True
     assert "completed" in console.export_text()
+
+
+def test_run_once_audits_filesystem_access_decision_with_task_id():
+    sink = _RecordingAuditSink()
+    request = '<!-- ToolCall: {"name":"RequestFilesystemAccess","arguments":{"path":"/tmp"}} -->'
+
+    run_once(
+        "inspect external files",
+        tier="restricted",
+        model="mock",
+        client_factory=_factory([_reply(request), _reply(_done())]),
+        console=_console(),
+        confirmer=lambda args: False,
+        audit_sink=sink,
+    )
+
+    decision = next(event for event in sink.events if event.event_type == "confirmation.decision")
+    assert decision.task_id
+    assert decision.parameters == {
+        "tool": "RequestFilesystemAccess",
+        "scope": "full_disk",
+        "tier": "restricted",
+    }
+
+
+@pytest.mark.parametrize("entrypoint", ["main", "repl"])
+def test_cli_single_entrypoints_forward_audit_sink_to_task(entrypoint):
+    sink = _RecordingAuditSink()
+    request = '<!-- ToolCall: {"name":"RequestFilesystemAccess","arguments":{"path":"/tmp"}} -->'
+    client_factory = _factory([_reply(request), _reply(_done())])
+
+    if entrypoint == "main":
+        assert (
+            main(
+                ["run", "inspect external files"],
+                client_factory=client_factory,
+                audit_sink=sink,
+            )
+            == 0
+        )
+    else:
+        inputs = iter(("inspect external files", ""))
+        repl(
+            tier="restricted",
+            model="mock",
+            client_factory=client_factory,
+            console=_console(),
+            read_line=lambda _prompt: next(inputs),
+            confirmation_available=False,
+            use_registry_snapshot=False,
+            audit_sink=sink,
+        )
+
+    decisions = [event for event in sink.events if event.event_type == "confirmation.decision"]
+    assert len(decisions) == 1
+    assert decisions[0].task_id
 
 
 def test_run_once_closes_client_after_task_success(monkeypatch):

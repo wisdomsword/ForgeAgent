@@ -891,7 +891,7 @@ def _validate_path(path: str, allowed_root: str) -> Path:
 def _validate_context_path(path: str, ctx: ToolContext) -> Path:
     if os.path.isabs(path) or ctx.project_root is None:
         return _validate_path(path, ctx.allowed_root)
-    return _validate_path(os.path.join(ctx.project_root, path), ctx.allowed_root)
+    return _validate_path(path, ctx.project_root)
 
 
 def _display_path(path: Path, ctx: ToolContext) -> str:
@@ -1021,11 +1021,20 @@ class FileWriteTool(Tool):
     def run(self, args: BaseModel, ctx: ToolContext) -> ToolOutcome:
         assert isinstance(args, FileWriteArgs)
         if ctx.tier in ("restricted", "container"):
+            try:
+                audit_candidate = args.path
+                if not os.path.isabs(audit_candidate):
+                    audit_candidate = os.path.join(
+                        ctx.project_root or ctx.allowed_root, audit_candidate
+                    )
+                audit_path = _display_path(Path(os.path.realpath(audit_candidate)), ctx)
+            except (OSError, ValueError):
+                audit_path = "invalid"
             if not _confirm(
                 ctx,
                 args,
                 tool="FileWrite",
-                parameters={"path": args.path, "content_length": len(args.content)},
+                parameters={"path": audit_path, "content_length": len(args.content)},
             ):
                 if ctx.confirmer is None:
                     return ToolOutcome(

@@ -16,3 +16,5 @@
 ## 4. 验证
 
 - [x] 4.1 运行权限/工具/Task/CLI 聚焦测试、Ruff、全量测试和 OpenSpec strict 校验，并审查最终差异没有权限扩大或无关旧分支内容。
+- [x] 4.2 修复 verify 审查发现的相对路径扩权逃逸、CLI 单任务审计透传和外部 FileWrite 审计路径泄露，并分别取得 RED/GREEN。
+- [x] 4.3 重新运行聚焦测试、Ruff、全量测试、OpenSpec strict 与独立代码审查，确认无剩余 CRITICAL/IMPORTANT 问题。

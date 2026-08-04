@@ -19,6 +19,10 @@ ForgeAgent MUST keep the resolved project root immutable for identity, memory an
 - **WHEN** trusted mode or a restricted grant broadens the filesystem authority boundary to the platform root
 - **THEN** relative built-in file-tool paths and generated WebFetch artifact paths still resolve from the immutable project root while absolute paths may use the broader authority
 
+#### Scenario: Relative path escape remains blocked after authority broadens
+- **WHEN** a relative file-tool or WebFetch artifact path contains `..` or resolves through a project symlink to an external target after full-disk access is active
+- **THEN** ForgeAgent rejects the relative operation instead of applying the broader absolute-path authority
+
 #### Scenario: Broader authority does not disclose host path structure
 - **WHEN** trusted mode or a restricted grant lets a built-in file tool operate outside the project root
 - **THEN** file-tool results and read audit records identify project files with project-relative paths and external files with basenames without exposing their absolute parent directories
@@ -98,6 +102,10 @@ ForgeAgent MUST include a host-generated Runtime Authority section in every Task
 #### Scenario: Explicit system prompt still receives authority facts
 - **WHEN** a caller supplies a custom Task system prompt
 - **THEN** ForgeAgent appends the same host-generated Runtime Authority section rather than omitting actual permission facts
+
+#### Scenario: CLI single tasks carry audit identity
+- **WHEN** a `run` or REPL single task makes a filesystem authority decision
+- **THEN** the confirmation audit is emitted through the CLI audit sink with a non-empty task id
 
 #### Scenario: Custom registry omits the access tool
 - **WHEN** a restricted Task uses a custom tool registry that does not contain `RequestFilesystemAccess`

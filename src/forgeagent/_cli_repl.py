@@ -575,6 +575,7 @@ def repl(
                     context_config=current_context,
                     memory_manager=memory_manager,
                     skills=current_skills,
+                    audit_sink=audit_sink,
                 )
                 continue
             if goal == "/mcp" or goal.startswith("/mcp "):
@@ -676,6 +677,7 @@ def repl(
                         context_config=current_context,
                         memory_manager=memory_manager,
                         skills=current_skills,
+                        audit_sink=audit_sink,
                     )
                     continue
                 bindings.run_collaboration_once(
@@ -730,6 +732,7 @@ def repl(
                     context_config=current_context,
                     memory_manager=memory_manager,
                     skills=current_skills,
+                    audit_sink=audit_sink,
                 )
             else:
                 bindings.run_collaboration_once(

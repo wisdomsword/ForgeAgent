@@ -396,6 +396,8 @@ def run_once(
     context_config: ContextConfig | None = None,
     memory_manager: MemoryManager | None = None,
     skills: SkillRegistry | None = None,
+    audit_sink: AuditSink | None = None,
+    task_id: str | None = None,
 ) -> TaskOutcome:
     """Run a single goal and render its outcome. Returns the outcome for testing.
 
@@ -439,6 +441,8 @@ def run_once(
                 context_config=resolved_context_config,
                 memory_manager=memory_manager,
                 skills=skills,
+                audit_sink=audit_sink,
+                task_id=task_id or uuid4().hex,
             )
         except ValueError as exc:
             raise RegistryError(f"Invalid context configuration: {exc}") from exc
@@ -1507,6 +1511,7 @@ def main(
                         context_config=context_config,
                         memory_manager=memory_manager,
                         skills=skills,
+                        audit_sink=audit_sink,
                     )
                 else:
                     if images:

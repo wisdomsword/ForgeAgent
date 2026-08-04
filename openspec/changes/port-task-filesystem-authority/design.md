@@ -27,6 +27,7 @@ M47 的 `Task.allowed_root` 同时承担项目身份/记忆边界、内置文件
 5. 每个 Task 的 system prompt 追加 host-generated Runtime Authority；MCP 批准明确不改变该权限事实。
 6. 文件权限根只用于校验；文件工具对项目内路径继续显示 project-relative 路径，对项目外绝对路径只显示 basename，避免授权后泄露宿主目录结构。
 7. 显式内置 restricted/container backend 的 `allowed_root` 必须与 Task project root 一致，否则构造时 fail closed；全磁盘授权只扩大路径权限，不复用为后续 FileWrite、WebFetch 或 MCP 副作用批准。
+8. 相对路径必须针对 project root 完成 realpath containment 校验，扩权后也不得通过 `..` 或 symlink 逃逸；CLI/REPL 为每个单任务传递 audit sink 与 task id，FileWrite 确认审计对外部目标只记录 basename。
 
 ## Risks / Trade-offs
 
@@ -34,6 +35,7 @@ M47 的 `Task.allowed_root` 同时承担项目身份/记忆边界、内置文件
 - [M47 工具批准契约已演进] -> 对照 M47 的 `tool-approval` 完整 requirement 移植，不覆盖后续 HTTP/receipt 语义。
 - [backend 切换状态不一致] -> 只在权限工具边界切换，不自动重放此前失败代码，Runtime state 保持独立事实源。
 - [跨平台根语义] -> 沿用旧设计的平台根计算；跨 Windows 卷授权不在本 change 范围。
+- [扩权后校验根与解析根混淆] -> 相对路径始终以 project root 同时作为解析根和 containment 根；绝对路径才使用当前 filesystem root。
 
 ## Migration Plan
 

@@ -14,6 +14,7 @@ import http.client
 import logging
 import os
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -221,6 +222,7 @@ def test_full_disk_grant_does_not_approve_later_file_write(tmp_path):
     external = tmp_path / "private" / "report.txt"
     external.parent.mkdir()
     confirmations = []
+    audit_events = []
     decisions = iter((True, False))
 
     def confirm(args):
@@ -238,6 +240,7 @@ def test_full_disk_grant_does_not_approve_later_file_write(tmp_path):
         project_root=str(project),
         full_disk_root=project.anchor,
         full_disk_backend_factory=TrustedBackend,
+        audit_sink=SimpleNamespace(emit=lambda event: audit_events.append(event) or True),
     )
 
     grant = RequestFilesystemAccessTool().run(RequestFilesystemAccessArgs(path=str(external)), ctx)
@@ -247,6 +250,11 @@ def test_full_disk_grant_does_not_approve_later_file_write(tmp_path):
     assert written.success is False
     assert confirmations == [RequestFilesystemAccessArgs, FileWriteArgs]
     assert not external.exists()
+    filewrite_event = next(
+        event for event in audit_events if event.parameters.get("tool") == "FileWrite"
+    )
+    assert filewrite_event.parameters["path"] == "report.txt"
+    assert str(external.parent) not in filewrite_event.model_dump_json()
 
 
 def test_webfetch_truncated_response_reports_truncated_artifact(tmp_path, monkeypatch):
@@ -430,6 +438,42 @@ def test_webfetch_artifact_symlink_escape_is_blocked(tmp_path, monkeypatch):
     assert outside.read_text() == "original"
     assert outcome.success is False
     assert outcome.detail == "WebFetch response save failed"
+
+
+def test_full_disk_grant_keeps_relative_webfetch_symlink_project_scoped(tmp_path, monkeypatch):
+    url = "https://example.com/static-artifact"
+    project = tmp_path / "project"
+    project.mkdir()
+    outside = tmp_path / "outside.txt"
+    outside.write_text("original")
+    digest = hashlib.sha256(url.encode()).hexdigest()[:12]
+    (project / f"webfetch_{digest}.txt").symlink_to(outside)
+    monkeypatch.setattr(
+        "forgeagent.tools.guarded_urlopen",
+        lambda requested_url, **kwargs: _FakeResponse(b"network-body"),
+    )
+    ctx = ToolContext(
+        blocks=CodeBlockStore(),
+        backend=TrustedBackend(),
+        runtime=Runtime(),
+        analyzer=CodeAnalyzer(),
+        confirmer=lambda args: True,
+        tier="restricted",
+        allowed_root=str(project),
+        project_root=str(project),
+        full_disk_root=project.anchor,
+        full_disk_backend_factory=TrustedBackend,
+    )
+
+    grant = RequestFilesystemAccessTool().run(RequestFilesystemAccessArgs(path=str(outside)), ctx)
+    fetched = WebFetchTool().run(WebFetchArgs(url=url), ctx)
+    escaped_read = FileReadTool().run(FileReadArgs(path="../outside.txt"), ctx)
+
+    assert grant.success is True
+    assert fetched.success is False
+    assert fetched.detail == "WebFetch response save failed"
+    assert escaped_read.success is False
+    assert outside.read_text() == "original"
 
 
 def test_webfetch_restricted_tier_confirmer_denial_blocks_fetch(monkeypatch):

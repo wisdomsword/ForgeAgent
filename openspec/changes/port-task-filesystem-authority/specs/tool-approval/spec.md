@@ -32,6 +32,10 @@ ForgeAgent MUST make at most one full-disk filesystem authority decision within 
 - **WHEN** a user rejects a task filesystem request
 - **THEN** ForgeAgent records the rejected decision, returns structured feedback and retains project-scoped authority
 
+#### Scenario: Later external FileWrite audit minimizes path disclosure
+- **WHEN** a task with broader filesystem authority confirms a FileWrite target outside the project root
+- **THEN** the confirmation audit records only the external target basename and does not persist its absolute parent directories
+
 #### Scenario: Requested path contains unsafe display characters or a known secret
 - **WHEN** a task filesystem request path contains control, formatting or known secret material
 - **THEN** the confirmation renders a single-line escaped and secret-masked target and still reads exactly one approval answer
