@@ -169,8 +169,10 @@ def _make_stream_callback(console: Console) -> tuple[Live, Callable[[str, Stream
     return live, _on_delta
 
 
-def render_outcome(outcome: TaskOutcome, console: Console) -> None:
-    """Print a task outcome: status line, then each round's tool results."""
+def render_outcome(
+    outcome: TaskOutcome, console: Console, *, plain_body_already_rendered: bool = False
+) -> None:
+    """Print task status, tool results, and any plain body not already streamed."""
     status = outcome.status
     if status.completed:
         console.print("[bold green]completed[/bold green]")
@@ -192,7 +194,7 @@ def render_outcome(outcome: TaskOutcome, console: Console) -> None:
                 console.print(f"    {out.exec_result.stdout.strip()}")
             if not out.success and out.detail:
                 console.print(f"    {out.detail.splitlines()[-1]}")
-        if not rnd.outcomes and rnd.body:
+        if not plain_body_already_rendered and not rnd.outcomes and rnd.body:
             # The model answered in plain text without calling Exec — still show it,
             # since it's the only place the actual answer lives.
             console.print(rnd.body)
@@ -582,7 +584,7 @@ def run_once(
                 task.close()
         finally:
             client.close()
-    render_outcome(outcome, console)
+    render_outcome(outcome, console, plain_body_already_rendered=live is not None)
     _accumulate_usage(usage_total, outcome.rounds)
     _print_usage(usage_total, console)
     return outcome

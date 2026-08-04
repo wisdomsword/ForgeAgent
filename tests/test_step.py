@@ -625,14 +625,16 @@ def test_step_cancel_event_wins_before_client_error_is_published():
     assert rounds[-1].stopped_reason == Termination.CANCELLED
 
 
-def test_prose_answer_is_nudged_once_then_accepted():
-    # A prose answer with no tool activity is nudged toward the protocol once; a second
-    # prose answer is accepted as an (unverified) soft completion, not a failure.
-    step = _step([_reply("the answer is 42"), _reply("still prose, the answer is 42")])
+def test_prose_answer_is_accepted_without_a_recovery_round():
+    client = MockClient(script=[_reply("the answer is 42"), _reply(_done())])
+    step = Step(client, TrustedBackend(), Runtime(), max_rounds=5)
+
     rounds = step.run(_user())
-    assert len(rounds) == 2
-    assert rounds[-1].stopped_reason == "answered_in_prose"
-    assert rounds[-1].body == "still prose, the answer is 42"
+
+    assert client.calls_made == 1
+    assert len(rounds) == 1
+    assert rounds[0].stopped_reason == Termination.ANSWERED_IN_PROSE
+    assert rounds[0].body == "the answer is 42"
 
 
 @pytest.mark.parametrize("body", ["", "   \n\t"])
@@ -642,15 +644,6 @@ def test_empty_or_whitespace_prose_never_becomes_answered_in_prose(body: str):
     assert rounds[-1].body == ""
     assert rounds[-1].stopped_reason == Termination.EMPTY_RESPONSE
     assert rounds[-1].stopped_reason != Termination.ANSWERED_IN_PROSE
-
-
-def test_prose_nudge_lets_model_recover_via_protocol():
-    # After the nudge, a model that switches to the protocol completes normally.
-    step = _step([_reply("let me just tell you: 42"), _reply(_done())])
-    rounds = step.run(_user())
-    assert len(rounds) == 2
-    assert rounds[-1].completed is True
-    assert rounds[-1].stopped_reason == "completed"
 
 
 def test_misplaced_completed_front_matter_gets_position_recovery():
@@ -756,6 +749,28 @@ def test_error_feedback_drives_next_round():
     assert rounds[0].outcomes[0].success is False
     assert "ZeroDivisionError" in rounds[0].outcomes[0].detail
     assert len(rounds) == 2  # error produced feedback -> a second round happened
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        _exec_call("1/0"),
+        '<!-- ToolCall: {"name": "Exec", "arguments": {"code": "x",}} -->',
+    ],
+    ids=["tool-outcome", "parse-error"],
+)
+def test_tool_or_parse_activity_without_feedback_is_not_accepted_as_prose(
+    monkeypatch, response
+):
+    client = MockClient(script=[_reply(response), _reply(_done())])
+    step = Step(client, TrustedBackend(), Runtime(), max_rounds=5)
+    monkeypatch.setattr(step, "_render_feedback", lambda round_result: "")
+
+    rounds = step.run(_user())
+
+    assert client.calls_made == 1
+    assert rounds[0].stopped_reason == Termination.FAILED
+    assert rounds[0].stopped_detail == "tool or parse feedback was not generated"
 
 
 def test_completed_status_waits_for_successful_tool_feedback():

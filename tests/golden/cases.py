@@ -737,6 +737,17 @@ def run_g13_offline(workdir: Path) -> GoldenEvidence:
     from forgeagent.task import Task
 
     outcome = Task(client).run("Compute 2 + 2, recovering from the first execution error.")
+    round_two_feedback = []
+    if len(client.messages_by_call) >= 2:
+        round_two_feedback = [
+            message.content
+            for message in client.messages_by_call[1]
+            if type(message.content) is str and "[Exec calc] FAILED:" in message.content
+        ]
+    require(
+        len(round_two_feedback) == 1 and "NameError" in round_two_feedback[0],
+        "G13 round 2 is missing failed tool feedback",
+    )
     _require_completed(outcome, "G13")
     require(len(outcome.rounds) == 3, "G13 must require exactly three rounds")
     first, second, third = outcome.rounds
@@ -747,16 +758,6 @@ def run_g13_offline(workdir: Path) -> GoldenEvidence:
         len(first.outcomes) == 1 and not first.outcomes[0].success, "G13 first tool did not fail"
     )
     require("NameError" in first.outcomes[0].detail, "G13 first failure was not fed back")
-    require(len(client.messages_by_call) >= 2, "G13 client did not receive round 2")
-    round_two_feedback = [
-        message.content
-        for message in client.messages_by_call[1]
-        if type(message.content) is str and "[Exec calc] FAILED:" in message.content
-    ]
-    require(
-        len(round_two_feedback) == 1 and "NameError" in round_two_feedback[0],
-        "G13 round 2 is missing failed tool feedback",
-    )
     require(len(second.outcomes) == 1 and second.outcomes[0].success, "G13 second tool failed")
     require(second.outcomes[0].exec_result is not None, "G13 successful result missing")
     require(second.outcomes[0].exec_result.stdout.strip() == "4", "G13 corrected output differs")

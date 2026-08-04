@@ -386,14 +386,16 @@ def test_task_refused():
 
 
 def test_task_prose_answer_is_solved_but_not_completed():
-    # Prose answer (nudged once, then repeated) is a soft success: solved, unverified.
-    script = [_reply("the sum is 60"), _reply("as I said, 60")]
-    task = Task(MockClient(script=script))
+    client = MockClient(script=[_reply("the sum is 60"), _reply(_done())])
+    task = Task(client)
+
     outcome = task.run("sum some numbers")
+
+    assert client.calls_made == 1
     assert outcome.status.completed is False
     assert outcome.status.solved is True
     assert outcome.status.reason == "answered_in_prose"
-    assert outcome.status.detail == "as I said, 60"
+    assert outcome.status.detail == "the sum is 60"
 
 
 def test_task_multi_step_state_carries_through():

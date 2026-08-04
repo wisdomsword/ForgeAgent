@@ -1351,6 +1351,26 @@ def test_run_once_renders_plain_text_answer_without_exec():
     assert "60" in console.export_text()
 
 
+def test_run_once_plain_prose_answer_is_rendered_once_without_recovery():
+    console = _console()
+    client = MockClient(script=[_reply("ForgeAgent identity answer"), _reply(_done())])
+
+    outcome = run_once(
+        "who are you?",
+        tier="trusted",
+        model="claude-sonnet-5",
+        client_factory=lambda model: client,
+        console=console,
+    )
+
+    rendered = console.export_text()
+    assert client.calls_made == 1
+    assert len(outcome.rounds) == 1
+    assert outcome.status.reason == Termination.ANSWERED_IN_PROSE
+    assert rendered.count("ForgeAgent identity answer") == 1
+    assert "round 2" not in rendered
+
+
 def test_run_once_prints_usage_status_line():
     console = _console()
     usage = TokenUsage(input_tokens=1234, output_tokens=567, cached_tokens=89)
@@ -2774,6 +2794,25 @@ def test_run_once_stream_true_on_terminal_console_uses_stream_not_complete():
     )
     assert outcome.status.completed is True
     assert "completed" in console.export_text()
+
+
+def test_run_once_streamed_prose_answer_is_not_rendered_twice():
+    console = _make_terminal_console()
+    answer = "ForgeAgent identity answer"
+    client = _StreamOnlyClient(_reply(answer))
+
+    outcome = run_once(
+        "who are you?",
+        tier="trusted",
+        model="claude-sonnet-5",
+        client_factory=lambda model: client,
+        console=console,
+        stream=True,
+    )
+
+    rendered = console.export_text()
+    assert outcome.status.reason == Termination.ANSWERED_IN_PROSE
+    assert rendered.count(answer) == 1
 
 
 def test_run_once_stream_true_on_non_terminal_console_degrades_to_complete():

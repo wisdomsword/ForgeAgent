@@ -82,8 +82,7 @@ class Termination(StrEnum):
 
     COMPLETED and ANSWERED_IN_PROSE are both "solved" (see TaskStatus.solved); the
     difference is that COMPLETED was verified by execution and declared by the model,
-    while ANSWERED_IN_PROSE is an unverified prose answer we accept only after nudging
-    the model toward the protocol once.
+    while ANSWERED_IN_PROSE is an unverified prose answer accepted without tool activity.
     """
 
     COMPLETED = "completed"  # model declared task_status.completed=true
@@ -114,18 +113,6 @@ _DECLARED_STATUS: dict[str, Termination] = {
     "blocked": Termination.BLOCKED,
     "failed": Termination.FAILED,
 }
-
-# Sent once when the model answers in prose instead of executing code. A mid-conversation
-# user turn is more salient than the system prompt, so this recovers the common "answered
-# without running anything" deviation; if the model still answers in prose, we accept it.
-_PROSE_NUDGE = (
-    "You answered in prose without running any code. This harness completes a task only "
-    "by executing code through the protocol — a prose answer is never executed and cannot "
-    "be verified. Redo it: write a Python code block, trigger it with an Exec ToolCall, "
-    "and once the output confirms the result, declare completion in the task_status front "
-    "matter. If you truly cannot use the protocol, say so in task_status (status: failed)."
-)
-
 
 def _missing_completion_message(tool_name: str) -> str:
     return (
@@ -317,9 +304,9 @@ class Step:
         """Run rounds until the task reaches a terminal state or max_rounds.
 
         `messages` is the running conversation; each round appends the assistant text
-        and, when there is feedback (tool outcomes, parse errors, or a prose nudge), a
-        user message carrying it. The terminal state of the last round is a
-        `Termination` value on `stopped_reason` — see that enum for the taxonomy.
+        and, when there is tool or parse feedback, a user message carrying it. The
+        terminal state of the last round is a `Termination` value on `stopped_reason` —
+        see that enum for the taxonomy.
         """
         if self._audit_sink is None:
             return self._run_rounds(messages)
@@ -342,7 +329,7 @@ class Step:
 
     def _run_rounds(self, messages: list[Message]) -> list[RoundResult]:
         convo = list(messages)
-        prose_nudged = False
+        misplaced_status_nudged = False
         for attempt in range(1, self._max_rounds + 1):
             if self._cancelled():
                 if self.rounds:
@@ -466,6 +453,11 @@ class Step:
                 convo.append(Message(role=Role.USER, content=feedback))
                 continue
 
+            if rr.outcomes or rr.parse_errors:
+                rr.stopped_reason = Termination.FAILED
+                rr.stopped_detail = "tool or parse feedback was not generated"
+                break
+
             # No tool activity and no parse errors this round: the model neither ran code
             # nor reported anything. Classify what kind of dead end this is.
             if reply.stop_reason in _TRUNCATED_STOP_REASONS:
@@ -483,26 +475,19 @@ class Step:
                     break
                 convo.append(Message(role=Role.USER, content=missing_submission))
                 continue
-            # Prose with content: nudge toward the protocol once, then accept it as an
-            # unverified soft completion if the model answers in prose again.
-            if not prose_nudged:
-                prose_nudged = True
-                tool_names = tuple(self._registry.arg_schemas())
-                nudge = _PROSE_NUDGE
-                if "---\ntask_status:" in rr.body:
-                    nudge = (
-                        "The task_status front matter was not leading, so it was not accepted. "
-                        "Send it again as a standalone response with --- as the first character, "
-                        "with no prose before it and no tool calls in the same response."
+            if "---\ntask_status:" in rr.body and not misplaced_status_nudged:
+                misplaced_status_nudged = True
+                convo.append(
+                    Message(
+                        role=Role.USER,
+                        content=(
+                            "The task_status front matter was not leading, so it was not accepted. "
+                            "Send it again as a standalone response with --- as the first "
+                            "character, with no prose before it and no tool calls in the same "
+                            "response."
+                        ),
                     )
-                elif "Exec" not in tool_names:
-                    nudge = (
-                        "You answered in prose without using the required protocol. Use one of "
-                        f"the registered tools ({', '.join(tool_names) or 'none'}) with the exact "
-                        "ToolCall format described in the system prompt. After successful tool "
-                        "feedback, declare completion in a later standalone task_status response."
-                    )
-                convo.append(Message(role=Role.USER, content=nudge))
+                )
                 continue
             rr.stopped_reason = Termination.ANSWERED_IN_PROSE
             break
