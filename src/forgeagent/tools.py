@@ -38,6 +38,7 @@ from .execution_evidence import (
     ProgramArtifact,
     ProgramArtifactPersistenceError,
     ProgramArtifactStore,
+    ProgramArtifactStoreProtocol,
 )
 from .executor import ExecResult, ExecutorBackend
 from .external_actions import (
@@ -195,7 +196,7 @@ class ToolContext:
     backend: ExecutorBackend
     runtime: Runtime
     analyzer: CodeAnalyzer
-    program_store: ProgramArtifactStore | None = None
+    program_store: ProgramArtifactStoreProtocol | None = None
     asker: Asker | None = None
     mcp: MCPManager | None = None
     confirmer: Confirmer | None = None

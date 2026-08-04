@@ -14,7 +14,7 @@ import threading
 import unicodedata
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Protocol
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -93,6 +93,16 @@ class ProgramArtifact(BaseModel):
         if not _REFERENCE_RE.fullmatch(value):
             raise ValueError("artifact reference must be canonical")
         return value
+
+
+class ProgramArtifactStoreProtocol(Protocol):
+    """Persist and release task-scoped generated-program artifacts."""
+
+    def persist(self, *, block_name: str | None, language: str, code: str) -> ProgramArtifact:
+        """Persist one generated program and return its safe artifact reference."""
+
+    def close(self) -> None:
+        """Release resources held by the store."""
 
 
 class ProgramArtifactStore:
@@ -206,7 +216,7 @@ class ProgramArtifactStore:
                 except OSError:
                     pass
 
-    def persist(self, *, block_name: str, language: str, code: str) -> ProgramArtifact:
+    def persist(self, *, block_name: str | None, language: str, code: str) -> ProgramArtifact:
         del language
         try:
             payload = code.encode("utf-8")

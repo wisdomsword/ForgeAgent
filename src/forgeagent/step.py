@@ -37,7 +37,7 @@ from .context import (
 )
 from .execution_evidence import (
     ExecutionEvidenceRecorder,
-    ProgramArtifactStore,
+    ProgramArtifactStoreProtocol,
 )
 from .executor import ExecutorBackend
 from .external_actions import ExternalActionReceiptStore
@@ -212,7 +212,7 @@ class Step:
         context_config: ContextConfig | None = None,
         receipt_store: ExternalActionReceiptStore | None = None,
         evidence_recorder: ExecutionEvidenceRecorder | None = None,
-        program_store: ProgramArtifactStore | None = None,
+        program_store: ProgramArtifactStoreProtocol | None = None,
         max_submission_recovery_attempts: int = DEFAULT_SUBMISSION_RECOVERY_ATTEMPTS,
     ):
         if not 1 <= max_submission_recovery_attempts <= MAX_SUBMISSION_RECOVERY_ATTEMPTS:

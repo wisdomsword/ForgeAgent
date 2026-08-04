@@ -21,7 +21,13 @@ from .attention import Attention, attention_for_reason
 from .audit import AuditEvent, AuditSink, emit_audit
 from .client import ModelClient
 from .context import ContextConfig, ContextPolicy, SlidingWindowContextPolicy
-from .execution_evidence import ExecutionEvidence, ExecutionEvidenceRecorder, ProgramArtifactStore
+from .execution_evidence import (
+    ExecutionEvidence,
+    ExecutionEvidenceRecorder,
+    ProgramArtifact,
+    ProgramArtifactStore,
+    ProgramArtifactStoreProtocol,
+)
 from .executor import ContainerBackend, ExecutorBackend, RestrictedBackend, TrustedBackend
 from .external_actions import ExternalActionReceiptStore
 from .identity import ApprovedIdentity, compose_system_prompt
@@ -105,12 +111,12 @@ class _LazyProgramArtifactStore:
 
     def __init__(self, project_root: str) -> None:
         self._project_root = project_root
-        self._store: ProgramArtifactStore | None = None
+        self._store: ProgramArtifactStoreProtocol | None = None
 
-    def persist(self, **kwargs):
+    def persist(self, *, block_name: str | None, language: str, code: str) -> ProgramArtifact:
         if self._store is None:
             self._store = ProgramArtifactStore(self._project_root)
-        return self._store.persist(**kwargs)
+        return self._store.persist(block_name=block_name, language=language, code=code)
 
     def close(self) -> None:
         if self._store is not None:
@@ -160,7 +166,9 @@ class Task:
         # filesystem authority later broadens to the platform root.
         self._allowed_root = str(Path(allowed_root or Path.cwd()).resolve())
         self._evidence_recorder = ExecutionEvidenceRecorder()
-        self._program_store = _LazyProgramArtifactStore(self._allowed_root)
+        self._program_store: ProgramArtifactStoreProtocol = _LazyProgramArtifactStore(
+            self._allowed_root
+        )
         if explicit_backend_tier in ("restricted", "container"):
             backend_root = Path(backend._allowed_root).resolve()
             if backend_root != Path(self._allowed_root):

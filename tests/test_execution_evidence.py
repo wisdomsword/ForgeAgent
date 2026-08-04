@@ -12,11 +12,24 @@ from forgeagent.execution_evidence import (
     ProgramArtifact,
     ProgramArtifactPersistenceError,
     ProgramArtifactStore,
+    ProgramArtifactStoreProtocol,
     ToolExecutionRecord,
     merge_execution_evidence,
     public_execution_evidence,
     resolve_local_artifact_path,
 )
+
+
+def _persist_via_store_protocol(store: ProgramArtifactStoreProtocol) -> ProgramArtifact:
+    artifact = store.persist(block_name=None, language="python", code="pass\n")
+    store.close()
+    return artifact
+
+
+def test_program_store_implements_persistence_protocol_with_optional_block_name(tmp_path):
+    artifact = _persist_via_store_protocol(ProgramArtifactStore(tmp_path))
+
+    assert artifact.reference.endswith("/0001-program.py")
 
 
 def test_recorder_keeps_attempt_order_and_first_128_records():
