@@ -31,6 +31,7 @@
 | 新增聚焦 GREEN | 6 passed；格式修正后相关回归 7 passed |
 | Step/Task/CLI/context/collaboration/golden | 797 passed |
 | 全量 pytest（最终源码） | 2785 passed, 11 skipped，153.55s |
+| main 合并后全量 pytest | 2785 passed, 11 skipped，156.61s |
 | `ruff check .` | PASS：All checks passed |
 | `ruff format --check .` | PASS：147 files already formatted |
 | `openspec validate port-direct-prose-completion --strict` | PASS |
