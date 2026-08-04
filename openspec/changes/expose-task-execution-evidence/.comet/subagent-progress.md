@@ -21,7 +21,7 @@ Worktree: `/Users/admin/Code/llm-agent/ForgeAgent/.worktrees/m48-expose-task-exe
 | 3. Exec/Step/Task wiring | 889598a | local two-pass review; external review command blocked by sandbox policy | complete: RED 23 failed/194 passed; GREEN focused 226 passed; G333 1 passed; full pytest 2884 passed, 11 skipped; Ruff and diff check pass |
 | 4. CLI/REPL terminal projection | b0f7912 + c30a5ea | reviewed twice | complete: RED import failure; GREEN 384 CLI/boundary/evidence/black-box tests; Rich markup injection fixed; Ruff and diff check pass |
 | 5. HTTP terminal projection | 37a4c96 | reviewed | complete: RED 9 failures/248 passes; GREEN 257 collected (root 247 passed, 10 skipped); Ruff and diff check pass |
-| 6. Loop durable aggregation | pending | pending | pending |
+| 6. Loop durable aggregation | 5d774e5 + e4214a4 | reviewed twice | complete: RED 7 failures; GREEN 568 focused passes/10 skips; cumulative omitted-count P1 fixed and re-reviewed; Ruff/diff clean |
 | 7. Duo/Triad durable aggregation | pending | pending | pending |
 | 8. End-to-end validation | pending | pending | pending |
 

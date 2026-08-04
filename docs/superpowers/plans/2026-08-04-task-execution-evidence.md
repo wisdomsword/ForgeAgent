@@ -523,21 +523,21 @@ base-ref: dfad978d82434b493b17332721484f4e54afedb8
 - `_record_outcome()` writes evidence and child counters in one `LoopCheckpointStore.save()` candidate。
 - Terminal `TaskRecord.public_view()` uses `LoopReport.execution_evidence` for mode `loop`; running Loop records still omit terminal evidence。
 
-- [ ] **Step 1: 写 single Loop origin、截断、取消 RED 测试**
+- [x] **Step 1: 写 single Loop origin、截断、取消 RED 测试**
 
   在 `tests/test_loop_runner.py` 给 `_Builder` 返回带证据的 completed/failed/cancelled outcomes。断言终态 report 按 iteration 顺序聚合；预算或取消后保留 prior attempts；从未运行的下一 iteration 不产生记录；超过 32 条使用全局 omitted 计数。
 
-- [ ] **Step 2: 写旧 checkpoint 和中断恢复 RED 测试**
+- [x] **Step 2: 写旧 checkpoint 和中断恢复 RED 测试**
 
   写入不含 `execution_evidence` 的 v1 JSON，断言 load 为显式空 evidence。运行一轮保存后重新 `LoopRunner.resume()`，第二轮只增加新记录且旧前缀不变。模拟 save 前失败时 counters 与 evidence 都不前进，恢复后不会出现半条记录。
 
-- [ ] **Step 3: 写 nested Collaboration cumulative 去重 RED 测试**
+- [x] **Step 3: 写 nested Collaboration cumulative 去重 RED 测试**
 
   使用具备 `rounds`、`usage`、`usage_available`、`status`、`stop_reason`、`execution_evidence` 的 aggregate-shaped test double：第一份 report 含 `(generator,1,sequence=1)`；恢复后的累计 report 含原记录和 `(evaluator,1,sequence=1)`。断言 Loop 最终只有两条，generator 保持 iteration 1，evaluator 标为 iteration 2，不把重复 generator 计入 omitted。这样本 Task 不依赖 Task 7 尚未新增的 `CollaborationReport` 字段。
 
   同时在 `tests/test_http_task_service.py` 断言 terminal Loop 返回同一有界 relative-reference envelope，running Loop 不返回该字段，宿主 absolute root 不出现在 JSON。
 
-- [ ] **Step 4: 运行 Loop 测试并确认 RED**
+- [x] **Step 4: 运行 Loop 测试并确认 RED**
 
   ```bash
   rtk uv run pytest tests/test_loop_runner.py tests/test_cli.py tests/test_http_task_service.py -q
@@ -545,13 +545,13 @@ base-ref: dfad978d82434b493b17332721484f4e54afedb8
 
   Expected: checkpoint/report 字段、origin、resume 和 CLI Loop evidence 断言失败；既有预算/attention/status taxonomy 继续通过。
 
-- [ ] **Step 5: 在现有原子 candidate 中加入聚合结果**
+- [x] **Step 5: 在现有原子 candidate 中加入聚合结果**
 
   `_record_outcome()` 在计算 rounds/tokens 后先用 `public_execution_evidence()` 去除 child local paths；Single child 按本次 iteration merge，aggregate-shaped child 按 cumulative role key merge。把结果与 iterations/rounds/tokens/failure/attention 放入同一个 `model_copy(update=...)`。不得单独保存证据，也不得在 `_stop()` 伪造记录。
 
   `LoopReport.from_checkpoint()` 原样复制 durable 安全 evidence；`_render_loop_report(..., project_root=root)` 调用 Task 4 renderer 解析本地路径；`TaskRecord.public_view()` 的 Loop terminal 分支调用 `public_execution_evidence(report.execution_evidence)`，只序列化相对 reference。
 
-- [ ] **Step 6: 运行 Loop GREEN 与 checkpoint 尺寸边界**
+- [x] **Step 6: 运行 Loop GREEN 与 checkpoint 尺寸边界**
 
   ```bash
   rtk uv run pytest tests/test_loop_runner.py tests/test_cli.py tests/test_http_task_service.py -q
@@ -559,7 +559,7 @@ base-ref: dfad978d82434b493b17332721484f4e54afedb8
 
   Expected: completed/stopped/failed/cancelled、attention stop、v1 load、resume、nested cumulative 去重均通过；最大 32 条证据仍通过既有 256 KiB state-size validator。
 
-- [ ] **Step 7: 提交 Loop durable 聚合**
+- [x] **Step 7: 提交 Loop durable 聚合**
 
   ```bash
   rtk git add src/forgeagent/loop.py src/forgeagent/cli.py src/forgeagent/http_task_service.py tests/test_loop_runner.py tests/test_cli.py tests/test_http_task_service.py
