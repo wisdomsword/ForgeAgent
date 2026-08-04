@@ -180,6 +180,10 @@ class TaskRecord:
                 open_question_count=report.open_question_count,
                 usage_available=report.usage_available,
             )
+            if mode == "loop":
+                view["execution_evidence"] = public_execution_evidence(
+                    report.execution_evidence
+                ).model_dump(mode="json")
         if mode == "task" and self.ended_at is not None:
             source = (
                 self.outcome.execution_evidence

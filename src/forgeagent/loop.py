@@ -21,6 +21,11 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from .attention import Attention, attention_for_reason
 from .audit import AuditEvent, AuditSink, emit_audit
+from .execution_evidence import (
+    ExecutionEvidence,
+    merge_execution_evidence,
+    public_execution_evidence,
+)
 from .external_actions import ExternalActionReceiptStore
 from .secret_policy import mask_secrets, sensitive_env_values
 from .skills import SkillRegistry
@@ -206,6 +211,7 @@ class LoopCheckpoint(BaseModel):
     elapsed_seconds: float = 0.0
     consecutive_failures: int = 0
     usage_available: bool = True
+    execution_evidence: ExecutionEvidence = Field(default_factory=ExecutionEvidence)
     handoff: LoopHandoff = Field(default_factory=LoopHandoff)
     last_failure: str = ""
     collaboration_mode: Literal["single", "duo", "triad"] = "single"
@@ -372,6 +378,7 @@ class LoopReport(BaseModel):
     open_question_count: int
     usage_available: bool
     collaboration_mode: Literal["single", "duo", "triad"] = "single"
+    execution_evidence: ExecutionEvidence = Field(default_factory=ExecutionEvidence)
 
     @field_validator("loop_id")
     @classmethod
@@ -434,6 +441,7 @@ class LoopReport(BaseModel):
             open_question_count=len(checkpoint.open_questions),
             usage_available=checkpoint.usage_available,
             collaboration_mode=checkpoint.collaboration_mode,
+            execution_evidence=checkpoint.execution_evidence,
         )
 
 
@@ -1183,9 +1191,19 @@ class LoopRunner:
             if attention_stop
             else self._checkpoint.consecutive_failures + 1
         )
+        iteration = self._checkpoint.iterations + 1
+        incoming_evidence = public_execution_evidence(
+            getattr(outcome, "execution_evidence", ExecutionEvidence())
+        )
+        execution_evidence = merge_execution_evidence(
+            self._checkpoint.execution_evidence,
+            incoming_evidence,
+            iteration=iteration,
+            dedupe_cumulative_roles=not isinstance(outcome, TaskOutcome),
+        )
         candidate = self._checkpoint.model_copy(
             update={
-                "iterations": self._checkpoint.iterations + 1,
+                "iterations": iteration,
                 "rounds_used": self._checkpoint.rounds_used + rounds,
                 "tokens_used": self._checkpoint.tokens_used + tokens,
                 "elapsed_seconds": self._elapsed(),
@@ -1193,6 +1211,7 @@ class LoopRunner:
                 "usage_available": usage_available,
                 "last_failure": "" if success or attention_stop else _failure_summary(outcome),
                 "attention": persisted_attention,
+                "execution_evidence": execution_evidence,
                 "plan_digest": (
                     getattr(outcome, "plan_digest", self._checkpoint.plan_digest)
                     if self._checkpoint.collaboration_mode != "single"

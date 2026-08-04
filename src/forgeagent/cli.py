@@ -586,7 +586,9 @@ def _loop_system_prompt(
     return f"{compose_system_prompt(base_identity)}\n\n{suffix}"
 
 
-def _render_loop_report(report: LoopReport, console: Console) -> None:
+def _render_loop_report(
+    report: LoopReport, console: Console, *, project_root: str | Path | None = None
+) -> None:
     """Render the fixed public report projection without checkpoint contents."""
     console.print(f"loop id: {report.loop_id}")
     console.print(f"status: {report.status}")
@@ -600,6 +602,7 @@ def _render_loop_report(report: LoopReport, console: Console) -> None:
         f"open_questions={report.open_question_count} "
         f"usage_available={report.usage_available}"
     )
+    render_execution_evidence(report.execution_evidence, console, project_root=project_root)
 
 
 def run_loop_once(
@@ -894,7 +897,7 @@ def run_loop_once(
                 signal.signal(signal.SIGINT, previous_sigint)
     finally:
         runner.close()
-    _render_loop_report(report, console if console is not None else Console())
+    _render_loop_report(report, console if console is not None else Console(), project_root=root)
     return report
 
 

@@ -1848,6 +1848,53 @@ def test_run_loop_once_closes_runner_and_reuses_cli_assembly(monkeypatch, tmp_pa
     assert report.tokens_used == 1
 
 
+def test_loop_report_renders_execution_evidence_with_local_program_path(tmp_path):
+    reference = (
+        "execution-artifacts/0123456789abcdef0123456789abcdef/programs/0001-program.py"
+    )
+    programs = (
+        tmp_path
+        / ".forgeagent"
+        / "execution-artifacts"
+        / "0123456789abcdef0123456789abcdef"
+        / "programs"
+    )
+    programs.mkdir(parents=True)
+    artifact_path = programs / "0001-program.py"
+    artifact_path.write_text("print('ok')\n")
+    report = cli_module.LoopReport(
+        loop_id="a" * 32,
+        status="completed",
+        stop_reason="completed",
+        iterations=1,
+        rounds_used=1,
+        tokens_used=1,
+        elapsed_seconds=0.0,
+        consecutive_failures=0,
+        completed_item_count=0,
+        open_question_count=0,
+        usage_available=True,
+        execution_evidence=ExecutionEvidence(
+            records=(
+                ToolExecutionRecord(
+                    sequence=1,
+                    tool="Exec",
+                    status="succeeded",
+                    artifact=ProgramArtifact(reference=reference),
+                    iteration=1,
+                ),
+            )
+        ),
+    )
+    console = Console(record=True, width=500, force_terminal=False)
+
+    cli_module._render_loop_report(report, console, project_root=tmp_path)
+    rendered = console.export_text()
+
+    assert "execution evidence:" in rendered
+    assert str(artifact_path) in rendered
+
+
 @pytest.mark.parametrize(
     ("collaboration_mode", "expected_source"),
     [(None, "default"), ("single", "explicit"), ("duo", "explicit"), ("triad", "explicit")],
@@ -1871,7 +1918,9 @@ def test_run_loop_once_projects_default_and_explicit_collaboration_source(
             return None
 
     monkeypatch.setattr(cli_module, "LoopRunner", FakeRunner)
-    monkeypatch.setattr(cli_module, "_render_loop_report", lambda _report, _console: None)
+    monkeypatch.setattr(
+        cli_module, "_render_loop_report", lambda _report, _console, **_kwargs: None
+    )
 
     run_loop_once(
         "finish the work",
