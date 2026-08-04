@@ -1,0 +1,17 @@
+{
+  "change": "expose-task-execution-evidence",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "819fb0b40bf1bb3f31f80013e7c66dff0752021c5240b7e6e408d004b2dea962",
+  "files": [
+    { "path": "openspec/changes/expose-task-execution-evidence/proposal.md", "sha256": "b8a5eb9dd490d9833fe9be49a738d411a6619ba9c39e0a76d91b9a71a0f1a2c5" },
+    { "path": "openspec/changes/expose-task-execution-evidence/design.md", "sha256": "5ad56138e9f758d636598dfdb24c457e9b5a7c0ef3f62eb5291d4d02be95f545" },
+    { "path": "openspec/changes/expose-task-execution-evidence/tasks.md", "sha256": "2cf71fd0a55e98fc3c7d60bef5c5a1d21eff3d3ae5e6e47b20b47ec80ee47d32" },
+    { "path": "openspec/changes/expose-task-execution-evidence/specs/http-task-service/spec.md", "sha256": "5540a1aed67c71cb565af081acfb755fdf886814b59fb767a8ac849ed698e22b" },
+    { "path": "openspec/changes/expose-task-execution-evidence/specs/loop-execution/spec.md", "sha256": "d13d49d5d9e7c30c8fecbcc485e1491ed04eebbf6415b2f3a27d9bb2f70d9e37" },
+    { "path": "openspec/changes/expose-task-execution-evidence/specs/runtime-collaboration/spec.md", "sha256": "ef51d6203dca91c4860712b49057aa994aac0fa58f7c9c3fb3a66e465c18588e" },
+    { "path": "openspec/changes/expose-task-execution-evidence/specs/task-execution-evidence/spec.md", "sha256": "f8ece2e03f61f03d867e50ba171e24ff6f0eabc671c0fe897aeef5f816a425ca" }
+  ]
+}
