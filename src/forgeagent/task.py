@@ -343,6 +343,8 @@ class Task:
             memory_results=memory_results,
             execution_evidence=self._evidence_recorder.snapshot(),
         )
+        if self._tool_registry is not None:
+            self._tool_registry.handle_task_outcome(outcome)
         emit_audit(
             self._audit_sink,
             AuditEvent(

@@ -1422,7 +1422,10 @@ def test_render_execution_evidence_masks_secret_and_control_characters(monkeypat
                 sequence=1,
                 tool=f"Exec {secret}\x1b[31m",
                 status="succeeded",
-                block=f"block-{secret}\n",
+                block=(
+                    f"block-{secret}\n /private/model-block.py RAW_ARG_MARKER "
+                    "PROMPT_MARKER NON_ENV_SECRET_MARKER"
+                ),
             ),
         )
     )
@@ -1433,7 +1436,14 @@ def test_render_execution_evidence_masks_secret_and_control_characters(monkeypat
     rendered = console.export_text()
     assert secret not in rendered
     assert "\\x1b" in rendered
-    assert "\\x0a" in rendered
+    assert "block:" not in rendered
+    for marker in (
+        "/private/model-block.py",
+        "RAW_ARG_MARKER",
+        "PROMPT_MARKER",
+        "NON_ENV_SECRET_MARKER",
+    ):
+        assert marker not in rendered
 
 
 def test_render_execution_evidence_renders_markup_like_fields_literally(monkeypatch):
@@ -1461,7 +1471,7 @@ def test_render_execution_evidence_renders_markup_like_fields_literally(monkeypa
     render_execution_evidence(evidence, console)
 
     rendered = console.export_text()
-    assert rendered.count(markup) == 3
+    assert rendered.count(markup) == 2
     assert "\x1b]8;" not in console.export_text(styles=True)
 
 
@@ -1849,9 +1859,7 @@ def test_run_loop_once_closes_runner_and_reuses_cli_assembly(monkeypatch, tmp_pa
 
 
 def test_loop_report_renders_execution_evidence_with_local_program_path(tmp_path):
-    reference = (
-        "execution-artifacts/0123456789abcdef0123456789abcdef/programs/0001-program.py"
-    )
+    reference = "execution-artifacts/0123456789abcdef0123456789abcdef/programs/0001-program.py"
     programs = (
         tmp_path
         / ".forgeagent"
@@ -3290,7 +3298,7 @@ def test_repl_filesystem_access_decision_resets_between_goals(monkeypatch):
 
     assert prompts.count("approve? [y/N] ") == 2
     output = console.export_text()
-    assert "[RequestFilesystemAccess None] ok" in output
+    assert "[RequestFilesystemAccess] ok" in output
     assert "Full-disk filesystem access was not approved" in output
 
 

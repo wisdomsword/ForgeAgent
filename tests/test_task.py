@@ -309,6 +309,44 @@ def test_task_forwards_injected_tool_registry_to_step(monkeypatch):
     assert captured is registry
 
 
+def test_task_registry_outcome_handler_failure_propagates(monkeypatch):
+    registry = ToolRegistry()
+
+    def fail(_outcome):
+        raise RuntimeError("outcome commit failed")
+
+    registry.set_task_outcome_handler(fail)
+
+    class _Step:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def run(self, messages):
+            return [RoundResult(text=_done(), stopped_reason=Termination.COMPLETED)]
+
+    monkeypatch.setattr("forgeagent.task.Step", _Step)
+
+    with pytest.raises(RuntimeError, match="outcome commit failed"):
+        Task(MockClient(script=[]), tool_registry=registry).run("evaluate")
+
+
+def test_task_registry_without_outcome_handler_returns_normally(monkeypatch):
+    registry = ToolRegistry()
+
+    class _Step:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def run(self, messages):
+            return [RoundResult(text=_done(), stopped_reason=Termination.COMPLETED)]
+
+    monkeypatch.setattr("forgeagent.task.Step", _Step)
+
+    outcome = Task(MockClient(script=[]), tool_registry=registry).run("evaluate")
+
+    assert outcome.status.completed is True
+
+
 def test_task_forwards_receipt_store_to_step(monkeypatch, tmp_path):
     store = ExternalActionReceiptStore(str(tmp_path), task_id="task-receipt")
     captured = None

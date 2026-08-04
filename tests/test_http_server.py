@@ -1523,6 +1523,9 @@ def test_http_terminal_task_projects_safe_execution_evidence_and_has_no_artifact
                     sequence=1,
                     tool="Exec",
                     status="succeeded",
+                    block=(
+                        "/private/model-block.py RAW_ARG_MARKER PROMPT_MARKER NON_ENV_SECRET_MARKER"
+                    ),
                     artifact=artifact,
                 ),
             )
@@ -1539,7 +1542,15 @@ def test_http_terminal_task_projects_safe_execution_evidence_and_has_no_artifact
         reference = view["execution_evidence"]["records"][0]["artifact"]["reference"]
         assert reference.startswith("execution-artifacts/")
         assert Path(reference).is_absolute() is False
+        assert "block" not in view["execution_evidence"]["records"][0]
         assert "SECRET_CODE" not in repr(view)
+        for marker in (
+            "/private/model-block.py",
+            "RAW_ARG_MARKER",
+            "PROMPT_MARKER",
+            "NON_ENV_SECRET_MARKER",
+        ):
+            assert marker not in repr(view)
 
         status, payload, _raw = _request_via_handler(
             server,

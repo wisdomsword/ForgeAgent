@@ -399,6 +399,35 @@ def test_v1_checkpoint_defaults_to_empty_execution_evidence_and_resume_appends(t
     store.close()
 
 
+def test_loop_store_strips_legacy_model_controlled_block_on_load(tmp_path: Path):
+    store = LoopCheckpointStore(str(tmp_path))
+    checkpoint = store.create("finish the work", _budgets(), loop_id="f" * 32)
+    path = tmp_path / ".forgeagent" / "loops" / f"{checkpoint.loop_id}.json"
+    payload = json.loads(path.read_text())
+    payload["execution_evidence"] = {
+        "records": [
+            {
+                "sequence": 1,
+                "tool": "Exec",
+                "status": "succeeded",
+                "block": "/private/legacy.py RAW_ARG_MARKER PROMPT_MARKER NON_ENV_SECRET_MARKER",
+                "iteration": 1,
+            }
+        ],
+        "truncated": False,
+        "omitted_count": 0,
+    }
+    path.write_text(json.dumps(payload))
+
+    loaded = store.load(checkpoint.loop_id)
+    saved = store.save(loaded.model_copy(update={"rounds_used": 1}), expected_revision=0)
+
+    assert loaded.execution_evidence.records[0].block is None
+    assert saved.execution_evidence.records[0].block is None
+    assert "block" not in json.loads(path.read_text())["execution_evidence"]["records"][0]
+    store.close()
+
+
 def test_failed_outcome_save_does_not_advance_counters_or_evidence(tmp_path: Path, monkeypatch):
     runner = _runner(tmp_path, _Builder([]))
     before = runner._checkpoint
@@ -415,6 +444,36 @@ def test_failed_outcome_save_does_not_advance_counters_or_evidence(tmp_path: Pat
     assert durable.iterations == before.iterations
     assert durable.rounds_used == before.rounds_used
     assert durable.execution_evidence == before.execution_evidence
+    runner.close()
+
+
+def test_loop_projection_omits_model_controlled_block_from_checkpoint_and_report(tmp_path: Path):
+    block = "/private/model-block.py RAW_ARG_MARKER PROMPT_MARKER NON_ENV_SECRET_MARKER"
+    evidence = ExecutionEvidence(
+        records=(
+            ToolExecutionRecord(
+                sequence=1,
+                tool="Exec",
+                status="succeeded",
+                block=block,
+            ),
+        )
+    )
+    runner = _runner(
+        tmp_path,
+        _Builder([_outcome(completed=True, reason="completed", execution_evidence=evidence)]),
+    )
+
+    report = runner.run()
+    checkpoint = LoopCheckpointStore(str(tmp_path)).load(report.loop_id)
+    serialized = (tmp_path / ".forgeagent" / "loops" / f"{report.loop_id}.json").read_text()
+
+    assert report.execution_evidence.records[0].block is None
+    assert checkpoint.execution_evidence.records[0].block is None
+    assert '"block"' not in serialized
+    for marker in block.split():
+        assert marker not in report.model_dump_json()
+        assert marker not in serialized
     runner.close()
 
 

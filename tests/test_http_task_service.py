@@ -243,9 +243,7 @@ def test_collaboration_terminal_projects_relative_execution_evidence_only(tmp_pa
 
     assert len(view["execution_evidence"]["records"]) == 32
     assert view["execution_evidence"]["omitted_count"] == 8
-    assert view["execution_evidence"]["records"][0]["artifact"] == {
-        "reference": artifact.reference
-    }
+    assert view["execution_evidence"]["records"][0]["artifact"] == {"reference": artifact.reference}
     assert "execution_evidence" not in running.public_view()
     assert str(tmp_path) not in repr(view)
     assert "SECRET_CODE" not in repr(view)
@@ -422,7 +420,9 @@ def test_terminal_execution_evidence_is_bounded_and_uses_relative_artifact_refer
                 sequence=index,
                 tool="Exec",
                 status="succeeded",
-                block="private block",
+                block=(
+                    "/private/model-block.py RAW_ARG_MARKER PROMPT_MARKER NON_ENV_SECRET_MARKER"
+                ),
                 artifact=artifact,
             )
             for index in range(1, 41)
@@ -454,7 +454,12 @@ def test_terminal_execution_evidence_is_bounded_and_uses_relative_artifact_refer
     assert public_evidence["truncated"] is True
     assert public_evidence["omitted_count"] == 8
     assert public_evidence["records"][0]["artifact"] == {"reference": artifact.reference}
+    assert "block" not in public_evidence["records"][0]
     assert "/Users/admin" not in repr(view)
+    assert "/private/model-block.py" not in repr(view)
+    assert "RAW_ARG_MARKER" not in repr(view)
+    assert "PROMPT_MARKER" not in repr(view)
+    assert "NON_ENV_SECRET_MARKER" not in repr(view)
     assert "SECRET_CODE" not in repr(view)
     assert "PRIVATE_PROMPT" not in repr(view)
     assert "PRIVATE_ARGS" not in repr(view)

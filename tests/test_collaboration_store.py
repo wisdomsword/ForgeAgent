@@ -72,6 +72,35 @@ def test_store_loads_v1_state_without_execution_evidence_and_round_trips_prefix(
     assert store.load(saved.collaboration_id).execution_evidence == evidence
 
 
+def test_store_strips_legacy_model_controlled_block_on_load(tmp_path: Path):
+    store = CollaborationStore(str(tmp_path))
+    created = store.create("Build an artifact", "duo", collaboration_id="d" * 32)
+    path = tmp_path / ".forgeagent" / "collaborations" / ("d" * 32 + ".json")
+    payload = json.loads(path.read_text())
+    payload["execution_evidence"] = {
+        "records": [
+            {
+                "sequence": 1,
+                "tool": "Exec",
+                "status": "succeeded",
+                "block": "/private/legacy.py RAW_ARG_MARKER PROMPT_MARKER NON_ENV_SECRET_MARKER",
+                "role": "generator",
+                "attempt": 1,
+            }
+        ],
+        "truncated": False,
+        "omitted_count": 0,
+    }
+    path.write_text(json.dumps(payload))
+
+    loaded = store.load(created.collaboration_id)
+    saved = store.save(loaded.model_copy(update={"rounds": 1}), expected_revision=0)
+
+    assert loaded.execution_evidence.records[0].block is None
+    assert saved.execution_evidence.records[0].block is None
+    assert "block" not in json.loads(path.read_text())["execution_evidence"]["records"][0]
+
+
 def test_store_rejects_execution_evidence_prefix_rewrite_and_omitted_regression(
     tmp_path: Path,
 ):

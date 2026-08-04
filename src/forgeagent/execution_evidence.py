@@ -361,7 +361,11 @@ class ToolExecutionRecord(BaseModel):
     sequence: int = Field(strict=True, ge=0)
     tool: str = Field(min_length=1, max_length=MAX_EVIDENCE_LABEL_CHARS)
     status: EvidenceStatus
-    block: str | None = Field(default=None, max_length=MAX_EVIDENCE_LABEL_CHARS)
+    block: str | None = Field(
+        default=None,
+        max_length=MAX_EVIDENCE_LABEL_CHARS,
+        exclude=True,
+    )
     artifact: ProgramArtifact | None = None
     iteration: int | None = Field(default=None, strict=True, ge=0)
     role: EvidenceRole | None = None
@@ -455,7 +459,7 @@ def _project_record(
         sequence=record.sequence,
         tool=_safe_text(record.tool, secret_values),
         status=record.status,
-        block=_safe_text(record.block, secret_values) if record.block is not None else None,
+        block=None,
         artifact=projected_artifact,
         iteration=record.iteration,
         role=record.role,
@@ -532,9 +536,7 @@ def merge_execution_evidence(
             )
         if cumulative_snapshot:
             cumulative_key = _cumulative_role_key(record)
-            incoming_keys.add(
-                cumulative_key if cumulative_key is not None else _origin_key(record)
-            )
+            incoming_keys.add(cumulative_key if cumulative_key is not None else _origin_key(record))
         if dedupe_cumulative_roles:
             cumulative_key = _cumulative_role_key(record)
             if cumulative_key is not None and cumulative_key in existing_cumulative_keys:

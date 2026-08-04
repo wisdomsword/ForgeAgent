@@ -313,6 +313,11 @@ class LoopCheckpoint(BaseModel):
             raise ValueError("usage_available must be a bool")
         return value
 
+    @field_validator("execution_evidence", mode="before")
+    @classmethod
+    def _project_execution_evidence(cls, value: Any) -> ExecutionEvidence:
+        return public_execution_evidence(ExecutionEvidence.model_validate(value))
+
     @field_validator("last_failure")
     @classmethod
     def _validate_last_failure(cls, value: Any) -> str:

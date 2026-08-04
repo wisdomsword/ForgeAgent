@@ -144,6 +144,12 @@ def test_references_must_be_canonical_and_bounded():
 
 def test_public_projection_masks_labels_control_characters_and_local_paths(tmp_path):
     secret = "known-secret-value"
+    block_markers = (
+        "/private/model-block/absolute.py",
+        "RAW_ARG_MARKER=unsafe",
+        "PROMPT_MARKER=unsafe",
+        "NON_ENV_SECRET_MARKER=unsafe",
+    )
     artifact = ProgramArtifact(
         reference="execution-artifacts/" + "a" * 32 + "/programs/0001-main.py",
         local_path=tmp_path / "private.py",
@@ -153,7 +159,7 @@ def test_public_projection_masks_labels_control_characters_and_local_paths(tmp_p
             ToolExecutionRecord(
                 sequence=1,
                 tool=f"Exec {secret}\n",
-                block=f"main\t{secret}",
+                block=" ".join((f"main\t{secret}", *block_markers)),
                 status="succeeded",
                 artifact=artifact,
                 iteration=2,
@@ -162,19 +168,22 @@ def test_public_projection_masks_labels_control_characters_and_local_paths(tmp_p
             ),
         )
     )
+    assert evidence.records[0].block is not None
+    assert "block" not in evidence.model_dump(mode="json")["records"][0]
     projected = public_execution_evidence(evidence, secret_values=[secret])
     item = projected.records[0]
     assert "REDACTED" in item.tool and secret not in item.tool
-    assert "REDACTED" in (item.block or "") and secret not in (item.block or "")
-    assert "\n" not in item.tool and "\t" not in (item.block or "")
+    assert item.block is None
+    assert "\n" not in item.tool
     assert item.artifact is not None
     assert item.artifact.local_path is None
-    assert projected.model_dump(mode="json")["records"][0]["artifact"] == {
-        "reference": artifact.reference
-    }
+    serialized = projected.model_dump(mode="json")
+    assert "block" not in serialized["records"][0]
+    assert all(marker not in repr(serialized) for marker in block_markers)
+    assert serialized["records"][0]["artifact"] == {"reference": artifact.reference}
 
 
-def test_public_projection_redacts_posix_and_windows_paths_but_keeps_artifact_reference():
+def test_public_projection_redacts_tool_paths_omits_block_and_keeps_artifact_reference():
     reference = "execution-artifacts/" + "a" * 32 + "/programs/0001-main.py"
     evidence = ExecutionEvidence(
         records=(
@@ -192,10 +201,8 @@ def test_public_projection_redacts_posix_and_windows_paths_but_keeps_artifact_re
 
     assert "/Users/admin/private/tool.py" not in item.tool
     assert "C:\\Users\\admin\\private.py" not in item.tool
-    assert "/tmp/private.py" not in (item.block or "")
-    assert "C:\\secret\\block.py" not in (item.block or "")
+    assert item.block is None
     assert reference in item.tool
-    assert reference in (item.block or "")
 
 
 def test_internal_record_masks_known_environment_secret(monkeypatch):

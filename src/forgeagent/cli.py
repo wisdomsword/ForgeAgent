@@ -189,7 +189,7 @@ def render_outcome(
     for i, rnd in enumerate(outcome.rounds, 1):
         for out in rnd.outcomes:
             marker = "[green]ok[/green]" if out.success else "[red]FAILED[/red]"
-            console.print(f"  round {i} [{out.tool} {out.block_name}] {marker}")
+            console.print(f"  round {i} [{out.tool}] {marker}")
             if out.exec_result and out.exec_result.stdout.strip():
                 console.print(f"    {out.exec_result.stdout.strip()}")
             if not out.success and out.detail:
@@ -229,8 +229,6 @@ def render_execution_evidence(
     console.print("execution evidence:", markup=False)
     for record in projected.records:
         console.print(f"    {record.sequence} {record.tool} {record.status}", markup=False)
-        if record.block is not None:
-            console.print(f"      block: {record.block}", markup=False)
         if record.iteration is not None or record.role is not None or record.attempt is not None:
             origin = f"iteration={record.iteration} role={record.role} attempt={record.attempt}"
             console.print(f"      origin: {origin}", markup=False)

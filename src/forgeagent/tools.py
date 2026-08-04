@@ -1160,6 +1160,7 @@ class ToolRegistry:
     def __init__(self) -> None:
         self._tools: dict[str, Tool] = {}
         self._required_completion_tool: str | None = None
+        self._task_outcome_handler: Callable[[object], None] | None = None
 
     def register(self, tool: Tool) -> None:
         """Register a tool by its declared name (later registration overrides)."""
@@ -1167,6 +1168,12 @@ class ToolRegistry:
 
     def get(self, name: str) -> Tool | None:
         return self._tools.get(name)
+
+    def copy(self) -> ToolRegistry:
+        copied = ToolRegistry()
+        copied._tools = self._tools.copy()
+        copied._required_completion_tool = self._required_completion_tool
+        return copied
 
     @property
     def required_completion_tool(self) -> str | None:
@@ -1179,6 +1186,13 @@ class ToolRegistry:
         if current is not None and current != tool_name:
             raise ValueError(f"completion tool {current!r} is already required")
         self._required_completion_tool = tool_name
+
+    def handle_task_outcome(self, outcome: object) -> None:
+        if self._task_outcome_handler is not None:
+            self._task_outcome_handler(outcome)
+
+    def set_task_outcome_handler(self, handler: Callable[[object], None]) -> None:
+        self._task_outcome_handler = handler
 
     def arg_schemas(self) -> dict[str, type[BaseModel]]:
         """name -> argument schema, for the protocol parser to validate against."""

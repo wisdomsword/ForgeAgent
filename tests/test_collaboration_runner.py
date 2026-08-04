@@ -26,6 +26,7 @@ from forgeagent.execution_evidence import ExecutionEvidence, ToolExecutionRecord
 from forgeagent.models import AssistantMessage, ClientError, TokenUsage
 from forgeagent.step import RoundResult
 from forgeagent.task import Task, TaskOutcome, TaskStatus
+from forgeagent.tools import default_registry
 
 
 def _reply(text: str, *, usage: TokenUsage | None = None) -> AssistantMessage:
@@ -240,6 +241,19 @@ def _reopened_duo_runner(
     )
 
 
+def _fail_execution_evidence_save(
+    runner: CollaborationRunner, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    original_save = runner._store.save
+
+    def fail_boundary(state, *, expected_revision):
+        if state.execution_evidence.records:
+            raise RuntimeError("disk failure")
+        return original_save(state, expected_revision=expected_revision)
+
+    monkeypatch.setattr(runner._store, "save", fail_boundary)
+
+
 def test_duo_rejects_then_uses_fresh_generator_and_passes(tmp_path: Path):
     builder = _RoleBuilder(
         {
@@ -274,14 +288,46 @@ def test_duo_rejects_then_uses_fresh_generator_and_passes(tmp_path: Path):
     assert "reports that a required file is missing" in generator_prompts[1]
     assert "successfully call FileWrite for that file" in generator_prompts[1]
     assert [
-        (record.tool, record.role, record.attempt)
-        for record in report.execution_evidence.records
+        (record.tool, record.role, record.attempt) for record in report.execution_evidence.records
     ] == [
         ("SubmitCandidate", "generator", 1),
         ("SubmitEvaluation", "evaluator", 1),
         ("SubmitCandidate", "generator", 2),
         ("SubmitEvaluation", "evaluator", 2),
     ]
+
+
+def test_duo_reuses_caller_generator_registry_across_rejection_attempts(tmp_path: Path):
+    builder = _RoleBuilder(
+        {
+            ("generator", 1): [_candidate()],
+            ("evaluator", 1): [_evaluation(passed=False)],
+            ("generator", 2): [_candidate()],
+            ("evaluator", 2): [_evaluation(passed=True)],
+        }
+    )
+    registry = default_registry()
+
+    report = _runner(tmp_path, builder, generator_registry=registry).run(
+        "write PRIVATE_GOAL artifact"
+    )
+
+    assert report.status == "completed"
+    assert (report.generator_attempts, report.evaluator_attempts) == (2, 2)
+    assert builder.registries[0] is not registry
+    assert builder.registries[2] is not registry
+    assert builder.registries[0] is not builder.registries[2]
+    assert registry.get("SubmitCandidate") is None
+
+    direct = Task(
+        MockClient(script=[_reply(_done())]),
+        tool_registry=registry,
+        allowed_root=str(tmp_path),
+    )
+    direct_outcome = direct.run("ordinary task")
+
+    assert direct_outcome.status.completed is True
+    direct.close()
 
 
 def test_triad_aggregates_planner_before_generator_and_evaluator(tmp_path: Path):
@@ -308,13 +354,175 @@ def test_triad_aggregates_planner_before_generator_and_evaluator(tmp_path: Path)
 
     assert report.status == "completed"
     assert [
-        (record.tool, record.role, record.attempt)
-        for record in report.execution_evidence.records
+        (record.tool, record.role, record.attempt) for record in report.execution_evidence.records
     ] == [
         ("SubmitPlan", "planner", 1),
         ("SubmitCandidate", "generator", 1),
         ("SubmitEvaluation", "evaluator", 1),
     ]
+
+
+def test_successful_planner_save_failure_does_not_partially_advance_and_resumes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    runner = CollaborationRunner.create(
+        mode="triad",
+        goal="write PRIVATE_GOAL artifact",
+        allowed_root=str(tmp_path),
+        role_task_builder=_RoleBuilder({("planner", 1): [_plan_submission()]}),
+        plan_confirmer=lambda _summary: True,
+        planner_model="planner-model",
+        generator_model="generator-model",
+        evaluator_model="evaluator-model",
+        collaboration_id="c" * 32,
+    )
+    before = runner._store.load(runner._state.collaboration_id)
+    _fail_execution_evidence_save(runner, monkeypatch)
+
+    report = runner.run("write PRIVATE_GOAL artifact")
+    durable = CollaborationStore(str(tmp_path)).load(before.collaboration_id)
+
+    assert report.stop_reason == "state_failure"
+    assert durable == before
+    monkeypatch.undo()
+    runner.close()
+
+    resumed = _reopened_duo_runner(
+        tmp_path,
+        _RoleBuilder(
+            {
+                ("planner", 1): [_plan_submission()],
+                ("generator", 1): [_candidate()],
+                ("evaluator", 1): [_evaluation(passed=True)],
+            }
+        ),
+        before.collaboration_id,
+        plan_confirmer=lambda _summary: True,
+    )
+    resumed_report = resumed.run("write PRIVATE_GOAL artifact")
+
+    assert resumed_report.status == "completed"
+    assert resumed_report.rounds == 3
+    assert (resumed_report.generator_attempts, resumed_report.evaluator_attempts) == (1, 1)
+    assert [record.role for record in resumed_report.execution_evidence.records] == [
+        "planner",
+        "generator",
+        "evaluator",
+    ]
+    resumed.close()
+
+
+def test_successful_generator_save_failure_does_not_partially_advance_and_resumes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    runner = _runner(tmp_path, _RoleBuilder({("generator", 1): [_candidate()]}))
+    before = runner._store.load(runner._state.collaboration_id)
+    _fail_execution_evidence_save(runner, monkeypatch)
+
+    report = runner.run("write PRIVATE_GOAL artifact")
+    durable = CollaborationStore(str(tmp_path)).load(before.collaboration_id)
+
+    assert report.stop_reason == "state_failure"
+    assert durable == before
+    monkeypatch.undo()
+    runner.close()
+
+    resumed = _reopened_duo_runner(
+        tmp_path,
+        _RoleBuilder(
+            {
+                ("generator", 1): [_candidate()],
+                ("evaluator", 1): [_evaluation(passed=True)],
+            }
+        ),
+        before.collaboration_id,
+    )
+    resumed_report = resumed.run("write PRIVATE_GOAL artifact")
+
+    assert resumed_report.status == "completed"
+    assert resumed_report.rounds == 2
+    assert (resumed_report.generator_attempts, resumed_report.evaluator_attempts) == (1, 1)
+    assert [record.role for record in resumed_report.execution_evidence.records] == [
+        "generator",
+        "evaluator",
+    ]
+    resumed.close()
+
+
+def test_successful_evaluator_save_failure_does_not_partially_advance_and_resumes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    runner = _runner(tmp_path, _RoleBuilder({("evaluator", 1): [_evaluation(passed=True)]}))
+    runner._state = runner._store.save(
+        runner._state.model_copy(update={"phase": "evaluator", "generator_attempts": 1}),
+        expected_revision=runner._state.revision,
+    )
+    before = runner._store.load(runner._state.collaboration_id)
+    _fail_execution_evidence_save(runner, monkeypatch)
+
+    report = runner.run("write PRIVATE_GOAL artifact")
+    durable = CollaborationStore(str(tmp_path)).load(before.collaboration_id)
+
+    assert report.stop_reason == "state_failure"
+    assert durable == before
+    monkeypatch.undo()
+    runner.close()
+
+    resumed = _reopened_duo_runner(
+        tmp_path,
+        _RoleBuilder({("evaluator", 1): [_evaluation(passed=True)]}),
+        before.collaboration_id,
+    )
+    resumed_report = resumed.run("write PRIVATE_GOAL artifact")
+
+    assert resumed_report.status == "completed"
+    assert resumed_report.rounds == 1
+    assert (resumed_report.generator_attempts, resumed_report.evaluator_attempts) == (1, 1)
+    assert [record.role for record in resumed_report.execution_evidence.records] == ["evaluator"]
+    resumed.close()
+
+
+def test_collaboration_durable_and_report_projection_omit_model_controlled_block(tmp_path: Path):
+    block = "/private/model-block.py RAW_ARG_MARKER PROMPT_MARKER NON_ENV_SECRET_MARKER"
+
+    class InjectBlockBuilder(_RoleBuilder):
+        def __call__(self, role, attempt, registry, system_prompt):
+            task = super().__call__(role, attempt, registry, system_prompt)
+            original_run = task.run
+
+            def run(goal, *, cancel_event=None):
+                outcome = original_run(goal, cancel_event=cancel_event)
+                record = outcome.execution_evidence.records[0].model_copy(update={"block": block})
+                return outcome.model_copy(
+                    update={"execution_evidence": ExecutionEvidence(records=(record,))}
+                )
+
+            task.run = run
+            return task
+
+    runner = _runner(
+        tmp_path,
+        InjectBlockBuilder(
+            {
+                ("generator", 1): [_candidate()],
+                ("evaluator", 1): [_evaluation(passed=True)],
+            }
+        ),
+    )
+
+    report = runner.run("write PRIVATE_GOAL artifact")
+    durable = runner._store.load(report.collaboration_id)
+    state_path = (
+        tmp_path / ".forgeagent" / "collaborations" / f"{report.collaboration_id}.json"
+    ).read_text()
+
+    assert all(record.block is None for record in report.execution_evidence.records)
+    assert all(record.block is None for record in durable.execution_evidence.records)
+    assert '"block"' not in state_path
+    for marker in block.split():
+        assert marker not in report.model_dump_json()
+        assert marker not in state_path
+    runner.close()
 
 
 def test_candidate_readiness_recovers_within_one_generator_task(tmp_path: Path):
