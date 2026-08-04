@@ -505,6 +505,7 @@ def merge_execution_evidence(
     role: EvidenceRole | None = None,
     attempt: int | None = None,
     dedupe_cumulative_roles: bool = False,
+    cumulative_snapshot: bool = False,
 ) -> ExecutionEvidence:
     """Merge evidence in order, optionally adding a collaboration origin."""
     if (role is None) != (attempt is None):
@@ -515,7 +516,7 @@ def merge_execution_evidence(
         key for record in current.records if (key := _cumulative_role_key(record)) is not None
     }
     records = list(current.records)
-    omitted = current.omitted_count + incoming.omitted_count
+    incoming_keys: set[tuple[object, ...]] = set()
     for original in incoming.records:
         record = original
         if role is not None or iteration is not None:
@@ -529,6 +530,11 @@ def merge_execution_evidence(
                 role=role if role is not None else record.role,
                 attempt=attempt if attempt is not None else record.attempt,
             )
+        if cumulative_snapshot:
+            cumulative_key = _cumulative_role_key(record)
+            incoming_keys.add(
+                cumulative_key if cumulative_key is not None else _origin_key(record)
+            )
         if dedupe_cumulative_roles:
             cumulative_key = _cumulative_role_key(record)
             if cumulative_key is not None and cumulative_key in existing_cumulative_keys:
@@ -541,9 +547,18 @@ def merge_execution_evidence(
         existing_origin_keys.add(origin_key)
         records.append(record)
 
+    if cumulative_snapshot:
+        current_total = len(current.records) + current.omitted_count
+        incoming_total = len(incoming_keys) + incoming.omitted_count
+        omitted = max(current_total, incoming_total, len(records))
+    else:
+        omitted = current.omitted_count + incoming.omitted_count
     if len(records) > MAX_PUBLIC_EVIDENCE_RECORDS:
-        omitted += len(records) - MAX_PUBLIC_EVIDENCE_RECORDS
+        if not cumulative_snapshot:
+            omitted += len(records) - MAX_PUBLIC_EVIDENCE_RECORDS
         records = records[:MAX_PUBLIC_EVIDENCE_RECORDS]
+    if cumulative_snapshot:
+        omitted = max(0, omitted - len(records))
     return ExecutionEvidence(
         records=tuple(records),
         truncated=current.truncated or incoming.truncated or omitted > 0,

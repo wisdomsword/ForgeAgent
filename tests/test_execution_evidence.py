@@ -339,6 +339,48 @@ def test_merge_public_bound_counts_only_unique_new_records():
     assert merged.truncated is True
 
 
+def test_merge_cumulative_snapshot_does_not_recount_prior_omissions():
+    current = ExecutionEvidence(
+        records=tuple(
+            ToolExecutionRecord(
+                sequence=index,
+                tool="Exec",
+                status="succeeded",
+                role="generator",
+                attempt=1,
+                iteration=1,
+            )
+            for index in range(1, 33)
+        ),
+        truncated=True,
+        omitted_count=8,
+    )
+    incoming = ExecutionEvidence(
+        records=tuple(
+            ToolExecutionRecord(
+                sequence=index,
+                tool="Exec",
+                status="succeeded",
+                role="generator",
+                attempt=1,
+            )
+            for index in range(1, 42)
+        )
+    )
+
+    merged = merge_execution_evidence(
+        current,
+        incoming,
+        iteration=2,
+        dedupe_cumulative_roles=True,
+        cumulative_snapshot=True,
+    )
+
+    assert len(merged.records) == 32
+    assert merged.omitted_count == 9
+    assert [item.iteration for item in merged.records] == [1] * 32
+
+
 def test_program_store_persists_exact_utf8_bytes_with_private_modes(tmp_path):
     store = ProgramArtifactStore(tmp_path, execution_id="a" * 32)
     artifact = store.persist(block_name="Main block", language="python", code="print('中')\n")

@@ -1192,14 +1192,21 @@ class LoopRunner:
             else self._checkpoint.consecutive_failures + 1
         )
         iteration = self._checkpoint.iterations + 1
-        incoming_evidence = public_execution_evidence(
-            getattr(outcome, "execution_evidence", ExecutionEvidence())
-        )
+        source_evidence = getattr(outcome, "execution_evidence", ExecutionEvidence())
+        if isinstance(outcome, TaskOutcome):
+            incoming_evidence = public_execution_evidence(source_evidence)
+        else:
+            # Cumulative collaboration snapshots can contain records beyond the
+            # durable public bound. Strip local paths without hiding that tail.
+            incoming_evidence = ExecutionEvidence.model_validate(
+                source_evidence.model_dump(mode="python")
+            )
         execution_evidence = merge_execution_evidence(
             self._checkpoint.execution_evidence,
             incoming_evidence,
             iteration=iteration,
             dedupe_cumulative_roles=not isinstance(outcome, TaskOutcome),
+            cumulative_snapshot=not isinstance(outcome, TaskOutcome),
         )
         candidate = self._checkpoint.model_copy(
             update={

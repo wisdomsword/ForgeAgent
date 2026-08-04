@@ -472,6 +472,70 @@ def test_cumulative_collaboration_evidence_dedupes_roles_across_resume(tmp_path:
     resumed.close()
 
 
+def test_cumulative_collaboration_evidence_keeps_unique_omission_count_on_resume(
+    tmp_path: Path,
+):
+    def cumulative_evidence(count: int) -> ExecutionEvidence:
+        return ExecutionEvidence(
+            records=tuple(
+                ToolExecutionRecord(
+                    sequence=index,
+                    tool="Exec",
+                    status="succeeded",
+                    role="generator",
+                    attempt=1,
+                )
+                for index in range(1, count + 1)
+            )
+        )
+
+    runner = LoopRunner.create(
+        allowed_root=str(tmp_path),
+        task_builder=_Builder([]),
+        collaboration_mode="duo",
+        collaboration_id="c" * 32,
+        goal="finish the work",
+        budgets=_budgets(max_rounds=4),
+        trigger="test",
+    )
+    runner._record_outcome(
+        _AggregateOutcome(
+            status="failed",
+            stop_reason="retry",
+            rounds=1,
+            usage=CollaborationUsage(input_tokens=1),
+            usage_available=True,
+            execution_evidence=cumulative_evidence(40),
+        )
+    )
+    runner.close()
+
+    resumed = LoopRunner.resume(
+        allowed_root=str(tmp_path),
+        task_builder=_Builder([]),
+        collaboration_builder=lambda *_args: _FakeCollaborationRunner(
+            _AggregateOutcome(
+                status="completed",
+                stop_reason="completed",
+                rounds=2,
+                usage=CollaborationUsage(input_tokens=2),
+                usage_available=True,
+                execution_evidence=cumulative_evidence(41),
+            )
+        ),
+        loop_id=runner._checkpoint.loop_id,
+        trigger="test",
+    )
+
+    report = resumed.run()
+
+    assert len(report.execution_evidence.records) == 32
+    assert report.execution_evidence.omitted_count == 9
+    assert report.execution_evidence.truncated is True
+    assert [record.iteration for record in report.execution_evidence.records] == [1] * 32
+    resumed.close()
+
+
 @pytest.mark.parametrize("reason", ["needs_input", "blocked"])
 def test_attention_outcome_stops_loop_and_persists_safe_projection(tmp_path: Path, reason: str):
     attention = attention_for_reason(
