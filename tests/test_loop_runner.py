@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import stat
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -11,20 +12,26 @@ import pytest
 
 from forgeagent.attention import attention_for_reason
 from forgeagent.audit import AuditEvent
+from forgeagent.client import MockClient
 from forgeagent.collaboration import CollaborationReport, CollaborationUsage
-from forgeagent.execution_evidence import ExecutionEvidence, ToolExecutionRecord
+from forgeagent.execution_evidence import (
+    ExecutionEvidence,
+    ToolExecutionRecord,
+    resolve_local_artifact_path,
+)
 from forgeagent.loop import (
     MAX_CHECKPOINT_BYTES,
     MAX_FAILURE_CHARS,
     CheckpointArgs,
     LoopBudgets,
     LoopCheckpointStore,
+    LoopReport,
     LoopRunner,
 )
-from forgeagent.models import TokenUsage
+from forgeagent.models import AssistantMessage, TokenUsage
 from forgeagent.skills import SkillDefinition, SkillRegistry
 from forgeagent.step import RoundResult
-from forgeagent.task import TaskOutcome, TaskStatus
+from forgeagent.task import Task, TaskOutcome, TaskStatus
 from forgeagent.tools import ToolOutcome, default_registry
 
 
@@ -397,6 +404,75 @@ def test_v1_checkpoint_defaults_to_empty_execution_evidence_and_resume_appends(t
     ]
     resumed.close()
     store.close()
+
+
+def test_loop_resume_preserves_public_references_to_real_task_programs(tmp_path: Path):
+    def task_outcome(code: str, *, completed: bool) -> TaskOutcome:
+        tool_call = json.dumps({"name": "Exec", "arguments": {"code": code}})
+        replies = [
+            AssistantMessage(
+                content=f"<!-- ToolCall: {tool_call} -->",
+                usage=TokenUsage(),
+                stop_reason="end_turn",
+            )
+        ]
+        if completed:
+            replies.append(
+                AssistantMessage(
+                    content="---\ntask_status:\n  completed: true\n  confidence: 0.9\n---",
+                    usage=TokenUsage(),
+                    stop_reason="end_turn",
+                )
+            )
+        task = Task(
+            MockClient(script=replies),
+            tier="trusted",
+            allowed_root=str(tmp_path),
+            max_rounds=2 if completed else 1,
+        )
+        try:
+            return task.run("PRIVATE_LOOP_GOAL")
+        finally:
+            task.close()
+
+    first_code = "loop_matrix_value = '\u4e2d-one'\n"
+    second_code = "loop_matrix_value = '\u4e2d-two'\n"
+    runner = _runner(tmp_path, _Builder([]))
+    runner._record_outcome(task_outcome(first_code, completed=False))
+    loop_id = runner._checkpoint.loop_id
+    runner.close()
+
+    resumed = LoopRunner.resume(
+        allowed_root=str(tmp_path),
+        task_builder=_Builder([]),
+        loop_id=loop_id,
+        trigger="test",
+    )
+    resumed._record_outcome(task_outcome(second_code, completed=True))
+    report = LoopReport.from_checkpoint(resumed._checkpoint)
+    durable = LoopCheckpointStore(str(tmp_path)).load(loop_id)
+
+    records = [
+        (record.tool, record.status, record.iteration)
+        for record in report.execution_evidence.records
+    ]
+    assert records == [
+        ("Exec", "succeeded", 1),
+        ("Exec", "succeeded", 2),
+    ]
+    for record, code in zip(
+        report.execution_evidence.records, (first_code, second_code), strict=True
+    ):
+        assert record.artifact is not None
+        assert record.artifact.local_path is None
+        path = resolve_local_artifact_path(tmp_path, record.artifact.reference)
+        assert path is not None and stat.S_ISREG(path.stat().st_mode)
+        assert path.read_bytes() == code.encode("utf-8")
+    serialized = (tmp_path / ".forgeagent" / "loops" / f"{loop_id}.json").read_text()
+    assert durable.execution_evidence == report.execution_evidence
+    assert "local_path" not in serialized
+    assert first_code not in serialized and second_code not in serialized
+    resumed.close()
 
 
 def test_loop_store_strips_legacy_model_controlled_block_on_load(tmp_path: Path):

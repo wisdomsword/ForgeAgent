@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import socket
+import stat
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -20,7 +21,9 @@ from forgeagent.execution_evidence import (
     ExecutionEvidence,
     ProgramArtifactStore,
     ToolExecutionRecord,
+    resolve_local_artifact_path,
 )
+from forgeagent.executor import ExecResult, ExecutorBackend
 from forgeagent.external_actions import ExternalActionReceiptStore
 from forgeagent.http_action_approvals import ApprovalNotFoundError, HttpActionApprovalStore
 from forgeagent.http_config import HttpServiceConfig
@@ -34,9 +37,9 @@ from forgeagent.http_server import (
     create_http_server,
 )
 from forgeagent.http_task_service import ServiceCapacityError, TaskRecord, TaskService
-from forgeagent.models import ModelCapability
+from forgeagent.models import AssistantMessage, ModelCapability, TokenUsage
 from forgeagent.step import RoundResult, Termination
-from forgeagent.task import TaskOutcome, TaskStatus
+from forgeagent.task import Task, TaskOutcome, TaskStatus
 
 
 class RecordingSink:
@@ -1562,6 +1565,84 @@ def test_http_terminal_task_projects_safe_execution_evidence_and_has_no_artifact
     finally:
         service.shutdown(1.0)
         store.close()
+
+
+def test_authenticated_http_task_execution_keeps_only_relative_artifact_evidence(tmp_path):
+    code = "http_matrix_value = '\u4e2d'\n"
+
+    class RecordingBackend(ExecutorBackend):
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def execute(self, program: str, runtime) -> ExecResult:
+            del runtime
+            self.calls.append(program)
+            return ExecResult(success=True)
+
+    backend = RecordingBackend()
+    config = HttpServiceConfig(token="test-token", max_workers=1, max_queue=2, max_records=4)
+    service = TaskService(
+        factory=lambda _record: Task(
+            MockClient(
+                script=[
+                    AssistantMessage(
+                        content=(
+                            "<!-- ToolCall: "
+                            + json.dumps({"name": "Exec", "arguments": {"code": code}})
+                            + " -->"
+                        ),
+                        usage=TokenUsage(),
+                        stop_reason="end_turn",
+                    ),
+                    AssistantMessage(
+                        content="---\ntask_status:\n  completed: true\n  confidence: 0.9\n---",
+                        usage=TokenUsage(),
+                        stop_reason="end_turn",
+                    ),
+                ]
+            ),
+            backend=backend,
+            allowed_root=str(tmp_path),
+        ),
+        config=config,
+    )
+    server = SimpleNamespace(config=config, task_service=service, audit_sink=None)
+    try:
+        status, submitted, _raw = _request_via_handler(
+            server, "POST", "/tasks", body={"goal": "PRIVATE_HTTP_GOAL"}
+        )
+        assert status == 202
+        assert submitted is not None
+
+        view = _wait_for_terminal_via_handler(server, str(submitted["task_id"]))
+        record = view["execution_evidence"]["records"][0]
+        assert backend.calls == [code]
+        assert view["status"] == view["reason"] == "completed"
+        assert record["tool"] == "Exec"
+        assert record["status"] == "succeeded"
+        assert set(record) == {
+            "sequence",
+            "tool",
+            "status",
+            "artifact",
+            "iteration",
+            "role",
+            "attempt",
+        }
+        assert record["iteration"] is record["role"] is record["attempt"] is None
+        reference = record["artifact"]["reference"]
+        assert reference.startswith("execution-artifacts/")
+        assert not Path(reference).is_absolute()
+        artifact_path = resolve_local_artifact_path(tmp_path, reference)
+        assert artifact_path is not None and stat.S_ISREG(artifact_path.stat().st_mode)
+        assert artifact_path.read_bytes() == code.encode("utf-8")
+        rendered = json.dumps(view)
+        assert "local_path" not in rendered
+        assert str(artifact_path) not in rendered
+        assert code not in rendered
+        assert "PRIVATE_HTTP_GOAL" not in rendered
+    finally:
+        service.shutdown(1.0)
 
 
 def test_body_size_is_bounded(running_server):

@@ -46,7 +46,7 @@ from forgeagent.execution_evidence import (
     ToolExecutionRecord,
     resolve_local_artifact_path,
 )
-from forgeagent.executor import TrustedBackend
+from forgeagent.executor import ExecResult, ExecutorBackend, TrustedBackend
 from forgeagent.headless import HeadlessConfirmer
 from forgeagent.loop import LoopBudgets, LoopCheckpointStore
 from forgeagent.mcp_manager import MCPManager, MCPServerConfig, MCPServerDiagnostic
@@ -69,7 +69,7 @@ from forgeagent.protocol import (
 from forgeagent.runtime import Runtime
 from forgeagent.skills import SkillDefinition, SkillRegistry
 from forgeagent.step import RoundResult, Step, Termination
-from forgeagent.task import TaskOutcome, TaskStatus
+from forgeagent.task import Task, TaskOutcome, TaskStatus
 from forgeagent.tools import ToolOutcome, default_registry
 
 
@@ -1367,6 +1367,25 @@ def _exec_call(code: str) -> str:
     return f"<!-- ToolCall: {json.dumps({'name': 'Exec', 'arguments': {'code': code}})} -->"
 
 
+class _MatrixRecordingBackend(ExecutorBackend):
+    def __init__(
+        self,
+        result: ExecResult | None = None,
+        *,
+        cancel_event: threading.Event | None = None,
+    ) -> None:
+        self.calls: list[str] = []
+        self.result = result or ExecResult(success=True)
+        self.cancel_event = cancel_event
+
+    def execute(self, code, runtime):
+        del runtime
+        self.calls.append(code)
+        if self.cancel_event is not None:
+            self.cancel_event.set()
+        return self.result
+
+
 def test_run_once_renders_exec_output():
     console = _console()
     run_once(
@@ -1399,6 +1418,136 @@ def test_run_once_renders_execution_evidence_once_with_local_program_path(tmp_pa
     assert artifact_path is not None
     assert str(artifact_path) in rendered
     assert artifact_path.is_absolute()
+
+
+@pytest.mark.parametrize("tier", ["trusted", "restricted", "container"])
+@pytest.mark.parametrize("program_form", ["inline", "named", "edited"])
+def test_single_program_matrix_persists_exact_python_and_renders_local_path(
+    tmp_path, monkeypatch, tier, program_form
+):
+    backend = _MatrixRecordingBackend()
+    monkeypatch.setattr(
+        "forgeagent.task._backend_for_tier",
+        lambda selected_tier, **_kwargs: (
+            backend if selected_tier == tier else pytest.fail(f"unexpected tier: {selected_tier}")
+        ),
+    )
+    if program_form == "inline":
+        selected_code = "matrix_value = '中-inline'\n"
+        script = [_reply(_exec_call(selected_code)), _reply(_done())]
+        expected_tools = [("Exec", "succeeded")]
+    else:
+        original = "matrix_value = 'version-one'"
+        block = (
+            '<!-- CodeBlockStart: {"name":"matrix","path":"../../outside.py"} -->\n'
+            f"```python\n{original}\n```\n"
+            '<!-- CodeBlockEnd: {"name":"matrix"} -->'
+        )
+        if program_form == "named":
+            selected_code = original
+            call = '<!-- ToolCall: {"name":"Exec","arguments":{"name":"matrix"}} -->'
+            script = [_reply(f"{block}\n{call}"), _reply(_done())]
+            expected_tools = [("Exec", "succeeded")]
+        else:
+            selected_code = original.replace("one", "two")
+            edit = (
+                '<!-- ToolCall: {"name":"Edit","arguments":'
+                '{"name":"matrix","old":"one","new":"two"}} -->'
+            )
+            execute = '<!-- ToolCall: {"name":"Exec","arguments":{"name":"matrix"}} -->'
+            script = [_reply(f"{block}\n{edit}"), _reply(execute), _reply(_done())]
+            expected_tools = [("Edit", "succeeded"), ("Exec", "succeeded")]
+
+    task = Task(
+        MockClient(script=script),
+        tier=tier,
+        allowed_root=str(tmp_path),
+    )
+    outcome = task.run("PRIVATE_SINGLE_GOAL")
+    task.close()
+    console = Console(record=True, width=500, force_terminal=False)
+    render_outcome(outcome, console)
+
+    assert outcome.status.reason == Termination.COMPLETED
+    assert [(record.tool, record.status) for record in outcome.execution_evidence.records] == (
+        expected_tools
+    )
+    assert backend.calls == [selected_code]
+    exec_record = outcome.execution_evidence.records[-1]
+    assert exec_record.artifact is not None
+    path = resolve_local_artifact_path(tmp_path, exec_record.artifact.reference)
+    assert path is not None and stat.S_ISREG(path.stat().st_mode)
+    assert path.suffix == ".py"
+    assert path.read_bytes() == selected_code.encode("utf-8")
+    rendered = console.export_text()
+    assert rendered.count("execution evidence:") == 1
+    assert rendered.count(str(path)) == 1
+    assert "matrix_value" not in rendered
+    assert "PRIVATE_SINGLE_GOAL" not in rendered
+    assert str(tmp_path.parent / "outside.py") not in rendered
+    assert not (tmp_path.parent / "outside.py").exists()
+    dumped = outcome.execution_evidence.model_dump(mode="json")
+    assert "local_path" not in repr(dumped)
+    assert selected_code not in repr(dumped)
+
+
+@pytest.mark.parametrize(
+    ("terminal", "expected_reason", "expected_status"),
+    [
+        ("prose", Termination.ANSWERED_IN_PROSE, None),
+        ("failure", Termination.REFUSED, "failed"),
+        ("cancelled", Termination.CANCELLED, "succeeded"),
+    ],
+)
+def test_single_terminal_matrix_uses_empty_or_prior_only_evidence(
+    tmp_path, monkeypatch, terminal, expected_reason, expected_status
+):
+    cancel_event = threading.Event() if terminal == "cancelled" else None
+    backend = _MatrixRecordingBackend(
+        ExecResult(success=terminal != "failure", error="private backend failure"),
+        cancel_event=cancel_event,
+    )
+    monkeypatch.setattr("forgeagent.task._backend_for_tier", lambda *_args, **_kwargs: backend)
+    code = "terminal_matrix_value = 'private'\n"
+    if terminal == "prose":
+        script = [_reply("PUBLIC_PROSE_ANSWER")]
+    elif terminal == "failure":
+        script = [_reply(_exec_call(code)), _reply("cannot continue", stop_reason="refusal")]
+    else:
+        script = [_reply(_exec_call(code) + _exec_call("must_not_run = True\n"))]
+
+    task = Task(MockClient(script=script), tier="trusted", allowed_root=str(tmp_path))
+    outcome = task.run("PRIVATE_TERMINAL_GOAL", cancel_event=cancel_event)
+    task.close()
+    console = Console(record=True, width=500, force_terminal=False)
+    render_outcome(outcome, console)
+
+    assert outcome.status.reason == expected_reason
+    if expected_status is None:
+        assert outcome.execution_evidence.model_dump(mode="json") == {
+            "records": [],
+            "truncated": False,
+            "omitted_count": 0,
+        }
+        assert backend.calls == []
+        assert "execution evidence: no tools or programs executed" in console.export_text()
+        return
+
+    assert [(record.tool, record.status) for record in outcome.execution_evidence.records] == [
+        ("Exec", expected_status)
+    ]
+    assert backend.calls == [code]
+    artifact = outcome.execution_evidence.records[0].artifact
+    assert artifact is not None
+    path = resolve_local_artifact_path(tmp_path, artifact.reference)
+    assert path is not None and stat.S_ISREG(path.stat().st_mode)
+    assert path.read_bytes() == code.encode("utf-8")
+    rendered = console.export_text()
+    assert str(path) in rendered
+    assert "PRIVATE_TERMINAL_GOAL" not in rendered
+    evidence_section = rendered.split("execution evidence:", 1)[1]
+    assert "terminal_matrix_value" not in evidence_section
+    assert "private backend failure" not in evidence_section
 
 
 def test_render_outcome_shows_explicit_empty_execution_evidence_for_prose():
