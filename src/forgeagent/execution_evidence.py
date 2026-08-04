@@ -136,7 +136,9 @@ class ProgramArtifactStore:
             )
             fds = [root_fd]
             identities = [os.fstat(root_fd)]
-            for part in (".forgeagent", "execution-artifacts", self._execution_id, "programs"):
+            for index, part in enumerate(
+                (".forgeagent", "execution-artifacts", self._execution_id, "programs")
+            ):
                 created = False
                 try:
                     os.mkdir(part, 0o700, dir_fd=fds[-1])
@@ -148,9 +150,9 @@ class ProgramArtifactStore:
                     os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
                     dir_fd=fds[-1],
                 )
-                if created:
+                if created and index > 0:
                     os.fchmod(fd, 0o700)
-                elif stat.S_IMODE(os.fstat(fd).st_mode) != 0o700:
+                elif index > 0 and stat.S_IMODE(os.fstat(fd).st_mode) != 0o700:
                     os.close(fd)
                     raise OSError("artifact directory is not private")
                 fds.append(fd)
@@ -177,7 +179,9 @@ class ProgramArtifactStore:
             )
             fds = [root_fd]
             identities = [(item.st_dev, item.st_ino) for item in [os.fstat(root_fd)]]
-            for part in (".forgeagent", "execution-artifacts", self._execution_id, "programs"):
+            for index, part in enumerate(
+                (".forgeagent", "execution-artifacts", self._execution_id, "programs")
+            ):
                 fd = os.open(
                     part,
                     os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
@@ -186,6 +190,8 @@ class ProgramArtifactStore:
                 fds.append(fd)
                 info = os.fstat(fd)
                 identities.append((info.st_dev, info.st_ino))
+                if index > 0 and stat.S_IMODE(info.st_mode) != 0o700:
+                    return False
             held = os.fstat(programs_fd)
             return tuple(identities) == self._directory_identities and identities[-1] == (
                 held.st_dev,

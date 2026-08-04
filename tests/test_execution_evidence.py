@@ -436,6 +436,28 @@ def test_program_store_rejects_existing_non_private_artifact_directory(tmp_path)
     assert list(programs.iterdir()) == []
 
 
+def test_program_store_allows_existing_shared_forgeagent_directory(tmp_path):
+    forgeagent = tmp_path / ".forgeagent"
+    forgeagent.mkdir(mode=0o755)
+    forgeagent.chmod(0o755)
+    store = ProgramArtifactStore(tmp_path, execution_id="8" * 32)
+    artifact = store.persist(block_name="main", language="python", code="pass\n")
+    assert artifact.local_path is not None
+    assert artifact.local_path.exists()
+
+
+def test_program_store_rechecks_private_modes_before_each_publish(tmp_path):
+    store = ProgramArtifactStore(tmp_path, execution_id="9" * 32)
+    first = store.persist(block_name="first", language="python", code="pass\n")
+    assert first.local_path is not None
+    first.local_path.parent.chmod(0o755)
+    with pytest.raises(ProgramArtifactPersistenceError):
+        store.persist(block_name="second", language="python", code="pass\n")
+    assert sorted(path.name for path in first.local_path.parent.iterdir()) == [
+        first.local_path.name
+    ]
+
+
 def test_program_store_cleans_temp_when_replace_fails(tmp_path, monkeypatch):
     store = ProgramArtifactStore(tmp_path, execution_id="1" * 32)
 
