@@ -1,6 +1,6 @@
 workflow: tweak
 language: zh-CN
-phase: build
+phase: verify
 context_compression: off
 build_mode: direct
 build_pause: null
@@ -13,8 +13,8 @@ auto_transition: true
 base_ref: 97af2c2cd8e0359957e43b02d9063078ea888d49
 design_doc: null
 plan: null
-verify_result: fail
-verification_report: null
+verify_result: pending
+verification_report: docs/superpowers/reports/2026-08-04-port-task-filesystem-authority-verify.md
 branch_status: pending
 created_at: 2026-08-04
 verified_at: null
