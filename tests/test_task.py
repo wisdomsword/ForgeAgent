@@ -8,7 +8,11 @@ import pytest
 from forgeagent.audit import AuditEvent
 from forgeagent.client import MockClient
 from forgeagent.context import ContextConfig
-from forgeagent.execution_evidence import ExecutionEvidence
+from forgeagent.execution_evidence import (
+    ExecutionEvidence,
+    ProgramArtifactPersistenceError,
+    ProgramArtifactStore,
+)
 from forgeagent.executor import (
     ContainerBackend,
     ExecResult,
@@ -117,6 +121,119 @@ def test_task_completed_outcome_carries_exec_evidence(tmp_path):
     assert outcome.status.reason == Termination.COMPLETED
     assert [(item.tool, item.status) for item in outcome.execution_evidence.records] == [
         ("Exec", "succeeded"),
+    ]
+
+
+def test_task_reports_missing_artifact_root_as_failed_exec_evidence(tmp_path):
+    missing_root = tmp_path / "missing"
+
+    class RecordingBackend(ExecutorBackend):
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def execute(self, code, runtime):
+            self.calls.append(code)
+            return ExecResult(success=True)
+
+    backend = RecordingBackend()
+    task = Task(
+        MockClient(
+            script=[
+                _reply(_tool_call("Exec", name="program", code="print('never runs')")),
+                _reply(_done()),
+            ]
+        ),
+        backend=backend,
+        allowed_root=str(missing_root),
+    )
+
+    outcome = task.run("run a program")
+
+    assert backend.calls == []
+    assert outcome.status.reason == Termination.COMPLETED
+    records = [
+        (item.tool, item.status, item.artifact) for item in outcome.execution_evidence.records
+    ]
+    assert records == [
+        ("Exec", "artifact_persistence_failed", None),
+    ]
+
+
+def test_task_reports_disappearing_artifact_root_as_failed_exec_evidence(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+
+    class RecordingBackend(ExecutorBackend):
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def execute(self, code, runtime):
+            self.calls.append(code)
+            return ExecResult(success=True)
+
+    backend = RecordingBackend()
+    task = Task(
+        MockClient(
+            script=[
+                _reply(_tool_call("Exec", name="program", code="print('never runs')")),
+                _reply(_done()),
+            ]
+        ),
+        backend=backend,
+        allowed_root=str(project),
+    )
+    project.rmdir()
+
+    outcome = task.run("run a program")
+
+    assert backend.calls == []
+    assert outcome.status.reason == Termination.COMPLETED
+    records = [
+        (item.tool, item.status, item.artifact) for item in outcome.execution_evidence.records
+    ]
+    assert records == [
+        ("Exec", "artifact_persistence_failed", None),
+    ]
+
+
+def test_task_reports_artifact_capacity_failure_before_backend_dispatch(tmp_path):
+    class RecordingBackend(ExecutorBackend):
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def execute(self, code, runtime):
+            self.calls.append(code)
+            return ExecResult(success=True)
+
+    backend = RecordingBackend()
+    task = Task(
+        MockClient(
+            script=[
+                _reply(_tool_call("Exec", name="program", code="print('never runs')")),
+                _reply(_done()),
+            ]
+        ),
+        backend=backend,
+        allowed_root=str(tmp_path),
+    )
+    store = ProgramArtifactStore(tmp_path)
+    store.persist(block_name="full", language="python", code="pass\n")
+
+    def fail_capacity(**_kwargs):
+        raise ProgramArtifactPersistenceError
+
+    store.persist = fail_capacity  # type: ignore[method-assign]
+    task._program_store = store
+
+    outcome = task.run("run a program")
+
+    assert backend.calls == []
+    assert outcome.status.reason == Termination.COMPLETED
+    records = [
+        (item.tool, item.status, item.artifact) for item in outcome.execution_evidence.records
+    ]
+    assert records == [
+        ("Exec", "artifact_persistence_failed", None),
     ]
 
 

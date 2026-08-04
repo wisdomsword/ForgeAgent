@@ -100,6 +100,23 @@ class TaskOutcome(BaseModel):
     execution_evidence: ExecutionEvidence = Field(default_factory=ExecutionEvidence)
 
 
+class _LazyProgramArtifactStore:
+    """Create the task artifact store only when Exec first needs it."""
+
+    def __init__(self, project_root: str) -> None:
+        self._project_root = project_root
+        self._store: ProgramArtifactStore | None = None
+
+    def persist(self, **kwargs):
+        if self._store is None:
+            self._store = ProgramArtifactStore(self._project_root)
+        return self._store.persist(**kwargs)
+
+    def close(self) -> None:
+        if self._store is not None:
+            self._store.close()
+
+
 class Task:
     """Runs a single user goal to completion (or a terminal non-completion)."""
 
@@ -143,7 +160,7 @@ class Task:
         # filesystem authority later broadens to the platform root.
         self._allowed_root = str(Path(allowed_root or Path.cwd()).resolve())
         self._evidence_recorder = ExecutionEvidenceRecorder()
-        self._program_store = ProgramArtifactStore(self._allowed_root)
+        self._program_store = _LazyProgramArtifactStore(self._allowed_root)
         if explicit_backend_tier in ("restricted", "container"):
             backend_root = Path(backend._allowed_root).resolve()
             if backend_root != Path(self._allowed_root):
