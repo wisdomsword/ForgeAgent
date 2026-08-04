@@ -407,7 +407,10 @@ def test_repl_keeps_one_static_logo_after_successful_startup(monkeypatch):
         use_registry_snapshot=False,
     )
 
-    assert display._console.export_text().count(display.static_logo_renderable().plain) == 1
+    output = display._console.export_text()
+    logo = display.static_logo_renderable().plain
+    assert output.count(logo) == 1
+    assert output.index(logo) < output.index("Ready | model mock")
 
 
 def test_repl_stops_startup_display_after_confirmation_keyboard_interrupt(monkeypatch):

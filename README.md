@@ -441,7 +441,7 @@ uv run --offline python scripts/m19-skills-human-smoke.py
 并显示模型、sandbox、项目根目录和 enabled MCP 实际可用数摘要；`NO_COLOR` 降级为静态单色标识。MCP 子进程
 stderr 按 server generation 隔离并限制为 8 KiB，只映射为固定、脱敏的诊断字段。
 非 TTY、显式 reader、`run` 和 `serve` 不显示启动 UI；管道只输入 `quit` 时 stdout/stderr
-保持零字节。完整证据见
+保持零字节。M19 阶段原始启动信息范围的证据见
 [`2026-07-23-startup-information-verify.md`](docs/superpowers/reports/2026-07-23-startup-information-verify.md)。
 
 ## 配置（API key 与端点）
