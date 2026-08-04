@@ -45,7 +45,7 @@ base-ref: dfad978d82434b493b17332721484f4e54afedb8
 - Produces: `public_execution_evidence(evidence: ExecutionEvidence, *, secret_values: Iterable[str] = (), include_local_paths: bool = False) -> ExecutionEvidence`。
 - Produces: `merge_execution_evidence(current: ExecutionEvidence, incoming: ExecutionEvidence, *, iteration: int | None = None, role: EvidenceRole | None = None, attempt: int | None = None, dedupe_cumulative_roles: bool = False) -> ExecutionEvidence`。
 
-- [ ] **Step 1: 写证据模型和 recorder 的失败测试**
+- [x] **Step 1: 写证据模型和 recorder 的失败测试**
 
   在 `tests/test_execution_evidence.py` 写入以下可执行契约：
 
@@ -89,7 +89,7 @@ base-ref: dfad978d82434b493b17332721484f4e54afedb8
 
   再增加：显式 `artifact_persistence_failed` 覆盖 success 映射、负 sequence/omitted 拒绝、非法 origin 组合拒绝、空 envelope 序列化稳定的断言。
 
-- [ ] **Step 2: 运行模型测试并确认 RED**
+- [x] **Step 2: 运行模型测试并确认 RED**
 
   ```bash
   rtk uv run pytest tests/test_execution_evidence.py -q
@@ -97,7 +97,7 @@ base-ref: dfad978d82434b493b17332721484f4e54afedb8
 
   Expected: collection 失败，明确报告 `forgeagent.execution_evidence` 不存在。
 
-- [ ] **Step 3: 实现不可变模型和 recorder**
+- [x] **Step 3: 实现不可变模型和 recorder**
 
   在 `execution_evidence.py` 固定以下常量和字段，不引入第二套 DTO：
 
@@ -157,11 +157,11 @@ base-ref: dfad978d82434b493b17332721484f4e54afedb8
 
   Pydantic validators 必须拒绝非 canonical reference、bool 冒充整数、负计数和不完整 origin（role 与 attempt 必须同时有值）；`artifact_persistence_failed` 记录不得携带 artifact。tool/block 先 mask 已知 secret，再把控制/格式字符确定性转义为 `\\xNN`、`\\uNNNN` 或 `\\UNNNNNNNN`，最后截为 128 字符；默认空对象必须能加载旧状态。
 
-- [ ] **Step 4: 写公开投影和聚合的失败测试**
+- [x] **Step 4: 写公开投影和聚合的失败测试**
 
   增加测试并断言：前 32 条稳定保留；原 `omitted_count` 与本次裁剪数相加；已知 secret 被 `REDACTED` 替换；控制字符被转义或替换；`include_local_paths=False` 清除本地路径；cumulative collaboration 按 `(role, attempt, sequence)` 去重且不把重复项计入 omitted；新项才附加当前 iteration。
 
-- [ ] **Step 5: 实现公开投影和聚合函数并验证 GREEN**
+- [x] **Step 5: 实现公开投影和聚合函数并验证 GREEN**
 
   `public_execution_evidence()` 只复制 tool、block、status、origin 和 canonical reference，不复制其他对象字段。`merge_execution_evidence()` 先为新记录补 origin，再用完整 origin key 稳定去重，最后保留前 32 条并累计真正被截断的唯一记录：
 
@@ -182,7 +182,7 @@ base-ref: dfad978d82434b493b17332721484f4e54afedb8
 
   Expected: 全部通过；序列、截断、mask、local-path exclusion 和 cumulative 去重断言均为 GREEN。
 
-- [ ] **Step 6: 提交共享证据模型**
+- [x] **Step 6: 提交共享证据模型**
 
   ```bash
   rtk git add src/forgeagent/execution_evidence.py tests/test_execution_evidence.py
