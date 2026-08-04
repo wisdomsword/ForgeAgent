@@ -122,6 +122,7 @@ def _render_collaboration_report(
         render_execution_evidence=render_execution_evidence,
     )
 
+
 _CONTEXT_CONFIG_ENVIRONMENT = "FORGEAGENT_INTERNAL_CONTEXT_CONFIG_JSON"
 _CANDIDATE_FILES_ENVIRONMENT = "FORGEAGENT_INTERNAL_CANDIDATE_REQUIRED_FILES_JSON"
 
