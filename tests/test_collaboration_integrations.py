@@ -20,6 +20,11 @@ from forgeagent.collaboration import (
     CollaborationUsage,
     headless_plan_confirmer,
 )
+from forgeagent.execution_evidence import (
+    ExecutionEvidence,
+    ProgramArtifactStore,
+    ToolExecutionRecord,
+)
 from forgeagent.models import AssistantMessage, ModelCapability, TokenUsage
 from forgeagent.task import Task
 from forgeagent.tools import Tool, ToolOutcome, default_registry
@@ -359,7 +364,7 @@ def test_collaboration_renderer_omits_private_goal_and_absolute_path(monkeypatch
         failed_item_count=1,
         evidence=(f"failed at {tmp_path}/artifact.txt with {secret}",),
     )
-    console = Console(record=True, force_terminal=False)
+    console = Console(record=True, force_terminal=False, width=500)
 
     cli_module._render_collaboration_report(report, console)
 
@@ -367,6 +372,34 @@ def test_collaboration_renderer_omits_private_goal_and_absolute_path(monkeypatch
     assert "rejection_limit" in rendered
     assert secret not in rendered
     assert str(tmp_path) not in rendered
+
+
+def test_collaboration_renderer_uses_safe_shared_execution_evidence_renderer(tmp_path):
+    store = ProgramArtifactStore(tmp_path)
+    artifact = store.persist(block_name="private", language="python", code="SECRET_CODE = 1\n")
+    report = _report(
+        execution_evidence=ExecutionEvidence(
+            records=(
+                ToolExecutionRecord(
+                    sequence=1,
+                    tool="Exec",
+                    status="succeeded",
+                    artifact=artifact,
+                    role="generator",
+                    attempt=1,
+                ),
+            )
+        )
+    )
+    console = Console(record=True, force_terminal=False, width=500)
+
+    cli_module._render_collaboration_report(report, console, project_root=tmp_path)
+
+    rendered = console.export_text()
+    assert str(artifact.local_path) in rendered
+    assert "SECRET_CODE" not in rendered
+    assert "role=generator attempt=1" in rendered
+    store.close()
 
 
 def test_loop_context_is_untrusted_role_data_and_checkpoint_only_extends_generator(tmp_path):

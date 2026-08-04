@@ -22,6 +22,7 @@ from forgeagent.collaboration import (
     EvaluationItem,
     plan_digest,
 )
+from forgeagent.execution_evidence import ExecutionEvidence, ToolExecutionRecord
 
 
 def test_store_creates_loads_and_atomically_saves_private_state(tmp_path: Path):
@@ -37,6 +38,92 @@ def test_store_creates_loads_and_atomically_saves_private_state(tmp_path: Path):
     saved = store.save(created.model_copy(update={"rounds": 1}), expected_revision=0)
     assert saved.revision == 1
     assert json.loads(path.read_text())["revision"] == 1
+
+
+def test_store_loads_v1_state_without_execution_evidence_and_round_trips_prefix(
+    tmp_path: Path,
+):
+    store = CollaborationStore(str(tmp_path))
+    created = store.create("Build an artifact", "duo", collaboration_id="b" * 32)
+    path = tmp_path / ".forgeagent" / "collaborations" / ("b" * 32 + ".json")
+    payload = json.loads(path.read_text())
+    payload.pop("execution_evidence", None)
+    path.write_text(json.dumps(payload))
+
+    loaded = store.load(created.collaboration_id)
+    assert loaded.execution_evidence == ExecutionEvidence()
+    evidence = ExecutionEvidence(
+        records=(
+            ToolExecutionRecord(
+                sequence=1,
+                tool="Exec",
+                status="succeeded",
+                role="generator",
+                attempt=1,
+            ),
+        ),
+        omitted_count=3,
+        truncated=True,
+    )
+    saved = store.save(
+        loaded.model_copy(update={"execution_evidence": evidence}),
+        expected_revision=loaded.revision,
+    )
+    assert store.load(saved.collaboration_id).execution_evidence == evidence
+
+
+def test_store_rejects_execution_evidence_prefix_rewrite_and_omitted_regression(
+    tmp_path: Path,
+):
+    store = CollaborationStore(str(tmp_path))
+    created = store.create("Build an artifact", "duo", collaboration_id="c" * 32)
+    evidence = ExecutionEvidence(
+        records=(
+            ToolExecutionRecord(
+                sequence=1,
+                tool="Exec",
+                status="succeeded",
+                role="generator",
+                attempt=1,
+            ),
+        ),
+        omitted_count=2,
+        truncated=True,
+    )
+    saved = store.save(
+        created.model_copy(update={"execution_evidence": evidence}),
+        expected_revision=created.revision,
+    )
+
+    rewritten = ToolExecutionRecord(
+        sequence=1,
+        tool="FileRead",
+        status="succeeded",
+        role="generator",
+        attempt=1,
+    )
+    with pytest.raises(CollaborationError):
+        store.save(
+            saved.model_copy(
+                update={
+                    "execution_evidence": ExecutionEvidence(
+                        records=(rewritten,), omitted_count=2, truncated=True
+                    )
+                }
+            ),
+            expected_revision=saved.revision,
+        )
+    with pytest.raises(CollaborationError):
+        store.save(
+            saved.model_copy(
+                update={
+                    "execution_evidence": ExecutionEvidence(
+                        records=evidence.records, omitted_count=1, truncated=True
+                    )
+                }
+            ),
+            expected_revision=saved.revision,
+        )
 
 
 def test_store_create_is_total_for_valid_goals_and_accepts_only_configuration(

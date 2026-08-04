@@ -25,6 +25,11 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from .attention import Attention, attention_for_reason
 from .audit import AuditEvent, AuditSink, emit_audit
 from .check_runner import CheckDefinition, CheckStatus, candidate_snapshot_digest, run_check
+from .execution_evidence import (
+    ExecutionEvidence,
+    merge_execution_evidence,
+    public_execution_evidence,
+)
 from .external_actions import ExternalActionReceiptStore
 from .secret_policy import REDACTED_PATH, mask_audit_data, sensitive_env_values
 from .task import TaskOutcome
@@ -648,6 +653,15 @@ def _validate_state_transition(current: CollaborationState, candidate: Collabora
         raise CollaborationError("invalid collaboration state transition")
     if not current.usage_available and candidate.usage_available:
         raise CollaborationError("invalid collaboration state transition")
+    if (
+        candidate.execution_evidence.records[: len(current.execution_evidence.records)]
+        != current.execution_evidence.records
+        or len(candidate.execution_evidence.records) < len(current.execution_evidence.records)
+        or candidate.execution_evidence.omitted_count
+        < current.execution_evidence.omitted_count
+        or (current.execution_evidence.truncated and not candidate.execution_evidence.truncated)
+    ):
+        raise CollaborationError("invalid collaboration state transition")
     if current.plan and candidate.plan != current.plan:
         raise CollaborationError("invalid collaboration state transition")
     if current.plan_digest and candidate.plan_digest != current.plan_digest:
@@ -690,6 +704,7 @@ class CollaborationState(BaseModel):
     rounds: int = 0
     usage: CollaborationUsage = Field(default_factory=CollaborationUsage)
     usage_available: bool = True
+    execution_evidence: ExecutionEvidence = Field(default_factory=ExecutionEvidence)
     last_evaluation: tuple[EvaluationItem, ...] = ()
 
     @property
@@ -978,6 +993,7 @@ class CollaborationReport(BaseModel):
     usage: CollaborationUsage
     usage_available: bool
     evidence: tuple[str, ...] = ()
+    execution_evidence: ExecutionEvidence = Field(default_factory=ExecutionEvidence)
 
     @property
     def schema(self) -> str:
@@ -1063,6 +1079,7 @@ class CollaborationReport(BaseModel):
             usage=state.usage,
             usage_available=state.usage_available,
             evidence=evidence,
+            execution_evidence=public_execution_evidence(state.execution_evidence),
         )
 
 
@@ -2199,11 +2216,18 @@ class CollaborationRunner:
 
     def _persist_planner_boundary(self, outcome: TaskOutcome) -> None:
         usage, available = _task_usage(outcome)
+        evidence = merge_execution_evidence(
+            self._state.execution_evidence,
+            public_execution_evidence(outcome.execution_evidence),
+            role="planner",
+            attempt=1,
+        )
         candidate = self._state.model_copy(
             update={
                 "rounds": self._state.rounds + len(outcome.rounds),
                 "usage": self._state.usage.add(usage),
                 "usage_available": self._state.usage_available and available,
+                "execution_evidence": evidence,
             }
         )
         self._state = self._store.save(candidate, expected_revision=self._state.revision)
@@ -2283,7 +2307,9 @@ class CollaborationRunner:
                     )
                     self._state = committed
                     if submitted_candidate:
-                        self._persist_role_statistics(generator)
+                        self._persist_role_statistics(
+                            "generator", committed.generator_attempts, generator
+                        )
                     elif owns_submission or committed.revision > generator_state.revision:
                         return self._finish_without_save("failed", "state_failure")
                     else:
@@ -2354,7 +2380,9 @@ class CollaborationRunner:
                     )
                     self._state = committed
                     if submitted_evaluation:
-                        self._persist_role_statistics(evaluator)
+                        self._persist_role_statistics(
+                            "evaluator", committed.evaluator_attempts, evaluator
+                        )
                     elif owns_submission or committed.revision > evaluator_state.revision:
                         return self._finish_without_save("failed", "state_failure")
                     else:
@@ -2502,15 +2530,27 @@ class CollaborationRunner:
             duration_ms=max(0, int((time.monotonic() - started) * 1000)),
         )
 
-    def _persist_role_statistics(self, outcome: TaskOutcome) -> None:
+    def _persist_role_statistics(
+        self,
+        role: Literal["generator", "evaluator"],
+        attempt: int,
+        outcome: TaskOutcome,
+    ) -> None:
         self._state = self._store.load(self._state.collaboration_id)
         self._assert_frozen_plan(self._state)
         usage, available = _task_usage(outcome)
+        evidence = merge_execution_evidence(
+            self._state.execution_evidence,
+            public_execution_evidence(outcome.execution_evidence),
+            role=role,
+            attempt=attempt,
+        )
         candidate = self._state.model_copy(
             update={
                 "rounds": self._state.rounds + len(outcome.rounds),
                 "usage": self._state.usage.add(usage),
                 "usage_available": self._state.usage_available and available,
+                "execution_evidence": evidence,
             }
         )
         self._state = self._store.save(candidate, expected_revision=self._state.revision)
@@ -2523,13 +2563,21 @@ class CollaborationRunner:
         self._state = self._store.load(self._state.collaboration_id)
         self._assert_frozen_plan(self._state)
         usage, available = _task_usage(outcome)
+        attempt = getattr(self._state, f"{role}_attempts") + 1
+        evidence = merge_execution_evidence(
+            self._state.execution_evidence,
+            public_execution_evidence(outcome.execution_evidence),
+            role=role,
+            attempt=attempt,
+        )
         updates: dict[str, object] = {
             "rounds": self._state.rounds + len(outcome.rounds),
             "usage": self._state.usage.add(usage),
             "usage_available": self._state.usage_available and available,
+            "execution_evidence": evidence,
         }
         counter = f"{role}_attempts"
-        updates[counter] = getattr(self._state, counter) + 1
+        updates[counter] = attempt
         candidate = self._state.model_copy(update=updates)
         self._state = self._store.save(candidate, expected_revision=self._state.revision)
 

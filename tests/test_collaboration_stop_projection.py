@@ -20,6 +20,7 @@ from forgeagent.collaboration import (
     build_handoff_packet,
     plan_digest,
 )
+from forgeagent.execution_evidence import ExecutionEvidence, ToolExecutionRecord
 from forgeagent.http_task_service import TaskRecord
 from forgeagent.step import RoundResult
 from forgeagent.task import TaskOutcome, TaskStatus
@@ -181,6 +182,15 @@ class _OutcomeRoleBuilder:
                         attention=attention_for_reason(reason),
                     ),
                     rounds=[RoundResult(text="")],
+                    execution_evidence=ExecutionEvidence(
+                        records=(
+                            ToolExecutionRecord(
+                                sequence=1,
+                                tool="Exec",
+                                status="failed",
+                            ),
+                        )
+                    ),
                 )
 
             def close(self):
@@ -218,6 +228,9 @@ def test_runner_projects_role_task_stop_reasons(
     assert report.stop_reason == stop_reason
     assert (report.attention.state if report.attention is not None else None) == attention_state
     assert builder.calls == [("generator", 1)]
+    assert [(record.role, record.attempt) for record in report.execution_evidence.records] == [
+        ("generator", 1)
+    ]
 
 
 def test_http_record_uses_collaboration_attention_without_private_goal():

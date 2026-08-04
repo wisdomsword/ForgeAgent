@@ -166,6 +166,9 @@ class TaskRecord:
                     rejections=report.rejections,
                     usage_available=report.usage_available,
                     evidence=list(report.evidence),
+                    execution_evidence=public_execution_evidence(
+                        report.execution_evidence
+                    ).model_dump(mode="json"),
                 )
         if self.loop_report is not None and self.ended_at is not None:
             report = self.loop_report

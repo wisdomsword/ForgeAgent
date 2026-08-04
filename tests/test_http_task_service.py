@@ -205,6 +205,53 @@ def test_collaboration_record_projects_running_and_terminal_safe_fields():
     assert "goal" not in terminal
 
 
+def test_collaboration_terminal_projects_relative_execution_evidence_only(tmp_path):
+    store = ProgramArtifactStore(tmp_path)
+    artifact = store.persist(block_name="private", language="python", code="SECRET_CODE = 1\n")
+    report = _collaboration_report(
+        execution_evidence=ExecutionEvidence(
+            records=tuple(
+                ToolExecutionRecord(
+                    sequence=index,
+                    tool="Exec",
+                    status="succeeded",
+                    artifact=artifact,
+                    role="generator",
+                    attempt=1,
+                )
+                for index in range(1, 41)
+            )
+        )
+    )
+    terminal = TaskRecord(
+        task_id="a" * 32,
+        goal="private prompt and args",
+        options={"mode": "triad"},
+        status="completed",
+        collaboration_report=report,
+        ended_at=1.0,
+    )
+    running = TaskRecord(
+        task_id="b" * 32,
+        goal="private prompt and args",
+        options={"mode": "triad"},
+        status="running",
+        collaboration_report=report,
+    )
+
+    view = terminal.public_view()
+
+    assert len(view["execution_evidence"]["records"]) == 32
+    assert view["execution_evidence"]["omitted_count"] == 8
+    assert view["execution_evidence"]["records"][0]["artifact"] == {
+        "reference": artifact.reference
+    }
+    assert "execution_evidence" not in running.public_view()
+    assert str(tmp_path) not in repr(view)
+    assert "SECRET_CODE" not in repr(view)
+    store.close()
+
+
 def test_programming_submission_is_publicly_routed_to_single_before_worker_runs():
     started = threading.Event()
     release = threading.Event()

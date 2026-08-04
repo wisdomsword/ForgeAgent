@@ -22,8 +22,10 @@ from forgeagent.collaboration import (
     RunCheckArgs,
     build_evaluator_registry,
 )
+from forgeagent.execution_evidence import ExecutionEvidence, ToolExecutionRecord
 from forgeagent.models import AssistantMessage, ClientError, TokenUsage
-from forgeagent.task import Task
+from forgeagent.step import RoundResult
+from forgeagent.task import Task, TaskOutcome, TaskStatus
 
 
 def _reply(text: str, *, usage: TokenUsage | None = None) -> AssistantMessage:
@@ -40,6 +42,22 @@ def _done() -> str:
 
 def _candidate() -> AssistantMessage:
     marker = {"name": "SubmitCandidate", "arguments": {}}
+    return _reply(f"<!-- ToolCall: {json.dumps(marker)} -->")
+
+
+def _plan_submission() -> AssistantMessage:
+    marker = {
+        "name": "SubmitPlan",
+        "arguments": {
+            "items": [
+                {
+                    "id": "goal",
+                    "behavior": "Write the requested artifact",
+                    "acceptance": "The artifact can be inspected",
+                }
+            ]
+        },
+    }
     return _reply(f"<!-- ToolCall: {json.dumps(marker)} -->")
 
 
@@ -255,6 +273,48 @@ def test_duo_rejects_then_uses_fresh_generator_and_passes(tmp_path: Path):
     assert "SubmitCandidate must not be your first or only tool call" in generator_prompts[1]
     assert "reports that a required file is missing" in generator_prompts[1]
     assert "successfully call FileWrite for that file" in generator_prompts[1]
+    assert [
+        (record.tool, record.role, record.attempt)
+        for record in report.execution_evidence.records
+    ] == [
+        ("SubmitCandidate", "generator", 1),
+        ("SubmitEvaluation", "evaluator", 1),
+        ("SubmitCandidate", "generator", 2),
+        ("SubmitEvaluation", "evaluator", 2),
+    ]
+
+
+def test_triad_aggregates_planner_before_generator_and_evaluator(tmp_path: Path):
+    builder = _RoleBuilder(
+        {
+            ("planner", 1): [_plan_submission()],
+            ("generator", 1): [_candidate()],
+            ("evaluator", 1): [_evaluation(passed=True)],
+        }
+    )
+    runner = CollaborationRunner.create(
+        mode="triad",
+        goal="write PRIVATE_GOAL artifact",
+        allowed_root=str(tmp_path),
+        role_task_builder=builder,
+        plan_confirmer=lambda _summary: True,
+        planner_model="planner-model",
+        generator_model="generator-model",
+        evaluator_model="evaluator-model",
+        collaboration_id="b" * 32,
+    )
+
+    report = runner.run("write PRIVATE_GOAL artifact")
+
+    assert report.status == "completed"
+    assert [
+        (record.tool, record.role, record.attempt)
+        for record in report.execution_evidence.records
+    ] == [
+        ("SubmitPlan", "planner", 1),
+        ("SubmitCandidate", "generator", 1),
+        ("SubmitEvaluation", "evaluator", 1),
+    ]
 
 
 def test_candidate_readiness_recovers_within_one_generator_task(tmp_path: Path):
@@ -819,6 +879,36 @@ def test_duo_invalid_evaluation_tool_call_is_invalid_submission(tmp_path: Path):
 
     assert report.status == "failed"
     assert report.stop_reason == "invalid_role_submission"
+    assert [(record.role, record.attempt) for record in report.execution_evidence.records] == [
+        ("generator", 1),
+        ("evaluator", 1),
+    ]
+
+
+def test_failed_role_boundary_save_is_atomic_for_counter_and_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    runner = _runner(tmp_path, _RoleBuilder({}))
+    before = runner._store.load(runner._state.collaboration_id)
+    outcome = TaskOutcome(
+        status=TaskStatus(completed=False, reason="role_failed"),
+        rounds=[RoundResult(text="")],
+        execution_evidence=ExecutionEvidence(
+            records=(ToolExecutionRecord(sequence=1, tool="Exec", status="failed"),)
+        ),
+    )
+
+    def fail_save(*_args, **_kwargs):
+        raise RuntimeError("disk failure")
+
+    monkeypatch.setattr(runner._store, "save", fail_save)
+    with pytest.raises(RuntimeError, match="disk failure"):
+        runner._persist_failed_role_boundary("generator", outcome)
+
+    after = CollaborationStore(str(tmp_path)).load(before.collaboration_id)
+    assert after.generator_attempts == before.generator_attempts
+    assert after.rounds == before.rounds
+    assert after.execution_evidence == before.execution_evidence
 
 
 def test_duo_pass_verdict_completes_without_standalone_status(tmp_path: Path):
