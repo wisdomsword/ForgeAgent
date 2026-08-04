@@ -19,7 +19,7 @@ Worktree: `/Users/admin/Code/llm-agent/ForgeAgent/.worktrees/m48-expose-task-exe
 | 1. Evidence model/recorder/projection | f0715ed + 7891448 | reviewed | complete: 21 focused tests; P1 fixes verified |
 | 2. Program artifact store | c8cac7b + 5466b40 + 73e6d59 | reviewed twice | complete: 40 focused tests; P1/P2 fixes verified |
 | 3. Exec/Step/Task wiring | 889598a | local two-pass review; external review command blocked by sandbox policy | complete: RED 23 failed/194 passed; GREEN focused 226 passed; G333 1 passed; full pytest 2884 passed, 11 skipped; Ruff and diff check pass |
-| 4. CLI/REPL terminal projection | pending | pending | pending |
+| 4. CLI/REPL terminal projection | b0f7912 + c30a5ea | reviewed twice | complete: RED import failure; GREEN 384 CLI/boundary/evidence/black-box tests; Rich markup injection fixed; Ruff and diff check pass |
 | 5. HTTP terminal projection | pending | pending | pending |
 | 6. Loop durable aggregation | pending | pending | pending |
 | 7. Duo/Triad durable aggregation | pending | pending | pending |

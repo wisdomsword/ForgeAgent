@@ -394,15 +394,15 @@ base-ref: dfad978d82434b493b17332721484f4e54afedb8
 - REPL remains a consumer of `bindings.run_once()` / `bindings.run_collaboration_once()`；不在 `_cli_repl.py` 增加逐轮打印路径。
 - Loop 与 Collaboration 的 report 字段尚未加入，本 Task 只交付 Single/REPL renderer；它们分别在 Task 6/7 接入同一 renderer。
 
-- [ ] **Step 1: 写 Single/REPL 终态汇总 RED 测试**
+- [x] **Step 1: 写 Single/REPL 终态汇总 RED 测试**
 
   在 `tests/test_cli.py` 构造含 Exec artifact 的 `TaskOutcome`，断言输出包含一个 `execution evidence:` 标题、`Exec succeeded` 和本地绝对 `.py` 路径。空 evidence 输出 `execution evidence: no tools or programs executed`。调用 REPL 两次 goal 时每个 Task 各一个终态区块，单个 Task 不因 rounds 数重复标题。
 
-- [ ] **Step 2: 写安全 label、secret 和不安全引用 RED 测试**
+- [x] **Step 2: 写安全 label、secret 和不安全引用 RED 测试**
 
   设置已知环境 secret，把它放入 tool/block；断言 terminal capture 不含 secret 或原始控制字符。直接调用共享 renderer 并传入 synthetic traversal、absolute 或 symlink reference，断言 model validation 或 resolver 将其显示为 `program unavailable`，且不显示拼接后的宿主路径。
 
-- [ ] **Step 3: 运行 CLI 测试并确认 RED**
+- [x] **Step 3: 运行 CLI 测试并确认 RED**
 
   ```bash
   rtk uv run pytest tests/test_cli.py tests/test_m41_cli_boundaries.py -q
@@ -410,7 +410,7 @@ base-ref: dfad978d82434b493b17332721484f4e54afedb8
 
   Expected: 新 execution-evidence 文本和本地路径断言失败；M41 文件边界基线继续给出真实行数。
 
-- [ ] **Step 4: 实现一个共享终态 renderer**
+- [x] **Step 4: 实现一个共享终态 renderer**
 
   renderer 先调用 `public_execution_evidence(..., include_local_paths=True)`；每条只打印 `sequence/tool/status/origin/block`，artifact 路径按以下优先级取得：
 
@@ -423,7 +423,7 @@ base-ref: dfad978d82434b493b17332721484f4e54afedb8
 
   空 records 且 omitted=0 时打印显式空值；有截断时打印稳定 `omitted=<count>`。保留既有 stdout、失败 detail、memory 和 usage 区域，不把它们复制到证据区。
 
-- [ ] **Step 5: 运行 CLI/REPL GREEN 与文件边界验证**
+- [x] **Step 5: 运行 CLI/REPL GREEN 与文件边界验证**
 
   ```bash
   rtk uv run pytest tests/test_cli.py tests/test_m41_cli_boundaries.py -q
@@ -431,7 +431,7 @@ base-ref: dfad978d82434b493b17332721484f4e54afedb8
 
   Expected: Single 和 REPL 每 Task 一个终态汇总；纯 prose 显式为空；不安全引用不可用；`cli.py` 与 `_cli_repl.py` 保持 M41 上限内。
 
-- [ ] **Step 6: 提交本地终态投影**
+- [x] **Step 6: 提交本地终态投影**
 
   ```bash
   rtk git add src/forgeagent/cli.py tests/test_cli.py tests/test_m41_cli_boundaries.py
