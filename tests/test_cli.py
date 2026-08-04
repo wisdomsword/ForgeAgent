@@ -202,6 +202,7 @@ def test_startup_display_pauses_for_confirmation_and_recreates_live(monkeypatch)
     display.start("Loading identity")
     display.pause()
     assert lives[0].stopped is True
+    assert display._console.export_text() == ""
     display.resume()
     display.stop()
 
@@ -385,6 +386,28 @@ def test_repl_stops_startup_display_when_startup_raises(monkeypatch):
 
     assert [live.started for live in lives] == [True]
     assert all(live.stopped for live in lives)
+
+
+def test_repl_keeps_one_static_logo_after_successful_startup(monkeypatch):
+    display, _ = _display_with_recorded_live(monkeypatch)
+    monkeypatch.setattr(cli_module, "_StartupDisplay", lambda console: display)
+    monkeypatch.setattr(cli_module.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(cli_module, "_make_interactive_reader", lambda: lambda _prompt: "quit")
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: None)
+
+    cli_module.repl(
+        tier="restricted",
+        model="mock",
+        client_factory=_factory([]),
+        console=display._console,
+        read_line=None,
+        no_identity=True,
+        no_memory=True,
+        skills=SkillRegistry({}),
+        use_registry_snapshot=False,
+    )
+
+    assert display._console.export_text().count(display.static_logo_renderable().plain) == 1
 
 
 def test_repl_stops_startup_display_after_confirmation_keyboard_interrupt(monkeypatch):
