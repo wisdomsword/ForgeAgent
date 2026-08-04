@@ -4,7 +4,7 @@
 
 ## 2. 最小行为移植
 
-- [ ] 2.1 对照旧 change 移植 `StartupDisplay.stop(persist=...)` 与唯一成功调用点，处理 M47 冲突且不覆盖相邻启动行为。
+- [x] 2.1 对照旧 change 移植 `StartupDisplay.stop(persist=...)` 与唯一成功调用点，处理 M47 冲突且不覆盖相邻启动行为。
 - [ ] 2.2 更新 README 的最终可见状态说明，并确认非 TTY、失败、中断、`run`、`serve` 行为不变。
 
 ## 3. 验证

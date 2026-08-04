@@ -154,12 +154,15 @@ class StartupDisplay:
         if self._stage is not None:
             self._start_live()
 
-    def stop(self) -> None:
+    def stop(self, *, persist: bool = False) -> None:
         live = self._live
         if live is None:
             return
         try:
             live.stop()
+            if persist and not self._static_mark_rendered:
+                self._console.print(self.static_logo_renderable())
+                self._static_mark_rendered = True
         finally:
             self._live = None
 
@@ -361,7 +364,7 @@ def repl(
         )
         display.set_stage("Connecting MCP services")
         mcp = bindings.build_mcp_manager()
-        display.stop()
+        display.stop(persist=True)
         if interactive:
             bindings.render_startup_summary(
                 console,
