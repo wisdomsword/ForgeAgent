@@ -165,6 +165,30 @@ def test_public_projection_masks_labels_control_characters_and_local_paths(tmp_p
     }
 
 
+def test_public_projection_redacts_posix_and_windows_paths_but_keeps_artifact_reference():
+    reference = "execution-artifacts/" + "a" * 32 + "/programs/0001-main.py"
+    evidence = ExecutionEvidence(
+        records=(
+            ToolExecutionRecord(
+                sequence=1,
+                tool=f"Exec /Users/admin/private/tool.py C:\\Users\\admin\\private.py {reference}",
+                block=f"block /tmp/private.py C:\\secret\\block.py {reference}",
+                status="succeeded",
+            ),
+        )
+    )
+
+    projected = public_execution_evidence(evidence)
+    item = projected.records[0]
+
+    assert "/Users/admin/private/tool.py" not in item.tool
+    assert "C:\\Users\\admin\\private.py" not in item.tool
+    assert "/tmp/private.py" not in (item.block or "")
+    assert "C:\\secret\\block.py" not in (item.block or "")
+    assert reference in item.tool
+    assert reference in (item.block or "")
+
+
 def test_internal_record_masks_known_environment_secret(monkeypatch):
     secret = "environment-secret-value"
     monkeypatch.setenv("FORGE_TEST_TOKEN", secret)
@@ -258,6 +282,21 @@ def test_merge_adds_origin_and_deduplicates_cumulative_role_records():
     )
     assert len(duplicate.records) == 3
     assert duplicate.omitted_count == merged.omitted_count
+
+
+def test_merge_iteration_only_preserves_loop_origins_for_same_sequence():
+    incoming = ExecutionEvidence(
+        records=(ToolExecutionRecord(sequence=1, tool="Exec", status="succeeded"),)
+    )
+
+    first = merge_execution_evidence(ExecutionEvidence(), incoming, iteration=1)
+    merged = merge_execution_evidence(first, incoming, iteration=2)
+
+    origins = [(item.sequence, item.iteration, item.role, item.attempt) for item in merged.records]
+    assert origins == [
+        (1, 1, None, None),
+        (1, 2, None, None),
+    ]
 
 
 def test_merge_public_bound_counts_only_unique_new_records():

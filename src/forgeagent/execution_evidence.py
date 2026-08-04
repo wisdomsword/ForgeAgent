@@ -16,7 +16,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from .secret_policy import mask_secrets, sensitive_env_values
+from .secret_policy import mask_audit_data, sensitive_env_values
 
 EvidenceStatus = Literal["succeeded", "failed", "artifact_persistence_failed"]
 EvidenceRole = Literal["planner", "generator", "evaluator"]
@@ -33,7 +33,9 @@ _REFERENCE_RE = re.compile(
 
 def _safe_text(value: str, secret_values: Iterable[str] = ()) -> str:
     """Mask secrets and make control/format characters unambiguous."""
-    masked = mask_secrets(value, secret_values)
+    masked = mask_audit_data(value, secret_values)
+    if not isinstance(masked, str):
+        raise TypeError("safe evidence labels must be strings")
     escaped: list[str] = []
     length = 0
     for character in masked:
@@ -236,16 +238,16 @@ def merge_execution_evidence(
     omitted = current.omitted_count + incoming.omitted_count
     for original in incoming.records:
         record = original
-        if role is not None:
+        if role is not None or iteration is not None:
             record = ToolExecutionRecord(
                 sequence=record.sequence,
                 tool=record.tool,
                 status=record.status,
                 block=record.block,
                 artifact=record.artifact,
-                iteration=iteration,
-                role=role,
-                attempt=attempt,
+                iteration=iteration if iteration is not None else record.iteration,
+                role=role if role is not None else record.role,
+                attempt=attempt if attempt is not None else record.attempt,
             )
         if dedupe_cumulative_roles:
             cumulative_key = _cumulative_role_key(record)
