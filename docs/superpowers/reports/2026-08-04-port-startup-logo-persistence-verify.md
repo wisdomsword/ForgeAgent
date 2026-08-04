@@ -40,6 +40,7 @@
 | 检查 | 命令 | 结果 |
 | --- | --- | --- |
 | 全量测试 | `UV_CACHE_DIR=/tmp/forgeagent-m48-logo-uv-cache uv run pytest -q` | PASS：2782 passed, 11 skipped，155.22s |
+| main 合并后全量测试 | `UV_CACHE_DIR=/tmp/forgeagent-m48-main-uv-cache uv run pytest -q` | PASS：2782 passed, 11 skipped，176.71s |
 | 静态检查 | `UV_CACHE_DIR=/tmp/forgeagent-m48-logo-uv-cache uv run ruff check .` | PASS：All checks passed |
 | 格式检查 | `UV_CACHE_DIR=/tmp/forgeagent-m48-logo-uv-cache uv run ruff format --check .` | PASS：147 files already formatted |
 | OpenSpec | `openspec validate port-startup-logo-persistence --strict` | PASS |
