@@ -166,6 +166,9 @@ def test_pipe_goal_connects_mcp_and_only_outputs_task_result(
         b"completed\n"
         b"  round 1 [MCP fixture:echo] ok\n"
         b"PIPE_RESULT\n"
+        b"execution evidence:\n"
+        b"    1 MCP succeeded\n"
+        b"      block: fixture:echo\n"
         b"usage: in=0 out=0 cached=0 reasoning=0 (session total) cache_hit=n/a\n"
     )
 

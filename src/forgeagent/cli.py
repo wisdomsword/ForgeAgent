@@ -221,27 +221,30 @@ def render_execution_evidence(
     )
     if not projected.records:
         if projected.omitted_count:
-            console.print(f"execution evidence: omitted={projected.omitted_count}")
+            console.print(f"execution evidence: omitted={projected.omitted_count}", markup=False)
         else:
-            console.print("execution evidence: no tools or programs executed")
+            console.print("execution evidence: no tools or programs executed", markup=False)
         return
 
-    console.print("execution evidence:")
+    console.print("execution evidence:", markup=False)
     for record in projected.records:
-        console.print(f"    {record.sequence} {record.tool} {record.status}")
+        console.print(f"    {record.sequence} {record.tool} {record.status}", markup=False)
         if record.block is not None:
-            console.print(f"      block: {record.block}")
+            console.print(f"      block: {record.block}", markup=False)
         if record.iteration is not None or record.role is not None or record.attempt is not None:
             origin = f"iteration={record.iteration} role={record.role} attempt={record.attempt}"
-            console.print(f"      origin: {origin}")
+            console.print(f"      origin: {origin}", markup=False)
         if record.artifact is None:
             continue
         path = record.artifact.local_path
         if path is None and project_root is not None:
             path = resolve_local_artifact_path(project_root, record.artifact.reference)
-        console.print(f"      program: {path}" if path is not None else "      program unavailable")
+        console.print(
+            f"      program: {path}" if path is not None else "      program unavailable",
+            markup=False,
+        )
     if projected.omitted_count:
-        console.print(f"    omitted={projected.omitted_count}")
+        console.print(f"    omitted={projected.omitted_count}", markup=False)
 
 
 def _accumulate_usage(total: TokenUsage, rounds: list[RoundResult]) -> None:

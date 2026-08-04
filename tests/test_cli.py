@@ -1436,6 +1436,35 @@ def test_render_execution_evidence_masks_secret_and_control_characters(monkeypat
     assert "\\x0a" in rendered
 
 
+def test_render_execution_evidence_renders_markup_like_fields_literally(monkeypatch):
+    markup = "[link=https://example]x[/link]"
+    evidence = ExecutionEvidence.model_construct(
+        records=(
+            ToolExecutionRecord.model_construct(
+                sequence=1,
+                tool=markup,
+                status="succeeded",
+                block=markup,
+                artifact=ProgramArtifact.model_construct(
+                    reference=(
+                        "execution-artifacts/"
+                        "0123456789abcdef0123456789abcdef/programs/0001-program.py"
+                    ),
+                    local_path=markup,
+                ),
+            ),
+        )
+    )
+    console = Console(record=True, width=100, force_terminal=True, color_system="standard")
+    monkeypatch.setattr(cli_module, "public_execution_evidence", lambda *args, **kwargs: evidence)
+
+    render_execution_evidence(evidence, console)
+
+    rendered = console.export_text()
+    assert rendered.count(markup) == 3
+    assert "\x1b]8;" not in console.export_text(styles=True)
+
+
 def test_render_execution_evidence_marks_missing_local_artifact_unavailable(tmp_path):
     evidence = ExecutionEvidence(
         records=(
