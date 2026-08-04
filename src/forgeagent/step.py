@@ -35,6 +35,10 @@ from .context import (
     SlidingWindowContextPolicy,
     render_bounded_feedback,
 )
+from .execution_evidence import (
+    ExecutionEvidenceRecorder,
+    ProgramArtifactStore,
+)
 from .executor import ExecutorBackend
 from .external_actions import ExternalActionReceiptStore
 from .models import (
@@ -207,6 +211,8 @@ class Step:
         skills: SkillRegistry | None = None,
         context_config: ContextConfig | None = None,
         receipt_store: ExternalActionReceiptStore | None = None,
+        evidence_recorder: ExecutionEvidenceRecorder | None = None,
+        program_store: ProgramArtifactStore | None = None,
         max_submission_recovery_attempts: int = DEFAULT_SUBMISSION_RECOVERY_ATTEMPTS,
     ):
         if not 1 <= max_submission_recovery_attempts <= MAX_SUBMISSION_RECOVERY_ATTEMPTS:
@@ -250,12 +256,14 @@ class Step:
         self._successful_tools: set[str] = set()
         self._submission_recovery_attempts: dict[str, int] = {}
         self._max_submission_recovery_attempts = max_submission_recovery_attempts
+        self._evidence_recorder = evidence_recorder or ExecutionEvidenceRecorder()
         # One context shared across the task's tool dispatches (blocks/state persist).
         self._ctx = ToolContext(
             blocks=self.blocks,
             backend=self._backend,
             runtime=self._runtime,
             analyzer=self._analyzer,
+            program_store=program_store,
             asker=asker,
             mcp=mcp,
             confirmer=confirmer,
@@ -618,11 +626,13 @@ class Step:
                     duration_ms=0,
                 )
             )
-            return ToolOutcome(
+            outcome = ToolOutcome(
                 tool=call.name,
                 success=False,
                 detail=f"no handler registered for tool {call.name!r}",
             )
+            self._record_evidence(outcome)
+            return outcome
         started = time.monotonic()
         try:
             self._ctx.operation_id = call.id
@@ -653,7 +663,17 @@ class Step:
                 duration_ms=max(0, int((time.monotonic() - started) * 1000)),
             )
         )
+        self._record_evidence(outcome)
         return outcome
+
+    def _record_evidence(self, outcome: ToolOutcome) -> None:
+        self._evidence_recorder.append(
+            tool=outcome.tool,
+            success=outcome.success,
+            block_name=outcome.block_name,
+            program_artifact=outcome.program_artifact,
+            status=outcome.evidence_status,
+        )
 
     def _emit(self, event: AuditEvent) -> None:
         emit_audit(self._audit_sink, event)

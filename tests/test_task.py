@@ -8,6 +8,7 @@ import pytest
 from forgeagent.audit import AuditEvent
 from forgeagent.client import MockClient
 from forgeagent.context import ContextConfig
+from forgeagent.execution_evidence import ExecutionEvidence
 from forgeagent.executor import (
     ContainerBackend,
     ExecResult,
@@ -23,7 +24,7 @@ from forgeagent.protocol import MemoryCandidate
 from forgeagent.runtime import Runtime
 from forgeagent.skills import SkillDefinition, SkillRegistry
 from forgeagent.step import RoundResult, Termination
-from forgeagent.task import Task, TaskStatus
+from forgeagent.task import Task, TaskOutcome, TaskStatus
 from forgeagent.tools import ToolRegistry
 
 
@@ -93,6 +94,115 @@ def test_task_completes_normally():
     outcome = task.run("do a thing")
     assert outcome.status.completed is True
     assert outcome.status.reason == "completed"
+
+
+def test_task_outcome_defaults_to_empty_execution_evidence():
+    outcome = TaskOutcome(status=TaskStatus(completed=False, reason="failed"), rounds=[])
+
+    assert outcome.execution_evidence == ExecutionEvidence()
+
+
+def test_task_completed_outcome_carries_exec_evidence(tmp_path):
+    outcome = Task(
+        MockClient(
+            script=[
+                _reply(_tool_call("Exec", name="done", code="print('done')")),
+                _reply(_done()),
+            ]
+        ),
+        tier="trusted",
+        allowed_root=str(tmp_path),
+    ).run("do a thing")
+
+    assert outcome.status.reason == Termination.COMPLETED
+    assert [(item.tool, item.status) for item in outcome.execution_evidence.records] == [
+        ("Exec", "succeeded"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("terminal_reply", "expected_reason"),
+    [
+        (_reply("cannot", stop_reason="refusal"), Termination.REFUSED),
+        (
+            _reply("---\ntask_status:\n  completed: false\n  status: failed\n---\n"),
+            Termination.FAILED,
+        ),
+        (_reply(_tool_call("Survey", question="which file?")), Termination.NEEDS_INFO),
+    ],
+    ids=["refused", "failed", "needs-info"],
+)
+def test_task_noncompleted_terminal_outcomes_keep_prior_execution_evidence(
+    tmp_path, terminal_reply, expected_reason
+):
+    outcome = Task(
+        MockClient(
+            script=[
+                _reply(_tool_call("Exec", name="prior", code="print('prior')")),
+                terminal_reply,
+            ]
+        ),
+        tier="trusted",
+        allowed_root=str(tmp_path),
+    ).run("do a thing")
+
+    assert outcome.status.reason == expected_reason
+    assert [(item.tool, item.status) for item in outcome.execution_evidence.records] == [
+        ("Exec", "succeeded"),
+        *([("Survey", "failed")] if expected_reason == Termination.NEEDS_INFO else []),
+    ]
+
+
+def test_task_prose_outcome_has_no_execution_evidence(tmp_path):
+    outcome = Task(
+        MockClient(script=[_reply("the sum is 60")]),
+        tier="trusted",
+        allowed_root=str(tmp_path),
+    ).run("sum some numbers")
+
+    assert outcome.status.reason == Termination.ANSWERED_IN_PROSE
+    assert outcome.execution_evidence == ExecutionEvidence()
+
+
+def test_task_cancelled_outcome_keeps_completed_dispatch_evidence(tmp_path):
+    event = threading.Event()
+
+    class _CancellingBackend(TrustedBackend):
+        def execute(self, code, runtime):
+            result = super().execute(code, runtime)
+            event.set()
+            return result
+
+    outcome = Task(
+        MockClient(script=[_reply(_tool_call("Exec", name="prior", code="print('prior')"))]),
+        backend=_CancellingBackend(secret_values=set()),
+        allowed_root=str(tmp_path),
+    ).run("do a thing", cancel_event=event)
+
+    assert outcome.status.reason == Termination.CANCELLED
+    assert [(item.tool, item.status) for item in outcome.execution_evidence.records] == [
+        ("Exec", "succeeded"),
+    ]
+
+
+def test_task_persists_parsed_code_block_under_task_root_not_model_path(tmp_path):
+    reply = (
+        '<!-- CodeBlockStart: {"name": "job", "path": "../../outside.py"} -->\n'
+        "```python\nprint('inside')\n```\n"
+        '<!-- CodeBlockEnd: {"name": "job"} -->\n' + _tool_call("Exec", name="job")
+    )
+    outcome = Task(
+        MockClient(script=[_reply(reply), _reply(_done())]),
+        tier="trusted",
+        allowed_root=str(tmp_path),
+    ).run("run the parsed block")
+
+    artifact = outcome.execution_evidence.records[0].artifact
+    assert artifact is not None
+    assert artifact.local_path is not None
+    assert artifact.local_path.is_relative_to(tmp_path / ".forgeagent" / "execution-artifacts")
+    assert artifact.local_path.read_text(encoding="utf-8") == "print('inside')"
+    assert not (tmp_path.parent / "outside.py").exists()
 
 
 def test_task_close_does_not_close_injected_client():

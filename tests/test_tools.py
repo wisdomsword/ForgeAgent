@@ -9,10 +9,11 @@ Covers the acceptance points in docs/m7-tools-mcp-survey.md §六 Phase 1:
 """
 
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from forgeagent.audit import AuditEvent
-from forgeagent.executor import TrustedBackend
+from forgeagent.execution_evidence import ProgramArtifactPersistenceError, ProgramArtifactStore
+from forgeagent.executor import ContainerBackend, ExecResult, RestrictedBackend, TrustedBackend
 from forgeagent.external_actions import (
     ExternalActionReceiptStore,
     ReceiptError,
@@ -41,6 +42,7 @@ from forgeagent.runtime import Runtime
 from forgeagent.skills import SkillDefinition, SkillExitCondition, SkillRegistry
 from forgeagent.tools import (
     CodeBlockStore,
+    EditTool,
     ExecTool,
     MCPDescribeTool,
     MCPTool,
@@ -548,13 +550,14 @@ def test_skill_is_only_parseable_when_its_registry_is_registered():
 # --- Survey tool (M7 Phase 2) ------------------------------------------------
 
 
-def _survey_ctx(asker=None) -> ToolContext:
+def _survey_ctx(asker=None, *, program_store=None) -> ToolContext:
     return ToolContext(
         blocks=CodeBlockStore(),
         backend=TrustedBackend(),
         runtime=Runtime(),
         analyzer=CodeAnalyzer(),
         asker=asker,
+        program_store=program_store,
     )
 
 
@@ -604,9 +607,15 @@ def test_survey_options_passed_through_to_asker():
     assert seen[0].options == ["a", "b"]
 
 
-def test_exec_success_and_failure_use_same_tail_continuation():
-    success = ExecTool().run(ExecArgs(code="print('done')"), _survey_ctx())
-    failure = ExecTool().run(ExecArgs(code="raise RuntimeError('boom')"), _survey_ctx())
+def test_exec_success_and_failure_use_same_tail_continuation(tmp_path):
+    success = ExecTool().run(
+        ExecArgs(code="print('done')"),
+        _survey_ctx(program_store=ProgramArtifactStore(tmp_path)),
+    )
+    failure = ExecTool().run(
+        ExecArgs(code="raise RuntimeError('boom')"),
+        _survey_ctx(program_store=ProgramArtifactStore(tmp_path)),
+    )
 
     assert success.success is True
     assert failure.success is False
@@ -615,6 +624,137 @@ def test_exec_success_and_failure_use_same_tail_continuation():
     assert success.continuation == (
         "Narrow the output or split the work into smaller executions and retry."
     )
+
+
+class _RecordingTrustedBackend(TrustedBackend):
+    def __init__(self, result: ExecResult) -> None:
+        self.calls: list[str] = []
+        self.result = result
+
+    def execute(self, code: str, runtime: Runtime) -> ExecResult:
+        self.calls.append(code)
+        return self.result
+
+
+class _RecordingRestrictedBackend(RestrictedBackend):
+    def __init__(self, result: ExecResult) -> None:
+        self.calls: list[str] = []
+        self.result = result
+
+    def execute(self, code: str, runtime: Runtime) -> ExecResult:
+        self.calls.append(code)
+        return self.result
+
+
+class _RecordingContainerBackend(ContainerBackend):
+    def __init__(self, result: ExecResult) -> None:
+        self.calls: list[str] = []
+        self.result = result
+
+    def execute(self, code: str, runtime: Runtime) -> ExecResult:
+        self.calls.append(code)
+        return self.result
+
+
+def _exec_ctx(backend, store: ProgramArtifactStore | None) -> ToolContext:
+    return ToolContext(
+        blocks=CodeBlockStore(),
+        backend=backend,
+        runtime=Runtime(),
+        analyzer=CodeAnalyzer(),
+        program_store=store,
+    )
+
+
+@pytest.mark.parametrize(
+    "backend_type",
+    [_RecordingTrustedBackend, _RecordingRestrictedBackend, _RecordingContainerBackend],
+    ids=["trusted", "restricted", "container"],
+)
+@pytest.mark.parametrize(
+    ("named", "code"),
+    [(False, "print('inline')\n"), (True, "print('named')\n")],
+    ids=["inline", "named"],
+)
+def test_exec_persists_exact_program_before_every_backend_type(tmp_path, backend_type, named, code):
+    backend = backend_type(ExecResult(success=True))
+    ctx = _exec_ctx(backend, ProgramArtifactStore(tmp_path))
+    args = ExecArgs(name="named") if named else ExecArgs(name="inline", code=code)
+    if named:
+        ctx.blocks.put("named", code)
+
+    outcome = ExecTool().run(args, ctx)
+
+    assert outcome.success is True
+    assert backend.calls == [code]
+    assert outcome.program_artifact is not None
+    assert outcome.program_artifact.local_path is not None
+    assert outcome.program_artifact.local_path.read_bytes() == code.encode("utf-8")
+
+
+def test_exec_keeps_artifact_when_backend_fails(tmp_path):
+    backend = _RecordingTrustedBackend(ExecResult(success=False, error="backend failed"))
+    outcome = ExecTool().run(
+        ExecArgs(name="failing", code="raise RuntimeError('backend failed')\n"),
+        _exec_ctx(backend, ProgramArtifactStore(tmp_path)),
+    )
+
+    assert outcome.success is False
+    assert backend.calls == ["raise RuntimeError('backend failed')\n"]
+    assert outcome.program_artifact is not None
+
+
+def test_exec_fails_closed_without_dispatch_when_artifact_persistence_fails(tmp_path, monkeypatch):
+    backend = _RecordingTrustedBackend(ExecResult(success=True))
+    store = ProgramArtifactStore(tmp_path)
+
+    def fail_persist(**_kwargs):
+        raise ProgramArtifactPersistenceError
+
+    monkeypatch.setattr(store, "persist", fail_persist)
+    outcome = ExecTool().run(
+        ExecArgs(name="private", code="print('private')\n"),
+        _exec_ctx(backend, store),
+    )
+
+    assert outcome.success is False
+    assert outcome.evidence_status == "artifact_persistence_failed"
+    assert outcome.program_artifact is None
+    assert backend.calls == []
+    assert "tmp_path" not in outcome.detail
+    assert str(tmp_path) not in outcome.detail
+
+
+def test_exec_persists_immutable_versions_after_edit(tmp_path):
+    backend = _RecordingTrustedBackend(ExecResult(success=True))
+    ctx = _exec_ctx(backend, ProgramArtifactStore(tmp_path))
+    first = ExecTool().run(ExecArgs(name="program", code="value = 1\n"), ctx)
+    edit = EditTool().run(EditArgs(name="program", old="1", new="2"), ctx)
+    second = ExecTool().run(ExecArgs(name="program"), ctx)
+
+    assert edit.success is True
+    assert first.program_artifact is not None
+    assert first.program_artifact.local_path is not None
+    assert second.program_artifact is not None
+    assert second.program_artifact.local_path is not None
+    assert first.program_artifact.local_path.read_text(encoding="utf-8") == "value = 1\n"
+    assert second.program_artifact.local_path.read_text(encoding="utf-8") == "value = 2\n"
+
+
+def test_tool_outcome_rejects_successful_or_artifact_bearing_persistence_failure(tmp_path):
+    artifact = ProgramArtifactStore(tmp_path).persist(
+        block_name="program", language="python", code="pass\n"
+    )
+
+    with pytest.raises(ValidationError):
+        ToolOutcome(tool="Exec", success=True, evidence_status="artifact_persistence_failed")
+    with pytest.raises(ValidationError):
+        ToolOutcome(
+            tool="Exec",
+            success=False,
+            evidence_status="artifact_persistence_failed",
+            program_artifact=artifact,
+        )
 
 
 def test_survey_uses_honest_head_continuation():

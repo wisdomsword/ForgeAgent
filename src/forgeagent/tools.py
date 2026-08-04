@@ -29,10 +29,16 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 from uuid import uuid4
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 from .attention import Attention
 from .audit import AuditEvent, AuditSink, emit_audit
+from .execution_evidence import (
+    EvidenceStatus,
+    ProgramArtifact,
+    ProgramArtifactPersistenceError,
+    ProgramArtifactStore,
+)
 from .executor import ExecResult, ExecutorBackend
 from .external_actions import (
     ExternalActionReceiptStore,
@@ -149,6 +155,8 @@ class ToolOutcome(BaseModel):
     success: bool
     detail: str = ""
     exec_result: ExecResult | None = None
+    program_artifact: ProgramArtifact | None = None
+    evidence_status: EvidenceStatus | None = None
     # Static-analysis feedback for this block (advisory, does not block execution).
     static_feedback: str = ""
     # True when the tool wants to terminate the Step loop with NEEDS_INFO — used by
@@ -161,6 +169,15 @@ class ToolOutcome(BaseModel):
     completes_task: bool = False
     continuation: str | None = None
     truncation_mode: Literal["head", "tail"] = "tail"
+
+    @model_validator(mode="after")
+    def _validate_artifact_persistence_failure(self) -> ToolOutcome:
+        if self.evidence_status == "artifact_persistence_failed":
+            if self.success:
+                raise ValueError("artifact persistence failure cannot be successful")
+            if self.program_artifact is not None:
+                raise ValueError("artifact persistence failure cannot include an artifact")
+        return self
 
 
 @dataclass
@@ -178,6 +195,7 @@ class ToolContext:
     backend: ExecutorBackend
     runtime: Runtime
     analyzer: CodeAnalyzer
+    program_store: ProgramArtifactStore | None = None
     asker: Asker | None = None
     mcp: MCPManager | None = None
     confirmer: Confirmer | None = None
@@ -366,6 +384,31 @@ class ExecTool(Tool):
         # Static AST layer (advisory): analyze before execution, surface as feedback.
         # This never blocks — real enforcement is the execution backend.
         static_feedback = ctx.analyzer.feedback(ctx.analyzer.analyze(block.code))
+        if ctx.program_store is None:
+            try:
+                ctx.program_store = ProgramArtifactStore(ctx.project_root or ctx.allowed_root)
+            except ProgramArtifactPersistenceError:
+                return ToolOutcome(
+                    tool="Exec",
+                    block_name=name,
+                    success=False,
+                    detail="program artifact persistence failed",
+                    evidence_status="artifact_persistence_failed",
+                )
+        try:
+            artifact = ctx.program_store.persist(
+                block_name=name,
+                language=block.language,
+                code=block.code,
+            )
+        except ProgramArtifactPersistenceError:
+            return ToolOutcome(
+                tool="Exec",
+                block_name=name,
+                success=False,
+                detail="program artifact persistence failed",
+                evidence_status="artifact_persistence_failed",
+            )
         result = ctx.backend.execute(block.code, ctx.runtime)
         return ToolOutcome(
             tool="Exec",
@@ -373,6 +416,7 @@ class ExecTool(Tool):
             success=result.success,
             detail=result.error or "",
             exec_result=result,
+            program_artifact=artifact,
             static_feedback=static_feedback,
             continuation=_EXEC_CONTINUATION,
         )
