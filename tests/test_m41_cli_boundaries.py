@@ -141,6 +141,7 @@ def test_cli_collaboration_boundary_exposes_explicit_bindings() -> None:
         "runner_type",
         "task_type",
         "validate_context_policy",
+        "render_execution_evidence",
     )
 
 

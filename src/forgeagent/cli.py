@@ -106,7 +106,21 @@ run_evaluator = _cli_parser.run_evaluator
 validate_artifact_manifest = _cli_parser.validate_artifact_manifest
 _console_plan_confirmer = _cli_collaboration.console_plan_confirmer
 _confirmed_collaboration_mode = _cli_collaboration.confirmed_collaboration_mode
-_render_collaboration_report = _cli_collaboration.render_collaboration_report
+
+
+def _render_collaboration_report(
+    report: CollaborationReport,
+    console: Console,
+    *,
+    project_root: str | Path | None = None,
+) -> None:
+    """Compatibility facade for collaboration report rendering."""
+    _cli_collaboration.render_collaboration_report(
+        report,
+        console,
+        project_root=project_root,
+        render_execution_evidence=render_execution_evidence,
+    )
 
 _CONTEXT_CONFIG_ENVIRONMENT = "FORGEAGENT_INTERNAL_CONTEXT_CONFIG_JSON"
 _CANDIDATE_FILES_ENVIRONMENT = "FORGEAGENT_INTERNAL_CANDIDATE_REQUIRED_FILES_JSON"
@@ -547,6 +561,7 @@ def run_collaboration_once(
             runner_type=CollaborationRunner,
             task_type=Task,
             validate_context_policy=_validate_client_context_policy,
+            render_execution_evidence=render_execution_evidence,
         ),
         allowed_root=allowed_root,
         console=console,

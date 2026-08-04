@@ -238,6 +238,11 @@ def test_report_is_safe_projection_model():
         "open_question_count": 1,
         "usage_available": True,
         "collaboration_mode": "single",
+        "execution_evidence": {
+            "records": (),
+            "truncated": False,
+            "omitted_count": 0,
+        },
     }
 
 

@@ -30,6 +30,7 @@ from .task import Task
 from .tools import Asker, Confirmer, Tier
 
 ClientFactory = Callable[[str], ModelClient]
+ExecutionEvidenceRenderer = Callable[..., None]
 
 
 @dataclass(frozen=True)
@@ -39,6 +40,7 @@ class CollaborationBindings:
     runner_type: type[CollaborationRunner]
     task_type: type[Task]
     validate_context_policy: Callable[[ModelClient, ContextConfig], None]
+    render_execution_evidence: ExecutionEvidenceRenderer
 
 
 def render_collaboration_report(
@@ -46,9 +48,8 @@ def render_collaboration_report(
     console: Console,
     *,
     project_root: str | Path | None = None,
+    render_execution_evidence: ExecutionEvidenceRenderer,
 ) -> None:
-    from .cli import render_execution_evidence
-
     console.print(f"collaboration id: {report.collaboration_id}")
     console.print(f"mode: {report.mode}")
     console.print(f"status: {report.status}")
@@ -226,7 +227,12 @@ def run_collaboration_once(
         report = runner.run(goal)
     finally:
         runner.close()
-    render_collaboration_report(report, output, project_root=root)
+    render_collaboration_report(
+        report,
+        output,
+        project_root=root,
+        render_execution_evidence=bindings.render_execution_evidence,
+    )
     return report
 
 
