@@ -23,6 +23,7 @@ from .collaboration import (
     emit_collaboration_route,
     resolve_collaboration_mode,
 )
+from .execution_evidence import ExecutionEvidence, public_execution_evidence
 from .external_actions import (
     ExternalActionReceipt,
     ExternalActionReceiptStore,
@@ -179,6 +180,13 @@ class TaskRecord:
                 open_question_count=report.open_question_count,
                 usage_available=report.usage_available,
             )
+        if mode == "task" and self.ended_at is not None:
+            source = (
+                self.outcome.execution_evidence
+                if self.outcome is not None
+                else ExecutionEvidence()
+            )
+            view["execution_evidence"] = public_execution_evidence(source).model_dump(mode="json")
         return view
 
 

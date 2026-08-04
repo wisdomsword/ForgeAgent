@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from http.client import HTTPConnection
 from http.server import BaseHTTPRequestHandler
 from io import BytesIO
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -15,6 +16,11 @@ import pytest
 from forgeagent.audit import AuditEvent
 from forgeagent.client import MockClient
 from forgeagent.context import ContextConfig
+from forgeagent.execution_evidence import (
+    ExecutionEvidence,
+    ProgramArtifactStore,
+    ToolExecutionRecord,
+)
 from forgeagent.external_actions import ExternalActionReceiptStore
 from forgeagent.http_action_approvals import ApprovalNotFoundError, HttpActionApprovalStore
 from forgeagent.http_config import HttpServiceConfig
@@ -1502,6 +1508,49 @@ def test_unknown_task_and_unknown_route_use_safe_errors(running_server):
     status, payload, _ = _request(address, "GET", "/shutdown")
     assert status == 404
     assert payload["error"]["kind"] == "not_found"
+
+
+def test_http_terminal_task_projects_safe_execution_evidence_and_has_no_artifact_route(tmp_path):
+    config = HttpServiceConfig(token="test-token", max_workers=1, max_queue=2, max_records=4)
+    store = ProgramArtifactStore(tmp_path)
+    artifact = store.persist(block_name="private", language="python", code="SECRET_CODE = 1\n")
+    outcome = TaskOutcome(
+        status=TaskStatus(completed=True, reason=Termination.COMPLETED),
+        rounds=[RoundResult(text="private answer")],
+        execution_evidence=ExecutionEvidence(
+            records=(
+                ToolExecutionRecord(
+                    sequence=1,
+                    tool="Exec",
+                    status="succeeded",
+                    artifact=artifact,
+                ),
+            )
+        ),
+    )
+    service = TaskService(factory=lambda _record: FakeTask(outcome), config=config)
+    server = SimpleNamespace(config=config, task_service=service, audit_sink=None)
+    try:
+        submitted = service.submit_view("private goal", {})
+        view = _wait_for_terminal_via_handler(server, str(submitted["task_id"]))
+        assert view["execution_evidence"]["records"][0]["artifact"] == {
+            "reference": artifact.reference
+        }
+        reference = view["execution_evidence"]["records"][0]["artifact"]["reference"]
+        assert reference.startswith("execution-artifacts/")
+        assert Path(reference).is_absolute() is False
+        assert "SECRET_CODE" not in repr(view)
+
+        status, payload, _raw = _request_via_handler(
+            server,
+            "GET",
+            "/execution-artifacts/not-a-route",
+        )
+        assert status == 404
+        assert payload == {"error": {"kind": "not_found", "detail": "Task not found."}}
+    finally:
+        service.shutdown(1.0)
+        store.close()
 
 
 def test_body_size_is_bounded(running_server):

@@ -12,6 +12,12 @@ import pytest
 from forgeagent.attention import attention_for_reason
 from forgeagent.audit import AuditEvent
 from forgeagent.collaboration import CollaborationReport, CollaborationUsage
+from forgeagent.execution_evidence import (
+    ExecutionEvidence,
+    ProgramArtifactStore,
+    ToolExecutionRecord,
+    resolve_local_artifact_path,
+)
 from forgeagent.external_actions import ExternalActionReceiptStore, canonical_request_digest
 from forgeagent.http_action_approvals import (
     ApprovalUnavailableError,
@@ -314,6 +320,7 @@ def test_submit_copies_options_and_factory_receives_private_record_data():
             "usage",
             "audit_degraded",
             "attention",
+            "execution_evidence",
         }
     finally:
         service.shutdown(1.0)
@@ -326,6 +333,126 @@ def test_ordinary_task_public_view_always_identifies_task_mode():
         assert service.wait(record.task_id, timeout=1.0)["mode"] == "task"
     finally:
         service.shutdown(1.0)
+
+
+def test_running_ordinary_task_public_view_omits_execution_evidence():
+    record = TaskRecord(task_id="a" * 32, goal="private goal", status="running")
+
+    view = record.public_view()
+
+    assert view["status"] == "running"
+    assert "execution_evidence" not in view
+
+
+@pytest.mark.parametrize(
+    "status",
+    ["completed", "stopped", "failed", "refused", "needs_input", "cancelled"],
+)
+def test_terminal_ordinary_task_public_view_includes_empty_execution_evidence(status):
+    record = TaskRecord(
+        task_id="a" * 32,
+        goal="private goal",
+        status=status,
+        reason=status,
+        ended_at=1.0,
+    )
+
+    view = record.public_view()
+
+    assert view["execution_evidence"] == {
+        "records": [],
+        "truncated": False,
+        "omitted_count": 0,
+    }
+
+
+def test_terminal_execution_evidence_is_bounded_and_uses_relative_artifact_reference(tmp_path):
+    store = ProgramArtifactStore(tmp_path)
+    artifact = store.persist(block_name="private code", language="python", code="SECRET_CODE = 1\n")
+    evidence = ExecutionEvidence(
+        records=tuple(
+            ToolExecutionRecord(
+                sequence=index,
+                tool="Exec",
+                status="succeeded",
+                block="private block",
+                artifact=artifact,
+            )
+            for index in range(1, 41)
+        )
+    )
+    outcome = TaskOutcome(
+        status=TaskStatus(completed=True, reason=Termination.COMPLETED),
+        rounds=[
+            RoundResult(
+                text="raw exception SECRET_EXCEPTION /Users/admin/private.txt",
+                body="prompt PRIVATE_PROMPT args PRIVATE_ARGS",
+            )
+        ],
+        execution_evidence=evidence,
+    )
+    record = TaskRecord(
+        task_id="a" * 32,
+        goal="private goal SECRET_GOAL /Users/admin/private.txt",
+        status="completed",
+        reason="completed",
+        outcome=outcome,
+        ended_at=1.0,
+    )
+
+    view = record.public_view()
+    public_evidence = view["execution_evidence"]
+
+    assert len(public_evidence["records"]) == 32
+    assert public_evidence["truncated"] is True
+    assert public_evidence["omitted_count"] == 8
+    assert public_evidence["records"][0]["artifact"] == {"reference": artifact.reference}
+    assert "/Users/admin" not in repr(view)
+    assert "SECRET_CODE" not in repr(view)
+    assert "PRIVATE_PROMPT" not in repr(view)
+    assert "PRIVATE_ARGS" not in repr(view)
+    assert "SECRET_EXCEPTION" not in repr(view)
+    assert resolve_local_artifact_path(tmp_path, artifact.reference) == artifact.local_path
+    store.close()
+
+
+def test_terminal_artifact_survives_http_record_ttl_expiration(tmp_path):
+    clock = _Clock()
+    store = ProgramArtifactStore(tmp_path)
+    artifact = store.persist(block_name="task", language="python", code="print('ok')\n")
+    outcome = TaskOutcome(
+        status=TaskStatus(completed=True, reason=Termination.COMPLETED),
+        rounds=[RoundResult(text="")],
+        execution_evidence=ExecutionEvidence(
+            records=(
+                ToolExecutionRecord(
+                    sequence=1,
+                    tool="Exec",
+                    status="succeeded",
+                    artifact=artifact,
+                ),
+            )
+        ),
+    )
+    service = TaskService(
+        factory=lambda _record: _FakeTask(lambda _goal, _cancel: outcome),
+        config=replace(CONFIG, terminal_ttl_seconds=5.0),
+        clock=clock,
+    )
+    try:
+        record = service.submit("goal", {})
+        view = service.wait(record.task_id, timeout=1.0)
+        assert view["execution_evidence"]["records"][0]["artifact"] == {
+            "reference": artifact.reference
+        }
+        clock.now += 6.0
+        with pytest.raises(TaskNotFound) as raised:
+            service.query(record.task_id)
+        assert raised.value.expired is True
+        assert artifact.local_path is not None and artifact.local_path.is_file()
+    finally:
+        service.shutdown(1.0)
+        store.close()
 
 
 @pytest.mark.parametrize(
@@ -1069,6 +1196,11 @@ def test_worker_failure_is_safe_and_does_not_affect_another_task():
             "usage": None,
             "audit_degraded": False,
             "attention": attention_for_reason("internal_error").model_dump(mode="json"),
+            "execution_evidence": {
+                "records": [],
+                "truncated": False,
+                "omitted_count": 0,
+            },
         }
         assert service.query(healthy.task_id)["status"] == "completed"
     finally:
