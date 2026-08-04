@@ -17,7 +17,7 @@ Worktree: `/Users/admin/Code/llm-agent/ForgeAgent/.worktrees/m48-expose-task-exe
 | Plan task | Implementer | Reviewer | Status |
 | --- | --- | --- | --- |
 | 1. Evidence model/recorder/projection | f0715ed + 7891448 | reviewed | complete: 21 focused tests; P1 fixes verified |
-| 2. Program artifact store | pending | pending | pending |
+| 2. Program artifact store | c8cac7b + 5466b40 + 73e6d59 | reviewed twice | complete: 40 focused tests; P1/P2 fixes verified |
 | 3. Exec/Step/Task wiring | pending | pending | pending |
 | 4. CLI/REPL terminal projection | pending | pending | pending |
 | 5. HTTP terminal projection | pending | pending | pending |

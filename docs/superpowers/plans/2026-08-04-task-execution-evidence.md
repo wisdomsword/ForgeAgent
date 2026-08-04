@@ -203,7 +203,7 @@ base-ref: dfad978d82434b493b17332721484f4e54afedb8
 - Produces: `ProgramArtifactStore.close() -> None`，只关闭 descriptor，不删除程序目录或文件。
 - Produces: `resolve_local_artifact_path(project_root: str | Path, reference: str) -> Path | None`，只接受 canonical reference 且要求每级目录非 symlink、末端为普通文件。
 
-- [ ] **Step 1: 写精确字节、命名、权限和容量 RED 测试**
+- [x] **Step 1: 写精确字节、命名、权限和容量 RED 测试**
 
   增加以下核心断言，并用参数化补齐第 100/101 个文件、`1 MiB`/`1 MiB+1`、累计 `8 MiB`/超一字节边界：
 
@@ -222,11 +222,11 @@ base-ref: dfad978d82434b493b17332721484f4e54afedb8
 
   增加 block label 包含 path separator、traversal、控制字符、Unicode、已知 secret 时，文件名仍为 bounded ASCII 且不含原值的断言；Python 扩展固定 `.py`，模型 path metadata 不进入 API。
 
-- [ ] **Step 2: 写目录替换、symlink、发布失败和临时清理 RED 测试**
+- [x] **Step 2: 写目录替换、symlink、发布失败和临时清理 RED 测试**
 
   覆盖 `.forgeagent`、`execution-artifacts`、execution-id、`programs` 任一级预置 symlink；在 temp 写入后用 monkeypatch 模拟目录 rebind；让 `os.write`、`os.fsync`、`os.replace` 分别失败。每例断言：抛出稳定 `ProgramArtifactPersistenceError`、根外 sentinel 不变、没有有效 reference、没有残留 `.tmp-*` 普通文件。
 
-- [ ] **Step 3: 运行 store 测试并确认 RED**
+- [x] **Step 3: 运行 store 测试并确认 RED**
 
   ```bash
   rtk uv run pytest tests/test_execution_evidence.py -q
@@ -234,7 +234,7 @@ base-ref: dfad978d82434b493b17332721484f4e54afedb8
 
   Expected: store 导入或 `persist()` 断言失败；已有 Task 1 模型测试继续通过。
 
-- [ ] **Step 4: 实现 descriptor-relative 原子发布**
+- [x] **Step 4: 实现 descriptor-relative 原子发布**
 
   `ProgramArtifactStore` 构造时只解析 immutable project root 和 UUID，不创建目录。第一次 `persist()` 在锁内执行以下固定顺序：
 
@@ -247,7 +247,7 @@ base-ref: dfad978d82434b493b17332721484f4e54afedb8
 
   `resolve_local_artifact_path()` 必须先经 `ProgramArtifact.reference` validator，再从 project root descriptor 逐级 no-follow 验证，末端只接受 regular file；它不打开网络能力，也不提供 HTTP route。
 
-- [ ] **Step 5: 验证 store GREEN 与运行时忽略规则**
+- [x] **Step 5: 验证 store GREEN 与运行时忽略规则**
 
   ```bash
   rtk uv run pytest tests/test_execution_evidence.py -q
@@ -256,7 +256,7 @@ base-ref: dfad978d82434b493b17332721484f4e54afedb8
 
   Expected: pytest 全部通过；`git check-ignore` 输出该相对路径；测试目录外没有被写入文件。
 
-- [ ] **Step 6: 提交程序制品 store**
+- [x] **Step 6: 提交程序制品 store**
 
   ```bash
   rtk git add .gitignore src/forgeagent/execution_evidence.py tests/test_execution_evidence.py
