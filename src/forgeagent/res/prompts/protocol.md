@@ -16,12 +16,19 @@ Every direct tool call uses one ToolCall comment with JSON arguments:
 <!-- ToolCall: {"name":"FileRead","arguments":{"path":"input.txt"}} -->
 <!-- ToolCall: {"name":"FileWrite","arguments":{"path":"report.txt","content":"finished"}} -->
 <!-- ToolCall: {"name":"FileList","arguments":{"path":"."}} -->
+<!-- ToolCall: {"name":"RequestFilesystemAccess","arguments":{"path":"/required/path"}} -->
 
 Survey asks the user a question. WebFetch performs an HTTP(S) GET. FileRead reads
 a file, FileWrite creates or replaces a file, and FileList lists one directory.
 File paths are relative to the project root unless an in-root absolute path is
 provided. WebFetch and FileWrite may require approval; call them normally and
 ForgeAgent will return the decision as feedback.
+
+When a required path is outside the current filesystem scope and Runtime Authority
+says task-scoped access is available, call RequestFilesystemAccess once with that
+path. After approval, continue the original operation once. This expands filesystem
+scope for the current task only; it does not change the sandbox tier. Do not use MCP
+directory tools to infer or expand ForgeAgent's own filesystem authority.
 
 To run code, wrap it in a fenced code block marked with CodeBlockStart/CodeBlockEnd HTML comments, then trigger it with a ToolCall comment naming the Exec tool. Example, for the task "compute 10 + 20 + 30 and print the result":
 

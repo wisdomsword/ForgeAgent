@@ -1,0 +1,6 @@
+{
+  "openspec_proposal": "openspec/changes/port-task-filesystem-authority/proposal.md",
+  "openspec_design": "openspec/changes/port-task-filesystem-authority/design.md",
+  "openspec_tasks": "openspec/changes/port-task-filesystem-authority/tasks.md",
+  "openspec_delta_spec": "openspec/changes/port-task-filesystem-authority/specs/task-filesystem-authority/spec.md"
+}

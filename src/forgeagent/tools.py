@@ -50,6 +50,7 @@ from .protocol import (
     FileWriteArgs,
     MCPArgs,
     MCPDescribeArgs,
+    RequestFilesystemAccessArgs,
     SkillArgs,
     SurveyArgs,
     WebFetchArgs,
@@ -183,9 +184,13 @@ class ToolContext:
     # Sandbox tier: WebFetch/FileWrite use this to decide whether the confirmer gate is
     # mandatory (restricted/container) or skipped (trusted). See docs/m10 §3.7.
     tier: Tier = "restricted"
-    # project-root lock for File tools (and WebFetch's save-to-disk path). Must be the
-    # same resolved value passed to the executor backend's allowed_root — see §3.7.
+    # Current filesystem authority boundary. It matches the executor backend root.
     allowed_root: str = "."
+    # Relative file-tool paths remain project-relative even when authority broadens.
+    project_root: str | None = None
+    full_disk_root: str | None = None
+    full_disk_backend_factory: Callable[[], ExecutorBackend] | None = None
+    filesystem_access_decision: Literal["pending", "approved", "denied"] = "pending"
     audit_sink: AuditSink | None = None
     task_id: str | None = None
     operation_id: str | None = None
@@ -443,6 +448,92 @@ class SurveyTool(Tool):
             detail=answer,
             continuation=_SURVEY_CONTINUATION,
             truncation_mode="head",
+        )
+
+
+class RequestFilesystemAccessTool(Tool):
+    """Request one full-disk grant without changing the sandbox tier."""
+
+    name = "RequestFilesystemAccess"
+    args_model = RequestFilesystemAccessArgs
+
+    def run(self, args: BaseModel, ctx: ToolContext) -> ToolOutcome:
+        assert isinstance(args, RequestFilesystemAccessArgs)
+        if ctx.tier == "trusted":
+            return ToolOutcome(
+                tool=self.name,
+                success=True,
+                detail="Full-disk filesystem access is already active in trusted mode.",
+            )
+        if ctx.tier == "container":
+            return ToolOutcome(
+                tool=self.name,
+                success=False,
+                detail="Dynamic filesystem access is unavailable in container mode.",
+            )
+        if ctx.filesystem_access_decision == "approved":
+            return ToolOutcome(
+                tool=self.name,
+                success=True,
+                detail=(
+                    "Full-disk filesystem access is active for this task; "
+                    "the sandbox remains restricted."
+                ),
+            )
+        if ctx.filesystem_access_decision == "denied":
+            return ToolOutcome(
+                tool=self.name,
+                success=False,
+                detail="Full-disk filesystem access was not granted for this task.",
+            )
+        if ctx.full_disk_root is None or ctx.full_disk_backend_factory is None:
+            ctx.filesystem_access_decision = "denied"
+            return ToolOutcome(
+                tool=self.name,
+                success=False,
+                detail="Dynamic filesystem access is unavailable for this task.",
+            )
+        try:
+            approved = _confirm(
+                ctx,
+                args,
+                tool=self.name,
+                parameters={"scope": "full_disk", "tier": "restricted"},
+            )
+        except Exception:
+            ctx.filesystem_access_decision = "denied"
+            return ToolOutcome(
+                tool=self.name,
+                success=False,
+                detail="Full-disk filesystem access confirmation failed.",
+            )
+        if not approved:
+            ctx.filesystem_access_decision = "denied"
+            detail = (
+                "rejected: no interactive confirmation channel available"
+                if ctx.confirmer is None
+                else _denial_detail(ctx, "Full-disk filesystem access was not approved")
+            )
+            return ToolOutcome(tool=self.name, success=False, detail=detail)
+        try:
+            backend = ctx.full_disk_backend_factory()
+        except Exception:
+            ctx.filesystem_access_decision = "denied"
+            return ToolOutcome(
+                tool=self.name,
+                success=False,
+                detail="Full-disk filesystem access could not be activated.",
+            )
+        ctx.backend = backend
+        ctx.allowed_root = ctx.full_disk_root
+        ctx.filesystem_access_decision = "approved"
+        return ToolOutcome(
+            tool=self.name,
+            success=True,
+            detail=(
+                "Full-disk filesystem access is active for this task; "
+                "the sandbox remains restricted. Continue the original operation once."
+            ),
         )
 
 
@@ -746,7 +837,7 @@ class WebFetchTool(Tool):
             digest = hashlib.sha256(args.url.encode()).hexdigest()[:12]
             ext = _EXT_BY_CONTENT_TYPE.get(content_type, ".fetch")
             filename = f"webfetch_{digest}{ext}"
-            dest = _validate_path(filename, ctx.allowed_root)
+            dest = _validate_context_path(filename, ctx)
             dest.write_text(masked, encoding="utf-8", errors="replace")
         except (OSError, ValueError):
             return ToolOutcome(
@@ -795,6 +886,20 @@ def _validate_path(path: str, allowed_root: str) -> Path:
     if os.path.normcase(common) != os.path.normcase(base):
         raise PermissionError("path outside allowed root")
     return Path(resolved)
+
+
+def _validate_context_path(path: str, ctx: ToolContext) -> Path:
+    if os.path.isabs(path) or ctx.project_root is None:
+        return _validate_path(path, ctx.allowed_root)
+    return _validate_path(os.path.join(ctx.project_root, path), ctx.allowed_root)
+
+
+def _display_path(path: Path, ctx: ToolContext) -> str:
+    display_root = Path(os.path.realpath(ctx.project_root or ctx.allowed_root))
+    try:
+        return path.relative_to(display_root).as_posix()
+    except ValueError:
+        return path.name
 
 
 def _root_binding_matches(root: Path, root_stat: os.stat_result) -> bool:
@@ -875,13 +980,11 @@ class FileReadTool(Tool):
     def run(self, args: BaseModel, ctx: ToolContext) -> ToolOutcome:
         assert isinstance(args, FileReadArgs)
         try:
-            resolved = _validate_path(args.path, ctx.allowed_root)
+            resolved = _validate_context_path(args.path, ctx)
             if ctx.confirmer is not None and ctx.tier != "trusted":
-                canonical_root = Path(os.path.realpath(ctx.allowed_root))
-                relative_path = resolved.relative_to(canonical_root)
                 _logger.info(
                     "FileRead: %s",
-                    mask_secrets(str(relative_path), sensitive_env_values()),
+                    mask_secrets(_display_path(resolved, ctx), sensitive_env_values()),
                 )
             content = resolved.read_text(encoding="utf-8", errors="replace")
         except (PermissionError, OSError, ValueError):
@@ -947,8 +1050,9 @@ class FileWriteTool(Tool):
                 os.O_RDONLY | directory_flag | no_follow | getattr(os, "O_CLOEXEC", 0),
             )
             root_stat = os.fstat(root_fd)
-            resolved = _validate_path(args.path, ctx.allowed_root)
-            relative = _write_file_safely(resolved, root, root_fd, root_stat, args.content)
+            resolved = _validate_context_path(args.path, ctx)
+            _write_file_safely(resolved, root, root_fd, root_stat, args.content)
+            display_path = _display_path(resolved, ctx)
         except PermissionError:
             return ToolOutcome(
                 tool="FileWrite",
@@ -960,7 +1064,7 @@ class FileWriteTool(Tool):
         finally:
             if root_fd >= 0:
                 os.close(root_fd)
-        return ToolOutcome(tool="FileWrite", success=True, detail=f"wrote {relative}")
+        return ToolOutcome(tool="FileWrite", success=True, detail=f"wrote {display_path}")
 
 
 class FileListTool(Tool):
@@ -977,9 +1081,8 @@ class FileListTool(Tool):
     def run(self, args: BaseModel, ctx: ToolContext) -> ToolOutcome:
         assert isinstance(args, FileListArgs)
         try:
-            resolved = _validate_path(args.path, ctx.allowed_root)
-            base = Path(os.path.realpath(ctx.allowed_root))
-            entries = sorted(p.relative_to(base).as_posix() for p in resolved.iterdir())
+            resolved = _validate_context_path(args.path, ctx)
+            entries = sorted(_display_path(path, ctx) for path in resolved.iterdir())
         except (PermissionError, OSError, ValueError):
             return ToolOutcome(
                 tool="FileList",
@@ -1044,6 +1147,7 @@ def default_registry(
     registry.register(ExecTool())
     registry.register(EditTool())
     registry.register(SurveyTool())
+    registry.register(RequestFilesystemAccessTool())
     registry.register(WebFetchTool())
     registry.register(FileReadTool())
     registry.register(FileWriteTool())

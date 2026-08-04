@@ -21,7 +21,13 @@ import pytest
 from forgeagent.executor import TrustedBackend
 from forgeagent.headless import HeadlessConfirmer
 from forgeagent.policy import CodeAnalyzer
-from forgeagent.protocol import FileListArgs, FileReadArgs, FileWriteArgs, WebFetchArgs
+from forgeagent.protocol import (
+    FileListArgs,
+    FileReadArgs,
+    FileWriteArgs,
+    RequestFilesystemAccessArgs,
+    WebFetchArgs,
+)
 from forgeagent.runtime import Runtime
 from forgeagent.ssrf_guard import SSRFGuardError
 from forgeagent.tools import (
@@ -30,6 +36,7 @@ from forgeagent.tools import (
     FileListTool,
     FileReadTool,
     FileWriteTool,
+    RequestFilesystemAccessTool,
     ToolContext,
     WebFetchTool,
     _validate_path,
@@ -125,6 +132,121 @@ def test_webfetch_success_reports_continuation_after_saving_artifact(tmp_path, m
     assert "REDACTED" in saved_content
     assert outcome.truncation_mode == "head"
     assert outcome.continuation == f"完整响应已保存至 {saved[0].name}；可使用 FileRead 读取"
+
+
+def test_full_disk_grant_keeps_relative_file_and_web_artifacts_project_scoped(
+    tmp_path, monkeypatch, caplog
+):
+    project = tmp_path / "project"
+    project.mkdir()
+    ctx = ToolContext(
+        blocks=CodeBlockStore(),
+        backend=TrustedBackend(),
+        runtime=Runtime(),
+        analyzer=CodeAnalyzer(),
+        confirmer=lambda args: True,
+        tier="restricted",
+        allowed_root=str(project),
+        project_root=str(project),
+        full_disk_root=project.anchor,
+        full_disk_backend_factory=TrustedBackend,
+    )
+    monkeypatch.setattr(
+        "forgeagent.tools.guarded_urlopen",
+        lambda url, **kw: _FakeResponse(b"relative web artifact", "text/plain"),
+    )
+
+    grant = RequestFilesystemAccessTool().run(RequestFilesystemAccessArgs(path=str(tmp_path)), ctx)
+    written = FileWriteTool().run(
+        FileWriteArgs(path="relative.txt", content="project relative"), ctx
+    )
+    listed = FileListTool().run(FileListArgs(path="."), ctx)
+    fetched = WebFetchTool().run(WebFetchArgs(url="https://example.com/report"), ctx)
+    caplog.set_level(logging.INFO, logger="forgeagent.tools")
+    read = FileReadTool().run(FileReadArgs(path="relative.txt"), ctx)
+
+    assert grant.success is True
+    assert written.success is True
+    assert listed.success is True
+    assert fetched.success is True
+    assert read.success is True
+    assert (project / "relative.txt").read_text() == "project relative"
+    assert written.detail == "wrote relative.txt"
+    assert listed.detail.splitlines()[0] == "relative.txt"
+    assert [
+        record.getMessage() for record in caplog.records if record.name == "forgeagent.tools"
+    ] == ["FileRead: relative.txt"]
+    assert list(project.glob("webfetch_*"))
+
+
+def test_full_disk_grant_discloses_only_external_file_basename(tmp_path, caplog):
+    project = tmp_path / "project"
+    project.mkdir()
+    external = tmp_path / "private" / "report.txt"
+    external.parent.mkdir()
+    ctx = ToolContext(
+        blocks=CodeBlockStore(),
+        backend=TrustedBackend(),
+        runtime=Runtime(),
+        analyzer=CodeAnalyzer(),
+        confirmer=lambda args: True,
+        tier="restricted",
+        allowed_root=str(project),
+        project_root=str(project),
+        full_disk_root=project.anchor,
+        full_disk_backend_factory=TrustedBackend,
+    )
+
+    grant = RequestFilesystemAccessTool().run(RequestFilesystemAccessArgs(path=str(external)), ctx)
+    written = FileWriteTool().run(FileWriteArgs(path=str(external), content="external result"), ctx)
+    listed = FileListTool().run(FileListArgs(path=str(external.parent)), ctx)
+    caplog.set_level(logging.INFO, logger="forgeagent.tools")
+    read = FileReadTool().run(FileReadArgs(path=str(external)), ctx)
+
+    assert grant.success is True
+    assert written.detail == "wrote report.txt"
+    assert listed.detail == "report.txt"
+    assert read.success is True
+    assert [
+        record.getMessage() for record in caplog.records if record.name == "forgeagent.tools"
+    ] == ["FileRead: report.txt"]
+    assert str(external.parent) not in written.detail
+    assert str(external.parent) not in listed.detail
+    assert str(external.parent) not in caplog.text
+
+
+def test_full_disk_grant_does_not_approve_later_file_write(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    external = tmp_path / "private" / "report.txt"
+    external.parent.mkdir()
+    confirmations = []
+    decisions = iter((True, False))
+
+    def confirm(args):
+        confirmations.append(type(args))
+        return next(decisions)
+
+    ctx = ToolContext(
+        blocks=CodeBlockStore(),
+        backend=TrustedBackend(),
+        runtime=Runtime(),
+        analyzer=CodeAnalyzer(),
+        confirmer=confirm,
+        tier="restricted",
+        allowed_root=str(project),
+        project_root=str(project),
+        full_disk_root=project.anchor,
+        full_disk_backend_factory=TrustedBackend,
+    )
+
+    grant = RequestFilesystemAccessTool().run(RequestFilesystemAccessArgs(path=str(external)), ctx)
+    written = FileWriteTool().run(FileWriteArgs(path=str(external), content="external result"), ctx)
+
+    assert grant.success is True
+    assert written.success is False
+    assert confirmations == [RequestFilesystemAccessArgs, FileWriteArgs]
+    assert not external.exists()
 
 
 def test_webfetch_truncated_response_reports_truncated_artifact(tmp_path, monkeypatch):

@@ -10,6 +10,7 @@ The system prompt combines the approved runtime identity with the fixed protocol
 
 from __future__ import annotations
 
+import json
 import threading
 from collections.abc import Callable
 from pathlib import Path
@@ -54,6 +55,17 @@ def _backend_for_tier(
             allowed_root=allowed_root, image=container_image or "python:3.11-slim"
         )
     return RestrictedBackend(allowed_root=allowed_root)
+
+
+def _tier_for_explicit_backend(backend: ExecutorBackend | None) -> Tier | None:
+    """Return the effective tier for a built-in backend supplied by the caller."""
+    if isinstance(backend, TrustedBackend):
+        return "trusted"
+    if isinstance(backend, ContainerBackend):
+        return "container"
+    if isinstance(backend, RestrictedBackend):
+        return "restricted"
+    return None
 
 
 class TaskStatus(BaseModel):
@@ -122,15 +134,30 @@ class Task:
                 f"{MAX_SUBMISSION_RECOVERY_ATTEMPTS}"
             )
         self._client = client
-        self._tier = tier
-        # Resolved once here so backend and ToolContext (File tools/WebFetch, §3.7) share
-        # the exact same root — mirrors RestrictedBackend/ContainerBackend's own default.
+        explicit_backend_tier = _tier_for_explicit_backend(backend)
+        self._tier = explicit_backend_tier or tier
+        self._custom_backend_authority = backend is not None and explicit_backend_tier is None
+        # Project identity and relative paths stay anchored here even when a task's
+        # filesystem authority later broadens to the platform root.
         self._allowed_root = str(Path(allowed_root or Path.cwd()).resolve())
+        if explicit_backend_tier in ("restricted", "container"):
+            backend_root = Path(backend._allowed_root).resolve()
+            if backend_root != Path(self._allowed_root):
+                raise ValueError("backend allowed_root must match Task allowed_root")
+        self._host_filesystem_root = Path(self._allowed_root).anchor
+        self._filesystem_root = (
+            self._host_filesystem_root if self._tier == "trusted" else self._allowed_root
+        )
         # Default tier is restricted (B2 / ACTION_PLAN). An explicit backend overrides
         # the tier; otherwise the tier selects the backend.
         self._backend = backend or _backend_for_tier(
-            tier, allowed_root=self._allowed_root, container_image=container_image
+            self._tier, allowed_root=self._filesystem_root, container_image=container_image
         )
+        self._full_disk_backend_factory: Callable[[], ExecutorBackend] | None = None
+        if backend is None and self._tier == "restricted":
+            self._full_disk_backend_factory = lambda: RestrictedBackend(
+                allowed_root=self._host_filesystem_root
+            )
         # Explicit system_prompt wins outright. Identity is only consulted when it is None;
         # neither given means compose from a zero-content identity without loading files.
         self._system_prompt = system_prompt
@@ -185,13 +212,54 @@ class Task:
                     memory=self._memory_manager.render() or None,
                 )
             base = compose_system_prompt(identity)
-        sections = [base]
+        sections = [base, self._runtime_authority_prompt()]
         catalog = self._skills.catalog_prompt() if self._skills is not None else ""
         if catalog:
             sections.append(catalog)
         if self._mcp is not None and (tools_section := self._mcp.tools_prompt()):
             sections.append(tools_section)
         return "\n\n".join(sections)
+
+    def _runtime_authority_prompt(self) -> str:
+        project_root = json.dumps(self._allowed_root)
+        custom_backend = (
+            "\n- executor_authority: caller-defined; tier and filesystem_scope describe "
+            "built-in tools only."
+            if self._custom_backend_authority
+            else ""
+        )
+        if self._tier == "trusted":
+            scope = "full_disk"
+            access = "RequestFilesystemAccess is unnecessary; full-disk access is already active."
+        elif self._tier == "container":
+            scope = "project"
+            access = "This running container cannot broaden its mount."
+        elif (
+            self._full_disk_backend_factory is not None
+            and self._confirmer is not None
+            and not getattr(self._confirmer, "is_headless", False)
+            and (
+                self._tool_registry is None
+                or self._tool_registry.get("RequestFilesystemAccess") is not None
+            )
+        ):
+            scope = "project"
+            access = (
+                "RequestFilesystemAccess can request one current-task full-disk read/write "
+                "grant. Approval keeps the sandbox tier restricted."
+            )
+        else:
+            scope = "project"
+            access = "Dynamic filesystem access is unavailable for this task."
+        return (
+            "## Runtime Authority\n"
+            "Host facts are authoritative; do not probe environment variables or MCP tools.\n"
+            f'- tier: "{self._tier}"\n'
+            f"- project_root: {project_root}\n"
+            f'- filesystem_scope: "{scope}"\n'
+            f"- filesystem_access: {access}{custom_backend}\n"
+            "MCP approvals do not change Task/backend/file scope or MCP server roots."
+        )
 
     def run(
         self,
@@ -229,7 +297,10 @@ class Task:
             confirmer=self._confirmer,
             allow_auto_approve=self._allow_auto_approve,
             tier=self._tier,
-            allowed_root=self._allowed_root,
+            allowed_root=self._filesystem_root,
+            project_root=self._allowed_root,
+            full_disk_root=self._host_filesystem_root,
+            full_disk_backend_factory=self._full_disk_backend_factory,
             on_stream_text=self._on_stream_text,
             cancel_event=cancel_event,
             audit_sink=self._audit_sink,

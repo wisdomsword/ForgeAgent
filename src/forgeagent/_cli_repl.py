@@ -2,19 +2,25 @@
 
 from __future__ import annotations
 
+import ipaddress
+import json
 import os
+import re
 import sys
 import time
+import unicodedata
 from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qsl, quote, unquote, urlencode, urlsplit, urlunsplit
 
 import yaml
 from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import WordCompleter
 from prompt_toolkit.history import InMemoryHistory
+from pydantic import BaseModel
 from rich.console import Console
 from rich.live import Live
 from rich.text import Text
@@ -31,6 +37,13 @@ from .identity import IdentityConfigError, IdentityConfirmer, IdentityTrustReque
 from .mcp_manager import MCPServerDiagnostic
 from .model_registry import Registry, RegistryError
 from .models import ImageItem, TokenUsage
+from .protocol import (
+    FileWriteArgs,
+    MCPArgs,
+    RequestFilesystemAccessArgs,
+    WebFetchArgs,
+)
+from .secret_policy import REDACTED, is_secret_name, mask_secrets
 from .skills import SkillRegistry
 from .tools import Tier
 
@@ -53,6 +66,140 @@ _STARTUP_LOGO = (
     "|_|  \\___/|_|  \\__, |\\___|_|\\__, |\\___|_| |_|\\__|",
     "                |___/        |___/                  ",
 )
+
+
+def _redact_confirmation_value(value, secret_values: set[str]):
+    if isinstance(value, dict):
+        displayed = {}
+        used_labels: set[str] = set()
+        for key, item in value.items():
+            base_label = mask_secrets(str(key), secret_values)
+            label = base_label
+            suffix = 2
+            while label in used_labels:
+                label = f"{base_label} {suffix}"
+                suffix += 1
+            used_labels.add(label)
+            displayed[label] = (
+                "<redacted>"
+                if is_secret_name(str(key))
+                else _redact_confirmation_value(item, secret_values)
+            )
+        return displayed
+    if isinstance(value, list):
+        return [_redact_confirmation_value(item, secret_values) for item in value]
+    if isinstance(value, str):
+        return mask_secrets(value, secret_values)
+    return value
+
+
+def _mask_confirmation_hostname(hostname: str, secret_values: set[str]) -> str:
+    candidates = sorted(
+        (value for value in secret_values if value),
+        key=lambda value: (-len(value), value.casefold(), value),
+    )
+    if not candidates:
+        return hostname
+    pattern = re.compile(
+        "|".join(re.escape(value) for value in candidates),
+        flags=re.IGNORECASE | re.ASCII,
+    )
+    return pattern.sub(REDACTED, hostname)
+
+
+def _redact_confirmation_url(url: str, secret_values: set[str]) -> str:
+    try:
+        parts = urlsplit(url)
+        if parts.scheme.lower() not in {"http", "https"} or not parts.hostname:
+            return "<redacted malformed URL>"
+        port = parts.port
+    except ValueError:
+        return "<redacted malformed URL>"
+    raw_authority = parts.netloc.rsplit("@", 1)[-1]
+    decoded_hostname = unquote(parts.hostname or "", errors="replace")
+    if raw_authority.startswith("["):
+        try:
+            ipaddress.IPv6Address(decoded_hostname)
+        except ValueError:
+            return "<redacted malformed URL>"
+        masked_hostname = _mask_confirmation_hostname(decoded_hostname, secret_values)
+        hostname = f"[{quote(masked_hostname, safe=':')}]"
+    else:
+        if any(delimiter in decoded_hostname for delimiter in "@/:?#"):
+            return "<redacted malformed URL>"
+        hostname = quote(_mask_confirmation_hostname(decoded_hostname, secret_values), safe="")
+    netloc = hostname if port is None else f"{hostname}:{port}"
+    query = urlencode(
+        [
+            (
+                mask_secrets(key, secret_values),
+                "REDACTED" if is_secret_name(key) else mask_secrets(value, secret_values),
+            )
+            for key, value in parse_qsl(parts.query, keep_blank_values=True)
+        ]
+    )
+    path = quote(
+        mask_secrets(unquote(parts.path, errors="replace"), secret_values),
+        safe="/",
+    )
+    return urlunsplit((parts.scheme, netloc, path, query, ""))
+
+
+def _confirmation_filewrite_path(path: str, secret_values: set[str]) -> str:
+    normalized = Path(os.path.normpath(path))
+    if not normalized.is_absolute():
+        return mask_secrets(normalized.as_posix(), secret_values)
+    try:
+        relative = normalized.relative_to(Path.cwd())
+    except ValueError:
+        return mask_secrets(f".../{normalized.name or '.'}", secret_values)
+    return mask_secrets(relative.as_posix(), secret_values)
+
+
+def confirmation_summary(args: BaseModel, secret_values: set[str]) -> str:
+    if isinstance(args, MCPArgs):
+        arguments = json.dumps(
+            _redact_confirmation_value(args.arguments, secret_values), sort_keys=True
+        )
+        return (
+            f"MCP {mask_secrets(args.server, secret_values)}:"
+            f"{mask_secrets(args.tool, secret_values)} {arguments}"
+        )
+    if isinstance(args, WebFetchArgs):
+        try:
+            safe_url = _redact_confirmation_url(args.url, secret_values)
+        except (UnicodeError, ValueError):
+            safe_url = "<redacted malformed URL>"
+        return f"WebFetch {safe_url}"
+    if isinstance(args, FileWriteArgs):
+        safe_path = _confirmation_filewrite_path(args.path, secret_values)
+        return f"FileWrite {safe_path} ({len(args.content)} characters)"
+    if isinstance(args, RequestFilesystemAccessArgs):
+        safe_path = mask_secrets(args.path, secret_values)
+        return f"FullDiskAccess current task read/write: {safe_path}; sandbox restricted"
+    return type(args).__name__
+
+
+def confirmation_single_line(value: str) -> str:
+    """Escape control and formatting characters in confirmation-only output."""
+    escaped: list[str] = []
+    for character in value:
+        codepoint = ord(character)
+        if (
+            codepoint < 32
+            or 127 <= codepoint <= 159
+            or character in {"\u2028", "\u2029"}
+            or unicodedata.category(character) in {"Cf", "Cs"}
+        ):
+            if codepoint <= 0xFF:
+                escaped.append(f"\\x{codepoint:02x}")
+            elif codepoint <= 0xFFFF:
+                escaped.append(f"\\u{codepoint:04x}")
+            else:
+                escaped.append(f"\\U{codepoint:08x}")
+        else:
+            escaped.append(character)
+    return "".join(escaped)
 
 
 def make_interactive_reader(

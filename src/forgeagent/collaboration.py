@@ -1538,7 +1538,7 @@ class SubmitCandidateTool(Tool):
                     unready = self._required_candidate_files
                 else:
                     unready = _unready_candidate_files(
-                        ctx.allowed_root,
+                        getattr(ctx, "project_root", None) or ctx.allowed_root,
                         self._required_candidate_files,
                     )
                 if unready:
@@ -1647,7 +1647,9 @@ class SubmitEvaluationTool(Tool):
         if ctx is None:
             return "SubmitEvaluation rejected: candidate snapshot unavailable"
         try:
-            current_digest = candidate_snapshot_digest(ctx.allowed_root)
+            current_digest = candidate_snapshot_digest(
+                getattr(ctx, "project_root", None) or ctx.allowed_root
+            )
         except (OSError, RuntimeError, ValueError):
             return "SubmitEvaluation rejected: candidate snapshot unavailable"
         if current_digest not in digests:
@@ -1688,7 +1690,7 @@ class RunCheckTool(Tool):
             return ToolOutcome(tool=self.name, success=False, detail="RunCheck unavailable")
         result = run_check(
             definition,
-            allowed_root=ctx.allowed_root,
+            allowed_root=getattr(ctx, "project_root", None) or ctx.allowed_root,
             cancel_event=ctx.cancel_event,
         )
         emit_audit(

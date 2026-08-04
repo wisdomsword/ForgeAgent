@@ -8,7 +8,7 @@ from forgeagent.audit import AuditEvent
 from forgeagent.external_actions import canonical_request_digest
 from forgeagent.headless import HeadlessConfirmer, normalize_allowlist, operation_key
 from forgeagent.http_action_approvals import HttpActionApprovalStore
-from forgeagent.protocol import FileWriteArgs, MCPArgs, WebFetchArgs
+from forgeagent.protocol import FileWriteArgs, MCPArgs, RequestFilesystemAccessArgs, WebFetchArgs
 
 
 class _RecordingAuditSink:
@@ -152,6 +152,23 @@ def test_headless_confirmer_denies_invalid_operation_without_disclosing_path(
     assert len(sink.events) == 1
     assert sink.events[0].result_status == "denied"
     assert sink.events[0].parameters == {"operation": "invalid"}
+    assert str(secret_path) not in repr(sink.events[0])
+
+
+def test_headless_confirmer_audits_fixed_full_disk_request_without_path(tmp_path: Path) -> None:
+    sink = _RecordingAuditSink()
+    secret_path = tmp_path.parent / "private-secret"
+    confirmer = HeadlessConfirmer([], audit=sink, root=tmp_path)
+
+    assert confirmer(RequestFilesystemAccessArgs(path=str(secret_path))) is False
+
+    assert len(sink.events) == 1
+    assert sink.events[0].result_status == "denied"
+    assert sink.events[0].parameters == {
+        "tool": "RequestFilesystemAccess",
+        "scope": "full_disk",
+        "tier": "restricted",
+    }
     assert str(secret_path) not in repr(sink.events[0])
 
 

@@ -3,15 +3,24 @@
 import json
 import threading
 
+import pytest
+
 from forgeagent.audit import AuditEvent
 from forgeagent.client import MockClient
 from forgeagent.context import ContextConfig
-from forgeagent.executor import ExecResult, ExecutorBackend
+from forgeagent.executor import (
+    ContainerBackend,
+    ExecResult,
+    ExecutorBackend,
+    RestrictedBackend,
+    TrustedBackend,
+)
 from forgeagent.external_actions import ExternalActionReceiptStore
 from forgeagent.identity import ApprovedIdentity
 from forgeagent.memory import MemoryManager
 from forgeagent.models import AssistantMessage, StreamEvent, StreamEventKind, TokenUsage
 from forgeagent.protocol import MemoryCandidate
+from forgeagent.runtime import Runtime
 from forgeagent.skills import SkillDefinition, SkillRegistry
 from forgeagent.step import RoundResult, Termination
 from forgeagent.task import Task, TaskStatus
@@ -207,6 +216,247 @@ def test_task_forwards_receipt_store_to_step(monkeypatch, tmp_path):
     assert captured is store
 
 
+def test_restricted_task_separates_project_root_from_full_disk_factory(monkeypatch, tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    monkeypatch.setenv("FORGEAGENT_TEST_API_KEY", "must-not-reach-worker")
+    captured = {}
+
+    class _Step:
+        def __init__(self, *args, **kwargs):
+            captured.update(kwargs)
+
+        def run(self, messages):
+            return [RoundResult(text=_done(), stopped_reason=Termination.COMPLETED)]
+
+    monkeypatch.setattr("forgeagent.task.Step", _Step)
+    task = Task(MockClient(script=[]), tier="restricted", allowed_root=str(project))
+    task.run("inspect files")
+
+    assert task._allowed_root == str(project.resolve())
+    assert captured["allowed_root"] == str(project.resolve())
+    assert captured["project_root"] == str(project.resolve())
+    assert captured["full_disk_root"] == project.anchor
+    assert callable(captured["full_disk_backend_factory"])
+    replacement = captured["full_disk_backend_factory"]()
+    assert replacement._allowed_root == project.anchor
+    isolation = replacement.execute(
+        "import os, socket, subprocess\n"
+        "print('secret_absent', os.getenv('FORGEAGENT_TEST_API_KEY') is None)\n"
+        "for label, operation in [\n"
+        "    ('network', lambda: socket.create_connection(('127.0.0.1', 9))),\n"
+        "    ('process', lambda: subprocess.run(['true'], check=False)),\n"
+        "]:\n"
+        "    try:\n"
+        "        operation()\n"
+        "    except PermissionError as error:\n"
+        "        print(label, str(error))",
+        Runtime(),
+    )
+    assert isolation.success is True
+    assert "secret_absent True" in isolation.stdout
+    assert "network restricted: network access denied" in isolation.stdout
+    assert "process restricted: process spawn denied" in isolation.stdout
+
+
+def test_trusted_task_gives_exec_and_file_tools_host_root(monkeypatch, tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    captured = {}
+
+    class _Step:
+        def __init__(self, *args, **kwargs):
+            captured.update(kwargs)
+
+        def run(self, messages):
+            return [RoundResult(text=_done(), stopped_reason=Termination.COMPLETED)]
+
+    monkeypatch.setattr("forgeagent.task.Step", _Step)
+    task = Task(MockClient(script=[]), tier="trusted", allowed_root=str(project))
+    task.run("inspect files")
+
+    assert task._allowed_root == str(project.resolve())
+    assert captured["allowed_root"] == project.anchor
+    assert captured["project_root"] == str(project.resolve())
+    assert captured["full_disk_root"] == project.anchor
+    assert captured["full_disk_backend_factory"] is None
+
+
+def test_restricted_filesystem_access_workflow_confirms_and_executes_once(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    external = tmp_path / "outside.txt"
+    external.write_text("outside-marker", encoding="utf-8")
+    confirmations = []
+    code = f"from pathlib import Path\nprint(Path({str(external)!r}).read_text())"
+    client = _RecordingTaskClient(
+        script=[
+            _reply(_tool_call("RequestFilesystemAccess", path=str(external))),
+            _reply(_tool_call("Exec", name="read_once", code=code)),
+            _reply(_done()),
+        ]
+    )
+
+    outcome = Task(
+        client,
+        tier="restricted",
+        allowed_root=str(project),
+        confirmer=lambda args: confirmations.append(args) or True,
+    ).run("read the external file")
+
+    assert outcome.status.completed is True
+    assert len(confirmations) == 1
+    assert (
+        sum(
+            tool.tool == "Exec" for round_result in outcome.rounds for tool in round_result.outcomes
+        )
+        == 1
+    )
+    feedback = client.requests[-1][-1].content
+    assert "outside-marker" in feedback
+
+
+def test_restricted_grant_applies_to_file_tools_and_exec(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    external_dir = tmp_path / "outside"
+    external_dir.mkdir()
+    external = external_dir / "marker.txt"
+    external.write_text("shared-authority-marker", encoding="utf-8")
+    confirmations = []
+    direct_calls = "\n".join(
+        [
+            _tool_call("FileRead", path=str(external)),
+            _tool_call("FileList", path=str(external_dir)),
+            _tool_call(
+                "Exec",
+                name="read_external",
+                code=f"from pathlib import Path\nprint(Path({str(external)!r}).read_text())",
+            ),
+        ]
+    )
+    client = _RecordingTaskClient(
+        script=[
+            _reply(_tool_call("RequestFilesystemAccess", path=str(external_dir))),
+            _reply(direct_calls),
+            _reply(_done()),
+        ]
+    )
+
+    outcome = Task(
+        client,
+        allowed_root=str(project),
+        confirmer=lambda args: confirmations.append(args) or True,
+    ).run("inspect the external directory")
+
+    feedback = client.requests[-1][-1].content
+    assert outcome.status.completed is True
+    assert len(confirmations) == 1
+    assert feedback.count("shared-authority-marker") == 2
+    assert "marker.txt" in feedback
+
+
+def test_restricted_grant_preserves_runtime_state_across_backend_swap(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    client = _RecordingTaskClient(
+        script=[
+            _reply(
+                _tool_call(
+                    "Exec",
+                    name="seed_state",
+                    code='utils.set_state("marker", "preserved")',
+                )
+            ),
+            _reply(_tool_call("RequestFilesystemAccess", path="/tmp")),
+            _reply(
+                _tool_call(
+                    "Exec",
+                    name="read_state",
+                    code='print(utils.get_state("marker"))',
+                )
+            ),
+            _reply(_done()),
+        ]
+    )
+
+    outcome = Task(
+        client,
+        allowed_root=str(project),
+        confirmer=lambda args: True,
+    ).run("preserve state while accessing outside")
+
+    assert outcome.status.completed is True
+    assert "preserved" in client.requests[-1][-1].content
+
+
+def test_trusted_exec_and_file_tools_access_the_same_external_file(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    external = tmp_path / "trusted-outside.txt"
+    external.write_text("trusted-shared-marker", encoding="utf-8")
+    direct_calls = "\n".join(
+        [
+            _tool_call("FileRead", path=str(external)),
+            _tool_call(
+                "Exec",
+                name="trusted_read",
+                code=f"from pathlib import Path\nprint(Path({str(external)!r}).read_text())",
+            ),
+        ]
+    )
+    client = _RecordingTaskClient(script=[_reply(direct_calls), _reply(_done())])
+
+    outcome = Task(
+        client,
+        tier="trusted",
+        allowed_root=str(project),
+        confirmer=lambda args: (_ for _ in ()).throw(AssertionError("unexpected confirmation")),
+    ).run("read the external file")
+
+    assert outcome.status.completed is True
+    assert client.requests[-1][-1].content.count("trusted-shared-marker") == 2
+
+
+def test_trusted_file_tool_relative_paths_still_use_project_root(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "relative.txt").write_text("project-relative-marker", encoding="utf-8")
+    client = _RecordingTaskClient(
+        script=[_reply(_tool_call("FileRead", path="relative.txt")), _reply(_done())]
+    )
+
+    outcome = Task(client, tier="trusted", allowed_root=str(project)).run("read project file")
+
+    assert outcome.status.completed is True
+    assert "project-relative-marker" in client.requests[-1][-1].content
+
+
+def test_filesystem_access_decision_resets_for_each_task(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    confirmations = []
+
+    def run_goal():
+        client = MockClient(
+            script=[
+                _reply(_tool_call("RequestFilesystemAccess", path="/tmp")),
+                _reply(_tool_call("RequestFilesystemAccess", path="/var")),
+                _reply(_done()),
+            ]
+        )
+        return Task(
+            client,
+            allowed_root=str(project),
+            confirmer=lambda args: confirmations.append(args.path) or False,
+        ).run("inspect outside")
+
+    run_goal()
+    run_goal()
+
+    assert confirmations == ["/tmp", "/tmp"]
+
+
 def test_task_forwards_audit_sink_and_task_id_to_core_events():
     sink = _RecordingAuditSink()
 
@@ -334,7 +584,8 @@ def test_explicit_system_prompt_does_not_mix_memory(tmp_path):
     manager.apply(MemoryCandidate(scope="session", kind="fact", key="editor", content="nvim"))
     client = _RecordingTaskClient(script=[_reply(_done())])
     Task(client, system_prompt="explicit", memory_manager=manager).run("goal")
-    assert client.first_messages[0].content == "explicit"
+    assert client.first_messages[0].content.startswith("explicit\n\n## Runtime Authority")
+    assert "nvim" not in client.first_messages[0].content
 
 
 def test_memory_audit_omits_candidate_content(tmp_path):
@@ -484,6 +735,11 @@ def test_task_default_system_prompt_still_contains_protocol():
     prompt = task._build_system_prompt()
     assert "This conversation is driven by ForgeAgent" in prompt
     assert "No custom Agent Identity (SOUL)" in prompt
+    assert "RequestFilesystemAccess" in prompt
+    assert "## Runtime Authority" in prompt
+    assert 'tier: "restricted"' in prompt
+    assert "MCP approvals do not change" in prompt
+    assert "do not probe environment variables" in prompt
 
 
 def test_task_explicit_system_prompt_wins_over_identity():
@@ -502,6 +758,121 @@ def test_task_explicit_system_prompt_wins_over_identity():
     prompt = task._build_system_prompt()
     assert prompt.startswith("EXPLICIT OVERRIDE PROMPT")
     assert "SHOULD NOT APPEAR" not in prompt
+    assert "## Runtime Authority" in prompt
+
+
+def test_runtime_authority_describes_trusted_and_container_boundaries(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "forgeagent.task._backend_for_tier",
+        lambda tier, **kwargs: TrustedBackend(),
+    )
+    trusted = Task(
+        MockClient(script=[]), tier="trusted", allowed_root=str(tmp_path)
+    )._build_system_prompt()
+    container = Task(
+        MockClient(script=[]),
+        tier="container",
+        allowed_root=str(tmp_path),
+    )._build_system_prompt()
+
+    assert 'tier: "trusted"' in trusted
+    assert 'filesystem_scope: "full_disk"' in trusted
+    assert "RequestFilesystemAccess is unnecessary" in trusted
+    assert 'tier: "container"' in container
+    assert 'filesystem_scope: "project"' in container
+    assert "cannot broaden its mount" in container
+
+
+def test_explicit_builtin_backend_controls_effective_runtime_authority(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+
+    trusted_backend = TrustedBackend()
+    trusted = Task(
+        MockClient(script=[]),
+        tier="restricted",
+        backend=trusted_backend,
+        allowed_root=str(project),
+    )
+    restricted_backend = RestrictedBackend(allowed_root=str(project), secret_values=set())
+    restricted = Task(
+        MockClient(script=[]),
+        tier="trusted",
+        backend=restricted_backend,
+        allowed_root=str(project),
+    )
+
+    assert trusted._backend is trusted_backend
+    assert trusted._tier == "trusted"
+    assert trusted._filesystem_root == project.anchor
+    assert 'tier: "trusted"' in trusted._build_system_prompt()
+    assert 'filesystem_scope: "full_disk"' in trusted._build_system_prompt()
+    assert restricted._backend is restricted_backend
+    assert restricted._tier == "restricted"
+    assert restricted._filesystem_root == str(project.resolve())
+    assert 'tier: "restricted"' in restricted._build_system_prompt()
+    assert 'filesystem_scope: "project"' in restricted._build_system_prompt()
+    assert "Dynamic filesystem access is unavailable" in restricted._build_system_prompt()
+
+
+def test_explicit_sandbox_backend_root_must_match_task_root(tmp_path):
+    project = tmp_path / "project"
+    backend_root = tmp_path / "backend"
+    project.mkdir()
+    backend_root.mkdir()
+    restricted = RestrictedBackend(allowed_root=str(backend_root), secret_values=set())
+    container = object.__new__(ContainerBackend)
+    container._allowed_root = str(backend_root.resolve())
+
+    for backend in (restricted, container):
+        with pytest.raises(ValueError, match="backend allowed_root must match Task allowed_root"):
+            Task(
+                MockClient(script=[]),
+                backend=backend,
+                allowed_root=str(project),
+            )
+
+
+def test_unknown_custom_backend_authority_is_not_guessed(tmp_path):
+    class _CustomBackend:
+        def execute(self, code, runtime):
+            raise AssertionError("prompt construction must not execute code")
+
+    prompt = Task(
+        MockClient(script=[]),
+        tier="restricted",
+        backend=_CustomBackend(),
+        allowed_root=str(tmp_path),
+        confirmer=lambda args: True,
+    )._build_system_prompt()
+
+    assert "executor_authority: caller-defined" in prompt
+    assert "tier and filesystem_scope describe built-in tools only" in prompt
+    assert "Dynamic filesystem access is unavailable" in prompt
+    assert "can request one current-task" not in prompt
+
+
+def test_runtime_authority_json_encodes_project_paths(tmp_path):
+    project = tmp_path / "project\ninjected-heading"
+    project.mkdir()
+
+    prompt = Task(MockClient(script=[]), allowed_root=str(project))._build_system_prompt()
+
+    authority = prompt.split("## Runtime Authority", 1)[1]
+    assert "project\\ninjected-heading" in authority
+    assert "project\ninjected-heading" not in authority
+
+
+def test_runtime_authority_does_not_offer_unregistered_access_tool(tmp_path):
+    prompt = Task(
+        MockClient(script=[]),
+        allowed_root=str(tmp_path),
+        confirmer=lambda args: True,
+        tool_registry=ToolRegistry(),
+    )._build_system_prompt()
+
+    assert "Dynamic filesystem access is unavailable for this task." in prompt
+    assert "can request one current-task" not in prompt
 
 
 def test_task_identity_reaches_system_prompt():

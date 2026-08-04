@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from .audit import AuditEvent, AuditSink, emit_audit
 from .external_actions import canonical_request_digest
-from .protocol import FileWriteArgs, MCPArgs, WebFetchArgs
+from .protocol import FileWriteArgs, MCPArgs, RequestFilesystemAccessArgs, WebFetchArgs
 
 _GLOB_CHARACTERS = frozenset("*?[]{}")
 _WEB_SCHEMES = {"http": 80, "https": 443}
@@ -207,12 +207,20 @@ class HeadlessConfirmer:
         allowed_root: str | Path | None = None,
     ) -> bool:
         result_status = "denied"
-        if (
+        if isinstance(args, RequestFilesystemAccessArgs):
+            parameters = {
+                "tool": "RequestFilesystemAccess",
+                "scope": "full_disk",
+                "tier": "restricted",
+            }
+            allowed = False
+        elif (
             isinstance(args, FileWriteArgs)
             and allowed_root is not None
             and Path(allowed_root).resolve() != self._root
         ):
             key = "invalid"
+            parameters = {"operation": key}
             allowed = False
         else:
             try:
@@ -241,6 +249,7 @@ class HeadlessConfirmer:
                         allowed = consumed is not None
                         if allowed:
                             result_status = "allow_once"
+            parameters = {"operation": key}
         emit_audit(
             self._audit,
             AuditEvent(
@@ -248,7 +257,7 @@ class HeadlessConfirmer:
                 task_id=task_id,
                 risk_level="high",
                 operation_id=operation_id,
-                parameters={"operation": key},
+                parameters=parameters,
                 result_status=result_status,
                 duration_ms=0,
             ),

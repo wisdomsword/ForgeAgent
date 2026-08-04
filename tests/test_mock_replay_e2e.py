@@ -146,7 +146,8 @@ def test_replay_requests_append_without_rewriting_prefix_below_context_threshold
             Role.ASSISTANT,
             Role.USER,
         ]
-    assert all(call[0].content == "stable-system-prompt" for call in client.calls)
+    assert all(call[0].content.startswith("stable-system-prompt") for call in client.calls)
+    assert all("## Runtime Authority" in call[0].content for call in client.calls)
     assert all(call[1].content == "finish replay" for call in client.calls)
 
 

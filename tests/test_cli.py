@@ -40,6 +40,7 @@ from forgeagent.client import MockClient
 from forgeagent.collaboration import CollaborationReport, CollaborationUsage
 from forgeagent.evaluator import EvaluationRequest, EvaluatorResult
 from forgeagent.executor import TrustedBackend
+from forgeagent.headless import HeadlessConfirmer
 from forgeagent.loop import LoopBudgets, LoopCheckpointStore
 from forgeagent.mcp_manager import MCPManager, MCPServerConfig, MCPServerDiagnostic
 from forgeagent.model_registry import RegistryError
@@ -50,7 +51,14 @@ from forgeagent.models import (
     StreamEventKind,
     TokenUsage,
 )
-from forgeagent.protocol import FileListArgs, FileWriteArgs, MCPArgs, ToolCall, WebFetchArgs
+from forgeagent.protocol import (
+    FileListArgs,
+    FileWriteArgs,
+    MCPArgs,
+    RequestFilesystemAccessArgs,
+    ToolCall,
+    WebFetchArgs,
+)
 from forgeagent.runtime import Runtime
 from forgeagent.skills import SkillDefinition, SkillRegistry
 from forgeagent.step import RoundResult, Step, Termination
@@ -634,6 +642,33 @@ def test_http_runtime_settings_accept_no_memory(tmp_path):
 
 class _UnknownConfirmationArgs(BaseModel):
     secret: str
+
+
+def test_filesystem_access_confirmation_is_bounded_masked_and_single_line(monkeypatch):
+    from forgeagent.cli import _confirmation_single_line, _confirmation_summary
+
+    secret = "private-directory-name"
+    monkeypatch.setattr("forgeagent.cli.sensitive_env_values", lambda: {secret})
+
+    summary = _confirmation_single_line(
+        _confirmation_summary(
+            RequestFilesystemAccessArgs(path=f"/Users/admin/{secret}\nsecond-line")
+        )
+    )
+
+    assert secret not in summary
+    assert "FullDiskAccess" in summary
+    assert "current task" in summary
+    assert "read/write" in summary
+    assert "sandbox restricted" in summary
+    assert "\n" not in summary
+    assert "\\x0a" in summary
+
+
+def test_headless_confirmer_rejects_full_disk_request(tmp_path):
+    confirmer = HeadlessConfirmer([], audit=None, root=tmp_path)
+
+    assert confirmer(RequestFilesystemAccessArgs(path="/Users/admin/Code")) is False
 
 
 def test_confirmation_summary_masks_nested_mcp_secret_arguments(monkeypatch):
@@ -2915,6 +2950,41 @@ def test_repl_wires_confirmer_without_mcp_manager(monkeypatch):
     )
 
     assert callable(seen[0])
+
+
+def test_repl_filesystem_access_decision_resets_between_goals(monkeypatch):
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: None)
+    request = '<!-- ToolCall: {"name":"RequestFilesystemAccess","arguments":{"path":"/tmp"}} -->'
+    per_task_scripts = iter(
+        [
+            [_reply(request), _reply(_done())],
+            [_reply(request), _reply(_done())],
+        ]
+    )
+    answers = iter(["first goal", "y", "second goal", "n", "quit"])
+    prompts = []
+
+    def read_line(prompt):
+        prompts.append(prompt)
+        return next(answers)
+
+    console = _console()
+    repl(
+        tier="restricted",
+        model="mock",
+        client_factory=lambda model: MockClient(script=next(per_task_scripts)),
+        console=console,
+        read_line=read_line,
+        confirmation_available=True,
+        no_identity=True,
+        no_memory=True,
+        use_registry_snapshot=False,
+    )
+
+    assert prompts.count("approve? [y/N] ") == 2
+    output = console.export_text()
+    assert "[RequestFilesystemAccess None] ok" in output
+    assert "Full-disk filesystem access was not approved" in output
 
 
 def test_repl_exits_on_quit():

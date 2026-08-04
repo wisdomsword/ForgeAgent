@@ -75,6 +75,27 @@ def _step(script) -> Step:
     return Step(MockClient(script=script), TrustedBackend(), Runtime(), max_rounds=5)
 
 
+def test_step_keeps_mutable_filesystem_authority_in_one_tool_context():
+    def factory():
+        return TrustedBackend()
+
+    step = Step(
+        MockClient(script=[]),
+        TrustedBackend(),
+        Runtime(),
+        allowed_root="/project",
+        project_root="/project",
+        full_disk_root="/",
+        full_disk_backend_factory=factory,
+    )
+
+    assert step._ctx.allowed_root == "/project"
+    assert step._ctx.project_root == "/project"
+    assert step._ctx.full_disk_root == "/"
+    assert step._ctx.full_disk_backend_factory is factory
+    assert step._ctx.filesystem_access_decision == "pending"
+
+
 def _user(text="go"):
     return [
         Message(role=Role.SYSTEM, content="system"),

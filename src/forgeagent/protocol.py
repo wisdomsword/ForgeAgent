@@ -72,6 +72,12 @@ class SurveyArgs(BaseModel):
     options: list[str] | None = None
 
 
+class RequestFilesystemAccessArgs(BaseModel):
+    """Request one task-scoped expansion of the current filesystem root."""
+
+    path: str = Field(min_length=1)
+
+
 class SkillArgs(BaseModel):
     """Read one validated section of a discovered skill."""
 

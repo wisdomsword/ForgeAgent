@@ -31,6 +31,7 @@ from forgeagent.protocol import (
     MCPArgs,
     MCPDescribeArgs,
     ParseErrorType,
+    RequestFilesystemAccessArgs,
     SkillArgs,
     SurveyArgs,
     WebFetchArgs,
@@ -43,6 +44,7 @@ from forgeagent.tools import (
     ExecTool,
     MCPDescribeTool,
     MCPTool,
+    RequestFilesystemAccessTool,
     SkillTool,
     SurveyTool,
     Tool,
@@ -120,7 +122,174 @@ def test_default_registry_carries_exec_edit_survey():
         "FileRead": FileReadArgs,
         "FileWrite": FileWriteArgs,
         "FileList": FileListArgs,
+        "RequestFilesystemAccess": RequestFilesystemAccessArgs,
     }
+
+
+def test_request_filesystem_access_requires_a_non_empty_target():
+    with pytest.raises(ValueError):
+        RequestFilesystemAccessArgs(path="")
+
+    schema = default_registry().arg_schemas()["RequestFilesystemAccess"].model_json_schema()
+    assert set(schema["properties"]) == {"path"}
+    assert schema["required"] == ["path"]
+
+
+def _filesystem_access_ctx(
+    *,
+    tier="restricted",
+    confirmer=None,
+    factory=None,
+    audit_sink=None,
+) -> tuple[ToolContext, TrustedBackend]:
+    initial_backend = TrustedBackend()
+    return (
+        ToolContext(
+            blocks=CodeBlockStore(),
+            backend=initial_backend,
+            runtime=Runtime(),
+            analyzer=CodeAnalyzer(),
+            confirmer=confirmer,
+            tier=tier,
+            allowed_root="/project",
+            full_disk_root="/",
+            full_disk_backend_factory=factory,
+            audit_sink=audit_sink,
+            task_id="task-filesystem-access",
+        ),
+        initial_backend,
+    )
+
+
+def test_request_filesystem_access_approval_is_atomic_and_cached():
+    confirmations = []
+    factory_calls = []
+    replacement = TrustedBackend()
+
+    def factory():
+        factory_calls.append(True)
+        return replacement
+
+    ctx, initial = _filesystem_access_ctx(
+        confirmer=lambda args: confirmations.append(args.path) or True,
+        factory=factory,
+    )
+    tool = RequestFilesystemAccessTool()
+
+    first = tool.run(RequestFilesystemAccessArgs(path="/Users/admin/Code"), ctx)
+    second = tool.run(RequestFilesystemAccessArgs(path="/tmp"), ctx)
+
+    assert first.success is True
+    assert "restricted" in first.detail
+    assert second.success is True
+    assert confirmations == ["/Users/admin/Code"]
+    assert factory_calls == [True]
+    assert ctx.backend is replacement
+    assert ctx.backend is not initial
+    assert ctx.allowed_root == "/"
+    assert ctx.filesystem_access_decision == "approved"
+
+
+def test_request_filesystem_access_denial_is_cached_and_keeps_authority():
+    confirmations = []
+    ctx, initial = _filesystem_access_ctx(
+        confirmer=lambda args: confirmations.append(args.path) or False,
+        factory=lambda: TrustedBackend(),
+    )
+    tool = RequestFilesystemAccessTool()
+
+    first = tool.run(RequestFilesystemAccessArgs(path="/Users/admin/Code"), ctx)
+    second = tool.run(RequestFilesystemAccessArgs(path="/tmp"), ctx)
+
+    assert first.success is False
+    assert second.success is False
+    assert confirmations == ["/Users/admin/Code"]
+    assert ctx.backend is initial
+    assert ctx.allowed_root == "/project"
+    assert ctx.filesystem_access_decision == "denied"
+
+
+def test_request_filesystem_access_without_confirmation_channel_is_cached():
+    factory_calls = []
+    ctx, initial = _filesystem_access_ctx(
+        factory=lambda: factory_calls.append(True) or TrustedBackend()
+    )
+    tool = RequestFilesystemAccessTool()
+
+    first = tool.run(RequestFilesystemAccessArgs(path="/Users/admin/Code"), ctx)
+    second = tool.run(RequestFilesystemAccessArgs(path="/tmp"), ctx)
+
+    assert first.success is False
+    assert second.success is False
+    assert factory_calls == []
+    assert ctx.backend is initial
+    assert ctx.allowed_root == "/project"
+    assert ctx.filesystem_access_decision == "denied"
+
+
+def test_request_filesystem_access_factory_failure_does_not_partially_switch():
+    def fail_factory():
+        raise RuntimeError("cannot create backend")
+
+    ctx, initial = _filesystem_access_ctx(confirmer=lambda args: True, factory=fail_factory)
+
+    outcome = RequestFilesystemAccessTool().run(
+        RequestFilesystemAccessArgs(path="/Users/admin/Code"), ctx
+    )
+
+    assert outcome.success is False
+    assert ctx.backend is initial
+    assert ctx.allowed_root == "/project"
+    assert ctx.filesystem_access_decision == "denied"
+
+
+@pytest.mark.parametrize(
+    ("tier", "expected_success", "expected_phrase"),
+    [
+        ("trusted", True, "already active"),
+        ("container", False, "unavailable"),
+    ],
+)
+def test_request_filesystem_access_has_fixed_non_restricted_boundaries(
+    tier, expected_success, expected_phrase
+):
+    confirmations = []
+    ctx, initial = _filesystem_access_ctx(
+        tier=tier,
+        confirmer=lambda args: confirmations.append(args.path) or True,
+        factory=lambda: TrustedBackend(),
+    )
+
+    outcome = RequestFilesystemAccessTool().run(
+        RequestFilesystemAccessArgs(path="/Users/admin/Code"), ctx
+    )
+
+    assert outcome.success is expected_success
+    assert expected_phrase in outcome.detail
+    assert confirmations == []
+    assert ctx.backend is initial
+
+
+def test_request_filesystem_access_audit_does_not_disclose_requested_path():
+    sink = _RecordingAuditSink()
+    ctx, _ = _filesystem_access_ctx(
+        confirmer=lambda args: True,
+        factory=lambda: TrustedBackend(),
+        audit_sink=sink,
+    )
+
+    RequestFilesystemAccessTool().run(
+        RequestFilesystemAccessArgs(path="/Users/admin/private-name"), ctx
+    )
+
+    decisions = [event for event in sink.events if event.event_type == "confirmation.decision"]
+    assert len(decisions) == 1
+    assert decisions[0].parameters == {
+        "tool": "RequestFilesystemAccess",
+        "scope": "full_disk",
+        "tier": "restricted",
+    }
+    assert "private-name" not in decisions[0].model_dump_json()
 
 
 def test_mcp_enabled_registry_registers_describe_tool_only_with_mcp():
@@ -745,6 +914,22 @@ def test_mcp_non_approved_call_needs_confirmer_yes():
     assert outcome.success is True
     assert fake.calls and fake.calls[0][:2] == ("gh", "create_issue")
     assert seen[0].tool == "create_issue"  # the gate saw the call
+
+
+def test_mcp_approval_does_not_change_task_filesystem_authority():
+    fake = _FakeMCP()
+    ctx = _mcp_ctx(mcp=fake, confirmer=lambda args: True)
+    ctx.allowed_root = "/project"
+    ctx.project_root = "/project"
+    initial_backend = ctx.backend
+
+    outcome = MCPTool().run(MCPArgs(server="gh", tool="create_issue"), ctx)
+
+    assert outcome.success is True
+    assert ctx.backend is initial_backend
+    assert ctx.allowed_root == "/project"
+    assert ctx.project_root == "/project"
+    assert ctx.filesystem_access_decision == "pending"
 
 
 def test_mcp_confirmer_denial_blocks_call():

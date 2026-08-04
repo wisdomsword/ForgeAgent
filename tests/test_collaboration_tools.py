@@ -29,6 +29,7 @@ from forgeagent.collaboration import (
     build_evaluator_registry,
     build_generator_registry,
     build_planner_registry,
+    candidate_snapshot_digest,
     normalize_required_candidate_files,
     plan_digest,
 )
@@ -117,6 +118,51 @@ def test_submit_candidate_requires_configured_regular_files(tmp_path: Path):
     assert submitted.completes_task is True
     assert persisted.phase == "evaluator"
     assert persisted.generator_attempts == 1
+
+
+def test_collaboration_artifacts_remain_project_scoped_after_full_disk_grant(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "calc.py").write_text("pass\n", encoding="utf-8")
+    state_root = tmp_path / "state"
+    state_root.mkdir()
+    store = CollaborationStore(str(state_root))
+    generator = store.create("Build artifact", "duo", collaboration_id="0" * 32)
+    ctx = _tool_context(project)
+    ctx.allowed_root = project.anchor
+    ctx.project_root = str(project)
+
+    submitted = SubmitCandidateTool(
+        store,
+        generator,
+        required_candidate_files=("calc.py",),
+    ).run(SubmitCandidateArgs(), ctx)
+    evaluator_state = store.load(generator.collaboration_id)
+    checks = {"unit": CheckDefinition(id="unit", argv=(sys.executable, "-c", "pass"))}
+    captured_roots = []
+
+    def pass_check(definition, *, allowed_root, cancel_event):
+        captured_roots.append(allowed_root)
+        return CheckResult(
+            status="passed",
+            snapshot_digest=candidate_snapshot_digest(allowed_root),
+        )
+
+    monkeypatch.setattr("forgeagent.collaboration.run_check", pass_check)
+    registry = build_evaluator_registry(store=store, state=evaluator_state, checks=checks)
+    run = registry.get("RunCheck")
+    submit = registry.get("SubmitEvaluation")
+    assert run is not None and submit is not None
+
+    checked = run.run(RunCheckArgs(check_id="unit"), ctx)
+    evaluated = submit.run(_passing_evaluation(), ctx)
+
+    assert submitted.success is True
+    assert checked.success is True
+    assert evaluated.success is True
+    assert captured_roots == [str(project)]
 
 
 @pytest.mark.parametrize("unsafe_kind", ["directory", "symlink", "fifo"])
