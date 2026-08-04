@@ -9,4 +9,4 @@
 
 ## 3. 验证
 
-- [ ] 3.1 运行 CLI 聚焦测试、Ruff、全量测试和 OpenSpec strict 校验，审查最终差异仅包含本移植能力。
+- [x] 3.1 运行 CLI 聚焦测试、Ruff、全量测试和 OpenSpec strict 校验，审查最终差异仅包含本移植能力。
