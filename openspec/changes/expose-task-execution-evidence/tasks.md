@@ -13,7 +13,7 @@
 ## 3. 入口终态投影
 
 - [x] 3.1 在 CLI/REPL 终态一次性汇总工具、状态和本地程序路径；纯 prose 明确显示没有工具或程序执行，避免逐轮重复汇总。
-- [ ] 3.2 在 HTTP terminal public view 中增加有界工具状态和安全相对制品引用，验证绝对路径、代码、参数、prompt、secret 和异常正文不会泄露。
+- [x] 3.2 在 HTTP terminal public view 中增加有界工具状态和安全相对制品引用，验证绝对路径、代码、参数、prompt、secret 和异常正文不会泄露。
 - [ ] 3.3 在 LoopReport 与 CollaborationReport 中按迭代、角色和 attempt 有界聚合证据，覆盖 completed/stopped/failed/cancelled 及恢复场景。
 
 ## 4. 验证与交付

@@ -452,21 +452,21 @@ base-ref: dfad978d82434b493b17332721484f4e54afedb8
 - JSON shape is `{"records": [...], "truncated": bool, "omitted_count": int}`；artifact contains only `reference`。
 - 本 Task 只交付 ordinary Task HTTP 投影；Loop 与 Collaboration HTTP 分支分别随 Task 6/7 的 report 字段接入。`_cli_http.task_factory()` 已把 immutable `settings.allowed_root` 传给 Task，无需修改 assembly。
 
-- [ ] **Step 1: 写 running/terminal/empty HTTP RED 测试**
+- [x] **Step 1: 写 running/terminal/empty HTTP RED 测试**
 
   在 `tests/test_http_task_service.py` 断言 ordinary running record 没有 `execution_evidence`；completed/stopped/failed/refused/needs-info/cancelled terminal record 有显式 envelope；有 Exec 时 JSON 只含 canonical reference 和 stable status。
 
-- [ ] **Step 2: 写 32 条上限和无泄露 RED 测试**
+- [x] **Step 2: 写 32 条上限和无泄露 RED 测试**
 
   构造 40 条证据，把绝对 root、代码、参数、prompt、secret、raw exception marker 放入内部 round/tool 字段。断言 public view 只有前 32 条，`truncated=True`、`omitted_count=8`，整个 `repr(view)` 不含上述 marker 或宿主 root。
 
   在 `tests/test_http_server.py` 通过现有 authenticated `GET /tasks/<id>` 验证相同 JSON；通过 route 表断言不存在 `/artifacts`、`/execution-artifacts` 下载入口。
 
-- [ ] **Step 3: 写 reference 内部映射与 TTL 保留 RED 测试**
+- [x] **Step 3: 写 reference 内部映射与 TTL 保留 RED 测试**
 
   使用 real `ProgramArtifactStore(tmp_path)` 创建文件，HTTP public view 返回相对 reference；`resolve_local_artifact_path(tmp_path, reference)` 映射到同一 regular file。推进 fake clock 让 TaskRecord 过期后 query 返回既有 not-found，而 artifact bytes 仍存在。
 
-- [ ] **Step 4: 运行 HTTP 测试并确认 RED**
+- [x] **Step 4: 运行 HTTP 测试并确认 RED**
 
   ```bash
   rtk uv run pytest tests/test_http_task_service.py tests/test_http_server.py tests/test_http_config.py -q
@@ -474,7 +474,7 @@ base-ref: dfad978d82434b493b17332721484f4e54afedb8
 
   Expected: terminal evidence 字段断言失败；既有认证、TTL、unknown task 和 lifecycle 测试保持原行为。
 
-- [ ] **Step 5: 实现 terminal-only public projection**
+- [x] **Step 5: 实现 terminal-only public projection**
 
   在 `TaskRecord.public_view()` 现有 mode-specific counters 完成后统一选择证据：
 
@@ -490,7 +490,7 @@ base-ref: dfad978d82434b493b17332721484f4e54afedb8
 
   该分支限定 `mode == "task"`；aggregate modes 在 Task 6/7 加字段后接入。`_run_record()` 的已有异常 taxonomy 不改，不增加 route、读取函数、TTL 删除或 cleanup hook。
 
-- [ ] **Step 6: 运行 HTTP GREEN 与安全序列化检查**
+- [x] **Step 6: 运行 HTTP GREEN 与安全序列化检查**
 
   ```bash
   rtk uv run pytest tests/test_http_task_service.py tests/test_http_server.py tests/test_http_config.py -q
@@ -498,7 +498,7 @@ base-ref: dfad978d82434b493b17332721484f4e54afedb8
 
   Expected: terminal-only envelope、32 条上限、relative reference、internal mapping、TTL artifact retention 全部通过；认证和 not-found 响应不泄露 identifier。
 
-- [ ] **Step 7: 提交 HTTP 投影**
+- [x] **Step 7: 提交 HTTP 投影**
 
   ```bash
   rtk git add src/forgeagent/http_task_service.py tests/test_http_task_service.py tests/test_http_server.py tests/test_http_config.py
