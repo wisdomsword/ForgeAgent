@@ -423,6 +423,19 @@ def test_program_store_rejects_symlinked_artifact_directories(tmp_path, symlink_
     assert sentinel.read_text() == "safe"
 
 
+def test_program_store_rejects_existing_non_private_artifact_directory(tmp_path):
+    execution_id = "6" * 32
+    programs = tmp_path / ".forgeagent" / "execution-artifacts" / execution_id / "programs"
+    programs.mkdir(parents=True)
+    for directory in (tmp_path / ".forgeagent", programs.parent.parent, programs.parent, programs):
+        directory.chmod(0o700)
+    programs.chmod(0o755)
+    store = ProgramArtifactStore(tmp_path, execution_id=execution_id)
+    with pytest.raises(ProgramArtifactPersistenceError):
+        store.persist(block_name="main", language="python", code="pass\n")
+    assert list(programs.iterdir()) == []
+
+
 def test_program_store_cleans_temp_when_replace_fails(tmp_path, monkeypatch):
     store = ProgramArtifactStore(tmp_path, execution_id="1" * 32)
 
@@ -496,4 +509,28 @@ def test_resolve_local_artifact_path_rejects_invalid_reference_and_symlink(tmp_p
     assert artifact.local_path is not None
     artifact.local_path.unlink()
     artifact.local_path.symlink_to(tmp_path / "outside.py")
+    assert resolve_local_artifact_path(tmp_path, artifact.reference) is None
+
+
+def test_resolve_local_artifact_path_rejects_directory_rebinding(tmp_path, monkeypatch):
+    execution_id = "7" * 32
+    store = ProgramArtifactStore(tmp_path, execution_id=execution_id)
+    artifact = store.persist(block_name="main", language="python", code="trusted\n")
+    assert artifact.local_path is not None
+    programs = artifact.local_path.parent
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / artifact.local_path.name).write_text("outside")
+    original_open = os.open
+    rebound = False
+
+    def rebind_before_file_open(path, flags, mode=0o777, *, dir_fd=None):
+        nonlocal rebound
+        if path == artifact.local_path.name and dir_fd is not None and not rebound:
+            rebound = True
+            programs.rename(programs.with_name("programs-original"))
+            programs.symlink_to(outside, target_is_directory=True)
+        return original_open(path, flags, mode, dir_fd=dir_fd)
+
+    monkeypatch.setattr(os, "open", rebind_before_file_open)
     assert resolve_local_artifact_path(tmp_path, artifact.reference) is None

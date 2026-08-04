@@ -137,8 +137,10 @@ class ProgramArtifactStore:
             fds = [root_fd]
             identities = [os.fstat(root_fd)]
             for part in (".forgeagent", "execution-artifacts", self._execution_id, "programs"):
+                created = False
                 try:
                     os.mkdir(part, 0o700, dir_fd=fds[-1])
+                    created = True
                 except FileExistsError:
                     pass
                 fd = os.open(
@@ -146,6 +148,11 @@ class ProgramArtifactStore:
                     os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
                     dir_fd=fds[-1],
                 )
+                if created:
+                    os.fchmod(fd, 0o700)
+                elif stat.S_IMODE(os.fstat(fd).st_mode) != 0o700:
+                    os.close(fd)
+                    raise OSError("artifact directory is not private")
                 fds.append(fd)
                 identities.append(os.fstat(fd))
             for fd in fds[:-1]:
@@ -281,28 +288,63 @@ class ProgramArtifactStore:
 
 
 def resolve_local_artifact_path(project_root: str | Path, reference: str) -> Path | None:
+    fds: list[int] = []
+    file_fd: int | None = None
     try:
         parsed = ProgramArtifact(reference=reference)
-        root = Path(project_root)
-        current = root
-        for part in (
+        root = Path(project_root).resolve(strict=True)
+        parts = (
             ".forgeagent",
             "execution-artifacts",
             parsed.reference.split("/")[1],
             "programs",
-        ):
-            current = current / part
-            info = os.lstat(current)
-            if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
-                return None
+        )
+        root_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        fds = [root_fd]
+        identities = [(os.fstat(root_fd).st_dev, os.fstat(root_fd).st_ino)]
+        for part in parts:
+            fd = os.open(
+                part,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                dir_fd=fds[-1],
+            )
+            fds.append(fd)
+            info = os.fstat(fd)
+            identities.append((info.st_dev, info.st_ino))
         filename = parsed.reference.rsplit("/", 1)[1]
-        target = current / filename
-        info = os.lstat(target)
-        if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+        file_fd = os.open(filename, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=fds[-1])
+        file_info = os.fstat(file_fd)
+        if not stat.S_ISREG(file_info.st_mode):
             return None
-        return target
+        check_fds = [os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)]
+        try:
+            check_identities = [(os.fstat(check_fds[0]).st_dev, os.fstat(check_fds[0]).st_ino)]
+            for part in parts:
+                fd = os.open(
+                    part,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                    dir_fd=check_fds[-1],
+                )
+                check_fds.append(fd)
+                info = os.fstat(fd)
+                check_identities.append((info.st_dev, info.st_ino))
+            current_file = os.stat(filename, dir_fd=check_fds[-1], follow_symlinks=False)
+            if tuple(check_identities) != tuple(identities) or (
+                current_file.st_dev,
+                current_file.st_ino,
+            ) != (file_info.st_dev, file_info.st_ino):
+                return None
+        finally:
+            for fd in check_fds:
+                os.close(fd)
+        return root / ".forgeagent" / "execution-artifacts" / parts[2] / "programs" / filename
     except (OSError, ValueError):
         return None
+    finally:
+        if file_fd is not None:
+            os.close(file_fd)
+        for fd in fds:
+            os.close(fd)
 
 
 class ToolExecutionRecord(BaseModel):
