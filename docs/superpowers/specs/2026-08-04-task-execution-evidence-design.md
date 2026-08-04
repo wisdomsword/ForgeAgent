@@ -2,6 +2,8 @@
 comet_change: expose-task-execution-evidence
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-08-04-expose-task-execution-evidence
+status: final
 ---
 
 # 任务执行证据技术设计
@@ -128,3 +130,4 @@ Collaboration 在保存角色统计之前追加角色 Task snapshot，并标注 
 ## 实现顺序
 
 先实现共享 evidence/store 模块及测试，再依次接入 ToolContext/Exec、Step/Task、CLI/REPL、HTTP、Loop、Collaboration。每层变绿后再推进外层。不新增依赖或配置面。
+

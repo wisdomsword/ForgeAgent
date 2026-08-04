@@ -4,5 +4,6 @@
   "openspec_tasks": "openspec/changes/expose-task-execution-evidence/tasks.md",
   "openspec_delta_spec": "openspec/changes/expose-task-execution-evidence/specs/http-task-service/spec.md",
   "handoff_context": "openspec/changes/expose-task-execution-evidence/.comet/handoff/design-context.json",
-  "handoff_markdown": "openspec/changes/expose-task-execution-evidence/.comet/handoff/design-context.md"
+  "handoff_markdown": "openspec/changes/expose-task-execution-evidence/.comet/handoff/design-context.md",
+  "archive_directory": "openspec/changes/archive/2026-08-04-expose-task-execution-evidence"
 }

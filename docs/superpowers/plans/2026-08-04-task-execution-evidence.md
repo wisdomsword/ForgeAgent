@@ -2,6 +2,7 @@
 change: expose-task-execution-evidence
 design-doc: docs/superpowers/specs/2026-08-04-task-execution-evidence-design.md
 base-ref: dfad978d82434b493b17332721484f4e54afedb8
+archived-with: 2026-08-04-expose-task-execution-evidence
 ---
 
 # Task Execution Evidence Implementation Plan
@@ -27,6 +28,7 @@ base-ref: dfad978d82434b493b17332721484f4e54afedb8
 - `TaskOutcome`、`LoopCheckpoint`、`LoopReport`、`CollaborationState`、`CollaborationReport` 只增加带空默认值的字段；既有状态枚举、schema 字符串和 v1 durable 文件保持兼容。
 - `.forgeagent/execution-artifacts/` 是运行时数据，必须加入 `.gitignore`，不得进入提交。
 
+archived-with: 2026-08-04-expose-task-execution-evidence
 ---
 
 ### Task 1: 建立证据模型、Task recorder 与安全投影
@@ -701,3 +703,4 @@ base-ref: dfad978d82434b493b17332721484f4e54afedb8
   ```
 
   Expected: worktree 只剩 Comet phase transition 产生的受控状态文件变更；源码、测试与任务清单均已提交，未执行 push。
+
