@@ -282,7 +282,7 @@ base-ref: dfad978d82434b493b17332721484f4e54afedb8
 - `Task` owns one recorder and one lazy store rooted at immutable `self._allowed_root`; `Task.close()` closes the store descriptor but retains files。
 - `ToolOutcome` validator rejects `success=True` with `artifact_persistence_failed` and rejects persistence-failure outcomes carrying a program artifact。
 
-- [ ] **Step 1: 写 Exec fail-closed 和三 backend RED 测试**
+- [x] **Step 1: 写 Exec fail-closed 和三 backend RED 测试**
 
   在 `tests/test_tools.py` 使用 recording backend 与 real `ProgramArtifactStore(tmp_path)` 覆盖 inline 和 named Exec。参数化 trusted、restricted、container recording subclasses，断言 backend 收到的 code 与 artifact bytes 完全一致；backend 返回失败时 `program_artifact` 仍存在；store 抛错时结果为：
 
@@ -296,7 +296,7 @@ base-ref: dfad978d82434b493b17332721484f4e54afedb8
 
   加一例 Edit 后再次 Exec，断言两个不可变文件内容分别对应版本 1 和版本 2。
 
-- [ ] **Step 2: 写 Step 尝试顺序、跳过和取消 RED 测试**
+- [x] **Step 2: 写 Step 尝试顺序、跳过和取消 RED 测试**
 
   在 `tests/test_step.py` 构造 completion registry：第一调用成功且 `completes_task=True`，同一回复后跟第二调用。断言 recorder 只有第一条。再覆盖一成功一失败的顺序、持久化失败状态、dispatch 后设置取消保留既有记录、dispatch 前取消不伪造记录。
 
@@ -307,11 +307,11 @@ base-ref: dfad978d82434b493b17332721484f4e54afedb8
   ]
   ```
 
-- [ ] **Step 3: 写 Task 终态、prose 空证据和模型 path RED 测试**
+- [x] **Step 3: 写 Task 终态、prose 空证据和模型 path RED 测试**
 
   在 `tests/test_task.py` 覆盖 completed、failed、refused、needs_info、answered_in_prose、cancelled。直接 prose 必须等于 `ExecutionEvidence()`；有 prior tool 的非完成终态保留记录。解析带 `path="../../outside.py"` 的命名 block 后 Exec，断言 artifact 位于 `tmp_path/.forgeagent/execution-artifacts/...`，`tmp_path.parent / "outside.py"` 不存在。
 
-- [ ] **Step 4: 运行运行时切片并确认 RED**
+- [x] **Step 4: 运行运行时切片并确认 RED**
 
   ```bash
   rtk uv run pytest tests/test_tools.py tests/test_step.py tests/test_task.py tests/test_m43_executor_rewrite_baseline.py -q
@@ -319,7 +319,7 @@ base-ref: dfad978d82434b493b17332721484f4e54afedb8
 
   Expected: 新字段、program store wiring 和 recorder snapshot 断言失败；既有 filesystem-authority 与 executor baseline 断言不回退。
 
-- [ ] **Step 5: 最小接入 Exec 与 dispatch recorder**
+- [x] **Step 5: 最小接入 Exec 与 dispatch recorder**
 
   `ExecTool.run()` 在静态分析之后、`ctx.backend.execute()` 之前执行：
 
@@ -351,7 +351,7 @@ base-ref: dfad978d82434b493b17332721484f4e54afedb8
 
   成功或 backend 失败返回的 `ToolOutcome` 都携带 `program_artifact=artifact`。`Step._dispatch()` 在获得 `ToolOutcome` 后且返回前恰好调用一次 recorder；缺失 handler 的普通失败也记录。已经完成后被 `_handle_reply()` break 的调用不会进入 `_dispatch()`，因此不会记录。
 
-- [ ] **Step 6: 将 snapshot 放入所有结构化 TaskOutcome**
+- [x] **Step 6: 将 snapshot 放入所有结构化 TaskOutcome**
 
   `Task.__init__` 创建 `ExecutionEvidenceRecorder()` 与无 I/O 的 `ProgramArtifactStore(self._allowed_root)`，传给 `Step`；`Task.run()` 使用：
 
@@ -366,7 +366,7 @@ base-ref: dfad978d82434b493b17332721484f4e54afedb8
 
   `Task.close()` 幂等关闭 program store 和 backend，不删除 namespace。保持 task audit 只含既有 bounded counters，不把证据正文复制到 audit。
 
-- [ ] **Step 7: 运行运行时 GREEN 和 focused executor 回归**
+- [x] **Step 7: 运行运行时 GREEN 和 focused executor 回归**
 
   ```bash
   rtk uv run pytest tests/test_tools.py tests/test_step.py tests/test_task.py tests/test_m43_executor_rewrite_baseline.py tests/test_executor.py -q
@@ -374,7 +374,7 @@ base-ref: dfad978d82434b493b17332721484f4e54afedb8
 
   Expected: inline/named/Edit/trusted/restricted/container、prose、失败、取消与 parsed-but-skipped 全部通过；backend 只在 artifact 成功后调用。
 
-- [ ] **Step 8: 提交 Task 运行时接入**
+- [x] **Step 8: 提交 Task 运行时接入**
 
   ```bash
   rtk git add src/forgeagent/tools.py src/forgeagent/step.py src/forgeagent/task.py tests/test_tools.py tests/test_step.py tests/test_task.py tests/test_m43_executor_rewrite_baseline.py
