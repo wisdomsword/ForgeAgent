@@ -587,19 +587,19 @@ base-ref: dfad978d82434b493b17332721484f4e54afedb8
 - `CollaborationReport.from_state()` copies bounded execution evidence without role conversation or Task local path。
 - Terminal `TaskRecord.public_view()` uses `CollaborationReport.execution_evidence` for mode `duo`/`triad`; running collaboration records still omit terminal evidence。
 
-- [ ] **Step 1: 写 state/report 模型和 v1 兼容 RED 测试**
+- [x] **Step 1: 写 state/report 模型和 v1 兼容 RED 测试**
 
   在 `tests/test_collaboration_models.py` 断言空默认、role/attempt origin、32 条全局上限和 nested serialization 无 local path。在 `tests/test_collaboration_store.py` 加载不含字段的 v1 state，断言 empty evidence；保存再加载保持完整前缀和 omitted。
 
-- [ ] **Step 2: 写 Duo/Triad role 边界 RED 测试**
+- [x] **Step 2: 写 Duo/Triad role 边界 RED 测试**
 
   在 `tests/test_collaboration_runner.py` 让 planner、两次 generator、两次 evaluator 各返回不同工具记录；断言确定顺序为 planner → generator 1 → evaluator 1 → generator 2 → evaluator 2。覆盖 invalid submission、needs_info、resource stop、cancelled、role failed，断言已返回 TaskOutcome 的 prior evidence 被保留，未启动 role 不产生记录。
 
-- [ ] **Step 3: 写原子保存、恢复和公开安全 RED 测试**
+- [x] **Step 3: 写原子保存、恢复和公开安全 RED 测试**
 
   模拟 `CollaborationStore.save()` 在 role boundary 失败，断言 attempt/counters/evidence 不出现一半提交。重开 runner 后不重复累计已保存 role。把 code、prompt、raw args、absolute path 和 secret marker 放入内部 outcome，断言 CollaborationReport、HTTP 投影和 CLI 安全 renderer 都不含 marker；terminal Duo/Triad HTTP 只返回 relative reference，running record 不返回 terminal evidence。
 
-- [ ] **Step 4: 运行 collaboration 测试并确认 RED**
+- [x] **Step 4: 运行 collaboration 测试并确认 RED**
 
   ```bash
   rtk uv run pytest tests/test_collaboration_models.py tests/test_collaboration_runner.py tests/test_collaboration_store.py tests/test_collaboration_integrations.py tests/test_collaboration_stop_projection.py tests/test_http_task_service.py -q
@@ -607,7 +607,7 @@ base-ref: dfad978d82434b493b17332721484f4e54afedb8
 
   Expected: execution evidence 字段、role/attempt、恢复和安全投影断言失败；既有 acceptance evidence、handoff、rejection 与 stop taxonomy 不回退。
 
-- [ ] **Step 5: 将 role evidence 合入现有状态事务**
+- [x] **Step 5: 将 role evidence 合入现有状态事务**
 
   在三个 persistence helpers 中调用：
 
@@ -622,7 +622,7 @@ base-ref: dfad978d82434b493b17332721484f4e54afedb8
 
   结果与 usage、rounds、role counter 写入同一个 candidate。`_validate_state_transition()` 增加 immutable-prefix/omitted monotonic 检查，禁止已有记录被改写或计数回退。`_finish()` 只更新终态字段并保留 state evidence。`render_collaboration_report(..., project_root=root)` 复用 Task 4 renderer；`TaskRecord.public_view()` 的 Duo/Triad terminal 分支序列化 safe report evidence。
 
-- [ ] **Step 6: 运行 Duo/Triad GREEN 与 Loop integration 回归**
+- [x] **Step 6: 运行 Duo/Triad GREEN 与 Loop integration 回归**
 
   ```bash
   rtk uv run pytest tests/test_collaboration_models.py tests/test_collaboration_runner.py tests/test_collaboration_store.py tests/test_collaboration_integrations.py tests/test_collaboration_stop_projection.py tests/test_loop_runner.py tests/test_cli.py tests/test_http_task_service.py -q
@@ -630,7 +630,7 @@ base-ref: dfad978d82434b493b17332721484f4e54afedb8
 
   Expected: Duo/Triad 所有终态、重试和恢复保留有界证据；acceptance evidence 字段未改名；HTTP 只有相对 reference；CLI 可从可信 project root 显示本地路径。
 
-- [ ] **Step 7: 提交 Collaboration 聚合**
+- [x] **Step 7: 提交 Collaboration 聚合**
 
   ```bash
   rtk git add src/forgeagent/collaboration.py src/forgeagent/_cli_collaboration.py src/forgeagent/http_task_service.py tests/test_collaboration_models.py tests/test_collaboration_runner.py tests/test_collaboration_store.py tests/test_collaboration_integrations.py tests/test_collaboration_stop_projection.py tests/test_http_task_service.py
