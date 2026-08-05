@@ -1,6 +1,6 @@
 workflow: hotfix
 language: zh-CN
-phase: build
+phase: archive
 context_compression: off
 build_mode: direct
 build_pause: null
@@ -13,12 +13,12 @@ auto_transition: true
 base_ref: a9f46809cc95cb8d0ef9462777f80100cdff0dd1
 design_doc: null
 plan: null
-verify_result: pending
-verification_report: null
-branch_status: pending
+verify_result: pass
+verification_report: docs/superpowers/reports/2026-08-05-restore-forgeagent-product-identity-verify.md
+branch_status: handled
 created_at: 2026-08-05
-verified_at: null
-archived: false
+verified_at: 2026-08-05
+archived: true
 direct_override: null
 handoff_context: null
 handoff_hash: null

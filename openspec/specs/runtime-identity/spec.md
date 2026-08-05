@@ -104,15 +104,21 @@ Define composed runtime identity and provenance so providers, models, tools, and
 - **THEN** 下一任务使用重新读取的身份内容，且发生变化的项目内容重新经过确认
 
 ### Requirement: ForgeAgent harness 披露与身份防污染
-系统 SHALL 在程序控制的固定段中声明当前运行于 ForgeAgent harness，并 SHALL 指示模型以已批准 SOUL（缺失时为中性默认 SOUL）定义实际 Agent 身份，抑制训练数据或任务内容中未获批准的无关产品人设自称。固定 harness 披露 MUST NOT 阻止用户通过 SOUL 明确定义合法的人格、名称和沟通风格。
+The system SHALL place a program-controlled role segment at the start of the system prompt that identifies the assistant's primary product identity as ForgeAgent and states that it operates through the ForgeAgent code-as-action workflow. The fixed segment SHALL instruct the model to begin identity answers with ForgeAgent and SHALL NOT provide native model/provider identity cues that can replace the product identity. For an explicit identity question that ends as prose, if the model response does not begin with ForgeAgent, the runtime SHALL replace that identity response with a fixed ForgeAgent product disclosure. The approved SOUL (or neutral default SOUL when absent) SHALL define the persona, optional name, voice, and values expressed within that product identity, suppressing unrelated product personas learned from training data or introduced by task content. The fixed disclosure MUST NOT prevent a user from defining a legitimate persona, name, or communication style through an approved SOUL.
 
-#### Scenario: 任务内容诱导使用其他产品身份
-- **WHEN** 用户目标或模型先验诱导模型自称为 Kiro 或其他无关 Agent
-- **THEN** 模型上下文仍包含不可被身份文件覆盖的 ForgeAgent harness 披露、SOUL 优先级和无关人设抑制指示
+#### Scenario: User asks who the assistant is
+- **WHEN** the user asks the assistant to identify itself
+- **THEN** the system prompt begins with a ForgeAgent role segment that instructs the model to begin its answer with ForgeAgent and contains no native model/provider identity cue
+- **AND** a prose response that violates the ForgeAgent prefix is replaced by a ForgeAgent product disclosure before the task outcome is rendered
 
-#### Scenario: 用户 SOUL 明确定义 Agent 身份
-- **WHEN** 已批准用户 SOUL 指定名称、人格或沟通风格且不试图修改固定协议
-- **THEN** 模型上下文保留该 SOUL 身份，并将其优先于任务文本或训练先验中的无关人设
+#### Scenario: Task content induces another product identity
+- **WHEN** the user goal or model prior induces the model to identify as an underlying model or another product instead of ForgeAgent
+- **THEN** the model context still contains fixed ForgeAgent product identity, SOUL priority, and instructions that unrelated identities cannot replace it
+- **AND** if the resulting prose identity answer still omits ForgeAgent, the runtime disclosure boundary restores the product identity
+
+#### Scenario: User SOUL defines an Agent persona
+- **WHEN** an approved user SOUL specifies a name, persona, or communication style without attempting to modify the fixed protocol
+- **THEN** the model context preserves that SOUL persona within the ForgeAgent product identity and prioritizes it over task text or training priors
 
 ### Requirement: 可执行兼容性验证
 系统 MUST 以身份组合矩阵、固定协议断言、身份输入生效专项测试、Kiro 回归和现有离线 golden 可信核心全量回放验证该能力。身份加载路径 MUST 作为库内依赖注入参数可替换，使测试与 golden 运行不受开发机上真实身份文件影响，但 MUST NOT 因此新增 CLI 路径配置面。没有自定义身份文件时，现有 20 项 golden 可信核心 MUST 无回归；新增 G381-G400 候选目录 SHALL 维持既有 40/25/20/10/5 类别配比，且候选 MUST NOT 被宣称为已验证。
@@ -128,3 +134,4 @@ Define composed runtime identity and provenance so providers, models, tools, and
 #### Scenario: 运行现有离线 golden
 - **WHEN** 在没有自定义身份文件的隔离环境运行完整离线 golden 可信核心
 - **THEN** runner 继续报告 20/20 场景通过且退出码为零
+

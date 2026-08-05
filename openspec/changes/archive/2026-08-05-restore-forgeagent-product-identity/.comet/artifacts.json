@@ -2,5 +2,6 @@
   "openspec_proposal": "openspec/changes/restore-forgeagent-product-identity/proposal.md",
   "openspec_design": "openspec/changes/restore-forgeagent-product-identity/design.md",
   "openspec_tasks": "openspec/changes/restore-forgeagent-product-identity/tasks.md",
-  "openspec_delta_spec": "openspec/changes/restore-forgeagent-product-identity/specs/runtime-identity/spec.md"
+  "openspec_delta_spec": "openspec/changes/restore-forgeagent-product-identity/specs/runtime-identity/spec.md",
+  "archive_directory": "openspec/changes/archive/2026-08-05-restore-forgeagent-product-identity"
 }

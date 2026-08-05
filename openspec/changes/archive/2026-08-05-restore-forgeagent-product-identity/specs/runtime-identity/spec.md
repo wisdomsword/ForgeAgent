@@ -1,6 +1,6 @@
 ## MODIFIED Requirements
 
-### Requirement: ForgeAgent product identity disclosure and identity isolation
+### Requirement: ForgeAgent harness 披露与身份防污染
 The system SHALL place a program-controlled role segment at the start of the system prompt that identifies the assistant's primary product identity as ForgeAgent and states that it operates through the ForgeAgent code-as-action workflow. The fixed segment SHALL instruct the model to begin identity answers with ForgeAgent and SHALL NOT provide native model/provider identity cues that can replace the product identity. For an explicit identity question that ends as prose, if the model response does not begin with ForgeAgent, the runtime SHALL replace that identity response with a fixed ForgeAgent product disclosure. The approved SOUL (or neutral default SOUL when absent) SHALL define the persona, optional name, voice, and values expressed within that product identity, suppressing unrelated product personas learned from training data or introduced by task content. The fixed disclosure MUST NOT prevent a user from defining a legitimate persona, name, or communication style through an approved SOUL.
 
 #### Scenario: User asks who the assistant is
