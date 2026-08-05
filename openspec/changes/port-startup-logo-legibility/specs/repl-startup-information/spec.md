@@ -6,7 +6,7 @@ ForgeAgent SHALL only in a real interactive REPL (stdin and stdout are TTYs, def
 
 #### Scenario: Interactive startup reaches ready state with a legible mark
 
-- **WHEN** the default REPL starts with TTY stdin and stdout and initialization completes
+- **WHEN** the default REPL starts with TTY stdin and stdout, the terminal is at least 63 columns wide, and initialization completes
 - **THEN** the animation ends, exactly one stable five-line uppercase ASCII ForgeAgent mark no wider than 63 columns remains visible above the startup summary and first goal prompt, and no residual refresh lines are rendered
 
 #### Scenario: Interactive startup requires confirmation

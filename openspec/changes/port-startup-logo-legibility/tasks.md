@@ -8,3 +8,5 @@
 - [x] 2.1 将 `_STARTUP_LOGO` 替换为可读的大写纯 ASCII 字模，保持启动生命周期行为不变。
 - [x] 2.2 运行聚焦/完整测试、Ruff、OpenSpec strict 和 diff 检查，完成代码提交。
 - [x] 2.3 对齐 proposal、design 与 `repl-startup-information` delta，并重新通过 OpenSpec strict。
+- [x] 2.4 恢复旧分支字模的 R/G 双反斜线分隔笔画，并以快照测试验证。
+- [x] 2.5 限定完整 Logo ready 场景只适用于至少 63 列的终端，避免与窄终端降级契约冲突。
