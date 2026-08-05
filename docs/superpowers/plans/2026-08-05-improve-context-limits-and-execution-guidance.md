@@ -51,7 +51,7 @@ base-ref: 2c8f528224d79a91b6cbe3476db8b6b979b236a4
 - Produces: `resolve_feedback_limits(capability: ModelCapability, params: GenerationParams | None, config: ContextConfig) -> ResolvedFeedbackLimits`；`validate_context_policy(model: str, registry: Registry, context_config: ContextConfig) -> ResolvedFeedbackLimits` 与 `validate_client_context_policy(client: ModelClient, context_config: ContextConfig) -> ResolvedFeedbackLimits`。
 - Produces: `SlidingWindowContextPolicy.limits: ResolvedFeedbackLimits`，同时保留既有 `input_budget`、`round_feedback_limit`、`tool_result_limit` property 的 `int` 返回类型。
 
-- [ ] **Step 1: 写失败的 resolver 与 policy 测试**
+- [x] **Step 1: 写失败的 resolver 与 policy 测试**
 
 ```python
 from forgeagent.context import ResolvedFeedbackLimits, resolve_feedback_limits
@@ -99,13 +99,13 @@ def test_resolver_recomputes_from_new_capability_and_rejects_existing_invalid_va
         resolve_feedback_limits(_capability(1000, 200), None, ContextConfig(tool_result_max_tokens=80))
 ```
 
-- [ ] **Step 2: 运行 RED 测试**
+- [x] **Step 2: 运行 RED 测试**
 
 Run: `rtk uv run pytest -q tests/test_context.py -k 'resolve_feedback_limits or policy_reserves_effective_output'`
 
 Expected: FAIL during collection because `ResolvedFeedbackLimits` and `resolve_feedback_limits` are not importable.
 
-- [ ] **Step 3: 实现单一解析结果并接入所有 validator**
+- [x] **Step 3: 实现单一解析结果并接入所有 validator**
 
 ```python
 @dataclass(frozen=True)
@@ -143,7 +143,7 @@ def resolve_feedback_limits(
 
 Store `self._limits = resolve_feedback_limits(capability, params, config)` in `SlidingWindowContextPolicy`; delegate its three legacy property values to `self._limits`. Replace the Registry validator body with `return resolve_feedback_limits(get_capability(model, registry), None, context_config)` and the client validator body with `return resolve_feedback_limits(client.capability, None, context_config)`, both annotated as `ResolvedFeedbackLimits`; no caller is required to consume the result yet.
 
-- [ ] **Step 4: 运行 GREEN 与局部静态检查**
+- [x] **Step 4: 运行 GREEN 与局部静态检查**
 
 Run: `rtk uv run pytest -q tests/test_context.py tests/test_cli.py -k 'context or policy or model_switch'`
 
@@ -153,7 +153,7 @@ Run: `rtk uv run ruff check src/forgeagent/context.py src/forgeagent/_cli_http.p
 
 Expected: PASS with no diagnostics.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 rtk git add src/forgeagent/context.py src/forgeagent/_cli_http.py tests/test_context.py tests/test_cli.py

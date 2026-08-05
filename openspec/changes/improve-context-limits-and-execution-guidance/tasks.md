@@ -1,7 +1,7 @@
 ## 1. 共享限额解析
 
-- [ ] 1.1 增加先失败的 context 测试，覆盖 adaptive、configured、effective、低值和模型切换计算
-- [ ] 1.2 实现一个不可变的反馈限额解析结果，并由 SlidingWindowContextPolicy 消费
+- [x] 1.1 增加先失败的 context 测试，覆盖 adaptive、configured、effective、低值和模型切换计算
+- [x] 1.2 实现一个不可变的反馈限额解析结果，并由 SlidingWindowContextPolicy 消费
 
 ## 2. 交互可观察性
 
