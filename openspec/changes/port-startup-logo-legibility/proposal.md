@@ -16,7 +16,7 @@
 
 ### Modified Capabilities
 
-无。现有 `repl-startup-information` 的纯 ASCII 产品标识契约不变，本 change 只改进其具体字形的可读性。
+- `repl-startup-information`：明确完整产品标识使用五行大写纯 ASCII 字模、最大宽度 63 列，并保持 `A` 与末尾 `T` 可辨认；窄终端继续使用单行降级。
 
 ## Impact
 

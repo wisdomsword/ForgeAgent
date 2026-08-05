@@ -7,3 +7,4 @@
 
 - [x] 2.1 将 `_STARTUP_LOGO` 替换为可读的大写纯 ASCII 字模，保持启动生命周期行为不变。
 - [x] 2.2 运行聚焦/完整测试、Ruff、OpenSpec strict 和 diff 检查，完成代码提交。
+- [x] 2.3 对齐 proposal、design 与 `repl-startup-information` delta，并重新通过 OpenSpec strict。
