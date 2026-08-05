@@ -9,7 +9,7 @@ import re
 import sys
 import time
 import unicodedata
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,7 +33,7 @@ from .collaboration import (
     headless_plan_confirmer,
     resolve_collaboration_mode,
 )
-from .context import ContextConfig
+from .context import ContextConfig, ResolvedFeedbackLimits, resolve_feedback_limits
 from .identity import IdentityConfigError, IdentityConfirmer, IdentityTrustRequest
 from .mcp_manager import MCPServerDiagnostic
 from .model_registry import Registry, RegistryError
@@ -389,14 +389,36 @@ def render_startup_summary(
     model: str,
     tier: Tier,
     root: str,
-    diagnostics: tuple[MCPServerDiagnostic, ...],
+    diagnostics: Sequence[MCPServerDiagnostic],
+    feedback_limits: ResolvedFeedbackLimits | None = None,
 ) -> None:
     enabled = [item for item in diagnostics if item.enabled]
     available = sum(item.status == "available" for item in enabled)
     summary_fields = ["Ready", f"model {model}", f"sandbox {tier}", f"project {root}"]
     if enabled:
         summary_fields.insert(1, f"MCP {available}/{len(enabled)}")
-    console.print(Text(" | ".join(summary_fields)))
+    if feedback_limits is not None:
+        summary_fields.append(
+            f"feedback round {feedback_limits.effective_round_feedback_limit} / "
+            f"tool {feedback_limits.effective_tool_result_limit}"
+        )
+    console.print(Text(" | ".join(summary_fields)), soft_wrap=True)
+    if feedback_limits is not None and (
+        feedback_limits.round_configured_below_adaptive
+        or feedback_limits.tool_configured_below_adaptive
+    ):
+        fields: list[str] = []
+        if feedback_limits.round_configured_below_adaptive:
+            fields.append(
+                f"round configured {feedback_limits.configured_round_feedback_limit} "
+                f"< adaptive {feedback_limits.adaptive_round_feedback_limit}"
+            )
+        if feedback_limits.tool_configured_below_adaptive:
+            fields.append(
+                f"tool configured {feedback_limits.configured_tool_result_limit} "
+                f"< adaptive {feedback_limits.adaptive_tool_result_limit}"
+            )
+        console.print(Text("feedback limit warning | " + " | ".join(fields)), soft_wrap=True)
     for item in enabled:
         if item.required or item.status == "available":
             continue
@@ -413,6 +435,24 @@ def render_startup_summary(
         console.print(Text(" | ".join(detail)), soft_wrap=True)
 
 
+def resolve_repl_feedback_limits(
+    model: str,
+    registry: Registry | None,
+    context_config: ContextConfig,
+    client_factory: ClientFactory,
+    use_registry_snapshot: bool,
+    validate_context_policy: Callable[[str, Registry, ContextConfig], ResolvedFeedbackLimits],
+) -> ResolvedFeedbackLimits | None:
+    """Resolve limits for interactive display without changing task execution state."""
+    if use_registry_snapshot and registry is not None:
+        return validate_context_policy(model, registry, context_config)
+    probe = client_factory(model)
+    try:
+        return resolve_feedback_limits(probe.capability, None, context_config)
+    finally:
+        close = getattr(probe, "close", None)
+        if callable(close):
+            close()
 @dataclass(frozen=True)
 class ReplBindings:
     """Facade-owned collaborators resolved for each REPL invocation."""
@@ -444,8 +484,9 @@ class ReplBindings:
     resolve_cli_identity: Callable[..., Any]
     run_collaboration_once: Callable[..., Any]
     run_once: Callable[..., Any]
+    resolve_repl_feedback_limits: Callable[..., ResolvedFeedbackLimits | None]
     startup_display_type: Callable[[Console], Any]
-    validate_context_policy: Callable[[str, Registry, ContextConfig], None]
+    validate_context_policy: Callable[[str, Registry, ContextConfig], ResolvedFeedbackLimits]
     with_startup_display_pause: Callable[..., Any]
 
 
@@ -488,6 +529,8 @@ def repl(
             bindings.validate_context_policy(model, current_registry, current_context)
         except ValueError as exc:
             raise RegistryError(f"Invalid context configuration: {exc}") from exc
+
+    feedback_limits: ResolvedFeedbackLimits | None = None
 
     def task_client_factory(selected_model: str) -> ModelClient:
         if use_registry_snapshot and current_registry is not None:
@@ -544,12 +587,21 @@ def repl(
         mcp = bindings.build_mcp_manager()
         display.stop(persist=True)
         if interactive:
+            feedback_limits = bindings.resolve_repl_feedback_limits(
+                model,
+                current_registry,
+                current_context,
+                client_factory,
+                use_registry_snapshot,
+                bindings.validate_context_policy,
+            )
             bindings.render_startup_summary(
                 console,
                 model=model,
                 tier=tier,
                 root=allowed_root,
                 diagnostics=mcp.diagnostics() if mcp is not None else (),
+                feedback_limits=feedback_limits,
             )
         usage_total = TokenUsage()
         session_messages: list[Message] = []
@@ -633,7 +685,8 @@ def repl(
                 console.print("[green]session reset[/green]")
                 continue
             if goal == "/model" or goal.startswith("/model "):
-                model = bindings.handle_model_command(
+                previous_model = model
+                candidate_model = bindings.handle_model_command(
                     goal,
                     model,
                     console,
@@ -641,6 +694,35 @@ def repl(
                     current_context,
                     use_registry_snapshot or current_registry is None,
                 )
+                if candidate_model != previous_model:
+                    candidate_limits = feedback_limits
+                    if interactive:
+                        try:
+                            candidate_limits = bindings.resolve_repl_feedback_limits(
+                                candidate_model,
+                                current_registry,
+                                current_context,
+                                client_factory,
+                                use_registry_snapshot,
+                                bindings.validate_context_policy,
+                            )
+                        except (RegistryError, ValueError) as exc:
+                            console.print(
+                                "[red]model switch failed[/red]: invalid context configuration: "
+                                f"{exc}"
+                            )
+                            continue
+                    model = candidate_model
+                    feedback_limits = candidate_limits
+                    if interactive:
+                        bindings.render_startup_summary(
+                            console,
+                            model=model,
+                            tier=tier,
+                            root=allowed_root,
+                            diagnostics=mcp.diagnostics() if mcp is not None else (),
+                            feedback_limits=feedback_limits,
+                        )
                 continue
             if goal == "/search" or goal.startswith("/search "):
                 bindings.handle_search_command(goal, console)
@@ -670,8 +752,18 @@ def repl(
                     candidate_registry = bindings.reload_registry()
                     candidate_context = bindings.load_context_config()
                     if use_registry_snapshot:
-                        bindings.validate_context_policy(
+                            bindings.validate_context_policy(
                             model, candidate_registry, candidate_context
+                            )
+                    candidate_limits = feedback_limits
+                    if interactive:
+                        candidate_limits = bindings.resolve_repl_feedback_limits(
+                            model,
+                            candidate_registry,
+                            candidate_context,
+                            client_factory,
+                            use_registry_snapshot,
+                            bindings.validate_context_policy,
                         )
                     candidate_identity = bindings.resolve_cli_identity(
                         no_identity=no_identity,
@@ -708,9 +800,19 @@ def repl(
                 identity = candidate_identity
                 memory_manager = candidate_memory_manager
                 current_skills = candidate_skills
+                feedback_limits = candidate_limits
                 console.print(f"[green]reloaded[/green]: {len(current_registry.models)} models")
                 if not no_identity:
                     console.print("[green]identity reloaded[/green]")
+                if interactive:
+                    bindings.render_startup_summary(
+                        console,
+                        model=model,
+                        tier=tier,
+                        root=allowed_root,
+                        diagnostics=mcp.diagnostics() if mcp is not None else (),
+                        feedback_limits=feedback_limits,
+                    )
                 continue
             if goal == "/help" or goal.startswith("/help "):
                 bindings.handle_help_command(goal, console)

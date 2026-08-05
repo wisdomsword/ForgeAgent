@@ -1159,6 +1159,7 @@ _startup_ui_available = _cli_repl.startup_ui_available
 _startup_confirmation = _cli_repl.startup_confirmation
 _with_startup_display_pause = _cli_repl.with_startup_display_pause
 _render_startup_summary = _cli_repl.render_startup_summary
+_resolve_repl_feedback_limits = _cli_repl.resolve_repl_feedback_limits
 
 
 class _StartupDisplay(_cli_repl.StartupDisplay):
@@ -1227,6 +1228,7 @@ def repl(
             resolve_cli_identity=resolve_cli_identity,
             run_collaboration_once=run_collaboration_once,
             run_once=run_once,
+            resolve_repl_feedback_limits=_resolve_repl_feedback_limits,
             startup_display_type=_StartupDisplay,
             validate_context_policy=_validate_context_policy,
             with_startup_display_pause=_with_startup_display_pause,

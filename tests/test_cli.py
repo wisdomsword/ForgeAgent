@@ -39,7 +39,7 @@ from forgeagent.cli import (
 )
 from forgeagent.client import MockClient
 from forgeagent.collaboration import CollaborationReport, CollaborationUsage
-from forgeagent.context import ContextConfig, ResolvedFeedbackLimits
+from forgeagent.context import ContextConfig, ResolvedFeedbackLimits, resolve_feedback_limits
 from forgeagent.evaluator import EvaluationRequest, EvaluatorResult
 from forgeagent.execution_evidence import (
     ExecutionEvidence,
@@ -389,6 +389,65 @@ def test_startup_summary_optional_failure_uses_only_fixed_diagnostic_fields():
         assert forbidden not in rendered
 
 
+def test_startup_summary_displays_effective_limits_and_one_bounded_low_warning():
+    console = _terminal_console()
+    capability = ModelCapability(
+        model_id="test",
+        context_window=1_000,
+        max_output_tokens=200,
+        supports_thinking=False,
+        thinking_always_on=False,
+        supports_effort=False,
+        client_kind="anthropic",
+    )
+    limits = resolve_feedback_limits(
+        capability,
+        None,
+        ContextConfig(round_feedback_max_tokens=50, tool_result_max_tokens=10),
+    )
+
+    cli_module._render_startup_summary(
+        console,
+        model="test",
+        tier="trusted",
+        root="/project",
+        diagnostics=(),
+        feedback_limits=limits,
+    )
+
+    rendered = console.export_text()
+    assert "feedback round 50 / tool 10" in rendered
+    assert rendered.count("feedback limit warning") == 1
+    assert "round configured 50 < adaptive 60" in rendered
+    assert "tool configured 10 < adaptive 15" in rendered
+    assert "API_KEY" not in rendered and "config.yaml" not in rendered
+
+
+def test_interactive_display_probe_is_closed_once():
+    from forgeagent import _cli_repl
+
+    class ProbeClient(MockClient):
+        def __init__(self):
+            super().__init__(script=[])
+            self.close_calls = 0
+
+        def close(self) -> None:
+            self.close_calls += 1
+
+    probe = ProbeClient()
+    limits = _cli_repl.resolve_repl_feedback_limits(
+        "injected",
+        None,
+        ContextConfig(),
+        lambda _model: probe,
+        False,
+        cli_module._validate_context_policy,
+    )
+
+    assert limits is not None
+    assert probe.close_calls == 1
+
+
 @pytest.mark.parametrize(
     ("console", "environment"),
     [
@@ -523,6 +582,19 @@ def test_repl_explicit_reader_never_constructs_prompt_session(monkeypatch):
         client_factory=_factory([]),
         read_line=lambda _: "quit",
     )
+
+
+def test_noninteractive_repl_does_not_construct_display_probe():
+    probes = []
+
+    repl(
+        tier="trusted",
+        model="injected",
+        client_factory=lambda model: probes.append(model) or MockClient(script=[]),
+        read_line=lambda _: "quit",
+    )
+
+    assert probes == []
 
 
 @pytest.mark.parametrize("prefix", ["/", "/m", "/mo"])
