@@ -248,7 +248,7 @@ rtk git commit -m "feat: retain repl history for single tasks"
 - Produces: 协作角色 `task.run(task_goal: str, *, session_messages: Sequence[Message] | None = None, cancel_event=None)`，各角色收到同一外层 transcript 的独立副本。
 - Produces: `_project_collaboration_report(goal: str, report: CollaborationReport) -> list[Message]`，恰好返回 `[USER(goal), ASSISTANT(public_projection)]`；输出确定性且被现有 feedback/evidence 上限约束。
 
-- [ ] **Step 1: 写入会先失败的协作可见性测试**
+- [x] **Step 1: 写入会先失败的协作可见性测试**
 
 在 `tests/test_collaboration_integrations.py` 增加 fake role task，记录每个角色的 `session_messages`，断言 Duo/Triad 的 planner（仅 Triad）、generator、evaluator 都接到等值但不同 list 对象的 outer transcript，且仍是各自新建的 Task/role system prompt。
 
@@ -277,13 +277,13 @@ def test_repl_collaboration_stores_only_public_projection(monkeypatch) -> None:
     assert "SECRET SOURCE" not in str(history[1].content)
 ```
 
-- [ ] **Step 2: 运行协作测试确认失败**
+- [x] **Step 2: 运行协作测试确认失败**
 
 Run: `rtk uv run pytest tests/test_collaboration_integrations.py tests/test_cli.py -q`
 
 Expected: FAIL；协作入口不接受 `session_messages`，各角色未收到 prior context，或 REPL 没有生成公开投影。
 
-- [ ] **Step 3: 实现 prior context 透传和确定性投影**
+- [x] **Step 3: 实现 prior context 透传和确定性投影**
 
 在 `cli.run_collaboration_once()` 和 `_cli_collaboration.run_collaboration_once()` 增加可选 `session_messages` 参数。在 `_cli_collaboration` 的 `OwnedRoleTask.run()` 中，以 `list(session_messages or ())` 调用每个 role Task；不得将某一 role 返回的 transcript 传给另一 role。
 
@@ -302,13 +302,13 @@ def _project_collaboration_report(goal: str, report: CollaborationReport) -> lis
     ]
 ```
 
-- [ ] **Step 4: 运行协作测试确认通过**
+- [x] **Step 4: 运行协作测试确认通过**
 
 Run: `rtk uv run pytest tests/test_collaboration_integrations.py tests/test_cli.py -q`
 
 Expected: PASS；每个协作角色接收独立外层 history，外层会话只含公开、确定性且有界的协作结果。
 
-- [ ] **Step 5: 提交 Task 3**
+- [x] **Step 5: 提交 Task 3**
 
 ```bash
 rtk git add src/forgeagent/_cli_repl.py src/forgeagent/cli.py src/forgeagent/_cli_collaboration.py tests/test_collaboration_integrations.py tests/test_cli.py
