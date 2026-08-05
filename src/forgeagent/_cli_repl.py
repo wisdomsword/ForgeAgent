@@ -51,9 +51,7 @@ from .tools import Tier
 ClientFactory = Callable[[str], ModelClient]
 
 
-def _project_collaboration_report(
-    goal: str, report: CollaborationReport
-) -> list[Message]:
+def _project_collaboration_report(goal: str, report: CollaborationReport) -> list[Message]:
     """Return the bounded public pair that may cross a REPL task boundary."""
     lines = [
         "collaboration_result",
@@ -81,6 +79,7 @@ def _project_collaboration_report(
         Message(role=Role.USER, content=goal),
         Message(role=Role.ASSISTANT, content=content[:4096]),
     ]
+
 
 _STARTUP_COLOURS = (
     "red",
