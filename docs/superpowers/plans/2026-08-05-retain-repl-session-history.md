@@ -329,7 +329,7 @@ rtk git commit -m "feat: project collaboration results into repl history"
 - Produces: `/new` 与 `/reset` 同义命令：不创建 `Task`、不调用 provider，执行 `session_messages.clear()` 与 `staged_images = None`，并输出固定有界确认。
 - Produces: 新 Task 在历史含 `RequestFilesystemAccess` 批准文本或成功 feedback 时仍以 project scope 开始，并由当前 Task 自己的 confirmer 决定授权。
 
-- [ ] **Step 1: 写入会先失败的 reset 和权限隔离测试**
+- [x] **Step 1: 写入会先失败的 reset 和权限隔离测试**
 
 在 `tests/test_cli.py` 增加参数化 `/new`、`/reset`：先产生带图片的历史，执行命令，再输入新 goal；断言 client factory/provider 调用数不因 reset 增加，下一请求只有新 system + 新 user，不含旧图片或历史；断言输出为一条有界确认。断言当前 model、tier、memory manager、mcp 对象与累计 usage 的第二个任务总量没有被 reset 改变。
 
@@ -349,19 +349,19 @@ def test_repl_reset_does_not_call_provider_and_discards_history(command: str) ->
     assert "session reset" in console.export_text().lower()
 ```
 
-- [ ] **Step 2: 运行 reset 与授权回归确认失败**
+- [x] **Step 2: 运行 reset 与授权回归确认失败**
 
 Run: `rtk uv run pytest tests/test_cli.py tests/test_task.py tests/test_collaboration_integrations.py -q`
 
 Expected: FAIL；`/new`、`/reset` 落入未知命令分支，或第二 Task 错误地继承了历史/图片/文件系统授权。
 
-- [ ] **Step 3: 实现同义 reset 命令并保持 task-scoped 授权**
+- [x] **Step 3: 实现同义 reset 命令并保持 task-scoped 授权**
 
 在 `_cli_repl.repl()` 的 slash command 分发中、任何模型/协作路由之前，处理 `goal in {"/new", "/reset"}`：`session_messages.clear()`，`staged_images = None`，`console.print("[green]session reset[/green]")`，然后 `continue`。将 `/new` 与 `/reset` 加入现有命令表或帮助文本的同一条目，确保它们显示为同义操作且没有新命令解析层。
 
 不要为授权增加任何继承实现：Task 继续在构造时新建 backend、Runtime、receipt store 和 ToolContext；history 仅流向 `Task.run()` 的新增 `session_messages` provider 消息。保留现有 per-Task `RequestFilesystemAccess` confirmer/decision 状态。
 
-- [ ] **Step 4: 运行全部质量门禁与受控 smoke**
+- [x] **Step 4: 运行全部质量门禁与受控 smoke**
 
 Run: `rtk uv run ruff check src tests`
 
@@ -389,7 +389,7 @@ Expected: PASS，无空白错误。
 
 受控 smoke：以注入式 `MockClient` 驱动两条 REPL 输入，第一条返回澄清问题、第二条回答；断言第二个 provider request 是 `[SYSTEM, USER(original), ASSISTANT(question), USER(answer)]`，并单独运行 `/reset` 后断言下一请求回到 `[SYSTEM, USER]`。
 
-- [ ] **Step 5: 审查变更并提交 Task 4**
+- [x] **Step 5: 审查变更并提交 Task 4**
 
 审查 `rtk git diff 2c8f528224d79a91b6cbe3476db8b6b979b236a4 -- src/forgeagent tests`：确认没有持久化、没有新增依赖、没有旧 system prompt 或私有协作内容进入 transcript，且非任务命令和异常没有更新会话。
 

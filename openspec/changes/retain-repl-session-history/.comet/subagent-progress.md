@@ -5,7 +5,7 @@
 - Review mode: standard
 - Current task: Task 4: 添加会话重置命令并验证授权不跨 Task
 - OpenSpec mapping: 1.1 增加先失败的 Task/context 测试，覆盖历史输入、刷新 system prompt、跨输入配对、有界滑动和序列化排除；1.2 实现 Task 会话记录输入输出，同时保持单次运行与 HTTP 结果契约
-- Stage: implementing
+- Stage: checkoff
 - Base commit: 35692bd
 - Implementation commit: abcd573
 - Changed files: src/forgeagent/context.py, src/forgeagent/step.py, src/forgeagent/task.py, tests/test_context.py, tests/test_http_server.py, tests/test_step.py, tests/test_task.py
@@ -17,3 +17,4 @@
 - Reviewer: Acceptable; no Critical/Important findings. Minor coverage note: add explicit image-goal and multi-history trimming regressions to final verification if practical.
 - Task 2 self-review: two passes found no behavioral or compatibility issue; focused suite 362 passed, Ruff and diff check passed. Independent review note: route helper preserves prior transcript only after a successful outcome and does not add management commands.
 - Task 3 self-review: two passes found no projection leak or role-state sharing; focused suite 366 passed, Ruff and diff check passed.
+- Task 4 self-review: two passes found reset and task-scoped authorization behavior consistent. Focused suite 436 passed; full-suite environment failures were isolated and 16 escalated reruns passed.
