@@ -58,7 +58,7 @@
 ### 代码评审
 
 - [x] 已委派独立 subagent 审查相对 `b2716e2` 基线的本里程碑 diff。
-- [x] 两轮自评检查 resolver 公式、交互 gating、probe 生命周期、协议 schema、Task 配对和敏感信息边界；未发现 P0-P2 问题。
+- [x] 两轮自评检查 resolver 公式、交互 gating、probe 生命周期、协议 schema、Task 配对和敏感信息边界；独立审查确认未发现 P0/P1/P2 问题，HTTP schema 与工具参数未漂移。
 - [x] 未发现需要回退到 build 或继续修改的 P0-P2 代码问题；配置字节保真残余风险单独记录在“遗留问题”。
 
 ### 验收评审
@@ -66,7 +66,7 @@
 - [x] REPL 会话专项：`736 passed, 10 skipped`，CLI reset 专项 `343 passed`；第二个任务收到完整历史，`/reset` 后恢复干净会话。
 - [x] 第二变更专项：`742 passed, 10 skipped`；跨 Task1–3 回归 `547 passed`；Ruff check 和 diff check 通过。
 - [x] 真实模型 REPL smoke：同一 session 完成两条输入，重复文件报告为 1 组/2 个文件，审计仅记录 1 次 `Exec`，没有以 FileList 截断片段收尾。
-- [x] 完整 pytest 在受限沙箱为 `2953 passed, 23 skipped, 15 failed`；失败均为 loopback/审计路径/构建权限限制，对应提升权限集合 `52 passed`。
+- [x] 完整 pytest 在受限沙箱为 `2953 passed, 23 skipped, 15 failed`；失败均为 loopback/审计临时文件/构建权限限制，对应提升权限集合 `52 passed`。
 - [x] `openspec validate --all --strict`：`44 passed, 0 failed`；两个 Comet change 均 verify/pass/archive。
 - [x] `mypy src` 未执行成功，原始错误为 `Failed to spawn: mypy`；`ruff format --check` 仅报告第二变更基线已有的 `tests/test_task.py` 格式差异，均已在报告中如实记录。
 
@@ -75,6 +75,7 @@
 - [ ] 项目外配置修改的非目标字节保真未能证明 — 影响：无法提供修改前后 filtered digest 相等的证据 — 计划：当前目标已满足且未暴露 key；后续若需编辑该配置，必须先获得项目外路径授权并重新设计可审计的字节级修改流程。
 - [ ] `mypy` 当前环境不可用 — 影响：静态类型检查未完成 — 计划：在提供 mypy 的 CI/开发环境补跑，不阻塞本里程碑行为验收。
 - [ ] 受限沙箱无法验证 loopback、默认外部审计路径和完整 `uv build` — 影响：这些环境边界未在本沙箱直接通过 — 计划：保留失败原样，在具备对应权限的 CI/主机复验。
+- [ ] 尚未有独立的真实 TTY 多目标 transcript/context-trim 断言 — 影响：真实 TTY 的完整多目标续接和裁剪组合只由受控 smoke 与非交互回归覆盖 — 计划：在允许默认审计路径写入的环境补跑，不改变当前会话和权限语义。
 
 ## 续接指引
 
