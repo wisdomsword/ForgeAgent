@@ -53,7 +53,10 @@ from forgeagent.mcp_manager import MCPManager, MCPServerConfig, MCPServerDiagnos
 from forgeagent.model_registry import RegistryError
 from forgeagent.models import (
     AssistantMessage,
+    ImageItem,
+    Message,
     ModelCapability,
+    Role,
     StreamEvent,
     StreamEventKind,
     TokenUsage,
@@ -3589,7 +3592,7 @@ def test_repl_cache_rate_accumulates_without_reusing_task_messages():
         read_line=lambda prompt: next(inputs),
     )
 
-    assert received_message_counts == [2, 2]
+    assert received_message_counts == [2, 4]
     assert console.export_text().count("cache_hit=40.0%") == 1
 
 
@@ -5412,6 +5415,102 @@ def test_repl_image_staged_then_consumed_by_next_goal(tmp_path):
     text = console.export_text()
     assert "loaded" in text
     assert "completed" in text
+
+
+def test_repl_single_routes_reuse_only_last_successful_transcript(monkeypatch):
+    calls: list[tuple[str, object]] = []
+    history = [
+        Message(role=Role.USER, content="first"),
+        Message(role=Role.ASSISTANT, content="follow-up question"),
+    ]
+
+    def run_goal(goal, **kwargs):
+        calls.append((goal, kwargs.get("session_messages")))
+        return SimpleNamespace(session_messages=history)
+
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: None)
+    monkeypatch.setattr(cli_module, "run_once", run_goal)
+    inputs = iter(["first", "/help", "/single second", "quit"])
+
+    repl(
+        tier="trusted",
+        model="mock",
+        client_factory=lambda _model: SimpleNamespace(),
+        console=_console(),
+        read_line=lambda _prompt: next(inputs),
+        confirmation_available=False,
+        no_identity=True,
+        no_memory=True,
+        use_registry_snapshot=False,
+    )
+
+    assert calls[0] == ("first", [])
+    assert calls[1] == ("second", history)
+    assert calls[0][1] is not calls[1][1]
+
+
+def test_repl_inline_image_route_reuses_transcript(monkeypatch):
+    calls: list[tuple[str, object, object]] = []
+    history = [Message(role=Role.USER, content="first"), Message(role=Role.ASSISTANT, content="ok")]
+
+    def run_goal(goal, **kwargs):
+        calls.append((goal, kwargs.get("session_messages"), kwargs.get("images")))
+        return SimpleNamespace(session_messages=history)
+
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: None)
+    monkeypatch.setattr(cli_module, "run_once", run_goal)
+    monkeypatch.setattr(
+        cli_module,
+        "_handle_image_command",
+        lambda _goal, _console: ([ImageItem(media_type="image/png", data="abc")], "with image"),
+    )
+    inputs = iter(["first", "/image path with image", "quit"])
+
+    repl(
+        tier="trusted",
+        model="mock",
+        client_factory=lambda _model: SimpleNamespace(),
+        console=_console(),
+        read_line=lambda _prompt: next(inputs),
+        confirmation_available=False,
+        no_identity=True,
+        no_memory=True,
+        use_registry_snapshot=False,
+    )
+
+    assert calls[1][0] == "with image"
+    assert calls[1][1] == history
+    assert calls[1][2]
+
+
+def test_repl_single_route_preserves_transcript_when_run_once_raises(monkeypatch):
+    calls: list[tuple[str, object]] = []
+    history = [Message(role=Role.USER, content="first"), Message(role=Role.ASSISTANT, content="ok")]
+
+    def run_goal(goal, **kwargs):
+        calls.append((goal, kwargs.get("session_messages")))
+        if goal == "broken":
+            raise RuntimeError("boom")
+        return SimpleNamespace(session_messages=history)
+
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: None)
+    monkeypatch.setattr(cli_module, "run_once", run_goal)
+    inputs = iter(["first", "/single broken", "second", "quit"])
+
+    with pytest.raises(RuntimeError, match="boom"):
+        repl(
+            tier="trusted",
+            model="mock",
+            client_factory=lambda _model: SimpleNamespace(),
+            console=_console(),
+            read_line=lambda _prompt: next(inputs),
+            confirmation_available=False,
+            no_identity=True,
+            no_memory=True,
+            use_registry_snapshot=False,
+        )
+
+    assert calls == [("first", []), ("broken", history)]
 
 
 @pytest.mark.parametrize("goal", ["models", "reload", "mcp", "mcp status"])

@@ -19,7 +19,7 @@ import signal
 import sys
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import cast
 from uuid import uuid4
@@ -85,7 +85,7 @@ from .model_registry import (
     load_registry,
     reload_registry,
 )
-from .models import ImageItem, StreamEventKind, TokenUsage
+from .models import ImageItem, Message, StreamEventKind, TokenUsage
 from .protocol import MemoryCandidate, SurveyArgs
 from .secret_policy import mask_secrets, sensitive_env_values
 from .skills import SkillRegistry
@@ -451,6 +451,7 @@ def run_once(
     container_image: str | None = None,
     usage_total: TokenUsage | None = None,
     images: list[ImageItem] | None = None,
+    session_messages: Sequence[Message] | None = None,
     stream: bool = False,
     context_config: ContextConfig | None = None,
     memory_manager: MemoryManager | None = None,
@@ -506,11 +507,14 @@ def run_once(
         except ValueError as exc:
             raise RegistryError(f"Invalid context configuration: {exc}") from exc
 
+        run_kwargs = {"images": images}
+        if session_messages is not None:
+            run_kwargs["session_messages"] = session_messages
         if live is not None:
             with live:
-                outcome = task.run(goal, images=images)
+                outcome = task.run(goal, **run_kwargs)
         else:
-            outcome = task.run(goal, images=images)
+            outcome = task.run(goal, **run_kwargs)
     finally:
         try:
             if task is not None:

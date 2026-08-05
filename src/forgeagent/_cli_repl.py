@@ -36,7 +36,7 @@ from .context import ContextConfig
 from .identity import IdentityConfigError, IdentityConfirmer, IdentityTrustRequest
 from .mcp_manager import MCPServerDiagnostic
 from .model_registry import Registry, RegistryError
-from .models import ImageItem, TokenUsage
+from .models import ImageItem, Message, TokenUsage
 from .protocol import (
     FileWriteArgs,
     MCPArgs,
@@ -520,7 +520,34 @@ def repl(
                 diagnostics=mcp.diagnostics() if mcp is not None else (),
             )
         usage_total = TokenUsage()
+        session_messages: list[Message] = []
         staged_images: list[ImageItem] | None = None
+
+        def run_single(goal: str, *, images: list[ImageItem] | None = None) -> Any:
+            nonlocal session_messages
+            outcome = bindings.run_once(
+                goal,
+                tier=tier,
+                model=model,
+                client_factory=task_client_factory,
+                console=console,
+                asker=asker,
+                mcp=mcp,
+                confirmer=confirmer,
+                identity=identity,
+                container_image=container_image,
+                usage_total=usage_total,
+                images=images,
+                session_messages=list(session_messages),
+                stream=stream,
+                context_config=current_context,
+                memory_manager=memory_manager,
+                skills=current_skills,
+                audit_sink=audit_sink,
+            )
+            session_messages = list(getattr(outcome, "session_messages", ()))
+            return outcome
+
         while True:
             try:
                 prompt = "forge> " if interactive else ""
@@ -557,25 +584,7 @@ def repl(
                     continue
                 goal = inline_goal
                 staged_images = None
-                bindings.run_once(
-                    goal,
-                    tier=tier,
-                    model=model,
-                    client_factory=task_client_factory,
-                    console=console,
-                    asker=asker,
-                    mcp=mcp,
-                    confirmer=confirmer,
-                    identity=identity,
-                    container_image=container_image,
-                    usage_total=usage_total,
-                    images=images,
-                    stream=stream,
-                    context_config=current_context,
-                    memory_manager=memory_manager,
-                    skills=current_skills,
-                    audit_sink=audit_sink,
-                )
+                run_single(goal, images=images)
                 continue
             if goal == "/mcp" or goal.startswith("/mcp "):
                 bindings.handle_mcp_slash(goal, mcp, console)
@@ -660,24 +669,7 @@ def repl(
                     continue
                 if decision.mode == "single":
                     emit_collaboration_route(audit_sink, decision, "single")
-                    bindings.run_once(
-                        collaboration_goal,
-                        tier=tier,
-                        model=model,
-                        client_factory=task_client_factory,
-                        console=console,
-                        asker=asker,
-                        mcp=mcp,
-                        confirmer=confirmer,
-                        identity=identity,
-                        container_image=container_image,
-                        usage_total=usage_total,
-                        stream=stream,
-                        context_config=current_context,
-                        memory_manager=memory_manager,
-                        skills=current_skills,
-                        audit_sink=audit_sink,
-                    )
+                    run_single(collaboration_goal)
                     continue
                 bindings.run_collaboration_once(
                     collaboration_goal,
@@ -714,25 +706,7 @@ def repl(
             decision = resolve_collaboration_mode(goal, None)
             if decision.mode == "single":
                 emit_collaboration_route(audit_sink, decision, None)
-                bindings.run_once(
-                    goal,
-                    tier=tier,
-                    model=model,
-                    client_factory=task_client_factory,
-                    console=console,
-                    asker=asker,
-                    mcp=mcp,
-                    confirmer=confirmer,
-                    identity=identity,
-                    container_image=container_image,
-                    usage_total=usage_total,
-                    images=staged_images,
-                    stream=stream,
-                    context_config=current_context,
-                    memory_manager=memory_manager,
-                    skills=current_skills,
-                    audit_sink=audit_sink,
-                )
+                run_single(goal, images=staged_images)
             else:
                 bindings.run_collaboration_once(
                     goal,
