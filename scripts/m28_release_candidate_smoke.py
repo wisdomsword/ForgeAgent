@@ -348,7 +348,7 @@ def run_installed(output: Path, wheel_sha256: str) -> int:
             or not console.is_file()
             or not console.is_relative_to(prefix)
             or "claude-sonnet-5" not in models
-            or "ForgeAgent Agent" not in prompt
+            or "You are ForgeAgent" not in prompt
         ):
             raise RuntimeError("installed wheel provenance check failed")
         checks[current] = "passed"

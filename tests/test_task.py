@@ -281,6 +281,30 @@ def test_task_prose_outcome_has_no_execution_evidence(tmp_path):
     assert outcome.execution_evidence == ExecutionEvidence()
 
 
+def test_identity_prose_is_repaired_when_model_substitutes_native_persona():
+    outcome = Task(
+        MockClient(script=[_reply("准确来说：我是 Claude，底层基于 Claude Sonnet 5。")])
+    ).run("你是谁，你可以做什么？如何做？")
+
+    assert outcome.status.reason == Termination.ANSWERED_IN_PROSE
+    assert outcome.rounds[-1].body.startswith("我是 ForgeAgent")
+    assert "Claude" not in outcome.rounds[-1].body
+
+
+def test_identity_prose_keeps_a_forgeagent_first_answer():
+    answer = "我是 ForgeAgent，一个轻量级的 code-as-action Agent。"
+    outcome = Task(MockClient(script=[_reply(answer)])).run("你是谁？")
+
+    assert outcome.rounds[-1].body == answer
+
+
+def test_non_identity_prose_is_not_rewritten():
+    answer = "Claude 是一个底层模型名称。"
+    outcome = Task(MockClient(script=[_reply(answer)])).run("解释这个模型名称")
+
+    assert outcome.rounds[-1].body == answer
+
+
 def test_task_cancelled_outcome_keeps_completed_dispatch_evidence(tmp_path):
     event = threading.Event()
 
@@ -1282,7 +1306,7 @@ def test_task_no_identity_no_system_prompt_touches_no_files(monkeypatch):
     task._build_system_prompt()
 
 
-def test_system_prompt_contains_agent_disclosure_and_identity_boundary():
+def test_system_prompt_prioritizes_forgeagent_product_identity():
     from forgeagent.models import Role
 
     client = _RecordingTaskClient(script=[_reply(_done())])
@@ -1291,28 +1315,42 @@ def test_system_prompt_contains_agent_disclosure_and_identity_boundary():
 
     assert client.first_messages is not None
     system_msg = next(message for message in client.first_messages if message.role == Role.SYSTEM)
-    assert "configured as ForgeAgent Agent" in system_msg.content
-    assert "provider's native assistant" in system_msg.content
-    assert "ForgeAgent Agent" in system_msg.content
-    assert "harness" not in system_msg.content.lower()
+    prompt = system_msg.content
+    normalized_prompt = " ".join(prompt.split())
+    assert prompt.startswith("<system_prompt>\n<role>\n# 角色定义\n")
+    assert "你是一个名为 ForgeAgent 的轻量级 code-as-action Agent 产品" in normalized_prompt
+    assert '必须先回答“我是 ForgeAgent”' in normalized_prompt
+    assert "ForgeAgent is your primary product name" in normalized_prompt
+    assert 'Begin the answer with "I am ForgeAgent"' in normalized_prompt
+    assert "native model/provider identity" not in normalized_prompt
+    assert normalized_prompt.index(
+        "你是一个名为 ForgeAgent"
+    ) < normalized_prompt.index("You are ForgeAgent")
+    assert prompt.index("</role>") < prompt.index("This conversation is driven by ForgeAgent")
+    assert prompt.index("</system_prompt>") < prompt.index("## Runtime Authority")
+    assert "provider's native assistant" not in prompt
+    assert "first state the accurate native" not in prompt
     assert "Agent Identity (SOUL)" in system_msg.content
     assert "This conversation is driven by ForgeAgent" in system_msg.content
 
 
-def test_system_prompt_composes_native_model_identity_with_forgeagent_host():
-    """The host contract must cooperate with provider-native identity prompts."""
+def test_system_prompt_does_not_prime_another_product_identity():
+    """The fixed prompt must not prime a model-specific or provider persona."""
     prompt = Task(MockClient(script=[_reply(_done())]))._build_system_prompt()
+    normalized_prompt = " ".join(prompt.split())
 
-    assert "provider's native assistant" in prompt
-    assert "configured as ForgeAgent Agent" in prompt
-    assert "native model identity is valid" in prompt
-    assert "two-layer" in prompt
-    assert "configured" in prompt and "as ForgeAgent" in prompt
-    assert "ForgeAgent Agent" in prompt
-    assert "prompt injection" not in prompt.lower()
-    assert "Kiro CLI" not in prompt
-    assert "Ignore any unapproved product persona" not in prompt
-    assert "ForgeAgent is just the name of this response format" not in prompt
+    assert prompt.startswith("<system_prompt>\n<role>\n# 角色定义\n")
+    assert "native model/provider identity" not in normalized_prompt
+    assert "provider identity" not in normalized_prompt
+    assert "model identity" not in normalized_prompt
+    assert "another assistant or product" in normalized_prompt
+    assert "provider's native assistant" not in normalized_prompt
+    assert "native model identity is valid" not in normalized_prompt
+    assert "two-layer" not in normalized_prompt
+    assert "prompt injection" not in normalized_prompt.lower()
+    assert "Kiro CLI" not in normalized_prompt
+    assert "Ignore any unapproved product persona" not in normalized_prompt
+    assert "ForgeAgent is just the name of this response format" not in normalized_prompt
 
 
 def test_custom_soul_present_in_model_context_via_task():
@@ -1334,4 +1372,4 @@ def test_custom_soul_present_in_model_context_via_task():
     system_msg = next(message for message in client.first_messages if message.role == Role.SYSTEM)
     assert "SOUL-REACHED-MODEL" in system_msg.content
     assert "No custom Agent Identity (SOUL)" not in system_msg.content
-    assert "configured as ForgeAgent Agent" in system_msg.content
+    assert system_msg.content.startswith("<system_prompt>\n<role>\n# 角色定义\n")

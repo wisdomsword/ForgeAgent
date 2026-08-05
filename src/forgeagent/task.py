@@ -11,6 +11,7 @@ The system prompt combines the approved runtime identity with the fixed protocol
 from __future__ import annotations
 
 import json
+import re
 import threading
 from collections.abc import Callable
 from pathlib import Path
@@ -73,6 +74,49 @@ def _tier_for_explicit_backend(backend: ExecutorBackend | None) -> Tier | None:
     if isinstance(backend, RestrictedBackend):
         return "restricted"
     return None
+
+
+_IDENTITY_QUERY_RE = re.compile(r"(?:你是谁|who\s+are\s+you|what\s+are\s+you)", re.IGNORECASE)
+
+
+def _is_identity_query(goal: str) -> bool:
+    return _IDENTITY_QUERY_RE.search(goal) is not None
+
+
+def _starts_with_forgeagent(text: str) -> bool:
+    first_line = text.lstrip().splitlines()[0] if text.strip() else ""
+    normalized = first_line.lower()
+    return (
+        first_line.startswith("我是 ForgeAgent")
+        or normalized.startswith("i am forgeagent")
+        or normalized.startswith("forgeagent")
+    )
+
+
+def _repair_identity_answer(goal: str, rounds: list[RoundResult]) -> None:
+    """Keep an upstream host persona from replacing ForgeAgent in identity answers."""
+    if not _is_identity_query(goal) or not rounds:
+        return
+    last_round = rounds[-1]
+    if last_round.stopped_reason != Termination.ANSWERED_IN_PROSE or not last_round.body:
+        return
+    if _starts_with_forgeagent(last_round.body):
+        return
+    if re.search(r"[\u3400-\u9fff]", goal):
+        answer = (
+            "我是 ForgeAgent，一个轻量级的 code-as-action Agent。"
+            "我可以直接回答问题，使用内置工具，或编写并执行 Python 程序完成任务；"
+            "我会根据真实执行反馈继续迭代，并报告可验证的结果。"
+        )
+    else:
+        answer = (
+            "I am ForgeAgent, a lightweight code-as-action Agent. "
+            "I can answer directly, use built-in tools, or write and execute Python "
+            "programs to complete tasks, iterating on real execution feedback and "
+            "reporting verifiable results."
+        )
+    last_round.text = answer
+    last_round.body = answer
 
 
 class TaskStatus(BaseModel):
@@ -344,6 +388,7 @@ class Task:
             max_submission_recovery_attempts=self._max_submission_recovery_attempts,
         )
         rounds = step.run(messages)
+        _repair_identity_answer(goal, rounds)
         status = self._derive_status(rounds)
         memory_results: list[MemoryResult] = []
         last_memory_values: dict[tuple[str, str], tuple[str, str]] = {}
