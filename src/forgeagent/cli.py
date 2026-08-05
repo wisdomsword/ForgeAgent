@@ -1079,6 +1079,8 @@ def _handle_image_command(goal: str, console: Console) -> tuple[list[ImageItem] 
 # Usage lines for every `/`-prefixed command — the single source `/help` and the bare
 # `/` auto-menu (design doc §3.5) both render from, so the two never drift apart.
 _SLASH_COMMAND_USAGE: dict[str, str] = {
+    "/new": "/new or /reset — clear the current conversation and staged images",
+    "/reset": "/new or /reset — clear the current conversation and staged images",
     "/single": "/single <goal> — Force the standard single-agent route",
     "/duo": "/duo <goal> — Generator plus independent Evaluator (higher cost)",
     "/triad": "/triad <goal> — Planner confirmation, Generator, and Evaluator (highest cost)",

@@ -628,6 +628,11 @@ def repl(
             if goal == "/":
                 bindings.print_command_menu(console)
                 continue
+            if goal in {"/new", "/reset"}:
+                session_messages.clear()
+                staged_images = None
+                console.print("[green]session reset[/green]")
+                continue
             if goal == "/model" or goal.startswith("/model "):
                 model = bindings.handle_model_command(
                     goal,

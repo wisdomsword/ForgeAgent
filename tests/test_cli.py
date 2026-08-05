@@ -5560,6 +5560,46 @@ def test_repl_collaboration_reuses_only_public_projection(monkeypatch):
     assert "private" not in str(second_history[1].content)
 
 
+@pytest.mark.parametrize("command", ["/new", "/reset"])
+def test_repl_reset_discards_history_and_staged_images(monkeypatch, command):
+    calls: list[dict[str, object]] = []
+    history = [
+        Message(role=Role.USER, content="old"),
+        Message(role=Role.ASSISTANT, content="answer"),
+    ]
+
+    def run_goal(_goal, **kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(session_messages=history)
+
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: None)
+    monkeypatch.setattr(cli_module, "run_once", run_goal)
+    monkeypatch.setattr(
+        cli_module,
+        "_handle_image_command",
+        lambda _goal, _console: ([ImageItem(media_type="image/png", data="abc")], None),
+    )
+    inputs = iter(["first", "/image photo.png", command, "second", "quit"])
+    console = _console()
+
+    repl(
+        tier="trusted",
+        model="mock",
+        client_factory=lambda _model: SimpleNamespace(),
+        console=console,
+        read_line=lambda _prompt: next(inputs),
+        confirmation_available=False,
+        no_identity=True,
+        no_memory=True,
+        use_registry_snapshot=False,
+    )
+
+    assert len(calls) == 2
+    assert calls[1]["session_messages"] == []
+    assert calls[1]["images"] is None
+    assert "session reset" in console.export_text().lower()
+
+
 @pytest.mark.parametrize("goal", ["models", "reload", "mcp", "mcp status"])
 def test_repl_bare_former_commands_run_as_goals(goal, monkeypatch):
     import forgeagent.cli as cli_module
