@@ -21,7 +21,7 @@ from .collaboration import (
     emit_collaboration_route,
     resolve_collaboration_mode,
 )
-from .context import ContextConfig
+from .context import ContextConfig, ResolvedFeedbackLimits
 from .identity import ApprovedIdentity
 from .mcp_manager import MCPManager
 from .memory import MemoryManager
@@ -40,7 +40,7 @@ class CollaborationBindings:
 
     runner_type: type[CollaborationRunner]
     task_type: type[Task]
-    validate_context_policy: Callable[[ModelClient, ContextConfig], None]
+    validate_context_policy: Callable[[ModelClient, ContextConfig], ResolvedFeedbackLimits]
     render_execution_evidence: ExecutionEvidenceRenderer
 
 
