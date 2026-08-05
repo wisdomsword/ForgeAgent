@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from rich.console import Console
 
 import forgeagent.cli as cli_module
+from forgeagent._cli_repl import _project_collaboration_report
 from forgeagent.audit import AuditEvent
 from forgeagent.cli import build_parser, repl, run_collaboration_once
 from forgeagent.client import MockClient
@@ -27,7 +28,7 @@ from forgeagent.execution_evidence import (
     ToolExecutionRecord,
     resolve_local_artifact_path,
 )
-from forgeagent.models import AssistantMessage, ModelCapability, TokenUsage
+from forgeagent.models import AssistantMessage, Message, ModelCapability, Role, TokenUsage
 from forgeagent.task import Task
 from forgeagent.tools import Tool, ToolOutcome, default_registry
 
@@ -304,6 +305,103 @@ def test_run_collaboration_wraps_role_client_configuration_errors(tmp_path, monk
             console=Console(record=True, force_terminal=False),
         )
     assert built >= 1
+
+
+@pytest.mark.parametrize("mode", ["duo", "triad"])
+def test_run_collaboration_gives_each_role_a_copy_of_outer_history(tmp_path, monkeypatch, mode):
+    outer = [
+        Message(role=Role.USER, content="earlier goal"),
+        Message(role=Role.ASSISTANT, content="earlier result"),
+    ]
+    seen: dict[str, tuple[object, list[Message]]] = {}
+
+    class FakeTask:
+        def __init__(self, _client, **_kwargs):
+            self.role = _kwargs["system_prompt"]
+
+        def run(self, _goal, **kwargs):
+            seen[self.role] = (kwargs["session_messages"], list(kwargs["session_messages"]))
+            return SimpleNamespace()
+
+        def close(self):
+            pass
+
+    class FakeRunner:
+        @classmethod
+        def create(cls, **kwargs):
+            instance = cls()
+            instance.builder = kwargs["role_task_builder"]
+            instance.mode = kwargs["mode"]
+            return instance
+
+        def run(self, _goal, *, cancel_event=None):
+            del cancel_event
+            roles = ["generator", "evaluator"]
+            if self.mode == "triad":
+                roles.insert(0, "planner")
+            for role in roles:
+                task = self.builder(role, 1, SimpleNamespace(), f"{role}-system")
+                try:
+                    task.run("role goal")
+                finally:
+                    task.close()
+            return _report(mode=self.mode)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(cli_module, "CollaborationRunner", FakeRunner)
+    monkeypatch.setattr(cli_module, "Task", FakeTask)
+    monkeypatch.setattr(cli_module, "_validate_client_context_policy", lambda *_args: None)
+
+    class Client:
+        def close(self):
+            pass
+
+    run_collaboration_once(
+        "current goal",
+        mode=mode,
+        tier="trusted",
+        model="mock",
+        planner_model=None,
+        evaluator_model=None,
+        max_rejections=2,
+        client_factory=lambda _model: Client(),
+        allowed_root=str(tmp_path),
+        console=Console(record=True, force_terminal=False),
+        session_messages=outer,
+    )
+
+    expected_roles = {"generator-system", "evaluator-system"}
+    if mode == "triad":
+        expected_roles.add("planner-system")
+    assert set(seen) == expected_roles
+    histories = [value[0] for value in seen.values()]
+    assert all(history == outer for history in histories)
+    assert len({id(history) for history in histories}) == len(histories)
+
+
+def test_collaboration_projection_excludes_private_role_details():
+    report = _report(
+        evidence=("private evaluator critique",),
+        execution_evidence=ExecutionEvidence(
+            records=(
+                ToolExecutionRecord(
+                    sequence=1,
+                    tool="Exec",
+                    status="succeeded",
+                    block="candidate.py",
+                    artifact=None,
+                ),
+            )
+        ),
+    )
+    pair = _project_collaboration_report("build it", report)
+    assert pair[0] == Message(role=Role.USER, content="build it")
+    assert pair[1].role is Role.ASSISTANT
+    assert "private evaluator critique" in str(pair[1].content)
+    assert "candidate.py" not in str(pair[1].content)
+    assert "artifact" not in str(pair[1].content)
 
 
 @pytest.mark.parametrize("mode", ["duo", "triad"])

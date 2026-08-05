@@ -5513,6 +5513,53 @@ def test_repl_single_route_preserves_transcript_when_run_once_raises(monkeypatch
     assert calls == [("first", []), ("broken", history)]
 
 
+def test_repl_collaboration_reuses_only_public_projection(monkeypatch):
+    calls: list[tuple[str, object]] = []
+
+    def run_collaboration(goal, **kwargs):
+        calls.append((goal, kwargs["session_messages"]))
+        return CollaborationReport(
+            collaboration_id="d" * 32,
+            mode="duo",
+            status="completed",
+            stop_reason="completed",
+            phase="completed",
+            plan_item_count=1,
+            passed_item_count=1,
+            failed_item_count=0,
+            generator_attempts=1,
+            evaluator_attempts=1,
+            rejections=0,
+            rounds=2,
+            usage=CollaborationUsage(),
+            usage_available=False,
+            evidence=("public evidence",),
+        )
+
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: None)
+    monkeypatch.setattr(cli_module, "run_collaboration_once", run_collaboration)
+    inputs = iter(["/duo first", "/duo second", "quit"])
+
+    repl(
+        tier="trusted",
+        model="mock",
+        client_factory=lambda _model: SimpleNamespace(),
+        console=_console(),
+        read_line=lambda _prompt: next(inputs),
+        confirmation_available=False,
+        no_identity=True,
+        no_memory=True,
+        use_registry_snapshot=False,
+    )
+
+    assert calls[0][1] == []
+    second_history = calls[1][1]
+    assert [message.role for message in second_history] == [Role.USER, Role.ASSISTANT]
+    assert second_history[0].content == "first"
+    assert "mode=duo" in str(second_history[1].content)
+    assert "private" not in str(second_history[1].content)
+
+
 @pytest.mark.parametrize("goal", ["models", "reload", "mcp", "mcp status"])
 def test_repl_bare_former_commands_run_as_goals(goal, monkeypatch):
     import forgeagent.cli as cli_module

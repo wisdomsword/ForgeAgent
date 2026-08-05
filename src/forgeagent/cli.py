@@ -552,6 +552,7 @@ def run_collaboration_once(
     task_id: str | None = None,
     route_decision: ModeDecision | None = None,
     required_candidate_files: tuple[str, ...] = (),
+    session_messages: Sequence[Message] | None = None,
 ) -> CollaborationReport:
     return _cli_collaboration.run_collaboration_once(
         goal,
@@ -583,6 +584,7 @@ def run_collaboration_once(
         task_id=task_id,
         route_decision=route_decision,
         required_candidate_files=required_candidate_files,
+        session_messages=session_messages,
     )
 
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
@@ -25,6 +25,7 @@ from .context import ContextConfig
 from .identity import ApprovedIdentity
 from .mcp_manager import MCPManager
 from .memory import MemoryManager
+from .models import Message
 from .skills import SkillRegistry
 from .task import Task
 from .tools import Asker, Confirmer, Tier
@@ -112,6 +113,7 @@ def run_collaboration_once(
     task_id: str | None = None,
     route_decision: ModeDecision | None = None,
     required_candidate_files: tuple[str, ...] = (),
+    session_messages: Sequence[Message] | None = None,
 ) -> CollaborationReport:
     if mode not in {"duo", "triad"}:
         raise ValueError("collaboration mode must be duo or triad")
@@ -149,6 +151,8 @@ def run_collaboration_once(
             close = getattr(probe, "close", None)
             if callable(close):
                 close()
+
+    outer_session_messages = None if session_messages is None else list(session_messages)
 
     def build_role_task(role: CollaborationRole, attempt: int, registry, system_prompt: str):
         del attempt
@@ -192,7 +196,10 @@ def run_collaboration_once(
                 self._closed = False
 
             def run(self, task_goal: str, *, cancel_event=None):
-                return task.run(task_goal, cancel_event=cancel_event)
+                run_kwargs = {"cancel_event": cancel_event}
+                if outer_session_messages is not None:
+                    run_kwargs["session_messages"] = list(outer_session_messages)
+                return task.run(task_goal, **run_kwargs)
 
             def close(self) -> None:
                 if self._closed:

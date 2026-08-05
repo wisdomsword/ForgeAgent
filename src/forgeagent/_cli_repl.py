@@ -28,6 +28,7 @@ from rich.text import Text
 from .audit import AuditSink
 from .client import ModelClient
 from .collaboration import (
+    CollaborationReport,
     emit_collaboration_route,
     headless_plan_confirmer,
     resolve_collaboration_mode,
@@ -36,18 +37,50 @@ from .context import ContextConfig
 from .identity import IdentityConfigError, IdentityConfirmer, IdentityTrustRequest
 from .mcp_manager import MCPServerDiagnostic
 from .model_registry import Registry, RegistryError
-from .models import ImageItem, Message, TokenUsage
+from .models import ImageItem, Message, Role, TokenUsage
 from .protocol import (
     FileWriteArgs,
     MCPArgs,
     RequestFilesystemAccessArgs,
     WebFetchArgs,
 )
-from .secret_policy import REDACTED, is_secret_name, mask_secrets
+from .secret_policy import REDACTED, is_secret_name, mask_secrets, sensitive_env_values
 from .skills import SkillRegistry
 from .tools import Tier
 
 ClientFactory = Callable[[str], ModelClient]
+
+
+def _project_collaboration_report(
+    goal: str, report: CollaborationReport
+) -> list[Message]:
+    """Return the bounded public pair that may cross a REPL task boundary."""
+    lines = [
+        "collaboration_result",
+        f"mode={report.mode}",
+        f"status={report.status}",
+        f"stop_reason={report.stop_reason or 'active'}",
+        f"phase={report.phase}",
+        (
+            "counters="
+            f"plan={report.plan_item_count},passed={report.passed_item_count},"
+            f"failed={report.failed_item_count},generator={report.generator_attempts},"
+            f"evaluator={report.evaluator_attempts},rejections={report.rejections},"
+            f"rounds={report.rounds},usage_available={report.usage_available}"
+        ),
+    ]
+    secret_values = sensitive_env_values()
+    for evidence in report.evidence:
+        lines.append(f"evidence={mask_secrets(evidence[:160], secret_values)}")
+    for record in report.execution_evidence.records[:16]:
+        lines.append(f"execution={record.tool}:{record.status}")
+    if report.execution_evidence.truncated:
+        lines.append(f"execution_omitted={report.execution_evidence.omitted_count}")
+    content = "\n".join(lines)
+    return [
+        Message(role=Role.USER, content=goal),
+        Message(role=Role.ASSISTANT, content=content[:4096]),
+    ]
 
 _STARTUP_COLOURS = (
     "red",
@@ -548,6 +581,39 @@ def repl(
             session_messages = list(getattr(outcome, "session_messages", ()))
             return outcome
 
+        def run_collaboration(goal: str, decision: Any) -> Any:
+            nonlocal session_messages
+            report = bindings.run_collaboration_once(
+                goal,
+                mode=decision.mode,
+                route_decision=decision,
+                tier=tier,
+                model=model,
+                planner_model=None,
+                evaluator_model=None,
+                max_rejections=2,
+                client_factory=task_client_factory,
+                allowed_root=allowed_root,
+                console=console,
+                plan_confirmer=(
+                    bindings.console_plan_confirmer(console, read_line)
+                    if confirmation_available
+                    else headless_plan_confirmer("deny")
+                ),
+                asker=asker,
+                mcp=mcp,
+                confirmer=confirmer,
+                identity=identity,
+                container_image=container_image,
+                context_config=current_context,
+                memory_manager=memory_manager,
+                skills=current_skills,
+                audit_sink=audit_sink,
+                session_messages=list(session_messages),
+            )
+            session_messages.extend(_project_collaboration_report(goal, report))
+            return report
+
         while True:
             try:
                 prompt = "forge> " if interactive else ""
@@ -671,33 +737,7 @@ def repl(
                     emit_collaboration_route(audit_sink, decision, "single")
                     run_single(collaboration_goal)
                     continue
-                bindings.run_collaboration_once(
-                    collaboration_goal,
-                    mode=decision.mode,
-                    route_decision=decision,
-                    tier=tier,
-                    model=model,
-                    planner_model=None,
-                    evaluator_model=None,
-                    max_rejections=2,
-                    client_factory=task_client_factory,
-                    allowed_root=allowed_root,
-                    console=console,
-                    plan_confirmer=(
-                        bindings.console_plan_confirmer(console, read_line)
-                        if confirmation_available
-                        else headless_plan_confirmer("deny")
-                    ),
-                    asker=asker,
-                    mcp=mcp,
-                    confirmer=confirmer,
-                    identity=identity,
-                    container_image=container_image,
-                    context_config=current_context,
-                    memory_manager=memory_manager,
-                    skills=current_skills,
-                    audit_sink=audit_sink,
-                )
+                run_collaboration(collaboration_goal, decision)
                 continue
             if goal.startswith("/"):
                 console.print(f"[red]unknown command[/red] {goal!r}")
@@ -708,32 +748,7 @@ def repl(
                 emit_collaboration_route(audit_sink, decision, None)
                 run_single(goal, images=staged_images)
             else:
-                bindings.run_collaboration_once(
-                    goal,
-                    mode=decision.mode,
-                    route_decision=decision,
-                    tier=tier,
-                    model=model,
-                    planner_model=None,
-                    evaluator_model=None,
-                    max_rejections=2,
-                    client_factory=task_client_factory,
-                    allowed_root=allowed_root,
-                    console=console,
-                    plan_confirmer=(
-                        bindings.console_plan_confirmer(console, read_line)
-                        if confirmation_available
-                        else headless_plan_confirmer("deny")
-                    ),
-                    asker=asker,
-                    mcp=mcp,
-                    confirmer=confirmer,
-                    identity=identity,
-                    container_image=container_image,
-                    context_config=current_context,
-                    memory_manager=memory_manager,
-                    skills=current_skills,
-                )
+                run_collaboration(goal, decision)
             staged_images = None
     finally:
         display.stop()
