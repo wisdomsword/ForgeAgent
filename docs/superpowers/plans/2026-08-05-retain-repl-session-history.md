@@ -56,7 +56,7 @@ base-ref: 2c8f528224d79a91b6cbe3476db8b6b979b236a4
 - Produces: `validate_session_messages(messages: Sequence[Message]) -> list[Message]`，接受空历史或 `(USER, ASSISTANT)+` 且返回副本；非法 role、system role 或未以 assistant 结束时抛有界 `ContextBudgetExceeded`。
 - Produces: provider request context 的合法结构仍为 `[SYSTEM, first USER, (ASSISTANT, USER)*]`，其中最后的 USER 可为下一顶层输入；超预算仍抛 `ContextBudgetExceeded`。
 
-- [ ] **Step 1: 写入会先失败的 Step/Task/context/HTTP 测试**
+- [x] **Step 1: 写入会先失败的 Step/Task/context/HTTP 测试**
 
 在 `tests/test_task.py` 增加用脚本化 client 捕获 provider 请求的测试，断言带 `session_messages=history` 的新 `Task.run()` 发出精确序列：新 system、调用方 history 的等值副本、当前 user（带图片时为 `[TextItem(goal), *images]`）；并断言调用方 `history` 未被修改、history 中 `Role.SYSTEM` 在 provider 前以既有公开失败语义被拒绝。
 
@@ -95,13 +95,13 @@ def test_session_history_requires_complete_user_assistant_turns() -> None:
     assert copied is not history
 ```
 
-- [ ] **Step 2: 运行专项测试确认失败**
+- [x] **Step 2: 运行专项测试确认失败**
 
 Run: `rtk uv run pytest tests/test_step.py tests/test_task.py tests/test_context.py tests/test_http_server.py -q`
 
 Expected: FAIL during collection or execution，显示 `validate_session_messages` 不可导入、`Task.run()` 不接受 `session_messages`、`TaskOutcome` 缺少 `session_messages`，或 `Step` 没有 snapshot。现有 request-view 交替回归可以已经通过。
 
-- [ ] **Step 3: 实现最小 transcript 传递与配对规则**
+- [x] **Step 3: 实现最小 transcript 传递与配对规则**
 
 在 `Step.__init__` 初始化 `self._session_messages: list[Message] = []`，并添加返回 `list(self._session_messages)` 的只读复制属性。将 `_run_rounds()` 的局部 `convo` 提升为该状态的副本：进入时复制传入 messages，退出前将其去除首条 system 后复制到 `_session_messages`。保持现有 assistant 和 feedback 追加位置为唯一事实源；对于 client error、取消、context 失败等未追加 assistant 的终态，`Task.run()` 而不是 Step 根据 snapshot 在末尾补一条有界 assistant 终态投影，以使下次顶层 user 满足交替结构。
 
@@ -125,13 +125,13 @@ def run(self, goal: str, *, images=None, session_messages=None, cancel_event=Non
     # context policy 在首次 provider 调用前拒绝非法 prior role；随后同步 identity 修复和终态投影。
 ```
 
-- [ ] **Step 4: 运行专项测试确认通过**
+- [x] **Step 4: 运行专项测试确认通过**
 
 Run: `rtk uv run pytest tests/test_step.py tests/test_task.py tests/test_context.py tests/test_http_server.py -q`
 
 Expected: PASS；provider 只看到新 system + 合法 history + 当前 user，公开序列化不出现 transcript，window 只裁剪完整 assistant/user 单元。
 
-- [ ] **Step 5: 提交 Task 1**
+- [x] **Step 5: 提交 Task 1**
 
 ```bash
 rtk git add src/forgeagent/step.py src/forgeagent/task.py src/forgeagent/context.py tests/test_step.py tests/test_task.py tests/test_context.py tests/test_http_server.py
