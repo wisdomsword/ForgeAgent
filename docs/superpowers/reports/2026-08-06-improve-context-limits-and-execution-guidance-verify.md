@@ -26,6 +26,10 @@
 - 完整 pytest：`2980 passed, 11 skipped in 159.20s`。
 - `uv build`：source distribution 与 wheel 均成功生成。
 - 受限沙箱中的 15 条失败保持原样作为环境边界记录；提升权限后的完整结果证明它们不是产品回归。
+- 真实 PTY TTY 补充 smoke 使用项目内临时审计 sink 和固定中文重复文件任务：收到
+  2 个 `forge>` 提示，审计工具顺序为 `Survey,Exec`，`completed=1`、`error=0`，
+  没有额外报告文件；这证明了多输入会话中的真实工具执行链路，临时 fixture、审计
+  文件和脚本均已清理。
 
 ## 审查
 
