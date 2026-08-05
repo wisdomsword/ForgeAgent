@@ -453,6 +453,8 @@ def resolve_repl_feedback_limits(
         close = getattr(probe, "close", None)
         if callable(close):
             close()
+
+
 @dataclass(frozen=True)
 class ReplBindings:
     """Facade-owned collaborators resolved for each REPL invocation."""
@@ -751,10 +753,10 @@ def repl(
                 try:
                     candidate_registry = bindings.reload_registry()
                     candidate_context = bindings.load_context_config()
-                    if use_registry_snapshot:
-                            bindings.validate_context_policy(
+                    if use_registry_snapshot and not interactive:
+                        bindings.validate_context_policy(
                             model, candidate_registry, candidate_context
-                            )
+                        )
                     candidate_limits = feedback_limits
                     if interactive:
                         candidate_limits = bindings.resolve_repl_feedback_limits(

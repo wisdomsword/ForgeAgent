@@ -173,7 +173,7 @@ rtk git commit -m "feat: resolve feedback limits centrally"
 - Produces: `render_startup_summary(console: Console, *, model: str, tier: Tier, root: str, diagnostics: Sequence[MCPServerDiagnostic], feedback_limits: ResolvedFeedbackLimits | None = None) -> None`; it appends `feedback round <effective> / tool <effective>` and emits at most one `Text` warning.
 - Contract: Registry snapshot uses selected capability directly; injected client without a Registry creates exactly one display-only probe only in interactive mode and calls `close()` in `finally`; noninteractive execution returns `None` and never probes.
 
-- [ ] **Step 1: 写失败的交互边界测试**
+- [x] **Step 1: 写失败的交互边界测试**
 
 ```python
 def test_startup_summary_displays_effective_limits_and_one_bounded_low_warning():
@@ -230,13 +230,13 @@ def test_noninteractive_repl_does_not_render_or_construct_display_probe(monkeypa
 
 单独增加 `ProbeClient(MockClient)` fixture，令 `close_calls = 0` 并覆盖 `close()` 递增。通过 `_cli_repl.repl()` 的测试 binding 显式令 `interactive_repl` 返回 `True`，断言注入 client 的交互启动只 probe 一次且只 close 一次；普通注入 `read_line` 的既有非交互测试必须继续返回 `False` 且不 probe。再增加无参数 `/model` 测试，断言只展示模型列表，`feedback round ` 计数仍只有启动那一次。failed reload 测试确保失败后不发布候选摘要或告警。
 
-- [ ] **Step 2: 运行 RED 测试**
+- [x] **Step 2: 运行 RED 测试**
 
 Run: `rtk uv run pytest -q tests/test_cli.py -k 'feedback_limits or model_and_reload_refresh or display_probe'`
 
 Expected: FAIL because the renderer has no `feedback_limits` parameter and the REPL has no display-only resolution path.
 
-- [ ] **Step 3: 实现纯展示解析和受限渲染**
+- [x] **Step 3: 实现纯展示解析和受限渲染**
 
 ```python
 from collections.abc import Sequence
@@ -271,7 +271,7 @@ def render_startup_summary(
 
 Add the helper specified above. For a Registry snapshot, call the returned validator result. For an injected client, create the probe only inside `if interactive`, call `resolve_feedback_limits(probe.capability, None, current_context)`, and always call its optional `close()` in `finally`. Resolve candidates before publishing `/model` or `/reload`; on exceptions print the existing failure line and keep the previous `model`, `current_registry`, `current_context`, and last rendered limits. Pass the new binding from `cli.repl`; preserve all existing noninteractive paths by never invoking the helper there.
 
-- [ ] **Step 4: 运行 GREEN、回归与静态检查**
+- [x] **Step 4: 运行 GREEN、回归与静态检查**
 
 Run: `rtk uv run pytest -q tests/test_cli.py tests/test_context.py -k 'startup_summary or feedback_limits or reload or model or noninteractive'`
 
@@ -281,7 +281,7 @@ Run: `rtk uv run ruff check src/forgeagent/_cli_repl.py src/forgeagent/cli.py te
 
 Expected: PASS with no diagnostics.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 rtk git add src/forgeagent/_cli_repl.py src/forgeagent/cli.py tests/test_cli.py

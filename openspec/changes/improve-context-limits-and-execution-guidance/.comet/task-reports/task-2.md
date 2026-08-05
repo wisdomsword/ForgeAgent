@@ -16,3 +16,5 @@ Verification:
 - Focused REPL selection/startup tests -> 40 passed.
 - `rtk uv --cache-dir /tmp/forgeagent-task2-uv-cache run ruff check src/forgeagent/_cli_repl.py src/forgeagent/cli.py tests/test_cli.py` -> passed.
 - `rtk git diff --check` -> passed.
+
+Review revision: the first review found duplicate registry validation and a formatting defect in the reload path. The path now validates once per interactive/noninteractive route; after the fix, `399 passed`, Ruff format check, Ruff check, and diff check all passed.
