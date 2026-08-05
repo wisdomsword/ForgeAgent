@@ -300,7 +300,7 @@ rtk git commit -m "feat: show resolved feedback limits in repl"
 - Produces: 固定协议的六条顺序路由规则：知识直接回答；缺信息 Survey 并在同一 Task 继续；可完整完成的单工具；递归/哈希/聚合/转换/跨文件比较 Exec；大结果/文件交付写获准路径后只回复摘要/数量/路径；禁止用浅层/截断样本宣称完成。
 - Contract: 保留所有工具名字、精确 JSON schema、`utils` API、memory-only prose 语义、YAML 终态、安全/确认文字和 identity section order。
 
-- [ ] **Step 1: 写失败的协议与多轮 replay 测试**
+- [x] **Step 1: 写失败的协议与多轮 replay 测试**
 
 ```python
 def test_default_protocol_routes_by_complete_goal_and_preserves_contracts():
@@ -341,13 +341,13 @@ def test_protocol_mock_replay_keeps_survey_context_then_exec_and_file_delivery(t
 
 Define `_reply` locally in this test module as `return AssistantMessage(content=content, usage=TokenUsage(), stop_reason="end_turn")`, or reuse the existing same-signature helper if present. The second-request assertion proves the same Task retained Survey feedback context.
 
-- [ ] **Step 2: 运行 RED 测试**
+- [x] **Step 2: 运行 RED 测试**
 
 Run: `rtk uv run pytest -q tests/test_identity.py tests/test_task.py -k 'complete_goal or mock_replay_keeps_survey'`
 
 Expected: FAIL because the existing protocol says any matching direct tool wins and lacks the complete-goal/Sample prohibition wording.
 
-- [ ] **Step 3: 最小化修改 `protocol.md` 的路由段**
+- [x] **Step 3: 最小化修改 `protocol.md` 的路由段**
 
 ```markdown
 Use these rules in order. Pure knowledge questions may be answered directly. For an execution goal that lacks information required to continue, call Survey and, after its feedback, continue the same Task. Use one direct built-in tool only when it can complete the entire goal. Use Python code and Exec for recursive traversal, content hashing, aggregation, transformation, cross-file comparison, or organizing many results. When the user asks for an artifact or the complete result is large, write the complete result to an approved file and report only completion, key counts, a concise summary, and its path. Do not claim completion from a shallow or truncated sample.
@@ -355,7 +355,7 @@ Use these rules in order. Pure knowledge questions may be answered directly. For
 
 Replace only the opening direct-tool routing paragraphs with this content, then retain the existing ToolCall examples and all following protocol paragraphs byte-for-byte unless a line is needed to remove a contradiction. Do not add tool schemas or a new security mechanism.
 
-- [ ] **Step 4: 运行 GREEN、identity 回归与格式检查**
+- [x] **Step 4: 运行 GREEN、identity 回归与格式检查**
 
 Run: `rtk uv run pytest -q tests/test_identity.py tests/test_task.py tests/test_protocol.py -k 'protocol or survey or exec or identity'`
 
@@ -365,7 +365,7 @@ Run: `rtk uv run ruff check tests/test_identity.py tests/test_task.py`
 
 Expected: PASS with no diagnostics.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 rtk git add src/forgeagent/res/prompts/protocol.md tests/test_identity.py tests/test_task.py
@@ -381,7 +381,7 @@ rtk git commit -m "docs: guide complete execution workflows"
 - Consumes: 原始 config bytes、文件 mode、两个精确完整行。
 - Produces: 删除目标两行后的同一文件；除这两行外 bytes 不变，mode 不变，`load_context_config()` 返回两个 `None`。
 
-- [ ] **Step 1: 在不读取或回显配置正文的情况下执行前置检查**
+- [x] **Step 1: 在不读取或回显配置正文的情况下执行前置检查**
 
 ```bash
 rtk uv run python -c 'from pathlib import Path; import hashlib, stat; p=Path.home()/".forgeagent/config.yaml"; b=p.read_bytes(); lines=b.splitlines(keepends=True); targets=(b"round_feedback_max_tokens: 120", b"tool_result_max_tokens: 40"); matches=tuple([line for line in lines if line.strip()==target] for target in targets); filtered=b"".join(line for line in lines if all(line.strip()!=target for target in targets)); indent=tuple(len(items[0])-len(items[0].lstrip()) if len(items)==1 else -1 for items in matches); print(f"target-counts={tuple(map(len,matches))} indent={indent} mode={stat.S_IMODE(p.stat().st_mode):04o} filtered-sha256={hashlib.sha256(filtered).hexdigest()}"); raise SystemExit(0 if tuple(map(len,matches)) == (1, 1) else 1)'
@@ -389,7 +389,7 @@ rtk uv run python -c 'from pathlib import Path; import hashlib, stat; p=Path.hom
 
 Expected: exit `0`, exactly `target-counts=(1, 1)` plus numeric mode and digest only. Any other count: stop, do not write, and report the conflict without printing config content.
 
-- [ ] **Step 2: 使用 `apply_patch` 仅删除两条授权完整行**
+- [x] **Step 2: 使用 `apply_patch` 仅删除两条授权完整行**
 
 ```diff
 *** Begin Patch
@@ -402,7 +402,7 @@ Expected: exit `0`, exactly `target-counts=(1, 1)` plus numeric mode and digest 
 
 如果 Step 1 报告的 indent 不是 `(2, 2)`，根据实际 indent 只调整补丁中两条目标行的前导空格，不读取相邻配置正文。该写入需要使用平台对项目外 `apply_patch` 的授权通道，不能改用 Python、YAML serializer、`sed -i` 或整文件重写。
 
-- [ ] **Step 3: 立即验证 bytes/mode/加载结果**
+- [x] **Step 3: 立即验证 bytes/mode/加载结果**
 
 Run: `rtk uv run python -c 'from pathlib import Path; import hashlib, stat; from forgeagent.context import load_context_config; p=Path.home()/".forgeagent/config.yaml"; now=p.read_bytes(); targets=(b"round_feedback_max_tokens: 120", b"tool_result_max_tokens: 40"); config=load_context_config(p); print(f"targets-absent={all(target not in (line.strip() for line in now.splitlines()) for target in targets)} mode={stat.S_IMODE(p.stat().st_mode):04o} sha256={hashlib.sha256(now).hexdigest()} adaptive-defaults={config.round_feedback_max_tokens is None and config.tool_result_max_tokens is None}"); raise SystemExit(0 if all(target not in (line.strip() for line in now.splitlines()) for target in targets) and config.round_feedback_max_tokens is None and config.tool_result_max_tokens is None else 1)'`
 
@@ -417,13 +417,13 @@ Expected: exit `0`，只显示目标缺失布尔值、mode、digest 与 adaptive
 - Consumes: Tasks 1-4 的已提交代码和已验证用户配置。
 - Produces: 无额外产品接口；只确认没有公式漂移、secret 泄漏、非交互 banner、prompt 越界或无关改动。
 
-- [ ] **Step 1: 运行指定专项回归**
+- [x] **Step 1: 运行指定专项回归**
 
 Run: `rtk uv run pytest -q tests/test_context.py tests/test_cli.py tests/test_identity.py tests/test_task.py tests/test_protocol.py tests/test_http_task_service.py`
 
 Expected: PASS; HTTP schema 测试不出现 feedback-limit 字段，identity 工具 schema/order 测试不变。
 
-- [ ] **Step 2: 运行受控真实模型重复文件 smoke**
+- [x] **Step 2: 运行受控真实模型重复文件 smoke**
 
 先用 `rtk mktemp -d` 创建唯一临时目录，再用 `apply_patch` 在其中创建两个内容相同、一个内容不同的小文件。启动真实 TTY session：
 
@@ -439,7 +439,7 @@ quit
 
 Expected: 第一轮 execution evidence 包含 `Exec`，不以单层 `FileList` 或截断片段收尾；报告存在且包含一组、两个重复文件；第二轮能引用上一轮报告路径和数量。记录实际安全输出；若 provider/凭证不可用，保留原始安全错误并明确该项未验证，不能用 mock replay 代替。临时 fixture 不加入 git。
 
-- [ ] **Step 3: 运行静态、完整与 OpenSpec 严格验证**
+- [x] **Step 3: 运行静态、完整与 OpenSpec 严格验证**
 
 Run: `rtk uv run ruff format --check src tests scripts`
 
@@ -461,7 +461,7 @@ Run: `rtk openspec validate improve-context-limits-and-execution-guidance --stri
 
 Expected: PASS.
 
-- [ ] **Step 4: 审查相对 base-ref 的范围和敏感信息**
+- [x] **Step 4: 审查相对 base-ref 的范围和敏感信息**
 
 Run: `rtk git diff --check 2c8f528224d79a91b6cbe3476db8b6b979b236a4..HEAD`
 
@@ -475,7 +475,7 @@ Run: `rtk git diff 2c8f528224d79a91b6cbe3476db8b6b979b236a4..HEAD -- src/forgeag
 
 Expected: one resolver formula, renderer only uses numeric `ResolvedFeedbackLimits`, noninteractive gates remain, and no paths/endpoints/environment values/config text are introduced.
 
-- [ ] **Step 5: 仅在验证产物确有修改时提交**
+- [x] **Step 5: 仅在验证产物确有修改时提交**
 
 ```bash
 rtk git status --short
