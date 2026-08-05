@@ -1,0 +1,16 @@
+{
+  "change": "retain-repl-session-history",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "3953f1b6f73427751157d2f21435cff50d7bfae222b120bfc43b188e1935f8ea",
+  "files": [
+    { "path": "openspec/changes/retain-repl-session-history/proposal.md", "sha256": "5cecdc4cb2a71830a051232418bb99df5a3139a40db824f40bc01901d1689da6" },
+    { "path": "openspec/changes/retain-repl-session-history/design.md", "sha256": "2ee1f718245de3afc685f62ea0fe0d334642e01d0672222461d17a2d0e942fca" },
+    { "path": "openspec/changes/retain-repl-session-history/tasks.md", "sha256": "562a2f2884749ea5b00622aa6171c928b97e3a4c8de47a1961679a1e53c2e94d" },
+    { "path": "openspec/changes/retain-repl-session-history/specs/repl-interactive-input/spec.md", "sha256": "8f86e5eed39a0a262ca942f3b58be0da8edb153ecb568b2f83bc7029ae2d5722" },
+    { "path": "openspec/changes/retain-repl-session-history/specs/runtime-context-management/spec.md", "sha256": "a12f2c1f65ee2f7ea3220c750d2372da12656c07c9cf372cd43003e0e98904fd" },
+    { "path": "openspec/changes/retain-repl-session-history/specs/task-filesystem-authority/spec.md", "sha256": "f75aa10d325d408874a7749a2a674bda5c5b6970bc6dadab826179b454d14e07" }
+  ]
+}

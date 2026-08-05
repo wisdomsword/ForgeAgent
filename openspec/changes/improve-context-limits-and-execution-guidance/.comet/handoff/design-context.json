@@ -1,0 +1,16 @@
+{
+  "change": "improve-context-limits-and-execution-guidance",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "dfd25530e391b5e506424620256c331f8ce9437269ad224cc14db18ee2018796",
+  "files": [
+    { "path": "openspec/changes/improve-context-limits-and-execution-guidance/proposal.md", "sha256": "e889ba97a0dec808e3f7a8af9b05f21fdbb5575670a260751a281b1c7dadc42b" },
+    { "path": "openspec/changes/improve-context-limits-and-execution-guidance/design.md", "sha256": "68be534866165acd495e877bf8efaccc0d0bdd1df8c3ce0f0d5eb60906cd85ca" },
+    { "path": "openspec/changes/improve-context-limits-and-execution-guidance/tasks.md", "sha256": "d343d0cd0f4ce9b390a6f935825653510bb7971b5f6e576bba62678a624e9b8f" },
+    { "path": "openspec/changes/improve-context-limits-and-execution-guidance/specs/repl-startup-information/spec.md", "sha256": "88400a908e1feda960b7c5efc8653381c8dfb0b98e6917bb89ed5827573c8d68" },
+    { "path": "openspec/changes/improve-context-limits-and-execution-guidance/specs/runtime-context-management/spec.md", "sha256": "0c3d18b224c8629ec7d97bf869989835e2856d82780e538ae6e2cb8fbb6ad116" },
+    { "path": "openspec/changes/improve-context-limits-and-execution-guidance/specs/runtime-identity/spec.md", "sha256": "326dbb9755ee4c09ec22c4e3db538ace9a82ccc312c3cecbb6315e5318a9e0ef" }
+  ]
+}

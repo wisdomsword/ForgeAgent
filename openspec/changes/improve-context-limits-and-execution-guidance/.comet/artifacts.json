@@ -1,0 +1,8 @@
+{
+  "openspec_proposal": "openspec/changes/improve-context-limits-and-execution-guidance/proposal.md",
+  "openspec_design": "openspec/changes/improve-context-limits-and-execution-guidance/design.md",
+  "openspec_tasks": "openspec/changes/improve-context-limits-and-execution-guidance/tasks.md",
+  "openspec_delta_spec": "openspec/changes/improve-context-limits-and-execution-guidance/specs/repl-startup-information/spec.md",
+  "handoff_context": "openspec/changes/improve-context-limits-and-execution-guidance/.comet/handoff/design-context.json",
+  "handoff_markdown": "openspec/changes/improve-context-limits-and-execution-guidance/.comet/handoff/design-context.md"
+}
