@@ -128,6 +128,52 @@ def test_task_reuses_safe_history_with_fresh_system_prompt():
     assert outcome.model_dump().get("session_messages") is None
 
 
+def test_task_replays_survey_feedback_before_exec_and_completion(tmp_path):
+    output = tmp_path / "complete.txt"
+    client = _RecordingTaskClient(
+        script=[
+            _reply(_tool_call("Survey", question="Which directory should be scanned?")),
+            _reply(
+                _tool_call(
+                    "Exec",
+                    name="write_complete_result",
+                    code=(
+                        "from pathlib import Path\n"
+                        f"Path({str(output)!r}).write_text('complete result\\n')"
+                    ),
+                )
+            ),
+            _reply(_done()),
+        ]
+    )
+
+    outcome = Task(
+        client,
+        tier="trusted",
+        allowed_root=str(tmp_path),
+        asker=lambda _args: str(tmp_path),
+    ).run("scan the directory and save the complete result")
+
+    assert outcome.status.completed is True
+    assert output.read_text(encoding="utf-8") == "complete result\n"
+    assert [
+        outcome.tool for round_result in outcome.rounds for outcome in round_result.outcomes
+    ] == [
+        "Survey",
+        "Exec",
+    ]
+    assert len(client.requests) == 3
+    second_request = client.requests[1]
+    assert [message.role for message in second_request[-3:]] == [
+        Role.USER,
+        Role.ASSISTANT,
+        Role.USER,
+    ]
+    assert "Which directory should be scanned?" in str(second_request[-2].content)
+    assert str(tmp_path) in str(second_request[-1].content)
+    assert "write_complete_result" in str(client.requests[2][-2].content)
+
+
 def test_task_rejects_system_message_in_session_history():
     with pytest.raises(ContextBudgetExceeded, match="session history"):
         Task(MockClient(script=[]), tier="trusted").run(

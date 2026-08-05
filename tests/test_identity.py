@@ -116,7 +116,10 @@ def test_default_protocol_advertises_every_registered_builtin_tool():
         '<!-- ToolCall: {"name":"FileWrite","arguments":{"path":"report.txt",'
         '"content":"finished"}} -->'
     ) in rendered
-    assert "When a direct built-in tool matches the goal, use that tool" in rendered
+    assert "Pure knowledge questions may be answered directly in prose." in rendered
+    assert "continue the same Task with the answer as feedback" in rendered
+    assert "Recursive traversal, content hashing" in rendered
+    assert "Never claim completion from a shallow or truncated sample." in rendered
 
 
 def test_default_protocol_advertises_memory_candidates():

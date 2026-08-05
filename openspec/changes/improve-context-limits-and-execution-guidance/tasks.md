@@ -10,8 +10,8 @@
 
 ## 3. 执行指引
 
-- [ ] 3.1 增加先失败的固定协议与 mock replay 测试，覆盖 Survey 澄清、完整目标工具选择、Exec 递归聚合和文件交付
-- [ ] 3.2 更新固定协议，不改变工具 schema、sandbox 检查或直接 prose 完成语义
+- [x] 3.1 增加先失败的固定协议与 mock replay 测试，覆盖 Survey 澄清、完整目标工具选择、Exec 递归聚合和文件交付
+- [x] 3.2 更新固定协议，不改变工具 schema、sandbox 检查或直接 prose 完成语义
 
 ## 4. 用户配置
 
