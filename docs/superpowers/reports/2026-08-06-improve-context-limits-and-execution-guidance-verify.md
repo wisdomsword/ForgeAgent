@@ -21,6 +21,12 @@
   同一 REPL session 中继续，审计工具记录只有 `Exec`。默认 TTY 命令在模型执行前
   被权限门阻止，因为默认审计路径 `~/.forgeagent/audit.jsonl` 需要单独的项目外写入授权。
 
+### 提升权限补充验证（2026-08-06）
+
+- 完整 pytest：`2980 passed, 11 skipped in 159.20s`。
+- `uv build`：source distribution 与 wheel 均成功生成。
+- 受限沙箱中的 15 条失败保持原样作为环境边界记录；提升权限后的完整结果证明它们不是产品回归。
+
 ## 审查
 
 两轮审查确认：resolver 保持原公式和校验语义；REPL 限额只在交互边界显示，不包含
