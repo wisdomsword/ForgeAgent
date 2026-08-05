@@ -46,6 +46,7 @@
 - [x] [反馈限额与协议验证报告](../docs/superpowers/reports/2026-08-06-improve-context-limits-and-execution-guidance-verify.md)。
 - [x] 两个归档 change：`openspec/changes/archive/2026-08-05-retain-repl-session-history`、`openspec/changes/archive/2026-08-05-improve-context-limits-and-execution-guidance`。
 - [x] `ACTION_PLAN.md`、`milestones/milestone_049.md`、`milestones/latest` — 当前台账和续接指引。
+- [x] `docs/README.md`、两份治理基线文档及 `tests/test_borrowing_roadmap.py` — 收尾复核后同步 M49 当前入口与离线契约。
 
 ## 三次评审
 
