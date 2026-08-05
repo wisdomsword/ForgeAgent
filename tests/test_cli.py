@@ -39,6 +39,7 @@ from forgeagent.cli import (
 )
 from forgeagent.client import MockClient
 from forgeagent.collaboration import CollaborationReport, CollaborationUsage
+from forgeagent.context import ContextConfig, ResolvedFeedbackLimits
 from forgeagent.evaluator import EvaluationRequest, EvaluatorResult
 from forgeagent.execution_evidence import (
     ExecutionEvidence,
@@ -107,6 +108,22 @@ class _RecordingAuditSink:
 
 def _terminal_console() -> Console:
     return Console(record=True, width=100, force_terminal=True)
+
+
+def test_context_validators_return_shared_resolved_limits():
+    from forgeagent.model_registry import load_registry
+
+    registry_limits = cli_module._validate_context_policy(
+        "claude-sonnet-5", load_registry(), ContextConfig()
+    )
+    client_limits = cli_module._validate_client_context_policy(
+        MockClient(script=[]), ContextConfig()
+    )
+
+    assert isinstance(registry_limits, ResolvedFeedbackLimits)
+    assert isinstance(client_limits, ResolvedFeedbackLimits)
+    assert registry_limits.input_budget > 0
+    assert client_limits.input_budget > 0
 
 
 class _DiagnosticManager:

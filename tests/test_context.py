@@ -7,12 +7,14 @@ from pydantic import ValidationError
 from forgeagent.context import (
     ContextBudgetExceeded,
     ContextConfig,
+    ResolvedFeedbackLimits,
     SlidingWindowContextPolicy,
     estimate_message_tokens,
     estimate_request_tokens,
     estimate_text_tokens,
     load_context_config,
     render_bounded_feedback,
+    resolve_feedback_limits,
     validate_session_messages,
 )
 from forgeagent.executor import ExecResult
@@ -178,6 +180,67 @@ def test_policy_reserves_effective_output_and_resolves_adaptive_limits():
     assert policy.tool_result_limit == 17
     with pytest.raises(AttributeError):
         policy.input_budget = 1  # type: ignore[misc]
+
+
+def test_resolve_feedback_limits_uses_existing_formula_and_keeps_policy_properties():
+    capability = _capability(1000, 200)
+    config = ContextConfig()
+
+    limits = resolve_feedback_limits(capability, GenerationParams(max_output_tokens=100), config)
+    policy = SlidingWindowContextPolicy(capability, GenerationParams(max_output_tokens=100), config)
+
+    assert limits == ResolvedFeedbackLimits(
+        input_budget=700,
+        adaptive_round_feedback_limit=70,
+        adaptive_tool_result_limit=17,
+        configured_round_feedback_limit=None,
+        configured_tool_result_limit=None,
+        effective_round_feedback_limit=70,
+        effective_tool_result_limit=17,
+        round_configured_below_adaptive=False,
+        tool_configured_below_adaptive=False,
+    )
+    assert policy.limits is limits or policy.limits == limits
+    assert (policy.input_budget, policy.round_feedback_limit, policy.tool_result_limit) == (
+        700,
+        70,
+        17,
+    )
+
+
+def test_resolver_marks_each_explicit_low_value_without_overriding_it():
+    limits = resolve_feedback_limits(
+        _capability(1000, 200),
+        GenerationParams(max_output_tokens=100),
+        ContextConfig(round_feedback_max_tokens=60, tool_result_max_tokens=10),
+    )
+
+    assert (limits.effective_round_feedback_limit, limits.effective_tool_result_limit) == (60, 10)
+    assert (limits.round_configured_below_adaptive, limits.tool_configured_below_adaptive) == (
+        True,
+        True,
+    )
+
+
+def test_resolver_recomputes_from_new_capability_and_rejects_existing_invalid_values():
+    assert (
+        resolve_feedback_limits(
+            _capability(2000, 200), None, ContextConfig()
+        ).adaptive_round_feedback_limit
+        == 140
+    )
+    assert (
+        resolve_feedback_limits(
+            _capability(1000, 200),
+            GenerationParams(max_output_tokens=100),
+            ContextConfig(round_feedback_max_tokens=70),
+        ).round_configured_below_adaptive
+        is False
+    )
+    with pytest.raises(ValueError, match="round feedback limit"):
+        resolve_feedback_limits(
+            _capability(1000, 200), None, ContextConfig(tool_result_max_tokens=80)
+        )
 
 
 @pytest.mark.parametrize(

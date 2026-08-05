@@ -50,6 +50,76 @@ class ContextPolicy(Protocol):
 
 
 @dataclass(frozen=True)
+class ResolvedFeedbackLimits:
+    """Resolved adaptive and configured feedback limits for one model request."""
+
+    input_budget: int
+    adaptive_round_feedback_limit: int
+    adaptive_tool_result_limit: int
+    configured_round_feedback_limit: int | None
+    configured_tool_result_limit: int | None
+    effective_round_feedback_limit: int
+    effective_tool_result_limit: int
+    round_configured_below_adaptive: bool
+    tool_configured_below_adaptive: bool
+
+
+def resolve_feedback_limits(
+    capability: ModelCapability,
+    params: GenerationParams | None,
+    config: ContextConfig,
+) -> ResolvedFeedbackLimits:
+    """Resolve feedback limits from model capability, generation params, and config."""
+    effective_output = (
+        params.max_output_tokens
+        if params is not None and params.max_output_tokens is not None
+        else capability.max_output_tokens
+    )
+    input_budget = (
+        math.floor(capability.context_window * config.utilization_ratio) - effective_output
+    )
+    if input_budget <= 0:
+        raise ValueError("input budget must be positive")
+
+    adaptive_round = math.floor(input_budget * 0.10)
+    adaptive_tool = math.floor(adaptive_round * 0.25)
+    round_limit = (
+        config.round_feedback_max_tokens
+        if config.round_feedback_max_tokens is not None
+        else adaptive_round
+    )
+    tool_limit = (
+        config.tool_result_max_tokens
+        if config.tool_result_max_tokens is not None
+        else adaptive_tool
+    )
+    if round_limit <= 0:
+        raise ValueError("round feedback limit must be positive")
+    if tool_limit <= 0:
+        raise ValueError("tool result limit must be positive")
+    if round_limit < tool_limit:
+        raise ValueError("round feedback limit must be >= tool result limit")
+
+    return ResolvedFeedbackLimits(
+        input_budget=input_budget,
+        adaptive_round_feedback_limit=adaptive_round,
+        adaptive_tool_result_limit=adaptive_tool,
+        configured_round_feedback_limit=config.round_feedback_max_tokens,
+        configured_tool_result_limit=config.tool_result_max_tokens,
+        effective_round_feedback_limit=round_limit,
+        effective_tool_result_limit=tool_limit,
+        round_configured_below_adaptive=(
+            config.round_feedback_max_tokens is not None
+            and config.round_feedback_max_tokens < adaptive_round
+        ),
+        tool_configured_below_adaptive=(
+            config.tool_result_max_tokens is not None
+            and config.tool_result_max_tokens < adaptive_tool
+        ),
+    )
+
+
+@dataclass(frozen=True)
 class _FeedbackItem:
     header: str
     detail: str
@@ -66,66 +136,40 @@ class SlidingWindowContextPolicy:
         params: GenerationParams | None,
         config: ContextConfig,
     ):
-        effective_output = (
-            params.max_output_tokens
-            if params is not None and params.max_output_tokens is not None
-            else capability.max_output_tokens
-        )
-        input_budget = math.floor(capability.context_window * config.utilization_ratio)
-        input_budget -= effective_output
-        if input_budget <= 0:
-            raise ValueError("input budget must be positive")
-
-        adaptive_round_feedback_limit = math.floor(input_budget * 0.10)
-        adaptive_tool_result_limit = math.floor(adaptive_round_feedback_limit * 0.25)
-        round_feedback_limit = (
-            config.round_feedback_max_tokens
-            if config.round_feedback_max_tokens is not None
-            else adaptive_round_feedback_limit
-        )
-        tool_result_limit = (
-            config.tool_result_max_tokens
-            if config.tool_result_max_tokens is not None
-            else adaptive_tool_result_limit
-        )
-        if round_feedback_limit <= 0:
-            raise ValueError("round feedback limit must be positive")
-        if tool_result_limit <= 0:
-            raise ValueError("tool result limit must be positive")
-        if round_feedback_limit < tool_result_limit:
-            raise ValueError("round feedback limit must be >= tool result limit")
-
         self._config = config
-        self._input_budget = input_budget
-        self._round_feedback_limit = round_feedback_limit
-        self._tool_result_limit = tool_result_limit
+        self._limits = resolve_feedback_limits(capability, params, config)
+
+    @property
+    def limits(self) -> ResolvedFeedbackLimits:
+        """The immutable resolved feedback limits used by this policy."""
+        return self._limits
 
     @property
     def input_budget(self) -> int:
         """The maximum estimated input tokens for one model request."""
-        return self._input_budget
+        return self._limits.input_budget
 
     @property
     def round_feedback_limit(self) -> int:
         """The maximum estimated feedback tokens for one completed round."""
-        return self._round_feedback_limit
+        return self._limits.effective_round_feedback_limit
 
     @property
     def tool_result_limit(self) -> int:
         """The maximum estimated detail tokens for one tool result."""
-        return self._tool_result_limit
+        return self._limits.effective_tool_result_limit
 
     def request_view(self, messages: Sequence[Message]) -> list[Message]:
         """Return the newest complete rounds that fit, without changing messages."""
         prefix, interaction_units = self._validated_prefix_and_rounds(messages)
-        if estimate_request_tokens(prefix, self._config) > self._input_budget:
+        if estimate_request_tokens(prefix, self._config) > self._limits.input_budget:
             raise ContextBudgetExceeded("context prefix exceeds input budget")
 
         chosen_newest_first: list[tuple[Message, Message]] = []
         for interaction_unit in reversed(interaction_units):
             candidate_units = [interaction_unit, *chosen_newest_first]
             candidate = [*prefix, *(message for pair in candidate_units for message in pair)]
-            if estimate_request_tokens(candidate, self._config) <= self._input_budget:
+            if estimate_request_tokens(candidate, self._config) <= self._limits.input_budget:
                 chosen_newest_first = candidate_units
                 continue
             if not chosen_newest_first:

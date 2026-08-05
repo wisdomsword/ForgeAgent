@@ -28,7 +28,7 @@ from .collaboration import (
     headless_plan_confirmer,
     resolve_collaboration_mode,
 )
-from .context import ContextConfig, SlidingWindowContextPolicy
+from .context import ContextConfig, ResolvedFeedbackLimits, resolve_feedback_limits
 from .external_actions import ExternalActionReceiptStore
 from .headless import HeadlessConfirmer
 from .http_action_approvals import HttpActionApprovalStore
@@ -76,8 +76,8 @@ class HttpBindings:
     headless_confirmer_type: type[HeadlessConfirmer]
     build_mcp_manager: Callable[[], MCPManager | None]
     load_registry: Callable[[], Registry]
-    validate_context_policy: Callable[[str, Registry, ContextConfig], None]
-    validate_client_context_policy: Callable[[ModelClient, ContextConfig], None]
+    validate_context_policy: Callable[[str, Registry, ContextConfig], ResolvedFeedbackLimits]
+    validate_client_context_policy: Callable[[ModelClient, ContextConfig], ResolvedFeedbackLimits]
     resolve_cli_identity: Callable[..., Any]
     make_console_identity_diagnostic: Callable[..., Any]
     load_skill_registry: Callable[..., Any]
@@ -148,14 +148,18 @@ def client_factory_for_registry(
     return build_from_snapshot
 
 
-def validate_context_policy(model: str, registry: Registry, context_config: ContextConfig) -> None:
+def validate_context_policy(
+    model: str, registry: Registry, context_config: ContextConfig
+) -> ResolvedFeedbackLimits:
     """Resolve the selected model and its context limits before publishing a snapshot."""
-    SlidingWindowContextPolicy(get_capability(model, registry), None, context_config)
+    return resolve_feedback_limits(get_capability(model, registry), None, context_config)
 
 
-def validate_client_context_policy(client: ModelClient, context_config: ContextConfig) -> None:
+def validate_client_context_policy(
+    client: ModelClient, context_config: ContextConfig
+) -> ResolvedFeedbackLimits:
     """Validate an injected client's actual capability before constructing its Task."""
-    SlidingWindowContextPolicy(client.capability, None, context_config)
+    return resolve_feedback_limits(client.capability, None, context_config)
 
 
 def _http_client_factory_with_validated_context(
