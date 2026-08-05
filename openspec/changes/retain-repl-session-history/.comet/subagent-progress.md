@@ -3,9 +3,9 @@
 - Change: retain-repl-session-history
 - Plan: docs/superpowers/plans/2026-08-05-retain-repl-session-history.md
 - Review mode: standard
-- Current task: Task 3: 接入 Duo/Triad prior context 与安全公开投影
+- Current task: Task 4: 添加会话重置命令并验证授权不跨 Task
 - OpenSpec mapping: 1.1 增加先失败的 Task/context 测试，覆盖历史输入、刷新 system prompt、跨输入配对、有界滑动和序列化排除；1.2 实现 Task 会话记录输入输出，同时保持单次运行与 HTTP 结果契约
-- Stage: checkoff
+- Stage: implementing
 - Base commit: 35692bd
 - Implementation commit: abcd573
 - Changed files: src/forgeagent/context.py, src/forgeagent/step.py, src/forgeagent/task.py, tests/test_context.py, tests/test_http_server.py, tests/test_step.py, tests/test_task.py
