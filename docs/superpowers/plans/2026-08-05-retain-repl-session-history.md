@@ -151,7 +151,7 @@ rtk git commit -m "feat: retain safe task session transcript"
 - Produces: `_cli_repl.repl()` 局部 `session_messages: list[Message]`；嵌套 `run_single(goal: str, *, images: list[ImageItem] | None = None) -> TaskOutcome`，唯一负责传入 history snapshot 并在成功返回后替换本地 transcript。
 - Produces: 普通 single、`/single <goal>` 与 `/image <paths> <inline goal>` 都调用 `run_single`；抛异常时保留旧 transcript。
 
-- [ ] **Step 1: 写入会先失败的 Single 连续性与管理隔离测试**
+- [x] **Step 1: 写入会先失败的 Single 连续性与管理隔离测试**
 
 在 `tests/test_cli.py` 使用每 Task 新建的 `MockClient`，第一条输入返回 prose 澄清问题，第二条输入为路径；断言第二个 client 的首个 provider request 含第一条 user、第一条 assistant 问题和第二条 user，且只有一个新的 system。增加普通输入、`/single`、inline `/image` 三种路由均把前一 Task 的 `TaskOutcome.session_messages` 作为下一次 `run_once()` 的 `session_messages`。
 
@@ -181,13 +181,13 @@ def test_repl_follow_up_keeps_goal_question_and_answer() -> None:
     assert second_request[-1].content == "/tmp/report.md"
 ```
 
-- [ ] **Step 2: 运行 REPL 路由测试确认失败**
+- [x] **Step 2: 运行 REPL 路由测试确认失败**
 
 Run: `rtk uv run pytest tests/test_cli.py tests/test_collaboration_integrations.py -q`
 
 Expected: FAIL；第二次请求仍为 `[SYSTEM, USER]`，或 `run_once()` 不接受 `session_messages`。
 
-- [ ] **Step 3: 实现 Single helper 与历史替换**
+- [x] **Step 3: 实现 Single helper 与历史替换**
 
 在 `cli.run_once()` 增加可选 `session_messages: Sequence[Message] | None = None`，并仅将其原样交给 `task.run()`；无该参数的 CLI `run`、Loop、HTTP caller 行为不变。
 
@@ -221,13 +221,13 @@ def run_single(goal: str, *, images: list[ImageItem] | None = None) -> TaskOutco
     return outcome
 ```
 
-- [ ] **Step 4: 运行 REPL 路由测试确认通过**
+- [x] **Step 4: 运行 REPL 路由测试确认通过**
 
 Run: `rtk uv run pytest tests/test_cli.py tests/test_collaboration_integrations.py -q`
 
 Expected: PASS；任务型 Single 输入的 provider 消息数量递增，管理命令和异常均不污染或覆盖已完成 transcript。
 
-- [ ] **Step 5: 提交 Task 2**
+- [x] **Step 5: 提交 Task 2**
 
 ```bash
 rtk git add src/forgeagent/cli.py src/forgeagent/_cli_repl.py tests/test_cli.py tests/test_collaboration_integrations.py
