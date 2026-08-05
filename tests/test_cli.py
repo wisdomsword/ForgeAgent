@@ -221,6 +221,23 @@ def test_startup_display_starts_one_eight_fps_live_and_cycles_seven_colours(monk
     assert "Loading skills" in lives[0].kwargs["get_renderable"]().plain
 
 
+def test_startup_display_uses_legible_uppercase_product_mark(monkeypatch):
+    display, _ = _display_with_recorded_live(monkeypatch)
+    mark = display.static_logo_renderable().plain
+
+    assert mark == "\n".join(
+        (
+            " _____ ___  ____   ____ _____      _    ____ _____ _   _ _____",
+            "|  ___/ _ \\|  _ \\ / ___| ____|    / \\  / ___| ____| \\ | |_   _|",
+            "| |_ | | | | |_) | |  _|  _|     / _ \\| |  _|  _| |  \\| | | |",
+            "|  _|| |_| |  _ <| |_| | |___   / ___ \\ |_| | |___| |\\  | | |",
+            "|_|   \\___/|_| \\_\\____|_____| /_/   \\_\\____|_____|_| \\_| |_|",
+        )
+    )
+    assert mark.isascii()
+    assert max(map(len, mark.splitlines())) == 63
+
+
 def test_startup_display_pauses_for_confirmation_and_recreates_live(monkeypatch):
     display, lives = _display_with_recorded_live(monkeypatch)
     display.start("Loading identity")
@@ -235,8 +252,11 @@ def test_startup_display_pauses_for_confirmation_and_recreates_live(monkeypatch)
 
 
 def test_startup_display_narrow_terminal_is_single_line(monkeypatch):
-    display, _ = _display_with_recorded_live(monkeypatch, width=12)
-    assert display.logo_renderable().plain == "ForgeAgent"
+    compact_display, _ = _display_with_recorded_live(monkeypatch, width=62)
+    full_display, _ = _display_with_recorded_live(monkeypatch, width=63)
+
+    assert compact_display.logo_renderable().plain == "ForgeAgent"
+    assert len(full_display.logo_renderable().plain.splitlines()) == 5
 
 
 @pytest.mark.parametrize("environment_name", ["NO_COLOR", "CI", "GITHUB_ACTIONS", "BUILD_NUMBER"])
