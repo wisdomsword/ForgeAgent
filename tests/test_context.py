@@ -13,6 +13,7 @@ from forgeagent.context import (
     estimate_text_tokens,
     load_context_config,
     render_bounded_feedback,
+    validate_session_messages,
 )
 from forgeagent.executor import ExecResult
 from forgeagent.models import GenerationParams, ImageItem, Message, ModelCapability, Role, TextItem
@@ -238,6 +239,42 @@ def test_policy_preserves_conversation_exactly_below_budget():
     assert view == conversation
     assert view is not conversation
     assert all(returned is original for returned, original in zip(view, conversation, strict=True))
+
+
+def test_session_history_requires_complete_user_assistant_turns():
+    history = [
+        Message(role=Role.USER, content="goal"),
+        Message(role=Role.ASSISTANT, content="question"),
+        Message(role=Role.USER, content="answer"),
+        Message(role=Role.ASSISTANT, content="result"),
+    ]
+
+    copied = validate_session_messages(history)
+
+    assert copied == history
+    assert copied is not history
+    for invalid in (
+        [Message(role=Role.SYSTEM, content="system")],
+        [Message(role=Role.ASSISTANT, content="answer")],
+        [Message(role=Role.USER, content="one"), Message(role=Role.USER, content="two")],
+        [Message(role=Role.USER, content="one")],
+    ):
+        with pytest.raises(ContextBudgetExceeded, match="session history"):
+            validate_session_messages(invalid)
+
+
+def test_context_accepts_next_top_level_user_as_complete_pair():
+    messages = [
+        Message(role=Role.SYSTEM, content="system"),
+        Message(role=Role.USER, content="anchor"),
+        Message(role=Role.ASSISTANT, content="answer"),
+        Message(role=Role.USER, content="next top-level input"),
+    ]
+    policy = SlidingWindowContextPolicy(
+        _capability(200, 10), None, ContextConfig(utilization_ratio=1)
+    )
+
+    assert policy.request_view(messages) == messages
 
 
 def test_policy_never_splits_tool_call_and_feedback_round():

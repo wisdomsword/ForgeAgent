@@ -28,6 +28,20 @@ class ContextBudgetExceeded(ValueError):
         super().__init__(self.detail)
 
 
+def validate_session_messages(messages: Sequence[Message]) -> list[Message]:
+    """Return safe copies of complete user/assistant interactions for a new task."""
+    copied = list(messages)
+    if len(copied) % 2:
+        raise ContextBudgetExceeded("session history must end with an assistant response")
+    for index in range(0, len(copied), 2):
+        user, assistant = copied[index : index + 2]
+        if user.role is not Role.USER or assistant.role is not Role.ASSISTANT:
+            raise ContextBudgetExceeded(
+                "session history must contain complete user and assistant interactions"
+            )
+    return copied
+
+
 class ContextPolicy(Protocol):
     """Build a bounded, non-destructive message view for one model request."""
 
@@ -103,16 +117,16 @@ class SlidingWindowContextPolicy:
 
     def request_view(self, messages: Sequence[Message]) -> list[Message]:
         """Return the newest complete rounds that fit, without changing messages."""
-        prefix, rounds = self._validated_prefix_and_rounds(messages)
+        prefix, interaction_units = self._validated_prefix_and_rounds(messages)
         if estimate_request_tokens(prefix, self._config) > self._input_budget:
             raise ContextBudgetExceeded("context prefix exceeds input budget")
 
         chosen_newest_first: list[tuple[Message, Message]] = []
-        for round_messages in reversed(rounds):
-            candidate_rounds = [round_messages, *chosen_newest_first]
-            candidate = [*prefix, *(message for pair in candidate_rounds for message in pair)]
+        for interaction_unit in reversed(interaction_units):
+            candidate_units = [interaction_unit, *chosen_newest_first]
+            candidate = [*prefix, *(message for pair in candidate_units for message in pair)]
             if estimate_request_tokens(candidate, self._config) <= self._input_budget:
-                chosen_newest_first = candidate_rounds
+                chosen_newest_first = candidate_units
                 continue
             if not chosen_newest_first:
                 raise ContextBudgetExceeded("context prefix and latest round exceed input budget")
@@ -133,19 +147,19 @@ class SlidingWindowContextPolicy:
                 "conversation prefix must contain system prompt and initial goal"
             )
 
-        history = messages[2:]
-        if len(history) % 2:
-            raise ContextBudgetExceeded("conversation history contains an incomplete round")
+        interactions = messages[2:]
+        if len(interactions) % 2:
+            raise ContextBudgetExceeded("conversation history contains an incomplete interaction")
 
-        rounds: list[tuple[Message, Message]] = []
-        for index in range(0, len(history), 2):
-            assistant, feedback = history[index : index + 2]
-            if assistant.role is not Role.ASSISTANT or feedback.role is not Role.USER:
+        interaction_units: list[tuple[Message, Message]] = []
+        for index in range(0, len(interactions), 2):
+            assistant, user = interactions[index : index + 2]
+            if assistant.role is not Role.ASSISTANT or user.role is not Role.USER:
                 raise ContextBudgetExceeded(
-                    "conversation history must contain assistant and feedback rounds"
+                    "conversation history must contain assistant and user interaction units"
                 )
-            rounds.append((assistant, feedback))
-        return list(messages[:2]), rounds
+            interaction_units.append((assistant, user))
+        return list(messages[:2]), interaction_units
 
 
 class ContextConfig(BaseModel):

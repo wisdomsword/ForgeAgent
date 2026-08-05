@@ -261,6 +261,40 @@ def test_step_cancellation_wins_before_context_policy():
     assert rounds[-1].stopped_reason == Termination.CANCELLED
 
 
+def test_step_exposes_copy_of_non_system_session_transcript_after_feedback():
+    step = _step([_reply(_exec_call("print('ok')")), _reply(_done())])
+
+    step.run(_user())
+    snapshot = step.session_messages
+
+    assert [message.role for message in snapshot] == [
+        Role.USER,
+        Role.ASSISTANT,
+        Role.USER,
+        Role.ASSISTANT,
+    ]
+    snapshot.clear()
+    assert len(step.session_messages) == 4
+
+
+@pytest.mark.parametrize(
+    "script, max_rounds",
+    [
+        ([ClientError(message="down", kind="network", attempts=1)], 5),
+        ([_reply(_exec_call("print(1)"))], 1),
+    ],
+)
+def test_step_exposes_non_system_session_transcript_for_unsuccessful_terminal_states(
+    script, max_rounds
+):
+    step = Step(MockClient(script=script), TrustedBackend(), Runtime(), max_rounds=max_rounds)
+
+    step.run(_user())
+
+    assert step.session_messages
+    assert all(message.role is not Role.SYSTEM for message in step.session_messages)
+
+
 def test_oversized_context_fails_before_provider_attempt_audit():
     sink = _RecordingAuditSink()
     client = MockClient(script=[_reply(_done())])

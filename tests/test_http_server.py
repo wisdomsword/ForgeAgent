@@ -687,6 +687,7 @@ def test_submit_query_cancel_and_auth(running_server):
     status, queried, raw = _request(address, "GET", f"/tasks/{task_id}")
     assert status == 200
     assert queried["task_id"] == task_id
+    assert "session_messages" not in queried
     assert b"private answer" not in raw
     status, cancelled, _ = _request(address, "POST", f"/tasks/{task_id}/cancel", body={})
     assert status in {200, 202}

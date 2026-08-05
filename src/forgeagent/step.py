@@ -279,6 +279,12 @@ class Step:
             receipt_store=receipt_store,
         )
         self.rounds: list[RoundResult] = []
+        self._session_messages: list[Message] = []
+
+    @property
+    def session_messages(self) -> list[Message]:
+        """Return a copy of this run's non-system conversation transcript."""
+        return list(self._session_messages)
 
     def _cancelled(self) -> bool:
         return self._cancel_event is not None and self._cancel_event.is_set()
@@ -509,6 +515,7 @@ class Step:
         else:
             if self.rounds:
                 self.rounds[-1].stopped_reason = Termination.MAX_ROUNDS
+        self._session_messages = list(convo[1:])
         return self.rounds
 
     def _handle_reply(self, reply: AssistantMessage) -> RoundResult:

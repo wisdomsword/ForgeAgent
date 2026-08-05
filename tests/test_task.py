@@ -7,7 +7,7 @@ import pytest
 
 from forgeagent.audit import AuditEvent
 from forgeagent.client import MockClient
-from forgeagent.context import ContextConfig
+from forgeagent.context import ContextBudgetExceeded, ContextConfig
 from forgeagent.execution_evidence import (
     ExecutionEvidence,
     ProgramArtifactPersistenceError,
@@ -23,7 +23,14 @@ from forgeagent.executor import (
 from forgeagent.external_actions import ExternalActionReceiptStore
 from forgeagent.identity import ApprovedIdentity
 from forgeagent.memory import MemoryManager
-from forgeagent.models import AssistantMessage, StreamEvent, StreamEventKind, TokenUsage
+from forgeagent.models import (
+    AssistantMessage,
+    Message,
+    Role,
+    StreamEvent,
+    StreamEventKind,
+    TokenUsage,
+)
 from forgeagent.protocol import MemoryCandidate
 from forgeagent.runtime import Runtime
 from forgeagent.skills import SkillDefinition, SkillRegistry
@@ -98,6 +105,34 @@ def test_task_completes_normally():
     outcome = task.run("do a thing")
     assert outcome.status.completed is True
     assert outcome.status.reason == "completed"
+
+
+def test_task_reuses_safe_history_with_fresh_system_prompt():
+    history = [
+        Message(role=Role.USER, content="draft the report"),
+        Message(role=Role.ASSISTANT, content="Where should I save it?"),
+    ]
+    original_history = list(history)
+    client = _RecordingTaskClient(script=[_reply(_done())])
+
+    outcome = Task(client, tier="trusted").run(
+        "save it under /tmp/report.md", session_messages=history
+    )
+
+    assert client.requests[0][0].role is Role.SYSTEM
+    assert client.requests[0][1:] == [
+        *history,
+        Message(role=Role.USER, content="save it under /tmp/report.md"),
+    ]
+    assert history == original_history
+    assert outcome.model_dump().get("session_messages") is None
+
+
+def test_task_rejects_system_message_in_session_history():
+    with pytest.raises(ContextBudgetExceeded, match="session history"):
+        Task(MockClient(script=[]), tier="trusted").run(
+            "goal", session_messages=[Message(role=Role.SYSTEM, content="unsafe")]
+        )
 
 
 def test_task_outcome_defaults_to_empty_execution_evidence():
@@ -289,6 +324,7 @@ def test_identity_prose_is_repaired_when_model_substitutes_native_persona():
     assert outcome.status.reason == Termination.ANSWERED_IN_PROSE
     assert outcome.rounds[-1].body.startswith("我是 ForgeAgent")
     assert "Claude" not in outcome.rounds[-1].body
+    assert outcome.session_messages[-1].content == outcome.rounds[-1].body
 
 
 def test_identity_prose_keeps_a_forgeagent_first_answer():
@@ -442,6 +478,10 @@ def test_task_forwards_injected_tool_registry_to_step(monkeypatch):
         def run(self, messages):
             return [RoundResult(text=_done(), stopped_reason=Termination.COMPLETED)]
 
+        @property
+        def session_messages(self):
+            return []
+
     monkeypatch.setattr("forgeagent.task.Step", _Step)
 
     outcome = Task(MockClient(script=[]), tool_registry=registry).run("evaluate")
@@ -465,6 +505,10 @@ def test_task_registry_outcome_handler_failure_propagates(monkeypatch):
         def run(self, messages):
             return [RoundResult(text=_done(), stopped_reason=Termination.COMPLETED)]
 
+        @property
+        def session_messages(self):
+            return []
+
     monkeypatch.setattr("forgeagent.task.Step", _Step)
 
     with pytest.raises(RuntimeError, match="outcome commit failed"):
@@ -480,6 +524,10 @@ def test_task_registry_without_outcome_handler_returns_normally(monkeypatch):
 
         def run(self, messages):
             return [RoundResult(text=_done(), stopped_reason=Termination.COMPLETED)]
+
+        @property
+        def session_messages(self):
+            return []
 
     monkeypatch.setattr("forgeagent.task.Step", _Step)
 
@@ -500,6 +548,10 @@ def test_task_forwards_receipt_store_to_step(monkeypatch, tmp_path):
         def run(self, messages):
             return [RoundResult(text=_done(), stopped_reason=Termination.COMPLETED)]
 
+        @property
+        def session_messages(self):
+            return []
+
     monkeypatch.setattr("forgeagent.task.Step", _Step)
     Task(MockClient(script=[]), receipt_store=store).run("do a thing")
     assert captured is store
@@ -517,6 +569,10 @@ def test_restricted_task_separates_project_root_from_full_disk_factory(monkeypat
 
         def run(self, messages):
             return [RoundResult(text=_done(), stopped_reason=Termination.COMPLETED)]
+
+        @property
+        def session_messages(self):
+            return []
 
     monkeypatch.setattr("forgeagent.task.Step", _Step)
     task = Task(MockClient(script=[]), tier="restricted", allowed_root=str(project))
@@ -559,6 +615,10 @@ def test_trusted_task_gives_exec_and_file_tools_host_root(monkeypatch, tmp_path)
 
         def run(self, messages):
             return [RoundResult(text=_done(), stopped_reason=Termination.COMPLETED)]
+
+        @property
+        def session_messages(self):
+            return []
 
     monkeypatch.setattr("forgeagent.task.Step", _Step)
     task = Task(MockClient(script=[]), tier="trusted", allowed_root=str(project))
@@ -915,6 +975,9 @@ def test_task_forwards_cancel_event_to_step():
     assert outcome.status.completed is False
     assert outcome.status.solved is False
     assert outcome.status.reason == Termination.CANCELLED
+    assert outcome.session_messages[-1].role is Role.ASSISTANT
+    assert outcome.session_messages[-1].content == "Task ended with status: cancelled."
+    assert "completed" not in outcome.session_messages[-1].content
 
 
 def test_task_refused():

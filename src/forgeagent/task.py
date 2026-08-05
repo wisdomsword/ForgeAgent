@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 import re
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from pydantic import BaseModel, Field
@@ -21,7 +21,12 @@ from pydantic import BaseModel, Field
 from .attention import Attention, attention_for_reason
 from .audit import AuditEvent, AuditSink, emit_audit
 from .client import ModelClient
-from .context import ContextConfig, ContextPolicy, SlidingWindowContextPolicy
+from .context import (
+    ContextConfig,
+    ContextPolicy,
+    SlidingWindowContextPolicy,
+    validate_session_messages,
+)
 from .execution_evidence import (
     ExecutionEvidence,
     ExecutionEvidenceRecorder,
@@ -93,7 +98,9 @@ def _starts_with_forgeagent(text: str) -> bool:
     )
 
 
-def _repair_identity_answer(goal: str, rounds: list[RoundResult]) -> None:
+def _repair_identity_answer(
+    goal: str, rounds: list[RoundResult], transcript: list[Message]
+) -> None:
     """Keep an upstream host persona from replacing ForgeAgent in identity answers."""
     if not _is_identity_query(goal) or not rounds:
         return
@@ -117,6 +124,8 @@ def _repair_identity_answer(goal: str, rounds: list[RoundResult]) -> None:
         )
     last_round.text = answer
     last_round.body = answer
+    if transcript and transcript[-1].role is Role.ASSISTANT:
+        transcript[-1] = Message(role=Role.ASSISTANT, content=answer)
 
 
 class TaskStatus(BaseModel):
@@ -148,6 +157,7 @@ class TaskOutcome(BaseModel):
     rounds: list[RoundResult]
     memory_results: list[MemoryResult] = Field(default_factory=list)
     execution_evidence: ExecutionEvidence = Field(default_factory=ExecutionEvidence)
+    session_messages: list[Message] = Field(default_factory=list, exclude=True, repr=False)
 
 
 class _LazyProgramArtifactStore:
@@ -340,6 +350,7 @@ class Task:
         goal: str,
         *,
         images: list[ImageItem] | None = None,
+        session_messages: Sequence[Message] | None = None,
         cancel_event: threading.Event | None = None,
     ) -> TaskOutcome:
         """Run the task for `goal` and return its terminal outcome.
@@ -356,8 +367,10 @@ class Task:
         goal_content: str | list = goal
         if images:
             goal_content = [TextItem(text=goal), *images]
+        prior = validate_session_messages(session_messages or ())
         messages = [
             Message(role=Role.SYSTEM, content=self._build_system_prompt()),
+            *prior,
             Message(role=Role.USER, content=goal_content),
         ]
         step = Step(
@@ -388,8 +401,16 @@ class Task:
             max_submission_recovery_attempts=self._max_submission_recovery_attempts,
         )
         rounds = step.run(messages)
-        _repair_identity_answer(goal, rounds)
+        transcript = step.session_messages
+        _repair_identity_answer(goal, rounds, transcript)
         status = self._derive_status(rounds)
+        if not transcript or transcript[-1].role is not Role.ASSISTANT:
+            transcript.append(
+                Message(
+                    role=Role.ASSISTANT,
+                    content=f"Task ended with status: {status.reason[:160]}.",
+                )
+            )
         memory_results: list[MemoryResult] = []
         last_memory_values: dict[tuple[str, str], tuple[str, str]] = {}
         if self._memory_manager is not None and status.solved:
@@ -412,6 +433,7 @@ class Task:
             rounds=rounds,
             memory_results=memory_results,
             execution_evidence=self._evidence_recorder.snapshot(),
+            session_messages=transcript,
         )
         if self._tool_registry is not None:
             self._tool_registry.handle_task_outcome(outcome)
