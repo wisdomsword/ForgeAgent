@@ -2,6 +2,7 @@
 change: improve-context-limits-and-execution-guidance
 design-doc: docs/superpowers/specs/2026-08-05-improve-context-limits-and-execution-guidance-design.md
 base-ref: 2c8f528224d79a91b6cbe3476db8b6b979b236a4
+archived-with: 2026-08-05-improve-context-limits-and-execution-guidance
 ---
 
 # Context 限额可观察性与执行指引 Implementation Plan
@@ -35,6 +36,7 @@ base-ref: 2c8f528224d79a91b6cbe3476db8b6b979b236a4
 - 修改 `tests/test_context.py`、`tests/test_cli.py`、`tests/test_identity.py`、`tests/test_task.py`：覆盖公式、交互展示、固定协议字节契约和确定性多轮 mock replay。
 - 不增加永久 smoke helper；最终验证在临时目录构造受控重复文件 fixture，并通过真实 CLI/配置模型运行一次可复现 smoke。
 
+archived-with: 2026-08-05-improve-context-limits-and-execution-guidance
 ---
 
 ### Task 1: 共享反馈限额解析与 policy 回归
@@ -499,3 +501,4 @@ Plan complete and saved to `docs/superpowers/plans/2026-08-05-improve-context-li
 2. **Inline Execution** - Execute tasks in this session using executing-plans, batch execution with checkpoints
 
 Which approach?
+

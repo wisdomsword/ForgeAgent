@@ -4,5 +4,6 @@
   "openspec_tasks": "openspec/changes/improve-context-limits-and-execution-guidance/tasks.md",
   "openspec_delta_spec": "openspec/changes/improve-context-limits-and-execution-guidance/specs/repl-startup-information/spec.md",
   "handoff_context": "openspec/changes/improve-context-limits-and-execution-guidance/.comet/handoff/design-context.json",
-  "handoff_markdown": "openspec/changes/improve-context-limits-and-execution-guidance/.comet/handoff/design-context.md"
+  "handoff_markdown": "openspec/changes/improve-context-limits-and-execution-guidance/.comet/handoff/design-context.md",
+  "archive_directory": "openspec/changes/archive/2026-08-05-improve-context-limits-and-execution-guidance"
 }

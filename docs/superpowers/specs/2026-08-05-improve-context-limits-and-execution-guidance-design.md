@@ -2,6 +2,8 @@
 comet_change: improve-context-limits-and-execution-guidance
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-08-05-improve-context-limits-and-execution-guidance
+status: final
 ---
 
 # Context 限额可观察性与执行指引技术设计
@@ -144,3 +146,4 @@ renderer 只接收 `ResolvedFeedbackLimits`，不读取配置文件，因此无�
 5. 运行专项/完整验证和真实模型 smoke。
 
 本变更不增加依赖、新配置键、输出归档、FileList 功能或 HTTP schema。
+
