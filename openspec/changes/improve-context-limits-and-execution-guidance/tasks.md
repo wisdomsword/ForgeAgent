@@ -20,6 +20,6 @@
 
 ## 5. 验证
 
-- [ ] 5.1 运行 context、CLI、identity、prompt、Task 与 HTTP 专项测试
-- [ ] 5.2 运行 lint、类型检查、完整测试、OpenSpec 严格校验和真实模型受控重复文件扫描 REPL smoke
-- [ ] 5.3 审查 diff 中是否存在公式漂移、secret 泄漏、非交互输出回归、prompt 越界或无关改动
+- [x] 5.1 运行 context、CLI、identity、prompt、Task 与 HTTP 专项测试
+- [x] 5.2 运行 lint、类型检查、完整测试、OpenSpec 严格校验和真实模型受控重复文件扫描 REPL smoke
+- [x] 5.3 审查 diff 中是否存在公式漂移、secret 泄漏、非交互输出回归、prompt 越界或无关改动
