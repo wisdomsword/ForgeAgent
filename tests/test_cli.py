@@ -5567,12 +5567,15 @@ def test_repl_reset_discards_history_and_staged_images(monkeypatch, command):
         Message(role=Role.USER, content="old"),
         Message(role=Role.ASSISTANT, content="answer"),
     ]
+    memory_manager = object()
+    mcp = SimpleNamespace(diagnostics=lambda: (), close=lambda: None)
 
     def run_goal(_goal, **kwargs):
         calls.append(kwargs)
         return SimpleNamespace(session_messages=history)
 
-    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: None)
+    monkeypatch.setattr(cli_module, "build_mcp_manager", lambda: mcp)
+    monkeypatch.setattr(cli_module, "_make_memory_manager", lambda *args, **kwargs: memory_manager)
     monkeypatch.setattr(cli_module, "run_once", run_goal)
     monkeypatch.setattr(
         cli_module,
@@ -5597,6 +5600,11 @@ def test_repl_reset_discards_history_and_staged_images(monkeypatch, command):
     assert len(calls) == 2
     assert calls[1]["session_messages"] == []
     assert calls[1]["images"] is None
+    assert calls[1]["model"] == calls[0]["model"] == "mock"
+    assert calls[1]["tier"] == calls[0]["tier"] == "trusted"
+    assert calls[1]["mcp"] is calls[0]["mcp"] is mcp
+    assert calls[1]["memory_manager"] is calls[0]["memory_manager"] is memory_manager
+    assert calls[1]["usage_total"] is calls[0]["usage_total"]
     assert "session reset" in console.export_text().lower()
 
 
