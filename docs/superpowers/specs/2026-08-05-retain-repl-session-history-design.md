@@ -2,6 +2,8 @@
 comet_change: retain-repl-session-history
 role: technical-design
 canonical_spec: openspec
+archived-with: 2026-08-05-retain-repl-session-history
+status: final
 ---
 
 # REPL 会话历史技术设计
@@ -140,3 +142,4 @@ SYSTEM, first USER, (ASSISTANT, USER)*
 4. 运行专项测试、完整质量门禁和 smoke 验证。
 
 本变更不增加依赖、模块注册层、持久化格式或摘要器。
+

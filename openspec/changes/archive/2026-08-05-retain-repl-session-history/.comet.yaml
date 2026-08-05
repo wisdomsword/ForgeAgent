@@ -1,6 +1,6 @@
 workflow: full
 language: zh-CN
-phase: build
+phase: archive
 context_compression: off
 build_mode: subagent-driven-development
 build_pause: null
@@ -13,12 +13,12 @@ auto_transition: true
 base_ref: e742b35708d65c56c78ee26e88de7c3b0b13faa2
 design_doc: docs/superpowers/specs/2026-08-05-retain-repl-session-history-design.md
 plan: docs/superpowers/plans/2026-08-05-retain-repl-session-history.md
-verify_result: fail
-verification_report: null
-branch_status: pending
+verify_result: pass
+verification_report: docs/superpowers/reports/2026-08-05-retain-repl-session-history-verify.md
+branch_status: handled
 created_at: 2026-08-05
-verified_at: null
-archived: false
+verified_at: 2026-08-05
+archived: true
 direct_override: null
 handoff_context: openspec/changes/retain-repl-session-history/.comet/handoff/design-context.json
 handoff_hash: 3953f1b6f73427751157d2f21435cff50d7bfae222b120bfc43b188e1935f8ea

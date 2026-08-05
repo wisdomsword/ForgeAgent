@@ -4,5 +4,6 @@
   "openspec_tasks": "openspec/changes/retain-repl-session-history/tasks.md",
   "openspec_delta_spec": "openspec/changes/retain-repl-session-history/specs/repl-interactive-input/spec.md",
   "handoff_context": "openspec/changes/retain-repl-session-history/.comet/handoff/design-context.json",
-  "handoff_markdown": "openspec/changes/retain-repl-session-history/.comet/handoff/design-context.md"
+  "handoff_markdown": "openspec/changes/retain-repl-session-history/.comet/handoff/design-context.md",
+  "archive_directory": "openspec/changes/archive/2026-08-05-retain-repl-session-history"
 }

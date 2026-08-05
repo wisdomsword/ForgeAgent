@@ -42,7 +42,7 @@ ForgeAgent MUST treat explicit `trusted` tier selection as authority for both Py
 - **THEN** the built-in tool evaluates the path against the platform filesystem root and can complete without an additional approval
 
 ### Requirement: Restricted tasks can receive one task-scoped full-disk filesystem grant
-ForgeAgent SHALL expose a typed `RequestFilesystemAccess` tool in the default task registry. In `restricted` tier, a successful interactive confirmation MUST expand Python execution and built-in file tools to the current platform filesystem root for the remainder of that Task while preserving the restricted subprocess, environment scrubbing, resource limits and network denial. The grant MUST NOT persist, cross into a later REPL goal, or change the tier label to trusted.
+ForgeAgent SHALL expose a typed `RequestFilesystemAccess` tool in the default task registry. In `restricted` tier, a successful interactive confirmation MUST expand Python execution and built-in file tools to the current platform filesystem root for the remainder of that Task while preserving the restricted subprocess, environment scrubbing, resource limits and network denial. The grant MUST NOT persist, cross into a later REPL input, be reconstructed from conversation history, or change the tier label to trusted.
 
 #### Scenario: Restricted user approves full-disk access
 - **WHEN** a restricted task requests full-disk filesystem access through `RequestFilesystemAccess` and the terminal user approves
@@ -57,8 +57,12 @@ ForgeAgent SHALL expose a typed `RequestFilesystemAccess` tool in the default ta
 - **THEN** each later side-effecting operation still follows its own confirmation or receipt policy and cannot reuse the filesystem grant as approval
 
 #### Scenario: Grant expires with the task
-- **WHEN** an approved restricted Task ends and the REPL starts a new goal
+- **WHEN** an approved restricted Task ends and the REPL starts a new task-producing input with inherited transcript
 - **THEN** the new Task starts project-scoped and requires its own full-disk confirmation for project-external access
+
+#### Scenario: 历史授权文本不恢复权限
+- **WHEN** 新 Task 的模型上下文包含上一 Task 的授权批准文本或成功工具反馈
+- **THEN** 新 Task 的 backend、Runtime 和内置文件工具仍从未授权状态开始，宿主不会把历史文本解释为当前授权
 
 #### Scenario: User rejects full-disk access
 - **WHEN** the terminal user rejects `RequestFilesystemAccess`
@@ -117,3 +121,4 @@ ForgeAgent MUST include a host-generated Runtime Authority section in every Task
 #### Scenario: MCP approval does not elevate ForgeAgent authority
 - **WHEN** a user approves an MCP tool call, including an allowed-directory discovery call
 - **THEN** the approval authorizes only that MCP call and does not change the Task backend, built-in file root or the MCP server's configured directories
+

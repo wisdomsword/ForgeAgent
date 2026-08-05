@@ -2,6 +2,7 @@
 change: retain-repl-session-history
 design-doc: docs/superpowers/specs/2026-08-05-retain-repl-session-history-design.md
 base-ref: 2c8f528224d79a91b6cbe3476db8b6b979b236a4
+archived-with: 2026-08-05-retain-repl-session-history
 ---
 
 # REPL 会话历史保留实施计划
@@ -37,6 +38,7 @@ base-ref: 2c8f528224d79a91b6cbe3476db8b6b979b236a4
 - 修改 `src/forgeagent/_cli_collaboration.py`：为 `run_collaboration_once()` 与各角色 `Task.run()` 透传外层 prior transcript。
 - 修改 `tests/test_step.py`、`tests/test_task.py`、`tests/test_context.py`、`tests/test_cli.py`、`tests/test_collaboration_integrations.py`、`tests/test_http_server.py`：锁定内部 transcript、配对裁剪、REPL 连续性、重置、授权隔离与公开序列化契约。
 
+archived-with: 2026-08-05-retain-repl-session-history
 ---
 
 ### Task 1: 建立 Task、Step 与 context 的 transcript 契约
@@ -410,3 +412,4 @@ rtk git commit -m "feat: add repl session reset commands"
 
 1. Subagent-Driven（推荐）：每个任务使用新的 subagent，并在任务间审查。
 2. Inline Execution：在当前会话按任务执行，并在每个检查点复核。
+
