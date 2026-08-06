@@ -152,7 +152,8 @@ def test_m33_and_receipt_purpose_are_traceable() -> None:
     assert "M47" in _read(PLAN)
     assert "M48" in _read(PLAN)
     assert "M49" in _read(PLAN)
-    assert _read(LATEST).strip() == "milestone_049.md"
+    assert "M50" in _read(PLAN)
+    assert _read(LATEST).strip() == "milestone_050.md"
     assert "Purpose: TBD" not in _read(RECEIPT_SPEC)
     assert "durable, bounded" in _read(RECEIPT_SPEC)
     assert "Purpose: TBD" not in _read(BORROWING_SPEC)
