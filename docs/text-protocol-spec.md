@@ -118,6 +118,12 @@ task_status:
 `tool_calls`, `errors`, and front-matter-stripped `body`. YAML errors and invalid
 task-status fields are recorded as parse errors, while the body is still parsed.
 
+Plain-text envelopes that match observed external coding-agent tool syntax are not
+ForgeAgent tool calls. A standalone JSON object with a non-empty `cmd` field or a
+`todo_write` + `Params:` envelope outside a Markdown code fence becomes a recoverable
+parse error. ForgeAgent never executes that payload; feedback directs the model to use
+the registered CodeBlock + Exec ToolCall protocol. Fenced examples remain ordinary prose.
+
 ## Completion and terminal status
 
 Completion is deliberately two-stage:

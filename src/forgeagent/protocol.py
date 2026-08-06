@@ -40,6 +40,20 @@ _CODE_BLOCK = re.compile(
 # Tool call: a single HTML comment carrying a JSON object.
 _TOOL_CALL = re.compile(r"<!--\s*ToolCall:\s*(\{.*?\})\s*-->", re.DOTALL)
 _MEMORY = re.compile(r"<!--\s*Memory:\s*(.*?)\s*-->", re.DOTALL)
+_MARKDOWN_FENCE = re.compile(
+    r"^[ \t]*(?P<fence>`{3,}|~{3,})[^\n]*\n.*?^[ \t]*(?P=fence)[ \t]*$",
+    re.DOTALL | re.MULTILINE,
+)
+_TODO_WRITE_ENVELOPE = re.compile(
+    r"^[ \t]*todo_write[ \t]*\r?\n[ \t]*Params:[ \t]*(?:\r?\n|$)",
+    re.IGNORECASE | re.MULTILINE,
+)
+_JSON_OBJECT_AT_LINE_START = re.compile(r"^[ \t]*(?=\{)", re.MULTILINE)
+_UNSUPPORTED_TOOL_MESSAGE = (
+    "Unsupported external-agent tool syntax was not executed. Use the exact "
+    "ForgeAgent CodeBlockStart/CodeBlockEnd and ToolCall Exec protocol from the "
+    "system prompt."
+)
 
 
 class ParseErrorType(StrEnum):
@@ -432,6 +446,34 @@ def _parse_memory_candidates(text: str, result: ParseResult) -> str:
     return _MEMORY.sub("", text)
 
 
+def _parse_unsupported_tool_syntax(text: str, result: ParseResult) -> None:
+    visible_text = _MARKDOWN_FENCE.sub("", text)
+    detected = _TODO_WRITE_ENVELOPE.search(visible_text) is not None
+    if not detected:
+        decoder = json.JSONDecoder()
+        for match in _JSON_OBJECT_AT_LINE_START.finditer(visible_text):
+            try:
+                value, end = decoder.raw_decode(visible_text[match.end() :])
+            except json.JSONDecodeError:
+                continue
+            command = value.get("cmd") if isinstance(value, dict) else None
+            if (
+                isinstance(command, str)
+                and command.strip()
+                and not visible_text[match.end() + end :].strip()
+            ):
+                detected = True
+                break
+    if detected:
+        result.errors.append(
+            ParseError(
+                error_type=ParseErrorType.INVALID_FORMAT,
+                message=_UNSUPPORTED_TOOL_MESSAGE,
+                raw="external-agent-tool",
+            )
+        )
+
+
 def _parse_native_tool_calls(
     native_calls: list[NativeToolCall],
     result: ParseResult,
@@ -488,6 +530,7 @@ def parse(
     body = _parse_front_matter(text, result)
     body = _parse_memory_candidates(body, result)
     result.body = body.strip()
+    _parse_unsupported_tool_syntax(body, result)
     _parse_code_blocks(body, result)
     _parse_tool_calls(body, result, schemas)
     if native_tool_calls:

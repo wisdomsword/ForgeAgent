@@ -362,6 +362,42 @@ def test_task_prose_outcome_has_no_execution_evidence(tmp_path):
     assert outcome.execution_evidence == ExecutionEvidence()
 
 
+@pytest.mark.parametrize(
+    "foreign_response",
+    [
+        ('I will use the available tools.\n\n{"cmd":"pwd && ls -la"}'),
+        (
+            "todo_write\nParams:\n"
+            '{"merge":false,"todos":[{"content":"inspect","status":"in_progress"}]}'
+        ),
+    ],
+    ids=["standalone-cmd", "todo-write-params"],
+)
+def test_task_recovers_external_agent_tool_text_into_forge_exec(
+    foreign_response: str,
+    tmp_path,
+):
+    client = _RecordingTaskClient(
+        script=[
+            _reply(foreign_response),
+            _reply(_tool_call("Exec", code="print('executed')")),
+            _reply(_done()),
+        ]
+    )
+
+    outcome = Task(
+        client,
+        tier="trusted",
+        allowed_root=str(tmp_path),
+    ).run("inspect the current directory and execute the task")
+
+    assert client.calls_made == 3
+    assert outcome.status.reason == Termination.COMPLETED
+    assert [record.tool for record in outcome.execution_evidence.records] == ["Exec"]
+    assert "not executed" in str(client.requests[1][-1].content)
+    assert "ForgeAgent" in str(client.requests[1][-1].content)
+
+
 def test_identity_prose_is_repaired_when_model_substitutes_native_persona():
     outcome = Task(
         MockClient(script=[_reply("准确来说：我是 Claude，底层基于 Claude Sonnet 5。")])

@@ -92,6 +92,31 @@ def test_malformed_json_in_toolcall_produces_error_not_crash():
     assert any(e.error_type == ParseErrorType.JSON_DECODE_ERROR for e in result.errors)
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        'I will inspect the directory.\n\n{"cmd":"pwd && ls -la"}',
+        'todo_write\nParams:\n{"merge":false,"todos":[]}',
+    ],
+    ids=["standalone-cmd", "todo-write-params"],
+)
+def test_external_agent_tool_text_is_a_recoverable_protocol_error(text: str):
+    result = parse(text)
+
+    assert result.tool_calls == []
+    assert len(result.errors) == 1
+    assert result.errors[0].error_type == ParseErrorType.INVALID_FORMAT
+    assert "not executed" in result.errors[0].message
+    assert "ForgeAgent" in result.errors[0].message
+
+
+def test_fenced_external_tool_example_remains_plain_prose():
+    result = parse('Example:\n```json\n{"cmd":"pwd"}\n```')
+
+    assert result.errors == []
+    assert result.tool_calls == []
+
+
 def test_code_block_name_mismatch_reported_and_skipped():
     text = (
         '<!-- CodeBlockStart: {"name": "a"} -->\n```python\nx=1\n```\n'
