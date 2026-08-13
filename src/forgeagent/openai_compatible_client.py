@@ -30,7 +30,13 @@ from .models import (
     StreamEventKind,
     TokenUsage,
 )
-from .transport_errors import TransportError, classify_transport_exception, run_with_retries
+from .transport_errors import (
+    TransportError,
+    classify_transport_exception,
+    client_error_message,
+    log_transport_failure,
+    run_with_retries,
+)
 
 __all__ = ["OpenAICompatibleClient"]
 
@@ -287,6 +293,7 @@ class OpenAICompatibleClient(ModelClient):
                             total_prompt_tokens=getattr(chunk_usage, "prompt_tokens", 0) or 0,
                         )
             except TransportError as exc:
+                log_transport_failure(exc.kind, exc)
                 self._notify_attempt(
                     ProviderAttempt(
                         attempt=attempt,
@@ -297,14 +304,17 @@ class OpenAICompatibleClient(ModelClient):
                 if not started and exc.retryable and attempt < self._max_attempts:
                     self._sleep(self._backoff_base * self._backoff_factor ** (attempt - 1))
                     continue
-                yield ClientError(message=str(exc), kind=exc.kind, attempts=attempt)
+                yield ClientError(
+                    message=client_error_message(exc.kind), kind=exc.kind, attempts=attempt
+                )
                 return
             except Exception as exc:  # noqa: BLE001 - mid-stream failure, never retried
                 kind, _retryable = classify_transport_exception(exc)
+                log_transport_failure(kind, exc)
                 self._notify_attempt(
                     ProviderAttempt(attempt=attempt, status="interrupted", error_kind=kind)
                 )
-                yield ClientError(message=str(exc), kind=kind, attempts=attempt)
+                yield ClientError(message=client_error_message(kind), kind=kind, attempts=attempt)
                 return
             if not stop_reason:
                 # The transport generator ended (no exception) before any chunk carried

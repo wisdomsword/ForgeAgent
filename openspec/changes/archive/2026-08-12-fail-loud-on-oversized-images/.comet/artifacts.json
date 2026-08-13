@@ -1,0 +1,9 @@
+{
+  "openspec_proposal": "openspec/changes/fail-loud-on-oversized-images/proposal.md",
+  "openspec_design": "openspec/changes/fail-loud-on-oversized-images/design.md",
+  "openspec_tasks": "openspec/changes/fail-loud-on-oversized-images/tasks.md",
+  "openspec_delta_spec": "openspec/changes/fail-loud-on-oversized-images/specs/image-input/spec.md",
+  "build_tasks_complete": "openspec/changes/fail-loud-on-oversized-images/tasks.md",
+  "verification_report": "docs/superpowers/reports/2026-08-13-milestone-051-hardening-verify.md",
+  "archive_directory": "openspec/changes/archive/2026-08-12-fail-loud-on-oversized-images"
+}

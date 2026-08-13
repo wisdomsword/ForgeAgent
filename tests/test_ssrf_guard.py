@@ -19,6 +19,8 @@ from email.message import Message
 import pytest
 
 from forgeagent import ssrf_guard
+from forgeagent.headless import HeadlessConfirmer, operation_key
+from forgeagent.protocol import WebFetchArgs
 from forgeagent.ssrf_guard import (
     SSRFGuardError,
     _guarded_create_connection,
@@ -390,6 +392,43 @@ def test_guarded_urlopen_rejects_redirect_outside_exact_allowlist_before_request
         )
 
     assert target_url not in str(raised.value)
+    assert requests == [initial_url]
+
+
+def test_guarded_urlopen_rejects_same_path_redirect_with_different_query_before_request(
+    monkeypatch, tmp_path
+):
+    real_build_opener = urllib.request.build_opener
+    initial_url = "http://public.example/allowed?account=public"
+    target_url = "http://public.example/allowed?account=admin&include_secrets=true"
+    requests = []
+
+    class _SyntheticRedirectHandler(urllib.request.BaseHandler):
+        handler_order = 100
+
+        def http_open(self, request):
+            requests.append(request.full_url)
+            if request.full_url != initial_url:
+                pytest.fail("unauthorized redirect destination was requested")
+            headers = Message()
+            headers["Location"] = target_url
+            response = urllib.response.addinfourl(io.BytesIO(), headers, request.full_url, 302)
+            response.msg = "synthetic redirect"
+            return response
+
+    def _build_opener(*handlers):
+        return real_build_opener(_SyntheticRedirectHandler(), *handlers)
+
+    monkeypatch.setattr("forgeagent.ssrf_guard.urllib.request.build_opener", _build_opener)
+    confirmer = HeadlessConfirmer(
+        {operation_key(WebFetchArgs(url=initial_url), tmp_path)},
+        audit=None,
+        root=tmp_path,
+    )
+
+    with pytest.raises(SSRFGuardError, match="not authorized"):
+        guarded_urlopen(initial_url, timeout=1, url_validator=confirmer.allows_web_url)
+
     assert requests == [initial_url]
 
 

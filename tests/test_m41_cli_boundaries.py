@@ -20,7 +20,7 @@ BOUNDARY_MODULES = (
 )
 EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
 HELP_BASELINE = (
-    (("--help",), 1608, "7b99003897c90cf32c86bfb198f251222327e03bf8e2faaeada98c89ec9c76b3"),
+    (("--help",), 2065, "549f517f85c74c1b2b058fb919c8930ef01ad0617d480cb2ef5b4209dde5a4be"),
     (
         ("run", "--help"),
         773,

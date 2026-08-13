@@ -66,7 +66,7 @@ class GenerationParams(BaseModel):
     (see ModelCapability and docs/model-client-contract.md capability-gating)."""
 
     max_output_tokens: PositiveInt | None = None
-    temperature: float | None = None
+    temperature: FiniteFloat | None = None
     # Tri-state intent: "on" = prefer thinking, "off" = prefer no thinking (NOT a
     # hard guarantee — some models can't disable it), "auto" = use model default.
     thinking: Literal["on", "off", "auto"] = "auto"

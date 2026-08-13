@@ -308,12 +308,12 @@ def test_m22_adds_no_runtime_dependency() -> None:
     project = tomllib.loads(_text("pyproject.toml"))["project"]
 
     assert set(project["dependencies"]) == {
-        "pydantic>=2.0",
-        "anthropic>=0.40",
-        "jinja2>=3.1",
-        "rich>=13.0",
-        "pyyaml>=6.0",
+        "pydantic>=2.0,<3",
+        "anthropic>=0.40,<1",
+        "jinja2>=3.1,<4",
+        "rich>=13.0,<16",
+        "pyyaml>=6.0,<7",
         "openai>=2.24,<3",
-        "mcp>=1.28.1",
+        "mcp>=1.28.1,<2",
         "prompt-toolkit>=3.0,<4",
     }

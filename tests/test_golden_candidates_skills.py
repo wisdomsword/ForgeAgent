@@ -25,5 +25,5 @@ def test_no_skill_control_never_advertises_or_registers_skill(tmp_path):
     assert result.round_count == 2
     assert "## Available Skills" not in result.first_request
     assert '"name":"Skill"' not in result.first_request
-    assert "Unknown or missing tool name" in result.second_request
-    assert "Unknown or missing tool name" in result.feedback
+    assert "invalid_format: tool_call.name" in result.second_request
+    assert "invalid_format: tool_call.name" in result.feedback

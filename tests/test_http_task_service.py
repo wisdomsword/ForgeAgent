@@ -360,6 +360,7 @@ def test_submit_copies_options_and_factory_receives_private_record_data():
             "mode",
             "status",
             "reason",
+            "completion_state",
             "detail",
             "round_count",
             "usage",
@@ -712,6 +713,7 @@ def test_answered_in_prose_projection_never_returns_model_or_file_content():
 
         assert view["status"] == "answered_in_prose"
         assert view["reason"] == "answered_in_prose"
+        assert view["completion_state"] == "answered_unverified"
         assert view["detail"] is None
         assert view["round_count"] == 1
         assert view["usage"] == {

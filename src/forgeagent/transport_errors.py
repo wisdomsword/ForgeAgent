@@ -14,11 +14,16 @@ _parse_response.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from typing import Any
 
 from .client import AttemptObserver, ProviderAttempt
 from .models import AssistantMessage, ClientError
+from .secret_policy import mask_audit_data, sensitive_env_values
+
+_LOGGER = logging.getLogger(__name__)
+_MAX_DEBUG_ERROR_DETAIL = 512
 
 # Map SDK exception class names -> (ClientError.kind, retryable). Matched against the
 # exception's MRO class names so it works without importing the SDK at module load.
@@ -42,6 +47,31 @@ class TransportError(Exception):
         super().__init__(message)
         self.kind = kind
         self.retryable = retryable
+
+
+def client_error_message(kind: str) -> str:
+    """Return the stable transport feedback exposed to the model."""
+    return f"model request failed: {kind}"
+
+
+def _debug_failure(kind: str, error: BaseException, secret_values: set[str]) -> None:
+    detail = mask_audit_data(str(error), secret_values)
+    _LOGGER.debug(
+        "model_transport_failure kind=%s detail=%s",
+        kind,
+        str(detail)[:_MAX_DEBUG_ERROR_DETAIL],
+    )
+
+
+def log_transport_failure(
+    kind: str,
+    error: BaseException,
+    *,
+    secret_values: set[str] | None = None,
+) -> None:
+    """Write bounded, masked transport detail to the local debug log only."""
+    secrets = sensitive_env_values() if secret_values is None else secret_values
+    _debug_failure(kind, error, secrets)
 
 
 def _notify_attempt(observer: AttemptObserver | None, event: ProviderAttempt) -> None:
@@ -76,6 +106,7 @@ def run_with_retries(
     sleep: Callable[[float], None],
     parse_response: Callable[[Any], AssistantMessage],
     attempt_observer: AttemptObserver | None = None,
+    secret_values: set[str] | None = None,
 ) -> AssistantMessage | ClientError:
     """Call `transport(request, timeout_seconds)`, retrying retryable TransportErrors
     with exponential backoff, then hand the raw response to `parse_response`.
@@ -91,6 +122,7 @@ def run_with_retries(
         try:
             raw = transport(request, timeout_seconds)
         except TransportError as exc:
+            log_transport_failure(exc.kind, exc, secret_values=secret_values)
             _notify_attempt(
                 attempt_observer,
                 ProviderAttempt(attempt=attempt, status="error", error_kind=exc.kind),
@@ -98,18 +130,21 @@ def run_with_retries(
             if exc.retryable and attempt < max_attempts:
                 sleep(backoff_base_seconds * backoff_factor ** (attempt - 1))
                 continue
-            return ClientError(message=str(exc), kind=exc.kind, attempts=attempt)
+            return ClientError(
+                message=client_error_message(exc.kind), kind=exc.kind, attempts=attempt
+            )
         try:
             result = parse_response(raw)
             _notify_attempt(attempt_observer, ProviderAttempt(attempt=attempt, status="success"))
             return result
         except Exception as exc:  # noqa: BLE001 - any shape mismatch becomes a ClientError
+            log_transport_failure("invalid_request", exc, secret_values=secret_values)
             _notify_attempt(
                 attempt_observer,
                 ProviderAttempt(attempt=attempt, status="error", error_kind="invalid_request"),
             )
             return ClientError(
-                message=f"Unparseable response from the endpoint: {exc}",
+                message=client_error_message("invalid_request"),
                 kind="invalid_request",
                 attempts=attempt,
             )

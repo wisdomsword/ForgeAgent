@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from hashlib import sha256
 from pathlib import Path
 
 import pytest
@@ -21,17 +22,18 @@ class _RecordingAuditSink:
 
 
 def test_normalize_allowlist_accepts_exact_canonical_operation_keys() -> None:
+    query_digest = sha256(b"format=json&limit=20").hexdigest()
     assert normalize_allowlist(
         {
             "mcp/github/create_issue",
             "file/reports/out.txt",
-            "web/https/example.com/443/api/report",
+            f"web/v1/https/example.com/443/api/report/{query_digest}",
         }
     ) == frozenset(
         {
             "mcp/github/create_issue",
             "file/reports/out.txt",
-            "web/https/example.com/443/api/report",
+            f"web/v1/https/example.com/443/api/report/{query_digest}",
         }
     )
 
@@ -62,6 +64,9 @@ def test_normalize_allowlist_rejects_bare_string_collection() -> None:
         "web/https/example.com/0/a",
         "web/https/example.com/65536/a",
         "web/https/example.com/443/a?scope=wide",
+        "web/https/example.com/443/a",
+        "web/v1/https/example.com/443/a",
+        "web/v1/https/example.com/443/a/not-a-digest",
     ],
 )
 def test_normalize_allowlist_rejects_glob_unsafe_and_escaping_entries(entry: str) -> None:
@@ -72,15 +77,35 @@ def test_normalize_allowlist_rejects_glob_unsafe_and_escaping_entries(entry: str
 @pytest.mark.parametrize(
     ("url", "expected"),
     [
-        ("http://Example.COM/a?token=one#fragment", "web/http/example.com/80/a"),
-        ("https://Example.COM/a?token=two", "web/https/example.com/443/a"),
-        ("https://example.com:8443", "web/https/example.com/8443/"),
+        (
+            "http://Example.COM/a?token=one#fragment",
+            f"web/v1/http/example.com/80/a/{sha256(b'token=one').hexdigest()}",
+        ),
+        (
+            "https://Example.COM/a?token=two",
+            f"web/v1/https/example.com/443/a/{sha256(b'token=two').hexdigest()}",
+        ),
+        (
+            "https://example.com:8443",
+            f"web/v1/https/example.com/8443//{sha256(b'').hexdigest()}",
+        ),
     ],
 )
-def test_operation_key_uses_scheme_specific_default_port_and_omits_query(
+def test_operation_key_uses_scheme_specific_default_port_and_binds_raw_query(
     url: str, expected: str, tmp_path: Path
 ) -> None:
     assert operation_key(WebFetchArgs(url=url), tmp_path) == expected
+
+
+def test_webfetch_operation_key_preserves_query_order_and_repeated_parameters(
+    tmp_path: Path,
+) -> None:
+    first = operation_key(WebFetchArgs(url="https://example.com/a?tag=one&tag=two"), tmp_path)
+    reordered = operation_key(WebFetchArgs(url="https://example.com/a?tag=two&tag=one"), tmp_path)
+
+    assert first != reordered
+    assert "tag=" not in first
+    assert len(first.rsplit("/", 1)[1]) == 64
 
 
 @pytest.mark.parametrize(
@@ -118,25 +143,35 @@ def test_file_write_operation_key_rejects_symlink_escape(tmp_path: Path) -> None
 
 def test_headless_confirmer_exact_match_audits_preapproval_and_denial(tmp_path: Path) -> None:
     sink = _RecordingAuditSink()
+    public_query_digest = sha256(b"account=public").hexdigest()
     confirmer = HeadlessConfirmer(
-        {"file/reports/out.txt", "web/https/example.com/443/a"},
+        {"file/reports/out.txt", f"web/v1/https/example.com/443/a/{public_query_digest}"},
         audit=sink,
         root=tmp_path,
     )
 
     assert confirmer(FileWriteArgs(path="reports/out.txt", content="x")) is True
     assert confirmer(FileWriteArgs(path="reports/other.txt", content="x")) is False
-    assert confirmer(WebFetchArgs(url="https://example.com/a?ignored=yes")) is True
+    assert confirmer(WebFetchArgs(url="https://example.com/a?account=public")) is True
+    assert (
+        confirmer(WebFetchArgs(url="https://example.com/a?account=admin&include_secrets=true"))
+        is False
+    )
 
     assert [event.result_status for event in sink.events] == [
         "preapproved",
         "denied",
         "preapproved",
+        "denied",
     ]
     assert [event.parameters["operation"] for event in sink.events] == [
         "file/reports/out.txt",
         "file/reports/other.txt",
-        "web/https/example.com/443/a",
+        f"web/v1/https/example.com/443/a/{public_query_digest}",
+        (
+            "web/v1/https/example.com/443/a/"
+            f"{sha256(b'account=admin&include_secrets=true').hexdigest()}"
+        ),
     ]
 
 
@@ -195,10 +230,15 @@ def test_mcp_operation_key_rejects_separator_and_control_characters(
 
 
 def test_web_allowlist_and_runtime_share_idna_host_canonicalization(tmp_path: Path) -> None:
-    configured = normalize_allowlist(["web/https/B\u00dcCHER.Example/443/report"])
+    query_digest = sha256(b"").hexdigest()
+    configured = normalize_allowlist(
+        [f"web/v1/https/B\u00dcCHER.Example/443/report/{query_digest}"]
+    )
     runtime = operation_key(WebFetchArgs(url="https://b\u00fccher.example/report"), tmp_path)
 
-    assert configured == frozenset({"web/https/xn--bcher-kva.example/443/report"})
+    assert configured == frozenset(
+        {f"web/v1/https/xn--bcher-kva.example/443/report/{query_digest}"}
+    )
     assert runtime in configured
 
 

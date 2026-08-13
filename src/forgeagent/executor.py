@@ -26,7 +26,9 @@ from __future__ import annotations
 import atexit
 import io
 import json
+import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -40,6 +42,47 @@ from pydantic import BaseModel, Field
 
 from .runtime import Runtime
 from .secret_policy import mask_secrets, scrub_environment, sensitive_env_values
+
+_MAX_WORKER_CAPTURE_CHARACTERS = 8 * 1024
+
+
+def _create_worker_capture_paths(allowed_root: str) -> dict[str, str]:
+    """Reserve private files for bounded worker output outside the task authority."""
+    del allowed_root
+    paths: dict[str, str] = {}
+    try:
+        for stream_name in ("stdout", "stderr"):
+            descriptor, path = tempfile.mkstemp(
+                prefix="forgeagent-worker-", suffix=f"-{stream_name}"
+            )
+            os.close(descriptor)
+            paths[stream_name] = path
+    except OSError:
+        _remove_worker_capture_paths(paths)
+        return {}
+    return paths
+
+
+def _read_worker_capture_paths(paths: dict[str, str]) -> tuple[str, str]:
+    def read(path: str) -> str:
+        try:
+            return (
+                Path(path)
+                .read_bytes()[:_MAX_WORKER_CAPTURE_CHARACTERS]
+                .decode("utf-8", errors="replace")
+            )
+        except OSError:
+            return ""
+
+    return read(paths.get("stdout", "")), read(paths.get("stderr", ""))
+
+
+def _remove_worker_capture_paths(paths: dict[str, str]) -> None:
+    for path in paths.values():
+        try:
+            Path(path).unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 class ExecResult(BaseModel):
@@ -130,8 +173,31 @@ def _format_exception(exc: BaseException) -> str:
     return "".join(tb).strip()
 
 
+def _worker_termination_reason(returncode: int, *, cpu_seconds: int | None) -> str:
+    if returncode >= 0:
+        return f"ended without a result frame (exit code {returncode})"
+    signum = -returncode
+    if hasattr(signal, "SIGXCPU") and signum == signal.SIGXCPU:
+        suffix = "" if cpu_seconds is None else f" ({cpu_seconds}s)"
+        return f"exceeded CPU time limit{suffix}"
+    if signum == signal.SIGKILL:
+        return "was killed by SIGKILL (possibly a resource limit)"
+    try:
+        signal_name = signal.Signals(signum).name
+    except ValueError:
+        signal_name = str(signum)
+    return f"terminated by signal {signal_name}"
+
+
 def _parse_worker_frame(
-    stdout: str, returncode: int, stderr: str, *, worker_label: str
+    stdout: str,
+    returncode: int,
+    stderr: str,
+    *,
+    worker_label: str,
+    captured_stdout: str = "",
+    captured_stderr: str = "",
+    cpu_seconds: int | None = None,
 ) -> ExecResult | dict:
     """Decode a sandbox worker's JSON result frame, or an ExecResult describing why it
     couldn't be decoded. Shared by the restricted and container backends — both talk the
@@ -142,21 +208,35 @@ def _parse_worker_frame(
     that is not a dict-shaped frame must come back as a structured failure, never as an
     exception out of execute()."""
     if returncode != 0 or not stdout:
-        # Worker died before writing a result frame (e.g. rlimit kill, crash).
+        # Worker died before writing a result frame (e.g. rlimit kill, crash). The
+        # bounded side channel retains ordinary output written before that termination.
+        stderr_text = "\n".join(
+            value[:_MAX_WORKER_CAPTURE_CHARACTERS]
+            for value in (captured_stderr, stderr.strip())
+            if value
+        )
         return ExecResult(
             success=False,
-            error=f"{worker_label} failed (exit {returncode}): {stderr.strip()[:500]}",
+            stdout=captured_stdout,
+            stderr=stderr_text,
+            error=(
+                f"{worker_label} {_worker_termination_reason(returncode, cpu_seconds=cpu_seconds)}"
+            ),
         )
     try:
         frame = json.loads(stdout)
     except json.JSONDecodeError:
         return ExecResult(
             success=False,
+            stdout=captured_stdout,
+            stderr=captured_stderr,
             error=f"{worker_label} produced invalid result: {stdout[:500]}",
         )
     if not isinstance(frame, dict) or not isinstance(frame.get("state", {}), dict):
         return ExecResult(
             success=False,
+            stdout=captured_stdout,
+            stderr=captured_stderr,
             error=f"{worker_label} produced a malformed result frame: {stdout[:500]}",
         )
     return frame
@@ -214,6 +294,7 @@ class RestrictedBackend(ExecutorBackend):
     def _run(self, code: str, runtime: Runtime) -> ExecResult:
         # Seed this block's state from prior blocks (runtime state takes precedence).
         merged = {**self._state, **runtime.state}
+        capture_paths = _create_worker_capture_paths(self._allowed_root)
         payload = json.dumps(
             {
                 "code": code,
@@ -221,34 +302,48 @@ class RestrictedBackend(ExecutorBackend):
                 "allowed_root": self._allowed_root,
                 "cpu_seconds": self._cpu_seconds,
                 "memory_mb": self._memory_mb,
+                "capture_paths": capture_paths,
             }
         )
+        captured_stdout = ""
+        captured_stderr = ""
         try:
-            proc = subprocess.run(
-                [sys.executable, "-I", "-m", "forgeagent._sandbox_worker"],
-                input=payload,
-                capture_output=True,
-                text=True,
-                timeout=self._timeout,
-                # Prevention (T1): the child never sees the agent's own credentials, so
-                # model code cannot read them via os.environ. Non-secret vars (PATH, ...)
-                # are kept so the worker still starts and imports normally.
-                env=scrub_environment(),
+            try:
+                proc = subprocess.run(
+                    [sys.executable, "-I", "-m", "forgeagent._sandbox_worker"],
+                    input=payload,
+                    capture_output=True,
+                    text=True,
+                    timeout=self._timeout,
+                    # Prevention (T1): the child never sees the agent's own credentials, so
+                    # model code cannot read them via os.environ. Non-secret vars (PATH, ...)
+                    # are kept so the worker still starts and imports normally.
+                    env=scrub_environment(),
+                )
+            except subprocess.TimeoutExpired:
+                captured_stdout, captured_stderr = _read_worker_capture_paths(capture_paths)
+                return ExecResult(
+                    success=False,
+                    stdout=captured_stdout,
+                    stderr=captured_stderr,
+                    error=f"execution timed out after {self._timeout}s (process killed)",
+                )
+            captured_stdout, captured_stderr = _read_worker_capture_paths(capture_paths)
+            frame = _parse_worker_frame(
+                proc.stdout,
+                proc.returncode,
+                proc.stderr,
+                worker_label="sandbox worker",
+                captured_stdout=captured_stdout,
+                captured_stderr=captured_stderr,
+                cpu_seconds=self._cpu_seconds,
             )
-        except subprocess.TimeoutExpired:
-            # subprocess.run already SIGKILLs the child on timeout; prior state is intact.
-            return ExecResult(
-                success=False,
-                error=f"execution timed out after {self._timeout}s (process killed)",
-            )
-
-        frame = _parse_worker_frame(
-            proc.stdout, proc.returncode, proc.stderr, worker_label="sandbox worker"
-        )
-        if isinstance(frame, ExecResult):
-            return frame
-        # Persist returned state for later blocks and reflect it into the runtime.
-        return _result_from_frame(frame, self._state, runtime)
+            if isinstance(frame, ExecResult):
+                return frame
+            # Persist returned state for later blocks and reflect it into the runtime.
+            return _result_from_frame(frame, self._state, runtime)
+        finally:
+            _remove_worker_capture_paths(capture_paths)
 
 
 class ContainerBackend(ExecutorBackend):

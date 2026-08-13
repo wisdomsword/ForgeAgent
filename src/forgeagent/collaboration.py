@@ -25,6 +25,14 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from .attention import Attention, attention_for_reason
 from .audit import AuditEvent, AuditSink, emit_audit
 from .check_runner import CheckDefinition, CheckStatus, candidate_snapshot_digest, run_check
+
+# Compatibility re-exports; collaboration remains the established public facade.
+from .collaboration_routing import (  # noqa: F401
+    CollaborationMode,
+    ModeDecision,
+    emit_collaboration_route,
+    resolve_collaboration_mode,
+)
 from .execution_evidence import (
     ExecutionEvidence,
     merge_execution_evidence,
@@ -75,7 +83,6 @@ _WINDOWS_ABSOLUTE_PATH = re.compile(
     r"(?i)(?<![a-z0-9])[a-z]:[\\/](?:[^\\/\s\x00-\x1f]+[\\/])*[^\\/\s\x00-\x1f]*"
 )
 
-CollaborationMode = Literal["single", "duo", "triad"]
 CollaborationRole = Literal["planner", "generator", "evaluator"]
 
 HANDOFF_SCHEMA = "forgeagent.collaboration-handoff.v1"
@@ -2772,60 +2779,3 @@ class CollaborationRunner:
     @staticmethod
     def _cancelled(cancel_event: threading.Event | None) -> bool:
         return cancel_event is not None and cancel_event.is_set()
-
-
-class ModeDecision(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
-    mode: CollaborationMode
-    reason: Literal["explicit", "bound_checks", "default", "override_required"]
-    override_required: bool = False
-
-    @field_validator("override_required", mode="before")
-    @classmethod
-    def _validate_override_required(cls, value: Any) -> bool:
-        if type(value) is not bool:
-            raise ValueError("override_required must be a bool")
-        return value
-
-
-def emit_collaboration_route(
-    audit_sink: AuditSink | None,
-    decision: ModeDecision,
-    requested_mode: CollaborationMode | None,
-    *,
-    task_id: str | None = None,
-    loop_id: str | None = None,
-) -> bool:
-    """Audit a deterministic routing decision without retaining the task goal."""
-    return emit_audit(
-        audit_sink,
-        AuditEvent(
-            event_type="collaboration.route",
-            task_id=task_id,
-            risk_level="low",
-            parameters={
-                "mode": decision.mode,
-                "reason": decision.reason,
-                "requested_mode": requested_mode or "default",
-                "override_required": decision.override_required,
-                **({"loop_id": loop_id} if loop_id is not None else {}),
-            },
-            result_status=decision.reason,
-            duration_ms=0,
-        ),
-    )
-
-
-def resolve_collaboration_mode(
-    goal: str,
-    requested_mode: CollaborationMode | None,
-    *,
-    has_bound_checks: bool = False,
-    allow_weaker_override: bool = False,
-) -> ModeDecision:
-    del goal, allow_weaker_override
-    if requested_mode is not None:
-        return ModeDecision(mode=requested_mode, reason="explicit")
-    if has_bound_checks:
-        return ModeDecision(mode="triad", reason="bound_checks")
-    return ModeDecision(mode="single", reason="default")

@@ -1,0 +1,9 @@
+{
+  "openspec_proposal": "openspec/changes/harden-error-and-protocol-boundaries/proposal.md",
+  "openspec_design": "openspec/changes/harden-error-and-protocol-boundaries/design.md",
+  "openspec_tasks": "openspec/changes/harden-error-and-protocol-boundaries/tasks.md",
+  "openspec_delta_spec": "openspec/changes/harden-error-and-protocol-boundaries/specs/model-input-contracts/spec.md",
+  "build_tasks_complete": "openspec/changes/harden-error-and-protocol-boundaries/tasks.md",
+  "verification_report": "docs/superpowers/reports/2026-08-13-milestone-051-hardening-verify.md",
+  "archive_directory": "openspec/changes/archive/2026-08-12-harden-error-and-protocol-boundaries"
+}

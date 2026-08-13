@@ -15,17 +15,13 @@ runtime concern.
 
 from __future__ import annotations
 
-import json
 import threading
 import time
 from collections.abc import Callable
-from enum import StrEnum
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
-from pydantic import BaseModel, Field
-
-from .attention import Attention, attention_for_reason
+from .attention import attention_for_reason
 from .audit import AuditEvent, AuditSink, emit_audit
 from .client import AttemptObserver, ModelClient, ProviderAttempt
 from .context import (
@@ -48,11 +44,9 @@ from .models import (
     Message,
     Role,
     StreamEventKind,
-    TokenUsage,
 )
 from .policy import CodeAnalyzer
 from .protocol import (
-    MemoryCandidate,
     ParseResult,
     TaskStatus,
     ToolCall,
@@ -60,6 +54,7 @@ from .protocol import (
 )
 from .runtime import Runtime
 from .secret_policy import mask_secrets, sensitive_env_values
+from .step_types import RoundResult, Termination, render_history_content
 from .tools import (
     Asker,
     CodeBlockStore,
@@ -77,29 +72,6 @@ if TYPE_CHECKING:
 
 # Public step types; Edit's runtime matcher remains private to forgeagent.tools.
 __all__ = ["Step", "RoundResult", "Termination", "CodeBlockStore", "ToolOutcome"]
-
-
-class Termination(StrEnum):
-    """Why a Step loop stopped. Kept mechanical: the loop classifies terminal STATE,
-    never answer correctness (a wrong-but-well-formed answer is COMPLETED here; judging
-    it right or wrong is the evaluator's job, see docs/golden-tasks-seed.md).
-
-    COMPLETED and ANSWERED_IN_PROSE are both "solved" (see TaskStatus.solved); the
-    difference is that COMPLETED was verified by execution and declared by the model,
-    while ANSWERED_IN_PROSE is an unverified prose answer accepted without tool activity.
-    """
-
-    COMPLETED = "completed"  # model declared task_status.completed=true
-    ANSWERED_IN_PROSE = "answered_in_prose"  # prose answer, no execution (soft success)
-    REFUSED = "refused"  # stop_reason refusal/content_filter, or declared status=refused
-    NEEDS_INFO = "needs_info"  # model declared status=need_info, or Survey w/o asker
-    BLOCKED = "blocked"  # model or tool declared an external dependency block
-    FAILED = "failed"  # model declared status=failed
-    TRUNCATED = "truncated"  # response cut off at the token limit (partial answer)
-    EMPTY_RESPONSE = "empty_response"  # no tool activity and no prose to accept
-    MAX_ROUNDS = "max_rounds"  # ran out of rounds with work still in flight
-    CLIENT_ERROR = "client_error"  # transport/client failure (suffixed with :kind)
-    CANCELLED = "cancelled"  # caller requested cooperative cancellation
 
 
 # Provider stop_reason values, normalised. Anthropic and OpenAI-compatible clients pass
@@ -126,59 +98,6 @@ def _missing_completion_message(tool_name: str) -> str:
         "arguments exactly as described in the system prompt. XML/function_calls syntax is not "
         "recognized."
     )
-
-
-def _render_history_content(reply: AssistantMessage) -> str:
-    """What goes into convo history for this reply: reply.content plus, for the
-    native tool_calls channel (ToolSource.OPENAI, M6), the same text-protocol
-    ToolCall markup the text channel already uses.
-
-    `Message.content` is plain text by contract (docs/model-client-contract.md) —
-    there is no vendor-native tool_calls field on it — so a native call is folded
-    into the markup form rather than added as a separate structured field. Without
-    this, a model using the native channel would lose its own prior tool calls from
-    history on the next round (it only ever sees its own past text).
-    """
-    if not reply.tool_calls:
-        return reply.content
-    rendered = [reply.content] if reply.content else []
-    for call in reply.tool_calls:
-        try:
-            arguments = json.loads(call.arguments)
-        except json.JSONDecodeError:
-            arguments = call.arguments  # keep the raw string rather than dropping it
-        marker = {"id": call.id, "name": call.name, "arguments": arguments}
-        rendered.append(f"<!-- ToolCall: {json.dumps(marker)} -->")
-    return "\n".join(rendered)
-
-
-class RoundResult(BaseModel):
-    """What happened in one round: the parsed response and per-tool outcomes."""
-
-    text: str
-    # `text` with front matter stripped — the model's own words, e.g. when it answers
-    # in plain prose instead of calling Exec. Empty for refusal/client_error rounds,
-    # where `text` already holds the relevant message.
-    body: str = ""
-    # The provider's raw stop_reason for this round (needed to spot truncation, which
-    # only becomes terminal when there is nothing to feed back).
-    stop_reason: str = ""
-    # Token accounting for this round's call, straight from AssistantMessage.usage.
-    # None for rounds with no assistant reply to account for (e.g. ClientError rounds,
-    # which build a RoundResult without ever calling _handle_reply). See docs/m10 §3.2.
-    usage: TokenUsage | None = None
-    parse_errors: list[str] = Field(default_factory=list)
-    memory_candidates: list[MemoryCandidate] = Field(default_factory=list)
-    outcomes: list[ToolOutcome] = Field(default_factory=list)
-    # True for a model-declared completion or a successful completion tool. A prose
-    # answer is a soft success (Termination.ANSWERED_IN_PROSE), not `completed`.
-    completed: bool = False
-    stopped_reason: str | None = None
-    # When a tool signals a terminal state (e.g. Survey w/o asker → NEEDS_INFO), the
-    # tool's user-facing detail (the survey question) lives here so Task's
-    # `_derive_status` can surface it instead of the model's raw text. Empty otherwise.
-    stopped_detail: str = ""
-    attention: Attention | None = None
 
 
 class Step:
@@ -443,7 +362,7 @@ class Step:
 
             rr = self._handle_reply(reply)
             self.rounds.append(rr)
-            convo.append(Message(role=Role.ASSISTANT, content=_render_history_content(reply)))
+            convo.append(Message(role=Role.ASSISTANT, content=render_history_content(reply)))
 
             if self._cancelled():
                 rr.completed = False

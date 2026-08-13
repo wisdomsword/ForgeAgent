@@ -26,6 +26,7 @@ from .identity import ApprovedIdentity
 from .mcp_manager import MCPManager
 from .memory import MemoryManager
 from .models import Message
+from .sandbox import RestrictedLimits
 from .skills import SkillRegistry
 from .task import Task
 from .tools import Asker, Confirmer, Tier
@@ -106,6 +107,7 @@ def run_collaboration_once(
     confirmer: Confirmer | None = None,
     identity: ApprovedIdentity | None = None,
     container_image: str | None = None,
+    restricted_limits: RestrictedLimits | None = None,
     context_config: ContextConfig | None = None,
     memory_manager: MemoryManager | None = None,
     skills: SkillRegistry | None = None,
@@ -172,6 +174,7 @@ def run_collaboration_once(
                 confirmer=confirmer if role == "generator" else None,
                 identity=identity,
                 container_image=container_image,
+                restricted_limits=restricted_limits,
                 context_config=resolved_context,
                 memory_manager=memory_manager if role == "generator" else None,
                 skills=skills if role == "generator" else None,

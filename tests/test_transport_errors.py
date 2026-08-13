@@ -6,9 +6,16 @@ docstring) — these tests cover the shared module directly, complementing the
 per-client indirect coverage in test_anthropic_client.py/test_openai_compatible_client.py.
 """
 
+import logging
+
 import pytest
 
-from forgeagent.transport_errors import TransportError, classify_transport_exception
+from forgeagent.models import ClientError
+from forgeagent.transport_errors import (
+    TransportError,
+    classify_transport_exception,
+    run_with_retries,
+)
 
 
 # Stub exceptions whose __name__ matches the SDK class names the classifier keys on
@@ -84,3 +91,27 @@ def test_transport_error_carries_kind_and_retryable():
     assert exc.kind == "network"
     assert exc.retryable is True
     assert str(exc) == "conn reset"
+
+
+def test_transport_failure_feedback_is_stable_and_debug_log_is_masked(caplog):
+    secret = "private-transport-detail"
+
+    def transport(_request, _timeout):
+        raise TransportError("auth", False, secret)
+
+    with caplog.at_level(logging.DEBUG, logger="forgeagent.transport_errors"):
+        result = run_with_retries(
+            transport=transport,
+            request={},
+            timeout_seconds=1,
+            max_attempts=1,
+            backoff_base_seconds=0,
+            backoff_factor=1,
+            sleep=lambda _seconds: None,
+            parse_response=lambda _raw: pytest.fail("must not parse"),
+            secret_values={secret},
+        )
+
+    assert isinstance(result, ClientError)
+    assert result.message == "model request failed: auth"
+    assert secret not in caplog.text

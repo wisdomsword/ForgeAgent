@@ -138,26 +138,41 @@ class HttpActionApprovalStore:
         self,
         *,
         max_records: int,
-        clock: Callable[[], float] = time.time,
+        clock: Callable[[], float] | None = None,
+        monotonic_clock: Callable[[], float] | None = None,
         audit_sink: AuditSink | None = None,
     ) -> None:
         if type(max_records) is not int or max_records <= 0:
             raise ValueError("max_records must be positive")
         self._max_records = max_records
-        self._clock = clock
+        self._clock = time.time if clock is None else clock
+        # Existing callers use a custom clock as a deterministic TTL clock. Preserve
+        # that seam while production defaults to an independent monotonic deadline.
+        self._monotonic_clock = (
+            time.monotonic
+            if monotonic_clock is None and clock is None
+            else monotonic_clock or clock
+        )
         self._audit_sink = audit_sink
         self._records: dict[str, HttpActionApproval] = {}
         self._deadlines: dict[str, float] = {}
         self._lock = threading.RLock()
 
-    def _now(self) -> float:
-        value = self._clock()
+    @staticmethod
+    def _clock_value(clock: Callable[[], float]) -> float:
+        value = clock()
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise ApprovalUnavailableError
         result = float(value)
         if not math.isfinite(result):
             raise ApprovalUnavailableError
         return result
+
+    def _now(self) -> float:
+        return self._clock_value(self._clock)
+
+    def _monotonic_now(self) -> float:
+        return self._clock_value(self._monotonic_clock)
 
     def _audit(self, record: HttpActionApproval, result_status: str) -> None:
         emit_audit(
@@ -216,9 +231,10 @@ class HttpActionApprovalStore:
         scope = mcp_operation_key(server, tool)
         if not isinstance(request_digest, str) or _DIGEST_RE.fullmatch(request_digest) is None:
             raise ValueError("request digest is invalid")
-        now = self._now()
+        wall_now = self._now()
+        deadline_now = self._monotonic_now()
         with self._lock:
-            expired = self._expire_locked(now)
+            expired = self._expire_locked(deadline_now)
             if len(self._records) >= self._max_records:
                 terminal_id = next(
                     (
@@ -235,18 +251,18 @@ class HttpActionApprovalStore:
             record = HttpActionApproval(
                 scope=scope,
                 request_digest=request_digest,
-                issued_at=_utc_timestamp(now),
-                expires_at=_utc_timestamp(now + expires_in_seconds),
+                issued_at=_utc_timestamp(wall_now),
+                expires_at=_utc_timestamp(wall_now + expires_in_seconds),
             )
             self._records[record.approval_id] = record
-            self._deadlines[record.approval_id] = now + expires_in_seconds
+            self._deadlines[record.approval_id] = deadline_now + expires_in_seconds
         for item in expired:
             self._audit(item, "expired")
         self._audit(record, "issued")
         return record
 
     def get(self, approval_id: str) -> HttpActionApproval:
-        now = self._now()
+        now = self._monotonic_now()
         with self._lock:
             expired = self._expire_locked(now)
             record = self._records.get(approval_id)
@@ -270,7 +286,7 @@ class HttpActionApprovalStore:
             or len(identifiers) != len(set(identifiers))
         ):
             raise ApprovalUnavailableError
-        now = self._now()
+        now = self._monotonic_now()
         with self._lock:
             expired = self._expire_locked(now)
             records = [self._records.get(approval_id) for approval_id in identifiers]
@@ -299,7 +315,7 @@ class HttpActionApprovalStore:
         scope: str,
         request_digest: str,
     ) -> HttpActionApproval | None:
-        now = self._now()
+        now = self._monotonic_now()
         consumed: HttpActionApproval | None = None
         with self._lock:
             expired = self._expire_locked(now)
@@ -319,7 +335,7 @@ class HttpActionApprovalStore:
         return consumed
 
     def revoke(self, approval_id: str) -> HttpActionApproval:
-        now = self._now()
+        now = self._monotonic_now()
         with self._lock:
             expired = self._expire_locked(now)
             record = self._records.get(approval_id)
@@ -334,7 +350,7 @@ class HttpActionApprovalStore:
 
     def release_task(self, task_id: str) -> None:
         released: list[HttpActionApproval] = []
-        now = self._now()
+        now = self._monotonic_now()
         with self._lock:
             expired = self._expire_locked(now)
             for record in tuple(self._records.values()):

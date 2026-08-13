@@ -28,6 +28,10 @@ class FakeClock:
         return self.value
 
 
+class FakeMonotonicClock(FakeClock):
+    pass
+
+
 class RecordingSink:
     def __init__(self) -> None:
         self.events = []
@@ -183,6 +187,58 @@ def test_expiry_and_release_close_authority_without_reactivation() -> None:
 
     assert store.get(released.approval_id).status == "revoked"
     assert store.get(consumed.approval_id).status == "consumed"
+
+
+def test_expiry_uses_monotonic_clock_while_public_timestamps_use_wall_clock() -> None:
+    wall_clock = FakeClock(1_800_000_000.0)
+    monotonic_clock = FakeMonotonicClock(100.0)
+    store = HttpActionApprovalStore(
+        max_records=2,
+        clock=wall_clock,
+        monotonic_clock=monotonic_clock,
+    )
+    approval = _issue(store, ttl=60)
+
+    assert approval.issued_at.startswith("2027-")
+    assert approval.expires_at.startswith("2027-")
+
+    wall_clock.value -= 10_000_000
+    assert store.get(approval.approval_id).status == "issued"
+
+    monotonic_clock.value += 61
+    assert store.get(approval.approval_id).status == "expired"
+
+
+def test_wall_clock_forward_jump_does_not_expire_monotonic_approval() -> None:
+    wall_clock = FakeClock()
+    monotonic_clock = FakeMonotonicClock(50.0)
+    store = HttpActionApprovalStore(
+        max_records=2,
+        clock=wall_clock,
+        monotonic_clock=monotonic_clock,
+    )
+    approval = _issue(store, ttl=60)
+
+    wall_clock.value += 100_000_000
+
+    assert store.get(approval.approval_id).status == "issued"
+
+
+def test_release_task_uses_monotonic_deadline_after_wall_clock_jump() -> None:
+    wall_clock = FakeClock()
+    monotonic_clock = FakeMonotonicClock(50.0)
+    store = HttpActionApprovalStore(
+        max_records=2,
+        clock=wall_clock,
+        monotonic_clock=monotonic_clock,
+    )
+    approval = _issue(store, ttl=60)
+    store.bind_many((approval.approval_id,), TASK_ID)
+
+    wall_clock.value += 100_000_000
+    store.release_task(TASK_ID)
+
+    assert store.get(approval.approval_id).status == "revoked"
 
 
 def test_capacity_evicts_terminal_record_but_not_live_authority() -> None:

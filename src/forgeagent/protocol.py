@@ -12,7 +12,7 @@ the model for correction.
 from __future__ import annotations
 
 import json
-import re
+import logging
 from enum import StrEnum
 from typing import Any, Literal
 from uuid import uuid4
@@ -21,34 +21,18 @@ import yaml
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
 from .models import NativeToolCall
-
-# --- markup patterns ---------------------------------------------------------
-
-# Front matter: leading YAML block delimited by --- lines.
-_FRONT_MATTER = re.compile(r"^\s*---\s*\n(.*?)\n---\s*", re.DOTALL)
-
-# Code block: CodeBlockStart JSON, then a variable-length backtick fence (>=3),
-# then CodeBlockEnd JSON. The backreference (?P=ticks) requires the closing fence
-# to match the opening fence length, so code containing ``` does not close early.
-_CODE_BLOCK = re.compile(
-    r"<!--\s*CodeBlockStart:\s*(\{.*?\})\s*-->\s*"
-    r"(?P<ticks>`{3,})(\w+)?\s*\n(.*?)\n(?P=ticks)\s*"
-    r"<!--\s*CodeBlockEnd:\s*(\{.*?\})\s*-->",
-    re.DOTALL,
+from .protocol_text import (
+    extract_memory_payloads,
+    has_unsupported_external_tool_syntax,
+    iter_code_block_parts,
+    iter_tool_call_payloads,
+    split_front_matter,
 )
+from .secret_policy import mask_audit_data, sensitive_env_values
 
-# Tool call: a single HTML comment carrying a JSON object.
-_TOOL_CALL = re.compile(r"<!--\s*ToolCall:\s*(\{.*?\})\s*-->", re.DOTALL)
-_MEMORY = re.compile(r"<!--\s*Memory:\s*(.*?)\s*-->", re.DOTALL)
-_MARKDOWN_FENCE = re.compile(
-    r"^[ \t]*(?P<fence>`{3,}|~{3,})[^\n]*\n.*?^[ \t]*(?P=fence)[ \t]*$",
-    re.DOTALL | re.MULTILINE,
-)
-_TODO_WRITE_ENVELOPE = re.compile(
-    r"^[ \t]*todo_write[ \t]*\r?\n[ \t]*Params:[ \t]*(?:\r?\n|$)",
-    re.IGNORECASE | re.MULTILINE,
-)
-_JSON_OBJECT_AT_LINE_START = re.compile(r"^[ \t]*(?=\{)", re.MULTILINE)
+_LOGGER = logging.getLogger(__name__)
+_MAX_DEBUG_ERROR_DETAIL = 512
+
 _UNSUPPORTED_TOOL_MESSAGE = (
     "Unsupported external-agent tool syntax was not executed. Use the exact "
     "ForgeAgent CodeBlockStart/CodeBlockEnd and ToolCall Exec protocol from the "
@@ -68,6 +52,43 @@ class ParseError(BaseModel):
     error_type: ParseErrorType
     message: str
     raw: str = ""
+
+
+def _field_location(error: ValidationError, fallback: str) -> str:
+    errors = error.errors(include_url=False)
+    if not errors:
+        return fallback
+    location = errors[0].get("loc", ())
+    return ".".join(str(item) for item in location) or fallback
+
+
+def _record_parse_error(
+    result: ParseResult,
+    error_type: ParseErrorType,
+    message: str,
+    *,
+    error: BaseException | None = None,
+) -> None:
+    """Keep model feedback stable while retaining bounded debug diagnostics."""
+    if error is not None:
+        detail = mask_audit_data(_safe_debug_detail(error), sensitive_env_values())
+        _LOGGER.debug(
+            "protocol_parse_failure category=%s detail=%s",
+            message,
+            str(detail)[:_MAX_DEBUG_ERROR_DETAIL],
+        )
+    result.errors.append(ParseError(error_type=error_type, message=message))
+
+
+def _safe_debug_detail(error: BaseException) -> str:
+    """Describe parser failures without retaining model-provided input values."""
+    if isinstance(error, ValidationError):
+        return repr(error.errors(include_url=False, include_input=False))
+    if isinstance(error, json.JSONDecodeError):
+        return f"{error.msg} at position {error.pos}"
+    if isinstance(error, yaml.YAMLError):
+        return str(getattr(error, "problem", type(error).__name__))
+    return type(error).__name__
 
 
 # --- tool argument schemas ---------------------------------------------------
@@ -262,8 +283,7 @@ def _merge_tool_calls(result: ParseResult) -> None:
         result.errors.append(
             ParseError(
                 error_type=ParseErrorType.INVALID_FORMAT,
-                message=f"Conflicting tool call id {call.id!r}; dispatch suppressed",
-                raw="",
+                message="invalid_format: tool_call.id",
             )
         )
     result.tool_calls = [by_id[call_id] for call_id in order if call_id not in conflicted]
@@ -282,58 +302,58 @@ def _parse_front_matter(text: str, result: ParseResult) -> str:
 
     A malformed front matter is recorded as an error but does not stop body parsing.
     """
-    match = _FRONT_MATTER.match(text)
-    if not match:
-        return text
-    body = text[match.end() :]
+    raw_front_matter, body = split_front_matter(text)
+    if raw_front_matter is None:
+        return body
     try:
-        data = yaml.safe_load(match.group(1))
+        data = yaml.safe_load(raw_front_matter)
     except yaml.YAMLError as exc:
-        result.errors.append(
-            ParseError(
-                error_type=ParseErrorType.INVALID_FORMAT,
-                message=f"Invalid YAML front matter: {exc}",
-                raw=match.group(1),
-            )
+        _record_parse_error(
+            result,
+            ParseErrorType.INVALID_FORMAT,
+            "invalid_format: front_matter",
+            error=exc,
         )
         return body
     if isinstance(data, dict) and "task_status" in data:
         try:
             result.task_status = TaskStatus.model_validate(data["task_status"])
         except ValidationError as exc:
-            result.errors.append(
-                ParseError(
-                    error_type=ParseErrorType.VALIDATION_ERROR,
-                    message=f"Invalid task_status: {exc}",
-                    raw=str(data.get("task_status")),
-                )
+            _record_parse_error(
+                result,
+                ParseErrorType.VALIDATION_ERROR,
+                f"validation_error: task_status.{_field_location(exc, 'value')}",
+                error=exc,
             )
     return body
 
 
 def _parse_code_blocks(text: str, result: ParseResult) -> None:
-    for match in _CODE_BLOCK.finditer(text):
-        start_json, _ticks, lang, code, end_json = match.groups()
+    for start_json, lang, code, end_json in iter_code_block_parts(text):
         try:
             start_meta = json.loads(start_json)
             end_meta = json.loads(end_json)
         except json.JSONDecodeError as exc:
-            result.errors.append(
-                ParseError(
-                    error_type=ParseErrorType.JSON_DECODE_ERROR,
-                    message=f"Invalid JSON in code block markup: {exc}",
-                    raw=match.group(0)[:200],
-                )
+            _record_parse_error(
+                result,
+                ParseErrorType.JSON_DECODE_ERROR,
+                "json_decode_error: code_block",
+                error=exc,
+            )
+            continue
+        if not isinstance(start_meta, dict) or not isinstance(end_meta, dict):
+            _record_parse_error(
+                result,
+                ParseErrorType.INVALID_FORMAT,
+                "invalid_format: code_block.metadata",
             )
             continue
         start_name, end_name = start_meta.get("name"), end_meta.get("name")
-        if not start_name or start_name != end_name:
-            result.errors.append(
-                ParseError(
-                    error_type=ParseErrorType.INVALID_FORMAT,
-                    message=f"CodeBlockStart/End name mismatch: {start_name!r} vs {end_name!r}",
-                    raw=match.group(0)[:200],
-                )
+        if not isinstance(start_name, str) or not start_name or start_name != end_name:
+            _record_parse_error(
+                result,
+                ParseErrorType.INVALID_FORMAT,
+                "invalid_format: code_block.name",
             )
             continue
         try:
@@ -346,12 +366,11 @@ def _parse_code_blocks(text: str, result: ParseResult) -> None:
                 )
             )
         except ValidationError as exc:
-            result.errors.append(
-                ParseError(
-                    error_type=ParseErrorType.VALIDATION_ERROR,
-                    message=f"Invalid code block: {exc}",
-                    raw=start_json,
-                )
+            _record_parse_error(
+                result,
+                ParseErrorType.VALIDATION_ERROR,
+                f"validation_error: code_block.{_field_location(exc, 'value')}",
+                error=exc,
             )
 
 
@@ -371,42 +390,46 @@ def _build_tool_call(
     registered tool set (name -> arg schema); a name outside it is a structured error.
     """
     if name not in tool_schemas:
-        known = "/".join(tool_schemas) or "(none)"
-        result.errors.append(
-            ParseError(
-                error_type=ParseErrorType.INVALID_FORMAT,
-                message=f"Unknown or missing tool name {name!r} (registered tools: {known})",
-                raw=raw,
-            )
+        _record_parse_error(
+            result,
+            ParseErrorType.INVALID_FORMAT,
+            "invalid_format: tool_call.name",
         )
         return
     try:
         args = tool_schemas[name].model_validate(raw_arguments)
         result.tool_calls.append(ToolCall(id=call_id, name=name, arguments=args, source=source))
     except (ValidationError, ValueError) as exc:
-        result.errors.append(
-            ParseError(
-                error_type=ParseErrorType.VALIDATION_ERROR,
-                message=f"Invalid arguments for {name}: {exc}",
-                raw=raw,
-            )
+        location = (
+            _field_location(exc, "arguments") if isinstance(exc, ValidationError) else "arguments"
+        )
+        _record_parse_error(
+            result,
+            ParseErrorType.VALIDATION_ERROR,
+            f"invalid_arguments: {name}.{location}",
+            error=exc,
         )
 
 
 def _parse_tool_calls(
     text: str, result: ParseResult, tool_schemas: dict[str, type[BaseModel]]
 ) -> None:
-    for match in _TOOL_CALL.finditer(text):
-        raw = match.group(1)
+    for raw in iter_tool_call_payloads(text):
         try:
             data: Any = json.loads(raw)
         except json.JSONDecodeError as exc:
-            result.errors.append(
-                ParseError(
-                    error_type=ParseErrorType.JSON_DECODE_ERROR,
-                    message=f"Invalid JSON in ToolCall: {exc}",
-                    raw=raw,
-                )
+            _record_parse_error(
+                result,
+                ParseErrorType.JSON_DECODE_ERROR,
+                "json_decode_error: tool_call",
+                error=exc,
+            )
+            continue
+        if not isinstance(data, dict):
+            _record_parse_error(
+                result,
+                ParseErrorType.INVALID_FORMAT,
+                "invalid_format: tool_call",
             )
             continue
         call_id = data.get("id") or uuid4().hex
@@ -423,48 +446,29 @@ def _parse_tool_calls(
 
 def _parse_memory_candidates(text: str, result: ParseResult) -> str:
     """Extract explicit Memory markers and return display text without them."""
-    for match in _MEMORY.finditer(text):
-        raw = match.group(1)
+    payloads, body = extract_memory_payloads(text)
+    for raw in payloads:
         try:
             result.memory_candidates.append(MemoryCandidate.model_validate(json.loads(raw)))
         except json.JSONDecodeError as exc:
-            result.errors.append(
-                ParseError(
-                    error_type=ParseErrorType.JSON_DECODE_ERROR,
-                    message=f"Invalid JSON in Memory marker: {exc}",
-                    raw=raw,
-                )
+            _record_parse_error(
+                result,
+                ParseErrorType.JSON_DECODE_ERROR,
+                "json_decode_error: memory_candidate",
+                error=exc,
             )
         except ValidationError as exc:
-            result.errors.append(
-                ParseError(
-                    error_type=ParseErrorType.VALIDATION_ERROR,
-                    message=f"Invalid Memory candidate: {exc}",
-                    raw=raw,
-                )
+            _record_parse_error(
+                result,
+                ParseErrorType.VALIDATION_ERROR,
+                f"validation_error: memory_candidate.{_field_location(exc, 'value')}",
+                error=exc,
             )
-    return _MEMORY.sub("", text)
+    return body
 
 
 def _parse_unsupported_tool_syntax(text: str, result: ParseResult) -> None:
-    visible_text = _MARKDOWN_FENCE.sub("", text)
-    detected = _TODO_WRITE_ENVELOPE.search(visible_text) is not None
-    if not detected:
-        decoder = json.JSONDecoder()
-        for match in _JSON_OBJECT_AT_LINE_START.finditer(visible_text):
-            try:
-                value, end = decoder.raw_decode(visible_text[match.end() :])
-            except json.JSONDecodeError:
-                continue
-            command = value.get("cmd") if isinstance(value, dict) else None
-            if (
-                isinstance(command, str)
-                and command.strip()
-                and not visible_text[match.end() + end :].strip()
-            ):
-                detected = True
-                break
-    if detected:
+    if has_unsupported_external_tool_syntax(text):
         result.errors.append(
             ParseError(
                 error_type=ParseErrorType.INVALID_FORMAT,
@@ -488,12 +492,11 @@ def _parse_native_tool_calls(
         try:
             arguments: Any = json.loads(call.arguments)
         except json.JSONDecodeError as exc:
-            result.errors.append(
-                ParseError(
-                    error_type=ParseErrorType.JSON_DECODE_ERROR,
-                    message=f"Invalid JSON in native tool_call arguments: {exc}",
-                    raw=call.arguments,
-                )
+            _record_parse_error(
+                result,
+                ParseErrorType.JSON_DECODE_ERROR,
+                "json_decode_error: native_tool_call.arguments",
+                error=exc,
             )
             continue
         _build_tool_call(

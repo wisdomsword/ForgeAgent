@@ -82,3 +82,24 @@ In a single-role task without a required completion tool, ForgeAgent SHALL termi
 - **WHEN** an informational answer shows an external command envelope only inside a Markdown fenced code example
 - **THEN** ForgeAgent does not classify that example as an attempted tool call and preserves direct prose completion
 
+### Requirement: 任务终态公开一致的完成语义
+ForgeAgent MUST 把任务终态归类为 `verified_completed`、`answered_unverified` 或 `stopped`，并 MUST 仅在 `verified_completed` 时把兼容布尔 `completed` 投影为 true。
+
+终态投影 MUST 由 `reason` 唯一派生，且已构造的 TaskStatus 不得允许调用方再单独修改 `completed` 或 `completion_state` 造成矛盾。
+
+#### Scenario: prose 回答不得显示为已验证完成
+- **WHEN** 模型给出非空 prose 回答但没有执行工具或程序
+- **THEN** Task、CLI、HTTP 与 audit 都把该终态标为 `answered_unverified`，CLI 不得显示 `completed`，兼容布尔 `completed` 为 false
+
+#### Scenario: 已验证完成保持兼容
+- **WHEN** 任务按协议声明并达到 verified completion
+- **THEN** 三态为 `verified_completed`，兼容布尔 `completed` 为 true，既有 verified-only 消费方行为不变
+
+#### Scenario: 矛盾状态被拒绝
+- **WHEN** 调用方同时提供互相矛盾的完成三态、布尔投影或终止原因
+- **THEN** ForgeAgent 在状态构造时拒绝该输入，而不是序列化相互冲突的结果
+
+#### Scenario: 终态投影不可漂移
+- **WHEN** 调用方以既有布尔字段或仅以终态原因构造 TaskStatus
+- **THEN** 系统 MUST 产生匹配原因的三态和兼容布尔投影
+- **AND THEN** 构造后的状态不得允许单独改写其中任一字段

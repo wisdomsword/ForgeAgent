@@ -38,6 +38,7 @@ from .loop import LoopBudgets, LoopCheckpointError, LoopRunner
 from .mcp_manager import MCPManager
 from .model_registry import Registry, get_capability, load_registry, resolve_model
 from .openai_compatible_client import OpenAICompatibleClient
+from .sandbox import RestrictedLimits
 from .task import Task
 from .tools import Tier
 
@@ -58,6 +59,7 @@ class HttpRuntimeSettings:
     no_identity: bool
     no_memory: bool
     container_image: str | None
+    restricted_limits: RestrictedLimits
     shutdown_timeout_seconds: float
 
 
@@ -94,6 +96,7 @@ _HTTP_RUNTIME_KEYS = frozenset(
         "no_identity",
         "no_memory",
         "container_image",
+        "restricted",
         "shutdown_timeout_seconds",
     }
 )
@@ -106,6 +109,9 @@ _HTTP_CONFIG_KEYS = frozenset(
 SERVE_FORBIDDEN_CLI_OPTIONS = (
     "--tier",
     "--container-image",
+    "--restricted-timeout-seconds",
+    "--restricted-cpu-seconds",
+    "--restricted-memory-mb",
     "--model",
     "--stream",
     "--no-identity",
@@ -243,6 +249,13 @@ def load_http_runtime_settings(path: str | Path) -> HttpRuntimeSettings:
     ):
         raise HttpStartupError("HTTP service container configuration is invalid.")
 
+    try:
+        restricted_limits = RestrictedLimits.model_validate(values.get("restricted", {}))
+    except ValueError as error:
+        raise HttpStartupError(
+            "HTTP service restricted sandbox configuration is invalid."
+        ) from error
+
     shutdown_timeout = values.get("shutdown_timeout_seconds", 5.0)
     if type(shutdown_timeout) not in {int, float}:
         raise HttpStartupError("HTTP service shutdown timeout is invalid.")
@@ -258,6 +271,7 @@ def load_http_runtime_settings(path: str | Path) -> HttpRuntimeSettings:
         no_identity=no_identity,
         no_memory=no_memory,
         container_image=container_image,
+        restricted_limits=restricted_limits,
         shutdown_timeout_seconds=shutdown_timeout_seconds,
     )
 
@@ -469,6 +483,7 @@ def serve_http(
                             confirmer=headless_confirmer,
                             allow_auto_approve=False,
                             container_image=settings.container_image,
+                            restricted_limits=settings.restricted_limits,
                             audit_sink=audit_sink,
                             task_id=record.task_id,
                             context_config=settings.service.context_config,
@@ -540,6 +555,7 @@ def serve_http(
                                 confirmer=headless_confirmer if role == "generator" else None,
                                 allow_auto_approve=False,
                                 container_image=settings.container_image,
+                                restricted_limits=settings.restricted_limits,
                                 audit_sink=audit_sink,
                                 task_id=record.task_id,
                                 context_config=settings.service.context_config,
@@ -714,6 +730,7 @@ def serve_http(
                             confirmer=headless_confirmer if role == "generator" else None,
                             allow_auto_approve=False,
                             container_image=settings.container_image,
+                            restricted_limits=settings.restricted_limits,
                             audit_sink=audit_sink,
                             task_id=record.task_id,
                             context_config=settings.service.context_config,
@@ -771,6 +788,7 @@ def serve_http(
                     confirmer=headless_confirmer,
                     allow_auto_approve=False,
                     container_image=settings.container_image,
+                    restricted_limits=settings.restricted_limits,
                     audit_sink=audit_sink,
                     task_id=record.task_id,
                     context_config=settings.service.context_config,

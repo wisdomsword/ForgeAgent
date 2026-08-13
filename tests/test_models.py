@@ -37,6 +37,12 @@ def test_generation_params_rejects_non_finite_or_non_positive_timeout(value):
         GenerationParams(timeout_seconds=value)
 
 
+@pytest.mark.parametrize("value", [math.nan, math.inf, -math.inf])
+def test_generation_params_rejects_non_finite_temperature(value):
+    with pytest.raises(ValidationError):
+        GenerationParams(temperature=value)
+
+
 def test_generation_params_thinking_tristate():
     for value in ("on", "off", "auto"):
         assert GenerationParams(thinking=value).thinking == value

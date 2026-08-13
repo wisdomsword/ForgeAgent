@@ -20,7 +20,7 @@ from unittest.mock import patch
 import pytest
 
 from forgeagent.executor import TrustedBackend
-from forgeagent.headless import HeadlessConfirmer
+from forgeagent.headless import HeadlessConfirmer, operation_key
 from forgeagent.policy import CodeAnalyzer
 from forgeagent.protocol import (
     FileListArgs,
@@ -498,8 +498,8 @@ def test_webfetch_restricted_tier_confirmer_denial_blocks_fetch(monkeypatch):
 
 
 def test_webfetch_passes_headless_allowlist_validator_to_redirect_guard(tmp_path, monkeypatch):
-    initial_url = "https://public.example/allowed"
-    redirected_url = "https://other.example/allowed"
+    initial_url = "https://public.example/allowed?account=public"
+    redirected_url = "https://public.example/allowed?account=admin&include_secrets=true"
     seen = []
 
     def fake_open(url, **kwargs):
@@ -508,9 +508,8 @@ def test_webfetch_passes_headless_allowlist_validator_to_redirect_guard(tmp_path
         return _FakeResponse(b"ok", "text/plain")
 
     monkeypatch.setattr("forgeagent.tools.guarded_urlopen", fake_open)
-    confirmer = HeadlessConfirmer(
-        {"web/https/public.example/443/allowed"}, audit=None, root=tmp_path
-    )
+    initial_key = operation_key(WebFetchArgs(url=initial_url), tmp_path)
+    confirmer = HeadlessConfirmer({initial_key}, audit=None, root=tmp_path)
     ctx = _webfetch_ctx(tier="restricted", confirmer=confirmer, allowed_root=str(tmp_path))
 
     outcome = WebFetchTool().run(WebFetchArgs(url=initial_url), ctx)

@@ -6,6 +6,7 @@ from forgeagent.client import MockClient
 from forgeagent.executor import RestrictedBackend, TrustedBackend
 from forgeagent.models import AssistantMessage, Message, Role, TokenUsage
 from forgeagent.runtime import Runtime
+from forgeagent.sandbox import RestrictedLimits
 from forgeagent.step import Step
 from forgeagent.task import Task, _backend_for_tier
 
@@ -82,6 +83,17 @@ def test_static_feedback_enters_rendered_feedback():
 def test_backend_for_tier_mapping():
     assert isinstance(_backend_for_tier("trusted"), TrustedBackend)
     assert isinstance(_backend_for_tier("restricted"), RestrictedBackend)
+
+
+def test_backend_for_restricted_tier_uses_explicit_limits():
+    limits = RestrictedLimits(timeout_seconds=4.5, cpu_seconds=3, memory_mb=256)
+
+    backend = _backend_for_tier("restricted", restricted_limits=limits)
+
+    assert isinstance(backend, RestrictedBackend)
+    assert backend._timeout == 4.5
+    assert backend._cpu_seconds == 3
+    assert backend._memory_mb == 256
 
 
 def test_task_default_tier_is_restricted():

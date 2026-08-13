@@ -168,7 +168,9 @@ def _apply_rlimits(cpu_seconds: int, memory_mb: int) -> None:
         return  # Windows: rely on parent-side timeout only
     if cpu_seconds > 0:
         try:
-            resource.setrlimit(resource.RLIMIT_CPU, (cpu_seconds, cpu_seconds))
+            # A distinct hard limit gives the default SIGXCPU action a chance to end
+            # the worker before SIGKILL becomes necessary.
+            resource.setrlimit(resource.RLIMIT_CPU, (cpu_seconds, cpu_seconds + 1))
         except (ValueError, OSError):
             pass
     if memory_mb > 0 and hasattr(resource, "RLIMIT_AS"):
@@ -198,6 +200,43 @@ def _json_safe(state: dict) -> tuple[dict, list[str]]:
     return safe, dropped
 
 
+class _BoundedCapture(io.TextIOBase):
+    """Mirror redirected stream data into a bounded, parent-readable file."""
+
+    def __init__(self, path: str | None, limit: int) -> None:
+        self._buffer = io.StringIO()
+        self._remaining_file_bytes = limit
+        self._file = open(path, "w", encoding="utf-8") if path else None
+
+    def write(self, text: str) -> int:
+        self._buffer.write(text)
+        encoded = text.encode("utf-8")
+        portion = (
+            text
+            if len(encoded) <= self._remaining_file_bytes
+            else encoded[: self._remaining_file_bytes].decode("utf-8", errors="ignore")
+        )
+        if portion:
+            if self._file is not None:
+                self._file.write(portion)
+                self._file.flush()
+            self._remaining_file_bytes -= len(portion.encode("utf-8"))
+        return len(text)
+
+    def flush(self) -> None:
+        if self._file is not None:
+            self._file.flush()
+
+    def getvalue(self) -> str:
+        return self._buffer.getvalue()
+
+    def close(self) -> None:
+        if self._file is not None:
+            self._file.close()
+            self._file = None
+        super().close()
+
+
 def main() -> None:
     payload = json.loads(sys.stdin.read())
     allowed_root = payload["allowed_root"]
@@ -208,9 +247,16 @@ def main() -> None:
 
     if not payload.get("os_isolated", False):
         _apply_rlimits(payload.get("cpu_seconds", 0), payload.get("memory_mb", 0))
-        _install_audit_hook(allowed_root)
+        capture_paths = payload.get("capture_paths", {})
+        _install_audit_hook(
+            allowed_root,
+            writes_only_in_root=True,
+            allowed_files=tuple(capture_paths.values()),
+        )
 
-    out, err = io.StringIO(), io.StringIO()
+    capture_paths = payload.get("capture_paths", {})
+    out = _BoundedCapture(capture_paths.get("stdout"), 8 * 1024)
+    err = _BoundedCapture(capture_paths.get("stderr"), 8 * 1024)
     result = {"success": True, "stdout": "", "stderr": "", "error": None, "state": {}}
     namespace: dict = {"__name__": "__forgeagent_block__", "utils": runtime}
     try:
@@ -232,6 +278,8 @@ def main() -> None:
     # The result frame goes to the real stdout (code stdout was captured above).
     sys.__stdout__.write(json.dumps(result))
     sys.__stdout__.flush()
+    out.close()
+    err.close()
 
 
 if __name__ == "__main__":

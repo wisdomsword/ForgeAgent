@@ -7,11 +7,13 @@ boundary, so it must be exercised for real.
 """
 
 import os
+import signal
 import sys
+import sysconfig
 
 import pytest
 
-from forgeagent.executor import ExecutorBackend, RestrictedBackend
+from forgeagent.executor import ExecutorBackend, RestrictedBackend, _parse_worker_frame
 from forgeagent.runtime import Runtime
 
 
@@ -127,6 +129,54 @@ def test_read_outside_via_pathlib_also_denied(tmp_path):
         secret.unlink(missing_ok=True)
 
 
+def test_runtime_site_packages_write_outside_allowed_root_denied(tmp_path):
+    backend = _backend(tmp_path)
+    site_packages = sysconfig.get_path("purelib")
+    target = os.path.join(site_packages, f"forgeagent_s1_write_probe_{tmp_path.name}.py")
+    if os.path.exists(target):
+        os.unlink(target)
+    try:
+        result = backend.execute(f"open({target!r}, 'w').write('blocked')", Runtime())
+        assert result.success is False
+        assert result.error == "restricted: file access outside allowed root denied"
+        assert not os.path.exists(target)
+    finally:
+        if os.path.exists(target):
+            os.unlink(target)
+
+
+def test_runtime_site_packages_pth_creation_outside_allowed_root_denied(tmp_path):
+    backend = _backend(tmp_path)
+    site_packages = sysconfig.get_path("purelib")
+    target = os.path.join(site_packages, f"forgeagent_s1_escape_probe_{tmp_path.name}.pth")
+    if os.path.exists(target):
+        os.unlink(target)
+    try:
+        contents = "import os\n"
+        code = f"open({target!r}, 'w').write({contents!r})"
+        result = backend.execute(code, Runtime())
+        assert result.success is False
+        assert result.error == "restricted: file access outside allowed root denied"
+        assert not os.path.exists(target)
+    finally:
+        if os.path.exists(target):
+            os.unlink(target)
+
+
+def test_installed_worker_file_write_outside_allowed_root_denied(tmp_path):
+    backend = _backend(tmp_path)
+    import forgeagent._sandbox_worker as installed_worker
+
+    target = installed_worker.__file__
+    with open(target, encoding="utf-8") as handle:
+        original = handle.read()
+    result = backend.execute(f"open({target!r}, 'w').write('blocked')", Runtime())
+    assert result.success is False
+    assert result.error == "restricted: file access outside allowed root denied"
+    with open(target, encoding="utf-8") as handle:
+        assert handle.read() == original
+
+
 def test_network_connect_denied(tmp_path):
     code = (
         "import socket\n"
@@ -154,6 +204,40 @@ def test_timeout_kills_runaway_block_and_next_block_still_runs(tmp_path):
     ok = backend.execute("print('still alive')", rt)
     assert ok.success is True
     assert ok.stdout.strip() == "still alive"
+
+
+@pytest.mark.skipif(not hasattr(signal, "SIGXCPU"), reason="SIGXCPU is unavailable")
+def test_cpu_limit_failure_keeps_output_produced_before_worker_signal(tmp_path):
+    backend = RestrictedBackend(allowed_root=str(tmp_path), timeout_seconds=10.0, cpu_seconds=1)
+
+    result = backend.execute(
+        "import sys\nprint('before cpu limit')\nsys.stderr.write('before cpu error\\n')\n"
+        "while True:\n    pass",
+        Runtime(),
+    )
+
+    assert result.success is False
+    assert "before cpu limit" in result.stdout
+    assert "before cpu error" in result.stderr
+    assert "CPU time limit" in (result.error or "")
+
+
+def test_worker_sigxcpu_is_human_readable_and_preserves_captured_output():
+    result = _parse_worker_frame(
+        "",
+        -signal.SIGXCPU,
+        "launcher diagnostics",
+        worker_label="sandbox worker",
+        captured_stdout="partial stdout",
+        captured_stderr="partial stderr",
+        cpu_seconds=7,
+    )
+
+    assert isinstance(result, ExecutorBackend) is False
+    assert result.success is False
+    assert result.stdout == "partial stdout"
+    assert "partial stderr" in result.stderr
+    assert "CPU time limit (7s)" in (result.error or "")
 
 
 def test_exception_in_subprocess_captured(tmp_path):

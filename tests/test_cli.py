@@ -768,6 +768,30 @@ def test_http_runtime_settings_accept_no_memory(tmp_path):
     assert _load_http_runtime_settings(config_path).no_memory is True
 
 
+def test_http_runtime_settings_accepts_restricted_limits(tmp_path):
+    from forgeagent.cli import _load_http_runtime_settings
+
+    config_path = tmp_path / "http.yaml"
+    config_path.write_text(
+        f"token: test-token\nallowed_root: {tmp_path}\nrestricted:\n"
+        "  timeout_seconds: 4.5\n  cpu_seconds: 3\n  memory_mb: 256\n",
+        encoding="utf-8",
+    )
+
+    limits = _load_http_runtime_settings(config_path).restricted_limits
+    assert (limits.timeout_seconds, limits.cpu_seconds, limits.memory_mb) == (4.5, 3, 256)
+
+
+def test_http_runtime_settings_rejects_invalid_restricted_limits(tmp_path):
+    from forgeagent.cli import HttpStartupError, _load_http_runtime_settings
+
+    config_path = tmp_path / "http.yaml"
+    config_path.write_text("token: test-token\nrestricted:\n  cpu_seconds: '3'\n", encoding="utf-8")
+
+    with pytest.raises(HttpStartupError, match="restricted sandbox"):
+        _load_http_runtime_settings(config_path)
+
+
 class _UnknownConfirmationArgs(BaseModel):
     secret: str
 
@@ -1665,13 +1689,16 @@ def test_single_terminal_matrix_uses_empty_or_prior_only_evidence(
 def test_render_outcome_shows_explicit_empty_execution_evidence_for_prose():
     console = _console()
     outcome = TaskOutcome(
-        status=TaskStatus(completed=True, reason=Termination.ANSWERED_IN_PROSE),
+        status=TaskStatus(completed=False, reason=Termination.ANSWERED_IN_PROSE),
         rounds=[RoundResult(text="answer", outcomes=[])],
     )
 
     render_outcome(outcome, console)
 
-    assert "execution evidence: no tools or programs executed" in console.export_text()
+    rendered = console.export_text()
+    assert "answered (unverified)" in rendered
+    assert "completed" not in rendered
+    assert "execution evidence: no tools or programs executed" in rendered
 
 
 def test_render_execution_evidence_masks_secret_and_control_characters(monkeypatch):
@@ -3339,6 +3366,25 @@ def test_parser_container_selectable_with_image():
     assert build_parser().parse_args(["run", "x"]).container_image is None
 
 
+def test_parser_accepts_restricted_resource_limit_overrides():
+    args = build_parser().parse_args(
+        [
+            "--restricted-timeout-seconds",
+            "4.5",
+            "--restricted-cpu-seconds",
+            "3",
+            "--restricted-memory-mb",
+            "256",
+            "run",
+            "x",
+        ]
+    )
+
+    assert args.restricted_timeout_seconds == 4.5
+    assert args.restricted_cpu_seconds == 3
+    assert args.restricted_memory_mb == 256
+
+
 def test_parser_model_override():
     args = build_parser().parse_args(["--model", "claude-haiku-4-5", "run", "x"])
     assert args.model == "claude-haiku-4-5"
@@ -3407,10 +3453,24 @@ def test_run_once_stream_true_on_terminal_console_uses_stream_not_complete():
     assert "completed" in console.export_text()
 
 
-def test_run_once_streamed_prose_answer_is_not_rendered_twice():
+def test_run_once_streamed_prose_answer_is_not_rendered_as_plain_body_again(monkeypatch):
+    import forgeagent.cli as cli_module
+
     console = _make_terminal_console()
     answer = "ForgeAgent identity answer"
     client = _StreamOnlyClient(_reply(answer))
+    rendered_flags: list[bool] = []
+    real_render_outcome = cli_module.render_outcome
+
+    def spy_render_outcome(outcome, target_console, *, plain_body_already_rendered=False):
+        rendered_flags.append(plain_body_already_rendered)
+        return real_render_outcome(
+            outcome,
+            target_console,
+            plain_body_already_rendered=plain_body_already_rendered,
+        )
+
+    monkeypatch.setattr(cli_module, "render_outcome", spy_render_outcome)
 
     outcome = run_once(
         "who are you?",
@@ -3423,7 +3483,9 @@ def test_run_once_streamed_prose_answer_is_not_rendered_twice():
 
     rendered = console.export_text()
     assert outcome.status.reason == Termination.ANSWERED_IN_PROSE
-    assert rendered.count(answer) == 1
+    assert outcome.status.completion_state == "answered_unverified"
+    assert rendered_flags == [True]
+    assert "answered (unverified)" in rendered
 
 
 def test_run_once_stream_true_on_non_terminal_console_degrades_to_complete():

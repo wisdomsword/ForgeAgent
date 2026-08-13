@@ -15,6 +15,7 @@ from .client import ModelClient
 from .collaboration import normalize_required_candidate_files
 from .context import ContextConfig, load_context_config
 from .model_registry import RegistryError
+from .sandbox import RestrictedLimits, load_restricted_limits, resolve_restricted_limits
 
 if TYPE_CHECKING:
     from .evaluation import EvaluationRecord, TrendAppendResult
@@ -58,6 +59,25 @@ def load_required_candidate_files(
         raise RegistryError("Invalid candidate file configuration") from None
 
 
+def load_cli_restricted_limits(
+    *,
+    timeout_seconds: float | None,
+    cpu_seconds: int | None,
+    memory_mb: int | None,
+    limits_loader: Callable[[], RestrictedLimits] = load_restricted_limits,
+) -> RestrictedLimits:
+    """Load restricted limits and apply explicit CLI overrides."""
+    try:
+        return resolve_restricted_limits(
+            limits_loader(),
+            timeout_seconds=timeout_seconds,
+            cpu_seconds=cpu_seconds,
+            memory_mb=memory_mb,
+        )
+    except (OSError, ValueError, yaml.YAMLError) as exc:
+        raise RegistryError(f"Invalid restricted sandbox configuration: {exc}") from exc
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="forgeagent", description="Lightweight code-as-action agent."
@@ -78,6 +98,27 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="IMAGE",
         help="container tier image (default: python:3.11-slim)",
+    )
+    parser.add_argument(
+        "--restricted-timeout-seconds",
+        type=float,
+        default=None,
+        metavar="SECONDS",
+        help="override restricted tier wall-clock limit",
+    )
+    parser.add_argument(
+        "--restricted-cpu-seconds",
+        type=int,
+        default=None,
+        metavar="SECONDS",
+        help="override restricted tier CPU-time limit",
+    )
+    parser.add_argument(
+        "--restricted-memory-mb",
+        type=int,
+        default=None,
+        metavar="MB",
+        help="override restricted tier address-space limit",
     )
     parser.add_argument(
         "--model", default=DEFAULT_MODEL, help=f"model id (default: {DEFAULT_MODEL})"

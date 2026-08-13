@@ -31,7 +31,6 @@ from forgeagent.protocol import (
     FileWriteArgs,
     MCPArgs,
     MCPDescribeArgs,
-    ParseErrorType,
     RequestFilesystemAccessArgs,
     SkillArgs,
     SurveyArgs,
@@ -441,11 +440,7 @@ def test_parse_reports_unknown_tool_even_with_extended_schemas():
     text = '<!-- ToolCall: {"id": "t1", "name": "Exec", "arguments": {"code": "1"}} -->'
     result = parse(text, tool_schemas=schemas)
     assert result.tool_calls == []
-    assert any(
-        e.error_type == ParseErrorType.INVALID_FORMAT
-        and "Unknown or missing tool name" in e.message
-        for e in result.errors
-    )
+    assert [error.message for error in result.errors] == ["invalid_format: tool_call.name"]
 
 
 def test_parse_default_schemas_match_default_registry():
@@ -542,7 +537,7 @@ def test_skill_is_only_parseable_when_its_registry_is_registered():
     )
 
     assert without_skills.tool_calls == []
-    assert any("Unknown or missing tool name" in error.message for error in without_skills.errors)
+    assert [error.message for error in without_skills.errors] == ["invalid_format: tool_call.name"]
     assert not with_skills.errors
     assert isinstance(with_skills.tool_calls[0].arguments, SkillArgs)
 

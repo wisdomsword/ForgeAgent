@@ -4,6 +4,7 @@ import json
 import threading
 
 import pytest
+from pydantic import ValidationError
 
 from forgeagent.audit import AuditEvent
 from forgeagent.client import MockClient
@@ -505,7 +506,11 @@ def test_task_emits_bounded_terminal_outcome_for_evaluation():
     assert len(terminal) == 1
     assert terminal[0].task_id == "task-evaluation-evidence"
     assert terminal[0].result_status == "completed"
-    assert terminal[0].parameters == {"completed": True, "round_count": 1}
+    assert terminal[0].parameters == {
+        "completed": True,
+        "completion_state": "verified_completed",
+        "round_count": 1,
+    }
 
 
 def test_task_projects_legacy_needs_info_and_audits_attention():
@@ -1043,7 +1048,31 @@ def test_memory_audit_omits_candidate_content(tmp_path):
 def test_task_status_exposes_cancelled_without_marking_solved():
     status = TaskStatus(completed=False, reason=Termination.CANCELLED)
 
+    assert status.completion_state == "stopped"
+    assert status.model_dump(mode="json")["completion_state"] == "stopped"
     assert status.solved is False
+
+
+def test_task_status_legacy_completed_input_projects_verified_state():
+    status = TaskStatus(completed=True, reason=Termination.COMPLETED)
+
+    assert status.completion_state == "verified_completed"
+    assert status.completed is True
+
+
+def test_task_status_projects_legacy_boolean_and_rejects_mutation_drift():
+    status = TaskStatus(reason=Termination.COMPLETED)
+
+    assert status.completed is True
+    assert status.completion_state == "verified_completed"
+    assert "completion_state" in TaskStatus.model_json_schema()["required"]
+    with pytest.raises(ValidationError, match="frozen"):
+        status.completed = False
+
+
+def test_task_status_rejects_contradictory_completed_input():
+    with pytest.raises(ValueError, match="completion"):
+        TaskStatus(completed=True, reason=Termination.ANSWERED_IN_PROSE)
 
 
 def test_task_forwards_cancel_event_to_step():
@@ -1078,6 +1107,7 @@ def test_task_prose_answer_is_solved_but_not_completed():
 
     assert client.calls_made == 1
     assert outcome.status.completed is False
+    assert outcome.status.completion_state == "answered_unverified"
     assert outcome.status.solved is True
     assert outcome.status.reason == "answered_in_prose"
     assert outcome.status.detail == "the sum is 60"
@@ -1434,7 +1464,7 @@ def test_no_skills_keeps_existing_prompt_and_reports_unknown_skill_call():
     assert (
         Task(MockClient(script=[_reply(_done())]), skills=None)._build_system_prompt() == baseline
     )
-    assert "Unknown or missing tool name" in client.requests[1][-1].content
+    assert "invalid_format: tool_call.name" in client.requests[1][-1].content
     assert outcome.status.completed is True
 
 
@@ -1464,13 +1494,13 @@ def test_system_prompt_prioritizes_forgeagent_product_identity():
     normalized_prompt = " ".join(prompt.split())
     assert prompt.startswith("<system_prompt>\n<role>\n# 角色定义\n")
     assert "你是一个名为 ForgeAgent 的轻量级 code-as-action Agent 产品" in normalized_prompt
-    assert '必须先回答“我是 ForgeAgent”' in normalized_prompt
+    assert "必须先回答“我是 ForgeAgent”" in normalized_prompt
     assert "ForgeAgent is your primary product name" in normalized_prompt
     assert 'Begin the answer with "I am ForgeAgent"' in normalized_prompt
     assert "native model/provider identity" not in normalized_prompt
-    assert normalized_prompt.index(
-        "你是一个名为 ForgeAgent"
-    ) < normalized_prompt.index("You are ForgeAgent")
+    assert normalized_prompt.index("你是一个名为 ForgeAgent") < normalized_prompt.index(
+        "You are ForgeAgent"
+    )
     assert prompt.index("</role>") < prompt.index("This conversation is driven by ForgeAgent")
     assert prompt.index("</system_prompt>") < prompt.index("## Runtime Authority")
     assert "provider's native assistant" not in prompt

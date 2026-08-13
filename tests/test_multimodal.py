@@ -8,12 +8,14 @@ image_input.py's detection/loading logic. No real network/key.
 from __future__ import annotations
 
 import base64
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from pydantic import ValidationError
 
 from forgeagent.anthropic_client import AnthropicClient
-from forgeagent.image_input import detect_media_type, load_images
+from forgeagent.image_input import MAX_IMAGE_BYTES, detect_media_type, load_images
 from forgeagent.models import (
     ClientError,
     ImageItem,
@@ -247,6 +249,56 @@ def test_load_images_per_image_size_cap(tmp_path):
         load_images(str(f))
 
 
+def test_load_images_rechecks_size_after_read_when_file_grows(tmp_path, monkeypatch):
+    image = tmp_path / "grown.png"
+    image.write_bytes(_PNG_BYTES + b"\x00" * (5 * 1024 * 1024))
+    original_stat = Path.stat
+
+    def report_smaller_size(path: Path, *args, **kwargs):
+        if path == image:
+            original_result = original_stat(path, *args, **kwargs)
+            return SimpleNamespace(st_size=0, st_mode=original_result.st_mode)
+        return original_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", report_smaller_size)
+
+    with pytest.raises(ValueError, match=r"grown\.png: image is .* exceeds"):
+        load_images(str(image))
+
+
+def test_load_images_bounds_read_when_file_grows_after_stat(tmp_path, monkeypatch):
+    image = tmp_path / "grown.png"
+    image.write_bytes(_PNG_BYTES + b"\\x00" * (5 * 1024 * 1024))
+    original_stat = Path.stat
+    original_open = Path.open
+    requested_sizes: list[int] = []
+
+    def report_smaller_size(path: Path, *args, **kwargs):
+        if path == image:
+            result = original_stat(path, *args, **kwargs)
+            return SimpleNamespace(st_size=0, st_mode=result.st_mode)
+        return original_stat(path, *args, **kwargs)
+
+    def record_read_bound(path: Path, *args, **kwargs):
+        image_file = original_open(path, *args, **kwargs)
+        original_read = image_file.read
+
+        def read(size=-1):
+            requested_sizes.append(size)
+            return original_read(size)
+
+        monkeypatch.setattr(image_file, "read", read)
+        return image_file
+
+    monkeypatch.setattr(Path, "stat", report_smaller_size)
+    monkeypatch.setattr(Path, "open", record_read_bound)
+
+    with pytest.raises(ValueError, match=r"grown\.png: image is at least .* exceeds"):
+        load_images(str(image))
+
+    assert requested_sizes == [MAX_IMAGE_BYTES + 1]
+
+
 def test_load_images_per_request_count_cap(tmp_path):
     for i in range(21):
         (tmp_path / f"img{i:02d}.png").write_bytes(_PNG_BYTES)
@@ -254,11 +306,32 @@ def test_load_images_per_request_count_cap(tmp_path):
         load_images(str(tmp_path))
 
 
-def test_load_images_directory_silently_drops_oversized_file(tmp_path):
+def test_load_images_directory_rejects_recognized_oversized_file(tmp_path):
     (tmp_path / "small.png").write_bytes(_PNG_BYTES)
     (tmp_path / "big.png").write_bytes(_PNG_BYTES + b"\x00" * (5 * 1024 * 1024))
+    with pytest.raises(ValueError, match=r"big\.png: image is .* exceeds"):
+        load_images(str(tmp_path))
+
+
+def test_load_images_directory_skips_oversized_non_image_without_full_read(tmp_path, monkeypatch):
+    small = tmp_path / "small.png"
+    large_non_image = tmp_path / "large.bin"
+    small.write_bytes(_PNG_BYTES)
+    large_non_image.write_bytes(b"not an image" + b"\x00" * (5 * 1024 * 1024))
+
+    original_read_bytes = Path.read_bytes
+
+    def fail_if_large_non_image_is_fully_read(path: Path) -> bytes:
+        if path == large_non_image:
+            raise AssertionError("oversized non-image must not be fully read")
+        return original_read_bytes(path)
+
+    monkeypatch.setattr(Path, "read_bytes", fail_if_large_non_image_is_fully_read)
+
     images = load_images(str(tmp_path))
+
     assert len(images) == 1
+    assert images[0].media_type == "image/png"
 
 
 # --- helpers -------------------------------------------------------------------

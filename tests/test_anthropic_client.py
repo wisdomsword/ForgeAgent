@@ -277,6 +277,28 @@ def test_malformed_response_becomes_client_error_not_traceback():
     assert result.attempts == 1
 
 
+def test_stream_failure_feedback_is_stable_and_debug_detail_is_masked(monkeypatch, caplog):
+    secret = "private-anthropic-stream-detail"
+    monkeypatch.setenv("TEST_SECRET", secret)
+
+    def stream_transport(_request, _timeout):
+        def events():
+            raise RuntimeError(secret)
+            yield None
+
+        return events()
+
+    client = _client("claude-sonnet-5", stream_transport=stream_transport)
+    with caplog.at_level("DEBUG", logger="forgeagent.transport_errors"):
+        result = list(client.stream(_user()))
+
+    assert len(result) == 1
+    assert isinstance(result[0], ClientError)
+    assert result[0].message == "model request failed: unknown"
+    assert "model_transport_failure kind=unknown" in caplog.text
+    assert secret not in caplog.text
+
+
 def test_default_params_used_when_none_passed():
     client = _client("claude-sonnet-5", default_params=GenerationParams(effort="low"))
     captured = {}

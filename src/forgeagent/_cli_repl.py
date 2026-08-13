@@ -44,6 +44,7 @@ from .protocol import (
     RequestFilesystemAccessArgs,
     WebFetchArgs,
 )
+from .sandbox import RestrictedLimits
 from .secret_policy import REDACTED, is_secret_name, mask_secrets, sensitive_env_values
 from .skills import SkillRegistry
 from .tools import Tier
@@ -502,6 +503,7 @@ def repl(
     read_line: Callable[[str], str] | None = None,
     confirmation_available: bool | None = None,
     container_image: str | None = None,
+    restricted_limits: RestrictedLimits | None = None,
     stream: bool = False,
     no_identity: bool = False,
     no_memory: bool = False,
@@ -622,6 +624,7 @@ def repl(
                 confirmer=confirmer,
                 identity=identity,
                 container_image=container_image,
+                restricted_limits=restricted_limits,
                 usage_total=usage_total,
                 images=images,
                 session_messages=list(session_messages),
@@ -658,6 +661,7 @@ def repl(
                 confirmer=confirmer,
                 identity=identity,
                 container_image=container_image,
+                restricted_limits=restricted_limits,
                 context_config=current_context,
                 memory_manager=memory_manager,
                 skills=current_skills,

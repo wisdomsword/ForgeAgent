@@ -62,3 +62,32 @@ When a completed runtime capability is reconciled into the current baseline, For
 #### Scenario: A critical verifier disappears
 - **WHEN** the M34 implementation and specifications remain but its executable contract tests are removed
 - **THEN** the repository lifecycle verification fails before the baseline is declared complete
+
+### Requirement: 直接依赖具有可审计的兼容范围
+ForgeAgent 的全部直接运行时依赖与开发依赖 MUST 同时声明最低版本和不兼容版本之前的上界。刷新锁文件时，若本次变更没有明确升级目标，已锁定包版本 MUST 保持不变。
+
+#### Scenario: 当前依赖声明被重新解析
+- **WHEN** 维护者对当前 `pyproject.toml` 执行锁文件一致性检查
+- **THEN** 每个直接依赖均有显式上界
+- **AND THEN** `uv.lock` 中除直接依赖 specifier 外不得出现无关版本漂移
+
+#### Scenario: 准备跨越依赖上界
+- **WHEN** 后续变更需要采用当前上界之外的版本
+- **THEN** 该升级 MUST 先通过独立兼容性验证并显式修改依赖范围
+
+### Requirement: 运行时内部拆分保留公共门面兼容
+ForgeAgent MAY 将纯解析、数据类型、配置加载与路由决策移动到内部模块，但原有公共模块 MUST 继续提供既有导入路径和支持的猴子补丁位置。状态机、持久化、IO、工具派发和生命周期所有权 MUST 留在原有权威模块，除非后续独立 change 明确修改该契约。
+
+#### Scenario: 调用方继续使用旧导入路径
+- **WHEN** 调用方从 `forgeagent.protocol`、`forgeagent.step`、`forgeagent.mcp_manager` 或 `forgeagent.collaboration` 导入既有公开对象
+- **THEN** 导入和运行时行为 MUST 与拆分前兼容
+
+#### Scenario: 测试替换 MCP 门面默认路径
+- **WHEN** 测试猴子补丁 `forgeagent.mcp_manager.DEFAULT_USER_MCP_PATH` 后无参调用 `load_mcp_config`
+- **THEN** 加载器 MUST 使用被替换的门面路径
+
+#### Scenario: 审查内部所有权
+- **WHEN** 维护者检查新内部模块
+- **THEN** 它们 MUST NOT 引入通用 manager、factory、framework 或新的运行时依赖
+- **AND THEN** C901 结果只作为报告基线，不得在本 change 中成为阻断门禁
+

@@ -44,6 +44,35 @@ def test_edit_happy_path():
     assert result.tool_calls[0].arguments.replace_all is False
 
 
+def test_validation_feedback_exposes_only_category_and_field_location(caplog):
+    secret = "private-schema-detail"
+    text = (
+        '<!-- ToolCall: {"name": "Exec", "arguments": '
+        f'{{"language": "javascript", "code": "{secret}"}} }} -->'
+    )
+
+    with caplog.at_level("DEBUG", logger="forgeagent.protocol"):
+        result = parse(text)
+
+    assert result.errors[0].error_type is ParseErrorType.VALIDATION_ERROR
+    assert result.errors[0].message == "invalid_arguments: Exec.language"
+    assert secret not in result.errors[0].message
+    assert secret not in result.errors[0].raw
+    assert secret not in caplog.text
+
+
+def test_malformed_tool_json_feedback_omits_decoder_detail_and_raw_payload(caplog):
+    secret = "private-json-detail"
+    text = f'<!-- ToolCall: {{"name":"Exec","arguments":{{"code":"{secret}",}} }} -->'
+
+    with caplog.at_level("DEBUG", logger="forgeagent.protocol"):
+        result = parse(text)
+
+    assert result.errors[0].message == "json_decode_error: tool_call"
+    assert result.errors[0].raw == ""
+    assert secret not in caplog.text
+
+
 def test_skill_args_accepts_catalog_name_and_declared_section():
     assert SkillArgs(name="review-python").section == "full"
     assert SkillArgs(name="review-python", section="failure_branches").section == "failure_branches"
@@ -90,6 +119,19 @@ def test_malformed_json_in_toolcall_produces_error_not_crash():
     result = parse(text)
     assert result.tool_calls == []
     assert any(e.error_type == ParseErrorType.JSON_DECODE_ERROR for e in result.errors)
+
+
+def test_unterminated_toolcall_does_not_consume_later_valid_toolcall():
+    text = (
+        '<!-- ToolCall: {"name":"Exec","arguments":{"code":"x" -->\n'
+        "comment\n"
+        '<!-- ToolCall: {"id":"valid","name":"Exec","arguments":{"code":"print(1)"}} -->'
+    )
+
+    result = parse(text)
+
+    assert [call.id for call in result.tool_calls] == ["valid"]
+    assert any(error.error_type == ParseErrorType.JSON_DECODE_ERROR for error in result.errors)
 
 
 @pytest.mark.parametrize(
@@ -149,7 +191,7 @@ def test_unknown_tool_name_reported_not_silent():
     text = '<!-- ToolCall: {"id": "t1", "name": "MCP", "arguments": {}} -->'
     result = parse(text)
     assert result.tool_calls == []
-    assert any("Unknown or missing tool name" in e.message for e in result.errors)
+    assert [error.message for error in result.errors] == ["invalid_format: tool_call.name"]
 
 
 def test_front_matter_absent_parses_body():
@@ -256,7 +298,7 @@ def test_native_unknown_tool_name_reported_not_silent():
     native = [NativeToolCall(id="c1", name="MCP", arguments="{}")]
     result = parse("", native_tool_calls=native)
     assert result.tool_calls == []
-    assert any("Unknown or missing tool name" in e.message for e in result.errors)
+    assert [error.message for error in result.errors] == ["invalid_format: tool_call.name"]
 
 
 def test_native_exec_requires_name_or_code():
@@ -300,3 +342,39 @@ def test_conflicting_explicit_id_across_channels_is_not_dispatchable():
 def test_no_native_tool_calls_is_equivalent_to_omitting_argument():
     text = '<!-- ToolCall: {"id": "t1", "name": "Exec", "arguments": {"code": "1"}} -->'
     assert parse(text) == parse(text, native_tool_calls=[])
+
+
+def test_text_tool_calls_keep_text_order_before_native_calls():
+    text = (
+        '<!-- ToolCall: {"id":"text-first","name":"Exec","arguments":{"code":"1"}} -->\n'
+        '<!-- ToolCall: {"id":"text-second","name":"Exec","arguments":{"code":"2"}} -->'
+    )
+    native = [NativeToolCall(id="native", name="Exec", arguments='{"code":"3"}')]
+
+    result = parse(text, native_tool_calls=native)
+
+    assert [call.id for call in result.tool_calls] == ["text-first", "text-second", "native"]
+
+
+def test_front_matter_memory_removal_and_code_fence_body_are_preserved_together():
+    text = (
+        "---\ntask_status:\n  completed: false\n---\n"
+        "Visible answer.\n"
+        '<!-- Memory: {"scope":"session","kind":"fact","key":"editor","content":"vim"} -->\n'
+        '<!-- CodeBlockStart: {"name":"fence"} -->\n'
+        "````python\n"
+        'snippet = "```"\n'
+        "````\n"
+        '<!-- CodeBlockEnd: {"name":"fence"} -->'
+    )
+
+    result = parse(text)
+
+    assert result.task_status is not None
+    assert result.task_status.completed is False
+    assert result.memory_candidates == [
+        MemoryCandidate(scope="session", kind="fact", key="editor", content="vim")
+    ]
+    assert "Memory:" not in result.body
+    assert "````python" in result.body
+    assert result.code_blocks[0].code == 'snippet = "```"'

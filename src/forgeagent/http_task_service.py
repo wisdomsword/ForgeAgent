@@ -147,6 +147,8 @@ class TaskRecord:
             "audit_degraded": self.audit_degraded or service_audit_degraded,
             "attention": attention.model_dump(mode="json"),
         }
+        if outcome_status is not None:
+            view["completion_state"] = outcome_status.completion_state
         if mode in {"duo", "triad"}:
             report = self.collaboration_report
             view["phase"] = (

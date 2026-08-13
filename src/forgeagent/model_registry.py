@@ -28,9 +28,10 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from .models import ModelCapability, PositiveInt
+from .sandbox import RestrictedLimits
 
 __all__ = [
     "RegistryError",
@@ -50,6 +51,7 @@ __all__ = [
 
 DEFAULT_USER_MODELS_PATH = Path.home() / ".forgeagent" / "models.yaml"
 DEFAULT_USER_CONFIG_PATH = Path.home() / ".forgeagent" / "config.yaml"
+_SHARED_CONFIG_KEYS = {"context", "groups", "restricted", "search_engine"}
 
 
 class RegistryError(Exception):
@@ -70,6 +72,8 @@ class ModelEntry(BaseModel):
     supports_images: bool = False
     max_tokens_param: Literal["max_tokens", "max_completion_tokens"] = "max_tokens"
     aliases: list[str] = Field(default_factory=list)
+
+    model_config = ConfigDict(extra="forbid")
 
     def to_capability(self, canonical_id: str) -> ModelCapability:
         """Build the capability-gating view of this entry for `canonical_id`.
@@ -106,6 +110,8 @@ class GroupConfig(BaseModel):
     base_url: str | None = None
     models: list[str] = Field(default_factory=list)
 
+    model_config = ConfigDict(extra="forbid")
+
 
 class Registry(BaseModel):
     """The merged model capability registry + provider routing table."""
@@ -118,6 +124,8 @@ class Registry(BaseModel):
     # linear scan across all models on every lookup. Not read from YAML — built by
     # load_registry after validation.
     alias_index: dict[str, str] = Field(default_factory=dict)
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class ModelInfo(BaseModel):
@@ -137,13 +145,54 @@ class ResolvedModel(BaseModel):
     base_url: str | None = None
 
 
-def _read_yaml(path: Path) -> dict:
-    return yaml.safe_load(path.read_text()) or {}
+def _read_yaml(path: Path, *, allowed_keys: set[str], mapping_keys: set[str]) -> dict:
+    return _read_yaml_text(
+        path.read_text(),
+        source=str(path),
+        allowed_keys=allowed_keys,
+        mapping_keys=mapping_keys,
+    )
 
 
-def _read_builtin_yaml(package: str, filename: str) -> dict:
+def _read_builtin_yaml(
+    package: str,
+    filename: str,
+    *,
+    allowed_keys: set[str],
+    mapping_keys: set[str],
+) -> dict:
     text = resources.files(package).joinpath(filename).read_text()
-    return yaml.safe_load(text) or {}
+    return _read_yaml_text(
+        text,
+        source=f"{package}/{filename}",
+        allowed_keys=allowed_keys,
+        mapping_keys=mapping_keys,
+    )
+
+
+def _read_yaml_text(
+    text: str,
+    *,
+    source: str,
+    allowed_keys: set[str],
+    mapping_keys: set[str],
+) -> dict:
+    try:
+        data = yaml.safe_load(text) or {}
+    except yaml.YAMLError as exc:
+        raise RegistryError(f"{source}: invalid configuration") from exc
+    if (
+        not isinstance(data, dict)
+        or set(data).difference(allowed_keys)
+        or any(key in data and not isinstance(data[key], dict) for key in mapping_keys)
+        or any(
+            not isinstance(entry, dict)
+            for key in mapping_keys
+            for entry in (data.get(key) or {}).values()
+        )
+    ):
+        raise RegistryError(f"{source}: invalid configuration")
+    return data
 
 
 def _merge_models_data(base: dict, override: dict) -> dict:
@@ -169,14 +218,40 @@ def _merge_config_data(base: dict, override: dict) -> dict:
             groups[name] = group
             continue
         merged_group = dict(groups[name])
-        merged_models = list(merged_group.get("models") or [])
-        for model_id in group.get("models") or []:
-            if model_id not in merged_models:
-                merged_models.append(model_id)
+        if "models" in group:
+            merged_group["models"] = group["models"]
         merged_group.update({k: v for k, v in group.items() if k != "models"})
-        merged_group["models"] = merged_models
         groups[name] = merged_group
-    return {"groups": groups}
+    merged = {key: value for key, value in base.items() if key != "groups"}
+    merged["groups"] = groups
+    for key in _SHARED_CONFIG_KEYS - {"groups"}:
+        if key in override:
+            merged[key] = override[key]
+    return merged
+
+
+def _validate_models_source(data: dict, source: str) -> None:
+    """Validate a complete built-in models source before user overlays it."""
+    try:
+        Registry.model_validate(
+            {
+                "default_model": data.get("default_model"),
+                "models": data.get("models") or {},
+                "groups": {},
+            }
+        )
+    except ValidationError as exc:
+        raise RegistryError(f"{source}: invalid configuration") from exc
+
+
+def _validate_config_source(data: dict, source: str) -> None:
+    """Validate a complete built-in provider source before user overlays it."""
+    try:
+        RestrictedLimits.model_validate(data.get("restricted", {}))
+        for group in (data.get("groups") or {}).values():
+            GroupConfig.model_validate(group)
+    except ValidationError as exc:
+        raise RegistryError(f"{source}: invalid configuration") from exc
 
 
 def load_registry(
@@ -194,25 +269,74 @@ def load_registry(
     files are opt-in, not required).
     """
     models_data = (
-        _read_yaml(builtin_models_path)
+        _read_yaml(
+            builtin_models_path,
+            allowed_keys={"default_model", "models"},
+            mapping_keys={"models"},
+        )
         if builtin_models_path is not None
-        else _read_builtin_yaml("forgeagent.res", "models.yaml")
+        else _read_builtin_yaml(
+            "forgeagent.res",
+            "models.yaml",
+            allowed_keys={"default_model", "models"},
+            mapping_keys={"models"},
+        )
+    )
+    models_source = (
+        str(builtin_models_path)
+        if builtin_models_path is not None
+        else "forgeagent.res/models.yaml"
+    )
+    config_source = (
+        str(builtin_config_path)
+        if builtin_config_path is not None
+        else "forgeagent.res/config.yaml"
     )
     config_data = (
-        _read_yaml(builtin_config_path)
+        _read_yaml(
+            builtin_config_path,
+            allowed_keys=_SHARED_CONFIG_KEYS,
+            mapping_keys={"groups"},
+        )
         if builtin_config_path is not None
-        else _read_builtin_yaml("forgeagent.res", "config.yaml")
+        else _read_builtin_yaml(
+            "forgeagent.res",
+            "config.yaml",
+            allowed_keys=_SHARED_CONFIG_KEYS,
+            mapping_keys={"groups"},
+        )
     )
+    # Built-ins are complete documents. Validate them before an optional user
+    # overlay so their own source is retained if they are malformed.
+    _validate_models_source(models_data, models_source)
+    _validate_config_source(config_data, config_source)
 
     user_models_path = DEFAULT_USER_MODELS_PATH if user_models_path is None else user_models_path
     if user_models_path.exists():
-        models_data = _merge_models_data(models_data, _read_yaml(user_models_path))
+        models_data = _merge_models_data(
+            models_data,
+            _read_yaml(
+                user_models_path,
+                allowed_keys={"default_model", "models"},
+                mapping_keys={"models"},
+            ),
+        )
+        models_source = str(user_models_path)
 
     user_config_path = DEFAULT_USER_CONFIG_PATH if user_config_path is None else user_config_path
     if user_config_path.exists():
-        config_data = _merge_config_data(config_data, _read_yaml(user_config_path))
+        config_data = _merge_config_data(
+            config_data,
+            _read_yaml(
+                user_config_path,
+                allowed_keys=_SHARED_CONFIG_KEYS,
+                mapping_keys={"groups"},
+            ),
+        )
+        config_source = str(user_config_path)
 
     try:
+        RestrictedLimits.model_validate(config_data.get("restricted", {}))
         registry = Registry.model_validate(
             {
                 "default_model": models_data.get("default_model"),
@@ -221,7 +345,7 @@ def load_registry(
             }
         )
     except ValidationError as exc:
-        raise RegistryError(f"Malformed models.yaml or config.yaml: {exc}") from exc
+        raise RegistryError(f"{models_source} or {config_source}: invalid configuration") from exc
     _validate_registry(registry)
     return registry
 

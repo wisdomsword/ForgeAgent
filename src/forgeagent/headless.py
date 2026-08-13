@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from hashlib import sha256
 from pathlib import Path
 from typing import Protocol
 from urllib.parse import unquote, urlsplit
@@ -17,6 +18,8 @@ from .protocol import FileWriteArgs, MCPArgs, RequestFilesystemAccessArgs, WebFe
 _GLOB_CHARACTERS = frozenset("*?[]{}")
 _WEB_SCHEMES = {"http": 80, "https": 443}
 _MAX_MCP_SEGMENT_CHARS = 200
+_WEB_KEY_VERSION = "v1"
+_WEB_QUERY_DIGEST_LENGTH = 64
 
 
 class ActionApprovalConsumer(Protocol):
@@ -102,18 +105,36 @@ def _canonical_web_host(host: str) -> str:
 def _validate_web_key(key: str) -> str:
     _validate_safe_text(key)
     try:
-        prefix, scheme, host, port_text, path = key.split("/", 4)
+        prefix, version, scheme, host, port_text, path_and_digest = key.split("/", 5)
         port = int(port_text)
     except (TypeError, ValueError):
         raise _invalid_allowlist_entry() from None
-    if prefix != "web" or scheme not in _WEB_SCHEMES or not 1 <= port <= 65535:
+    try:
+        path, query_digest = path_and_digest.rsplit("/", 1)
+    except ValueError:
+        raise _invalid_allowlist_entry() from None
+    if (
+        prefix != "web"
+        or version != _WEB_KEY_VERSION
+        or scheme not in _WEB_SCHEMES
+        or not 1 <= port <= 65535
+        or len(query_digest) != _WEB_QUERY_DIGEST_LENGTH
+        or any(character not in "0123456789abcdef" for character in query_digest)
+    ):
         raise _invalid_allowlist_entry()
-    # split(..., 4) removes the slash before the URL path. An empty path represents
-    # URL path "/"; non-empty paths must not contain traversal segments.
+    # The path portion follows the port and precedes the final query digest. An empty
+    # path represents URL path "/"; non-empty paths must not contain traversal segments.
     decoded_parts = unquote(path).split("/")
     if any(part in {".", ".."} for part in decoded_parts):
         raise _invalid_allowlist_entry()
-    return f"web/{scheme}/{_canonical_web_host(host)}/{port}/{path}"
+    return (
+        f"web/{_WEB_KEY_VERSION}/{scheme}/{_canonical_web_host(host)}/{port}/{path}/{query_digest}"
+    )
+
+
+def _web_query_digest(query: str) -> str:
+    """Return a fixed-size authorization binding without retaining query text."""
+    return sha256(query.encode("utf-8")).hexdigest()
 
 
 def normalize_allowlist(entries: Iterable[str]) -> frozenset[str]:
@@ -166,7 +187,10 @@ def operation_key(args: BaseModel, root: Path) -> str:
             parsed_port = parts.port
             port = _WEB_SCHEMES[scheme] if parsed_port is None else parsed_port
             path = parts.path or "/"
-            key = f"web/{scheme}/{parts.hostname}/{port}{path}"
+            key = (
+                f"web/{_WEB_KEY_VERSION}/{scheme}/{parts.hostname}/{port}{path}/"
+                f"{_web_query_digest(parts.query)}"
+            )
             return _validate_web_key(key)
         except (UnicodeError, ValueError):
             raise ValueError("invalid WebFetch URL") from None

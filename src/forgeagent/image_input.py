@@ -23,6 +23,11 @@ _SIGNATURES: tuple[tuple[bytes, str], ...] = (
     (b"\x89PNG\r\n\x1a\n", "image/png"),
     (b"GIF8", "image/gif"),
 )
+_HEADER_BYTES = 12
+
+
+class _UnrecognizedImageError(ValueError):
+    """A file is not one of the image formats accepted by this input."""
 
 
 def detect_media_type(data: bytes) -> str | None:
@@ -36,15 +41,30 @@ def detect_media_type(data: bytes) -> str | None:
 
 
 def _load_one(path: Path) -> ImageItem:
-    data = path.read_bytes()
-    if len(data) > MAX_IMAGE_BYTES:
+    size = path.stat().st_size
+    if size > MAX_IMAGE_BYTES:
+        with path.open("rb") as image_file:
+            header = image_file.read(_HEADER_BYTES)
+        if detect_media_type(header) is None:
+            raise _UnrecognizedImageError(f"{path}: not a recognized image (jpeg/png/gif/webp)")
         raise ValueError(
-            f"{path}: image is {len(data)} bytes, exceeds the {MAX_IMAGE_BYTES}-byte "
+            f"{path}: image is {size} bytes, exceeds the {MAX_IMAGE_BYTES}-byte per-image limit"
+        )
+
+    # The file can grow after stat(). Keep that race bounded rather than turning it
+    # into an unbounded read of a now-oversized path.
+    with path.open("rb") as image_file:
+        data = image_file.read(MAX_IMAGE_BYTES + 1)
+    if len(data) > MAX_IMAGE_BYTES:
+        if detect_media_type(data[:_HEADER_BYTES]) is None:
+            raise _UnrecognizedImageError(f"{path}: not a recognized image (jpeg/png/gif/webp)")
+        raise ValueError(
+            f"{path}: image is at least {len(data)} bytes, exceeds the {MAX_IMAGE_BYTES}-byte "
             "per-image limit"
         )
     media_type = detect_media_type(data)
     if media_type is None:
-        raise ValueError(f"{path}: not a recognized image (jpeg/png/gif/webp)")
+        raise _UnrecognizedImageError(f"{path}: not a recognized image (jpeg/png/gif/webp)")
     return ImageItem(media_type=media_type, data=base64.b64encode(data).decode("ascii"))
 
 
@@ -66,15 +86,10 @@ def load_images(path: str) -> list[ImageItem]:
         for entry in sorted(p.iterdir(), key=lambda e: e.name):
             if not entry.is_file():
                 continue
-            data = entry.read_bytes()
-            if len(data) > MAX_IMAGE_BYTES:
+            try:
+                items.append(_load_one(entry))
+            except _UnrecognizedImageError:
                 continue
-            media_type = detect_media_type(data)
-            if media_type is None:
-                continue
-            items.append(
-                ImageItem(media_type=media_type, data=base64.b64encode(data).decode("ascii"))
-            )
         images = items
 
     if len(images) > MAX_IMAGES_PER_REQUEST:

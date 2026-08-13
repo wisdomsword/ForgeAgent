@@ -833,6 +833,14 @@ class MemoryManager:
                 handle.flush()
                 os.fsync(handle.fileno())
             os.replace(temporary_name, path)
+            directory_descriptor = os.open(
+                directory,
+                os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_CLOEXEC", 0),
+            )
+            try:
+                os.fsync(directory_descriptor)
+            finally:
+                os.close(directory_descriptor)
         except BaseException:
             try:
                 os.unlink(temporary_name)

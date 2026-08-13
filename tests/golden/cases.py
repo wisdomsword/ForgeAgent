@@ -618,7 +618,7 @@ def _run_g08_case(workdir: Path, client: ModelClient) -> GoldenEvidence:
     after_hash = hashlib.sha256(test_file.read_bytes()).hexdigest()
     require(after_hash == before_hash, "G08 test file hash changed")
     after_result = _run_python_test(workdir, test_file.name)
-    if after_result.error and "sandbox worker failed (exit 0)" in after_result.error:
+    if after_result.error and "ended without a result frame (exit code 0)" in after_result.error:
         require(False, "G08 test completion witness is missing")
     require(after_result.success, "G08 provided tests did not pass after the fix")
     require(

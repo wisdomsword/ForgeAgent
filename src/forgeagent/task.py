@@ -13,10 +13,11 @@ from __future__ import annotations
 import json
 import re
 import threading
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from .attention import Attention, attention_for_reason
 from .audit import AuditEvent, AuditSink, emit_audit
@@ -41,6 +42,7 @@ from .mcp_manager import MCPManager
 from .memory import MemoryManager, MemoryResult
 from .models import GenerationParams, ImageItem, Message, Role, StreamEventKind, TextItem
 from .runtime import Runtime
+from .sandbox import RestrictedLimits
 from .skills import SkillRegistry
 from .step import (
     DEFAULT_SUBMISSION_RECOVERY_ATTEMPTS,
@@ -53,7 +55,11 @@ from .tools import Asker, Confirmer, Tier, ToolRegistry
 
 
 def _backend_for_tier(
-    tier: Tier, *, allowed_root: str | None = None, container_image: str | None = None
+    tier: Tier,
+    *,
+    allowed_root: str | None = None,
+    container_image: str | None = None,
+    restricted_limits: RestrictedLimits | None = None,
 ) -> ExecutorBackend:
     """Map a sandbox tier to its executor backend (B2). `restricted` is the default.
 
@@ -67,7 +73,13 @@ def _backend_for_tier(
         return ContainerBackend(
             allowed_root=allowed_root, image=container_image or "python:3.11-slim"
         )
-    return RestrictedBackend(allowed_root=allowed_root)
+    limits = restricted_limits or RestrictedLimits()
+    return RestrictedBackend(
+        allowed_root=allowed_root,
+        timeout_seconds=limits.timeout_seconds,
+        cpu_seconds=limits.cpu_seconds,
+        memory_mb=limits.memory_mb,
+    )
 
 
 def _tier_for_explicit_backend(backend: ExecutorBackend | None) -> Tier | None:
@@ -128,6 +140,9 @@ def _repair_identity_answer(
         transcript[-1] = Message(role=Role.ASSISTANT, content=answer)
 
 
+CompletionState = Literal["verified_completed", "answered_unverified", "stopped"]
+
+
 class TaskStatus(BaseModel):
     """Terminal status of a task run.
 
@@ -138,11 +153,37 @@ class TaskStatus(BaseModel):
     separately, on the answer content — not here).
     """
 
-    completed: bool
+    completed: bool = False
     # A Termination value (or "client_error:<kind>"); "no_rounds"/"unknown" as fallbacks.
     reason: str
+    completion_state: CompletionState
     detail: str | None = None
     attention: Attention | None = None
+
+    model_config = {"frozen": True}
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_completion_semantics(cls, data: Any) -> Any:
+        if not isinstance(data, Mapping) or "reason" not in data:
+            return data
+        normalized = dict(data)
+        reason = normalized["reason"]
+        if reason == Termination.COMPLETED:
+            expected_state: CompletionState = "verified_completed"
+        elif reason == Termination.ANSWERED_IN_PROSE:
+            expected_state = "answered_unverified"
+        else:
+            expected_state = "stopped"
+        completion_state = normalized.get("completion_state")
+        if completion_state is not None and completion_state != expected_state:
+            raise ValueError("completion_state conflicts with reason")
+        expected_completed = expected_state == "verified_completed"
+        if "completed" in normalized and normalized["completed"] != expected_completed:
+            raise ValueError("completed conflicts with completion_state and reason")
+        normalized["completion_state"] = expected_state
+        normalized["completed"] = expected_completed
+        return normalized
 
     @property
     def solved(self) -> bool:
@@ -196,6 +237,7 @@ class Task:
         confirmer: Confirmer | None = None,
         allow_auto_approve: bool = True,
         container_image: str | None = None,
+        restricted_limits: RestrictedLimits | None = None,
         on_stream_text: Callable[[str, StreamEventKind], None] | None = None,
         audit_sink: AuditSink | None = None,
         task_id: str | None = None,
@@ -234,12 +276,19 @@ class Task:
         # Default tier is restricted (B2 / ACTION_PLAN). An explicit backend overrides
         # the tier; otherwise the tier selects the backend.
         self._backend = backend or _backend_for_tier(
-            self._tier, allowed_root=self._filesystem_root, container_image=container_image
+            self._tier,
+            allowed_root=self._filesystem_root,
+            container_image=container_image,
+            restricted_limits=restricted_limits,
         )
         self._full_disk_backend_factory: Callable[[], ExecutorBackend] | None = None
         if backend is None and self._tier == "restricted":
+            full_disk_limits = restricted_limits or RestrictedLimits()
             self._full_disk_backend_factory = lambda: RestrictedBackend(
-                allowed_root=self._host_filesystem_root
+                allowed_root=self._host_filesystem_root,
+                timeout_seconds=full_disk_limits.timeout_seconds,
+                cpu_seconds=full_disk_limits.cpu_seconds,
+                memory_mb=full_disk_limits.memory_mb,
             )
         # Explicit system_prompt wins outright. Identity is only consulted when it is None;
         # neither given means compose from a zero-content identity without loading files.
@@ -442,7 +491,11 @@ class Task:
             AuditEvent(
                 event_type="task.outcome",
                 task_id=self._task_id,
-                parameters={"completed": status.completed, "round_count": len(rounds)},
+                parameters={
+                    "completed": status.completed,
+                    "completion_state": status.completion_state,
+                    "round_count": len(rounds),
+                },
                 result_status=status.reason,
             ),
         )

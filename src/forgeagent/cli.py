@@ -87,9 +87,10 @@ from .model_registry import (
 )
 from .models import ImageItem, Message, StreamEventKind, TokenUsage
 from .protocol import MemoryCandidate, SurveyArgs
+from .sandbox import RestrictedLimits
 from .secret_policy import mask_secrets, sensitive_env_values
 from .skills import SkillRegistry
-from .step import RoundResult, Termination
+from .step import RoundResult
 from .task import Task, TaskOutcome
 from .tools import Asker, Confirmer, Tier
 from .web_search import ERROR_BLOCKED, ERROR_UNAVAILABLE, search_with_status
@@ -191,12 +192,10 @@ def render_outcome(
     status = outcome.status
     if status.completed:
         console.print("[bold green]completed[/bold green]")
-    elif status.reason == Termination.ANSWERED_IN_PROSE:
+    elif status.completion_state == "answered_unverified":
         # Solved, but the model answered in prose rather than executing code, so the
         # result is unverified — flag that distinction instead of a plain "completed".
-        console.print(
-            "[bold green]completed[/bold green] [dim](answered in prose, not executed)[/dim]"
-        )
+        console.print("[bold green]answered[/bold green] [dim](unverified)[/dim]")
     else:
         console.print(f"[bold yellow]stopped[/bold yellow]: {status.reason}")
         if status.detail:
@@ -449,6 +448,7 @@ def run_once(
     confirmer: Confirmer | None = None,
     identity: ApprovedIdentity | None = None,
     container_image: str | None = None,
+    restricted_limits: RestrictedLimits | None = None,
     usage_total: TokenUsage | None = None,
     images: list[ImageItem] | None = None,
     session_messages: Sequence[Message] | None = None,
@@ -497,6 +497,7 @@ def run_once(
                 confirmer=confirmer,
                 identity=identity,
                 container_image=container_image,
+                restricted_limits=restricted_limits,
                 on_stream_text=on_stream_text,
                 context_config=resolved_context_config,
                 memory_manager=memory_manager,
@@ -545,6 +546,7 @@ def run_collaboration_once(
     confirmer: Confirmer | None = None,
     identity: ApprovedIdentity | None = None,
     container_image: str | None = None,
+    restricted_limits: RestrictedLimits | None = None,
     context_config: ContextConfig | None = None,
     memory_manager: MemoryManager | None = None,
     skills: SkillRegistry | None = None,
@@ -577,6 +579,7 @@ def run_collaboration_once(
         confirmer=confirmer,
         identity=identity,
         container_image=container_image,
+        restricted_limits=restricted_limits,
         context_config=context_config,
         memory_manager=memory_manager,
         skills=skills,
@@ -638,6 +641,7 @@ def run_loop_once(
     confirmer: Confirmer | None = None,
     identity: ApprovedIdentity | None = None,
     container_image: str | None = None,
+    restricted_limits: RestrictedLimits | None = None,
     context_config: ContextConfig | None = None,
     memory_manager: MemoryManager | None = None,
     skills: SkillRegistry | None = None,
@@ -723,6 +727,7 @@ def run_loop_once(
                 mcp=mcp,
                 confirmer=confirmer,
                 container_image=container_image,
+                restricted_limits=restricted_limits,
                 context_config=resolved_context_config,
                 memory_manager=memory_manager,
                 skills=skills,
@@ -780,6 +785,7 @@ def run_loop_once(
                     mcp=mcp if role == "generator" else None,
                     confirmer=confirmer if role == "generator" else None,
                     container_image=container_image,
+                    restricted_limits=restricted_limits,
                     context_config=resolved_context_config,
                     memory_manager=memory_manager if role == "generator" else None,
                     skills=skills if role == "generator" else None,
@@ -1182,6 +1188,7 @@ def repl(
     read_line: Callable[[str], str] | None = None,
     confirmation_available: bool | None = None,
     container_image: str | None = None,
+    restricted_limits: RestrictedLimits | None = None,
     stream: bool = False,
     no_identity: bool = False,
     no_memory: bool = False,
@@ -1237,6 +1244,7 @@ def repl(
         read_line=read_line,
         confirmation_available=confirmation_available,
         container_image=container_image,
+        restricted_limits=restricted_limits,
         stream=stream,
         no_identity=no_identity,
         no_memory=no_memory,
@@ -1266,6 +1274,7 @@ def run_smoke(
     models: list[str],
     client_factory: ClientFactory,
     console: Console | None = None,
+    restricted_limits: RestrictedLimits | None = None,
 ) -> bool:
     """Run the smoke goals against each model; return True if all completed.
 
@@ -1279,7 +1288,7 @@ def run_smoke(
         try:
             console.print(f"[bold]smoke[/bold] model={model} tier={tier}")
             for goal in SMOKE_GOALS:
-                task = Task(client, tier=tier)
+                task = Task(client, tier=tier, restricted_limits=restricted_limits)
                 try:
                     outcome = task.run(goal)
                 finally:
@@ -1358,6 +1367,14 @@ def _load_cli_context_config() -> ContextConfig:
         os.environ.get(_CONTEXT_CONFIG_ENVIRONMENT),
         context_loader=load_context_config,
         json_loader=json.loads,
+    )
+
+
+def _load_cli_restricted_limits(args) -> RestrictedLimits:
+    return _cli_parser.load_cli_restricted_limits(
+        timeout_seconds=args.restricted_timeout_seconds,
+        cpu_seconds=args.restricted_cpu_seconds,
+        memory_mb=args.restricted_memory_mb,
     )
 
 
@@ -1505,6 +1522,7 @@ def main(
                 error_console.print("[red]audit startup error[/red]: audit log is unavailable")
                 return 2
         allowed_root = str(Path.cwd().resolve())
+        restricted_limits = _load_cli_restricted_limits(args)
         interactive_identity = console.is_terminal and sys.stdin.isatty()
         identity_confirmer = (
             make_console_identity_confirmer(console) if interactive_identity else None
@@ -1579,6 +1597,7 @@ def main(
                         confirmer=confirmer,
                         identity=identity,
                         container_image=args.container_image,
+                        restricted_limits=restricted_limits,
                         images=images,
                         stream=args.stream,
                         context_config=context_config,
@@ -1612,6 +1631,7 @@ def main(
                         confirmer=confirmer,
                         identity=identity,
                         container_image=args.container_image,
+                        restricted_limits=restricted_limits,
                         context_config=context_config,
                         memory_manager=memory_manager,
                         skills=skills,
@@ -1670,6 +1690,7 @@ def main(
                     confirmer=confirmer,
                     identity=identity,
                     container_image=args.container_image,
+                    restricted_limits=restricted_limits,
                     context_config=context_config,
                     memory_manager=memory_manager,
                     skills=skills,
@@ -1696,7 +1717,11 @@ def main(
             if args.include_openai_compatible:
                 models.extend(OPENAI_COMPATIBLE_SMOKE_MODELS)
             ok = run_smoke(
-                tier=args.tier, models=models, client_factory=client_factory, console=console
+                tier=args.tier,
+                models=models,
+                client_factory=client_factory,
+                console=console,
+                restricted_limits=restricted_limits,
             )
             return 0 if ok else 1
         context_config = _load_cli_context_config()
@@ -1712,6 +1737,7 @@ def main(
             client_factory=client_factory,
             console=console,
             container_image=args.container_image,
+            restricted_limits=restricted_limits,
             stream=args.stream,
             no_identity=args.no_identity,
             no_memory=args.no_memory,

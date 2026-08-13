@@ -23,6 +23,7 @@ import warnings
 from pathlib import Path
 
 import pytest
+import yaml
 
 import forgeagent.mcp_manager as mcp_manager_module
 from forgeagent.mcp_manager import (
@@ -33,6 +34,7 @@ from forgeagent.mcp_manager import (
     _BoundedStderrCapture,
     load_mcp_config,
 )
+from forgeagent.model_registry import RegistryError
 
 _FIXTURE = str(Path(__file__).with_name("mcp_fixture_server.py"))
 
@@ -847,6 +849,19 @@ def test_default_mcp_path_uses_isolated_test_home():
     assert not DEFAULT_USER_MCP_PATH.exists()
 
 
+def test_facade_default_path_remains_patchable(tmp_path, monkeypatch):
+    user_path = tmp_path / "mcp.yaml"
+    user_path.write_text(
+        "mcpServers:\n  patched:\n    command: patched-server\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(mcp_manager_module, "DEFAULT_USER_MCP_PATH", user_path)
+
+    servers = mcp_manager_module.load_mcp_config()
+
+    assert servers["patched"].command == "patched-server"
+
+
 def test_user_config_merges_and_parses_aliased_fields(tmp_path):
     builtin = tmp_path / "builtin.yaml"
     builtin.write_text("mcpServers: {}\n")
@@ -880,6 +895,47 @@ def test_user_entry_overrides_builtin_by_name(tmp_path):
     user.write_text("mcpServers:\n  fs:\n    command: user-cmd\n")
     servers = load_mcp_config(builtin_path=builtin, user_path=user)
     assert servers["fs"].command == "user-cmd"
+
+
+@pytest.mark.parametrize("field", ["enabled", "required"])
+@pytest.mark.parametrize("value", ["false", 0, 1])
+def test_mcp_enabled_and_required_accept_only_real_booleans(tmp_path, field, value):
+    builtin = tmp_path / "builtin.yaml"
+    builtin.write_text("mcpServers: {}\n")
+    config = tmp_path / "mcp.yaml"
+    config.write_text(yaml.safe_dump({"mcpServers": {"fs": {"command": "tool", field: value}}}))
+
+    with pytest.raises(RegistryError, match="mcp.yaml.*invalid configuration"):
+        load_mcp_config(builtin_path=builtin, user_path=config)
+
+
+def test_mcp_config_rejects_unknown_root_and_entry_fields_with_stable_error(tmp_path):
+    builtin = tmp_path / "builtin.yaml"
+    builtin.write_text("mcpServers: {}\n")
+    config = tmp_path / "mcp.yaml"
+    config.write_text("mcpServers:\n  fs:\n    command: tool\n    enabled_typo: false\n")
+
+    with pytest.raises(RegistryError) as captured:
+        load_mcp_config(builtin_path=builtin, user_path=config)
+
+    message = str(captured.value)
+    assert "mcp.yaml" in message
+    assert "invalid configuration" in message
+    assert "validation error" not in message.lower()
+
+    config.write_text("mcpServers: {}\nextra_root: true\n")
+    with pytest.raises(RegistryError, match="mcp.yaml.*invalid configuration"):
+        load_mcp_config(builtin_path=builtin, user_path=config)
+
+
+def test_mcp_config_rejects_non_mapping_yaml_with_stable_error(tmp_path):
+    builtin = tmp_path / "builtin.yaml"
+    builtin.write_text("mcpServers: {}\n")
+    config = tmp_path / "mcp.yaml"
+    config.write_text("- not-a-mapping\n")
+
+    with pytest.raises(RegistryError, match="mcp.yaml.*invalid configuration"):
+        load_mcp_config(builtin_path=builtin, user_path=config)
 
 
 # --- real multi-server integration -------------------------------------------

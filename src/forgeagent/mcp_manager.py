@@ -36,12 +36,28 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any, TextIO
 
-import yaml
 from pydantic import BaseModel, Field
 
+# Compatibility re-exports; the manager remains the established public MCP facade.
+from . import mcp_config as _mcp_config
 from .secret_policy import mask_secrets, sensitive_env_values
 
-DEFAULT_USER_MCP_PATH = Path.home() / ".forgeagent" / "mcp.yaml"
+DEFAULT_USER_MCP_PATH = _mcp_config.DEFAULT_USER_MCP_PATH
+MCPServerConfig = _mcp_config.MCPServerConfig
+
+
+def load_mcp_config(
+    *,
+    builtin_path: Path | None = None,
+    user_path: Path | None = None,
+) -> dict[str, MCPServerConfig]:
+    """Load MCP config while preserving the established patchable facade default."""
+    resolved_user_path = DEFAULT_USER_MCP_PATH if user_path is None else user_path
+    return _mcp_config.load_mcp_config(
+        builtin_path=builtin_path,
+        user_path=resolved_user_path,
+    )
+
 
 # Default timeouts (seconds). Connect is per-server; call is per-invocation (the SDK's
 # own read timeout fires first, the outer facade timeout is a backstop above it).
@@ -281,23 +297,6 @@ def _mask_mcp_schema(value: object, secret_values: set[str]) -> tuple[object, bo
     return {}, False
 
 
-class MCPServerConfig(BaseModel):
-    """One MCP server entry from mcp.yaml (Claude Desktop / Cursor `mcpServers` shape)."""
-
-    command: str
-    args: list[str] = Field(default_factory=list)
-    # Child env; values may use ${VAR} to pull from os.environ (never a literal secret).
-    env: dict[str, str] = Field(default_factory=dict)
-    enabled: bool = True
-    required: bool = False
-    # Tool names that skip the confirmation gate (read-only tools only).
-    auto_approve: list[str] = Field(default_factory=list, alias="autoApprove")
-    # Optional allowlist: advertise only these tools to the model (default: all).
-    expose: list[str] | None = None
-
-    model_config = {"populate_by_name": True}
-
-
 class MCPToolInfo(BaseModel):
     """A discovered MCP tool, tagged with the server that serves it."""
 
@@ -354,35 +353,6 @@ def _resolve_env(env: dict[str, str]) -> dict[str, str]:
         return _ENV_PLACEHOLDER.sub(lambda m: os.environ.get(m.group(1), ""), value)
 
     return {k: expand(v) for k, v in env.items()}
-
-
-def load_mcp_config(
-    *,
-    builtin_path: Path | None = None,
-    user_path: Path | None = None,
-) -> dict[str, MCPServerConfig]:
-    """Load the built-in mcp.yaml (empty by default) and merge the optional user file.
-
-    User entries override built-in ones by server name. Both paths are injectable for
-    tests; the user path defaults to ~/.forgeagent/mcp.yaml and is skipped if absent.
-    """
-    if builtin_path is not None:
-        builtin_data = yaml.safe_load(builtin_path.read_text()) or {}
-    else:
-        from importlib import resources
-
-        text = resources.files("forgeagent.res").joinpath("mcp.yaml").read_text()
-        builtin_data = yaml.safe_load(text) or {}
-
-    servers: dict[str, dict] = dict(builtin_data.get("mcpServers") or {})
-
-    user_path = DEFAULT_USER_MCP_PATH if user_path is None else user_path
-    if user_path.exists():
-        user_data = yaml.safe_load(user_path.read_text()) or {}
-        for name, entry in (user_data.get("mcpServers") or {}).items():
-            servers[name] = entry  # user entry wins wholesale (no deep merge needed)
-
-    return {name: MCPServerConfig.model_validate(entry) for name, entry in servers.items()}
 
 
 class MCPManager:

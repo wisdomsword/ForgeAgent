@@ -234,6 +234,22 @@ def test_malformed_response_becomes_client_error_not_traceback():
     assert result.attempts == 1
 
 
+def test_stream_failure_feedback_is_stable():
+    def stream_transport(_request, _timeout):
+        def events():
+            raise RuntimeError("private-openai-stream-detail")
+            yield None
+
+        return events()
+
+    client = _client("gpt-5.4-mini", stream_transport=stream_transport)
+    result = list(client.stream(_user()))
+
+    assert len(result) == 1
+    assert isinstance(result[0], ClientError)
+    assert result[0].message == "model request failed: unknown"
+
+
 def test_default_params_used_when_none_passed():
     client = _client("gpt-5.4-mini", default_params=GenerationParams(effort="low"))
     captured = {}

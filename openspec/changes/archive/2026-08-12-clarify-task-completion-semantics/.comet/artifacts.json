@@ -1,0 +1,9 @@
+{
+  "openspec_proposal": "openspec/changes/clarify-task-completion-semantics/proposal.md",
+  "openspec_design": "openspec/changes/clarify-task-completion-semantics/design.md",
+  "openspec_tasks": "openspec/changes/clarify-task-completion-semantics/tasks.md",
+  "openspec_delta_spec": "openspec/changes/clarify-task-completion-semantics/specs/completion-integrity/spec.md",
+  "build_tasks_complete": "openspec/changes/clarify-task-completion-semantics/tasks.md",
+  "verification_report": "docs/superpowers/reports/2026-08-13-milestone-051-hardening-verify.md",
+  "archive_directory": "openspec/changes/archive/2026-08-12-clarify-task-completion-semantics"
+}

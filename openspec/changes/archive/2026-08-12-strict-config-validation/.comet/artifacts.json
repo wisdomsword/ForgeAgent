@@ -1,0 +1,9 @@
+{
+  "openspec_proposal": "openspec/changes/strict-config-validation/proposal.md",
+  "openspec_design": "openspec/changes/strict-config-validation/design.md",
+  "openspec_tasks": "openspec/changes/strict-config-validation/tasks.md",
+  "openspec_delta_spec": "openspec/changes/strict-config-validation/specs/configuration/spec.md",
+  "build_tasks_complete": "openspec/changes/strict-config-validation/tasks.md",
+  "verification_report": "docs/superpowers/reports/2026-08-13-milestone-051-hardening-verify.md",
+  "archive_directory": "openspec/changes/archive/2026-08-12-strict-config-validation"
+}

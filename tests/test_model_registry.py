@@ -40,6 +40,19 @@ def test_model_entry_rejects_non_positive_limits(field, value):
         ModelEntry(**values)
 
 
+def test_model_entry_rejects_unknown_fields():
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        ModelEntry(
+            client_kind="anthropic",
+            context_window=1,
+            max_output_tokens=1,
+            supports_thinking=False,
+            thinking_always_on=False,
+            supports_effort=False,
+            enabled_typo=False,
+        )
+
+
 @pytest.mark.parametrize("field", ["context_window", "max_output_tokens"])
 @pytest.mark.parametrize("value", [0, -1])
 def test_load_registry_projects_invalid_model_limits_as_registry_error(tmp_path, field, value):
@@ -62,7 +75,7 @@ def test_load_registry_projects_invalid_model_limits_as_registry_error(tmp_path,
         )
     )
 
-    with pytest.raises(RegistryError, match="Malformed models.yaml or config.yaml"):
+    with pytest.raises(RegistryError, match="models.yaml.*invalid configuration"):
         _registry(tmp_path, models_path=models_path)
 
 
@@ -133,6 +146,32 @@ def test_unknown_model_raises_with_known_list(tmp_path):
 def test_default_model_from_builtin_registry(tmp_path):
     registry = _registry(tmp_path)
     assert registry.default_model == "claude-sonnet-5"
+
+
+@pytest.mark.parametrize(
+    ("filename", "contents", "argument"),
+    [
+        ("models.yaml", "models:\n  broken: {}\n", "builtin_models_path"),
+        ("config.yaml", "groups:\n  broken:\n    unexpected: true\n", "builtin_config_path"),
+    ],
+)
+def test_malformed_builtin_source_keeps_its_own_error_location(
+    tmp_path, filename, contents, argument
+):
+    builtin_path = tmp_path / filename
+    builtin_path.write_text(contents)
+    user_models_path = tmp_path / "user-models.yaml"
+    user_config_path = tmp_path / "user-config.yaml"
+    user_models_path.write_text("models: {}\n")
+    user_config_path.write_text("groups: {}\n")
+
+    kwargs = {
+        "user_models_path": user_models_path,
+        "user_config_path": user_config_path,
+        argument: builtin_path,
+    }
+    with pytest.raises(RegistryError, match=rf"^{builtin_path}: invalid configuration$"):
+        load_registry(**kwargs)
 
 
 # --- aliases -------------------------------------------------------------------
@@ -245,7 +284,7 @@ def test_user_models_override_can_explicitly_disable_images_for_builtin_model(tm
     assert resolved.capability.supports_images is False
 
 
-def test_user_config_can_add_model_to_existing_builtin_group(tmp_path):
+def test_user_config_explicit_models_replaces_existing_builtin_group_members(tmp_path):
     models_path = tmp_path / "models.yaml"
     models_path.write_text(
         yaml.safe_dump(
@@ -268,11 +307,77 @@ def test_user_config_can_add_model_to_existing_builtin_group(tmp_path):
         yaml.safe_dump({"groups": {"anthropic": {"models": ["claude-new-model"]}}})
     )
     registry = _registry(tmp_path, models_path=models_path, config_path=config_path)
-    # Pre-existing builtin model in the same group must still resolve.
-    resolved = resolve_model("claude-sonnet-5", registry, env={"ANTHROPIC_API_KEY": "k"})
-    assert resolved.capability.model_id == "claude-sonnet-5"
     resolved_new = resolve_model("claude-new-model", registry, env={"ANTHROPIC_API_KEY": "k"})
     assert resolved_new.capability.context_window == 500_000
+    with pytest.raises(RegistryError, match="not listed under any group"):
+        resolve_model("claude-sonnet-5", registry, env={"ANTHROPIC_API_KEY": "k"})
+
+
+def test_user_config_group_without_models_preserves_builtin_group_members(tmp_path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        yaml.safe_dump({"groups": {"anthropic": {"base_url": "https://literal.example"}}})
+    )
+
+    registry = _registry(tmp_path, config_path=config_path)
+
+    resolved = resolve_model("claude-sonnet-5", registry, env={"ANTHROPIC_API_KEY": "k"})
+    assert resolved.base_url == "https://literal.example"
+
+
+def test_user_config_empty_models_clears_builtin_group_members(tmp_path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.safe_dump({"groups": {"anthropic": {"models": []}}}))
+
+    registry = _registry(tmp_path, config_path=config_path)
+
+    assert registry.groups["anthropic"].models == []
+    with pytest.raises(RegistryError, match="not listed under any group"):
+        resolve_model("claude-sonnet-5", registry, env={"ANTHROPIC_API_KEY": "k"})
+
+
+def test_user_config_can_move_model_between_groups(tmp_path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        yaml.safe_dump(
+            {
+                "groups": {
+                    "openai": {"models": ["gpt-5.4-mini"]},
+                    "llm": {
+                        "api_key_env": "MOVED_MODEL_API_KEY",
+                        "models": ["glm-5.2", "deepseek-v4-flash", "gpt-5.5"],
+                    },
+                }
+            }
+        )
+    )
+
+    registry = _registry(tmp_path, config_path=config_path)
+
+    resolved = resolve_model("gpt-5.5", registry, env={"MOVED_MODEL_API_KEY": "moved-key"})
+    assert resolved.api_key == "moved-key"
+
+
+def test_user_config_accepts_all_established_shared_top_level_sections(tmp_path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        yaml.safe_dump(
+            {
+                "context": {"utilization_ratio": 0.8},
+                "groups": {},
+                "restricted": {
+                    "timeout_seconds": 15.0,
+                    "cpu_seconds": 5,
+                    "memory_mb": 384,
+                },
+                "search_engine": "duckduckgo",
+            }
+        )
+    )
+
+    registry = _registry(tmp_path, config_path=config_path)
+
+    assert registry.groups
 
 
 def test_user_config_literal_api_key_takes_precedence_over_env(tmp_path):
@@ -355,8 +460,34 @@ def test_malformed_models_yaml_raises_registry_error(tmp_path):
             }
         )
     )
-    with pytest.raises(RegistryError, match="Malformed models.yaml or config.yaml"):
+    with pytest.raises(RegistryError, match="models.yaml.*invalid configuration"):
         _registry(tmp_path, models_path=models_path)
+
+
+@pytest.mark.parametrize(
+    ("filename", "content"),
+    [
+        ("models.yaml", "- not-a-mapping\n"),
+        ("models.yaml", "modelz: {}\n"),
+        ("models.yaml", "models: []\n"),
+        ("models.yaml", "models:\n  claude-sonnet-5: []\n"),
+        ("config.yaml", "groups_typo: {}\n"),
+        ("config.yaml", "groups: []\n"),
+        ("config.yaml", "groups:\n  anthropic: []\n"),
+    ],
+)
+def test_invalid_registry_yaml_has_stable_source_specific_error(tmp_path, filename, content):
+    path = tmp_path / filename
+    path.write_text(content)
+    kwargs = {"models_path" if filename == "models.yaml" else "config_path": path}
+
+    with pytest.raises(RegistryError) as captured:
+        _registry(tmp_path, **kwargs)
+
+    message = str(captured.value)
+    assert filename in message
+    assert "invalid configuration" in message
+    assert "validation error" not in message.lower()
 
 
 def test_group_with_no_api_key_env_gives_actionable_message(tmp_path):

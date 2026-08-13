@@ -1334,6 +1334,22 @@ def test_client_error_stops_loop():
     assert rounds[0].text == "down"
 
 
+def test_step_feedback_does_not_include_protocol_validation_detail():
+    secret = "private-validation-detail"
+    step = _step([])
+    round_result = step._handle_reply(
+        _reply(
+            '<!-- ToolCall: {"name": "Exec", "arguments": '
+            f'{{"language": "javascript", "code": "{secret}"}} }} -->'
+        )
+    )
+
+    feedback = step._render_feedback(round_result)
+
+    assert feedback == "[parse error] validation_error: invalid_arguments: Exec.language"
+    assert secret not in feedback
+
+
 # --- cross-block state through the loop --------------------------------------
 
 

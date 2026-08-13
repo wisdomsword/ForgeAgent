@@ -1,0 +1,10 @@
+{
+  "openspec_proposal": "openspec/changes/split-runtime-boundaries/proposal.md",
+  "openspec_design": "openspec/changes/split-runtime-boundaries/design.md",
+  "openspec_tasks": "openspec/changes/split-runtime-boundaries/tasks.md",
+  "openspec_delta_spec": "openspec/changes/split-runtime-boundaries/specs/repository-lifecycle-integrity/spec.md",
+  "build_plan": "docs/superpowers/plans/2026-08-12-milestone-051-hardening.md",
+  "build_tasks_complete": "openspec/changes/split-runtime-boundaries/tasks.md",
+  "verification_report": "docs/superpowers/reports/2026-08-13-milestone-051-hardening-verify.md",
+  "archive_directory": "openspec/changes/archive/2026-08-12-split-runtime-boundaries"
+}
