@@ -1025,8 +1025,8 @@ def test_m23_public_docs_link_valid_v2_and_disclose_invalid_batch() -> None:
 
 
 def test_m23_does_not_modify_product_runtime_or_dependencies() -> None:
-    m23_base = "f6e0dda3c8a7f9c73400c240c0a999e20b12bbd6"
-    m23_archive = "2aaeec33ec797be73f1f91b2a8bf0ea9a7c61906"
+    m23_base = "8e82fdd4791f849ca40e48b7b00c98c133129aa9"
+    m23_archive = "9e1e5c58c6ffe58da3c473c0130546911e8056a5"
     protected = (
         "src/forgeagent/collaboration.py",
         "src/forgeagent/cli.py",

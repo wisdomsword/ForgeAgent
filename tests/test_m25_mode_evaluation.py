@@ -22,7 +22,7 @@ M25_PROTOCOL_PATH = ROOT / "docs" / "evaluation" / "m25" / "protocol.json"
 M25_PLAN_PATH = (
     ROOT / "docs" / "superpowers" / "plans" / "2026-07-27-m25-programming-mode-evaluation.md"
 )
-BASE_REF = "d7fa30526f829959102b5fb69b4778899d6b1f88"
+BASE_REF = "c20c09485878f6e5891fbb3de83f72fc7c600fd0"
 M25_SCHEMA = "forgeagent.m25.mode-evaluation/v1"
 
 
