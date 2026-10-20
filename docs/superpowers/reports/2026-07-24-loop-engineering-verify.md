@@ -92,7 +92,7 @@ Sandbox 内首次全量测试为 `1726 passed, 23 skipped, 12 failed`；11 项�
 - Checkpoint 审查修复 token overshoot、Unicode 控制字符、稳定报告 schema/stop reason、文件与父目录 symlink TOCTOU、fd 复用和目录换绑竞态。
 - Runner 审查修复零 usage、失败摘要长度/诊断计数、严格完成优先级、MCP/Skills registry 装配。
 - CLI/HTTP 审查修复 SIGINT 持久化取消、systemd timer 示例、取消/完成竞态、审计字段完整性和逐迭代 client 关闭。
-- 全变更终审在 `4266a64` 与 `602fe6a` 后复审通过：无 Critical/Important findings。
+- 全变更终审在 `7d27f49` 与 `24ce554` 后复审通过：无 Critical/Important findings。
 
 ## 两轮最终自审
 
