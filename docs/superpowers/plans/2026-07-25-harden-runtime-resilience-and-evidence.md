@@ -1,7 +1,7 @@
 ---
 change: harden-runtime-resilience-and-evidence
 design-doc: docs/superpowers/specs/2026-07-25-harden-runtime-resilience-and-evidence-design.md
-base-ref: d61ccb875463c380b2501bc7f4a5ab078dec0963
+base-ref: 9d1b605f6390562bd330d0d89efbd676ccda66a2
 archived-with: 2026-07-25-harden-runtime-resilience-and-evidence
 ---
 
@@ -217,7 +217,7 @@ rtk uv run pytest -q
 rtk uv run python -m tests.golden.runner --output-dir /tmp/forgeagent-p2-p3-golden
 rtk uv build --out-dir /tmp/forgeagent-p2-p3-build
 rtk openspec validate --all --strict
-rtk git diff --check d61ccb875463c380b2501bc7f4a5ab078dec0963..HEAD
+rtk git diff --check 9d1b605f6390562bd330d0d89efbd676ccda66a2..HEAD
 rtk git diff --check
 ```
 

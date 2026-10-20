@@ -1,7 +1,7 @@
 ---
 change: loop-engineering
 design-doc: docs/superpowers/specs/2026-07-24-loop-engineering-design.md
-base-ref: d24abc04fa5f92c64621b2dd5d22ee598031a860
+base-ref: a72076c8475ea1712fdea2e0a60669cabd03b9dd
 archived-with: 2026-07-24-loop-engineering
 ---
 
@@ -326,7 +326,7 @@ Run:
 ```bash
 UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run ruff format --check .
 UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run ruff check .
-git diff --check d24abc04fa5f92c64621b2dd5d22ee598031a860..HEAD
+git diff --check a72076c8475ea1712fdea2e0a60669cabd03b9dd..HEAD
 ```
 
 Expected: exit 0.

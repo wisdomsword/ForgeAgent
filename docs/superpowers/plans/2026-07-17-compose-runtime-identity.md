@@ -1,7 +1,7 @@
 ---
 change: compose-runtime-identity
 design-doc: docs/superpowers/specs/2026-07-17-compose-runtime-identity-design.md
-base-ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf
+base-ref: e27a0c1d81338717093651d5fd3eaf178c53f516
 archived-with: 2026-07-21-compose-runtime-identity
 ---
 
@@ -3629,7 +3629,7 @@ archived-with: 2026-07-21-compose-runtime-identity
 
 **Interfaces:**
 - Produces: 13/13 tasks 勾选、实证里程碑、完整离线报告、与已验证实现 HEAD 精确关联且可进入 Comet verify 的提交状态。
-- Consumes: 所有实现提交、两份 OpenSpec specs、Design Doc、`base_ref: 9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf`。
+- Consumes: 所有实现提交、两份 OpenSpec specs、Design Doc、`base_ref: e27a0c1d81338717093651d5fd3eaf178c53f516`。
 
 - [x] **Step 1: 运行静态检查**
 
@@ -3637,11 +3637,11 @@ archived-with: 2026-07-21-compose-runtime-identity
 
 ```bash
 git diff --name-only --diff-filter=ACMR \
-  9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf HEAD -- '*.py'
+  e27a0c1d81338717093651d5fd3eaf178c53f516 HEAD -- '*.py'
 .venv/bin/ruff check src tests
 changed_python_list="$(mktemp /tmp/forgeagent-m15-python.XXXXXX)"
 git diff --name-only --diff-filter=ACMR \
-  9470988589ebd8e61ebe5cc5d1d8de0c9a50c5bf HEAD -- '*.py' > "$changed_python_list"
+  e27a0c1d81338717093651d5fd3eaf178c53f516 HEAD -- '*.py' > "$changed_python_list"
 while IFS= read -r changed_python_file; do
   [ -z "$changed_python_file" ] && continue
   .venv/bin/ruff format --check "$changed_python_file" || {

@@ -1,7 +1,7 @@
 ---
 change: m25-programming-mode-evaluation
 design-doc: docs/superpowers/specs/2026-07-27-m25-programming-mode-evaluation-design.md
-base-ref: d7fa30526f829959102b5fb69b4778899d6b1f88
+base-ref: c20c09485878f6e5891fbb3de83f72fc7c600fd0
 archived-with: 2026-07-28-m25-programming-mode-evaluation
 ---
 
@@ -20,7 +20,7 @@ archived-with: 2026-07-28-m25-programming-mode-evaluation
 - OpenSpec delta `openspec/changes/m25-programming-mode-evaluation/specs/collaboration-mode-evaluation/spec.md` 是行为合同事实源，Design Doc 是实现细节事实源。
 - 不修改 `src/forgeagent/`、`uv.lock`、依赖、模型注册、credential 语义或产品 CLI；不增加 benchmark 框架、数据库、并发、统计显著性或综合评分。
 - `EvaluationProtocol`、`TaskSpec`、`RunSpec`、`EnvironmentManifest`、`RawRecord` 的字段、默认值、alias 和 M23 `model_dump()` 输出保持不变。
-- `docs/evaluation/m23/protocol.json` 及 `docs/evaluation/m23/runs/**` 的 tracked 文件集合和字节必须与 base-ref `d7fa30526f829959102b5fb69b4778899d6b1f88` 相同。
+- `docs/evaluation/m23/protocol.json` 及 `docs/evaluation/m23/runs/**` 的 tracked 文件集合和字节必须与 base-ref `c20c09485878f6e5891fbb3de83f72fc7c600fd0` 相同。
 - M25 schema 固定为 `forgeagent.m25.mode-evaluation/v1`；模型按固定顺序为 `claude-haiku-4-5`、`gpt-5.4-mini`；任务 9 个、模式 3 个、每模型重复 5 次，共 270 个 run。
 - 生成设置固定为 `max_output_tokens=4096`、`temperature=0.0`、`thinking=off`、`effort=null`、`timeout_seconds=120.0`；执行设置固定为 restricted、`max_rounds=10`、`max_rejections=2`、identity/memory/skills/MCP 关闭、plan preauthorize、check timeout 30 秒。
 - raw/environment/summary 禁止保存 prompt、goal、messages、reply/body/text、credential、API key、base URL 原文或绝对路径；检查 stdout/stderr 只保存 UTF-8 byte count 和 SHA-256。
@@ -138,7 +138,7 @@ HARNESS_PATH = ROOT / "scripts/m23_mode_evaluation.py"
 M23_PROTOCOL_PATH = ROOT / "docs/evaluation/m23/protocol.json"
 M23_FORMAL_ROOT = ROOT / "docs/evaluation/m23/runs/2026-07-27-haiku-4-5"
 M25_PROTOCOL_PATH = ROOT / "docs/evaluation/m25/protocol.json"
-BASE_REF = "d7fa30526f829959102b5fb69b4778899d6b1f88"
+BASE_REF = "c20c09485878f6e5891fbb3de83f72fc7c600fd0"
 M25_SCHEMA = "forgeagent.m25.mode-evaluation/v1"
 
 
@@ -1308,7 +1308,7 @@ Expected: no output, exit 0.
 
 - [x] **Step 4: Confirm M23 history and implementation freeze**
 
-Run: `rtk git diff --exit-code d7fa30526f829959102b5fb69b4778899d6b1f88 -- docs/evaluation/m23`
+Run: `rtk git diff --exit-code c20c09485878f6e5891fbb3de83f72fc7c600fd0 -- docs/evaluation/m23`
 
 Expected: no output, exit 0.
 
@@ -1486,7 +1486,7 @@ Run: `rtk npx @fission-ai/openspec@1.4.1 validate --all --strict`
 
 Expected: every spec is valid, exit 0.
 
-Run: `rtk git diff --exit-code d7fa30526f829959102b5fb69b4778899d6b1f88 -- docs/evaluation/m23`
+Run: `rtk git diff --exit-code c20c09485878f6e5891fbb3de83f72fc7c600fd0 -- docs/evaluation/m23`
 
 Expected: no output, exit 0.
 

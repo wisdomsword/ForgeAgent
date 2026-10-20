@@ -17,7 +17,7 @@ rtk uv --cache-dir /tmp/forgeagent-final-uv-cache run ruff format --check <all c
 rtk openspec validate retain-repl-session-history --strict
 Change 'retain-repl-session-history' is valid
 
-rtk git diff --check 2c8f528224d79a91b6cbe3476db8b6b979b236a4
+rtk git diff --check 5f705ef902ab974fb429d6fadd31afd5d8a0c5a5
 PASS
 ```
 

@@ -1,7 +1,7 @@
 ---
 change: harden-local-persistence-boundaries
 design-doc: docs/superpowers/specs/2026-07-25-harden-local-persistence-boundaries-design.md
-base-ref: eb2dc8dfa053988ae9e71283fb79b02f8d176fc1
+base-ref: 7925162de815a6bb716accb7932f6a85e452cd9b
 archived-with: 2026-07-25-harden-local-persistence-boundaries
 ---
 
@@ -198,7 +198,7 @@ uv --cache-dir /tmp/forgeagent-p1-uv-cache run --offline pytest -q
 uv --cache-dir /tmp/forgeagent-p1-uv-cache run --offline python -m tests.golden.runner --output-dir /tmp/forgeagent-p1-golden
 uv --cache-dir /tmp/forgeagent-p1-uv-cache build --out-dir /tmp/forgeagent-p1-dist
 openspec validate --all --strict
-git diff --check eb2dc8dfa053988ae9e71283fb79b02f8d176fc1..HEAD
+git diff --check 7925162de815a6bb716accb7932f6a85e452cd9b..HEAD
 ```
 
 Expected: 全部退出 0；pytest 只保留已记录环境 skip；golden 20/20。

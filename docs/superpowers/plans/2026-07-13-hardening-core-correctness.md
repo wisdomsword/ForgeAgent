@@ -1,7 +1,7 @@
 ---
 change: hardening-core-correctness
 design-doc: docs/superpowers/specs/2026-07-13-hardening-core-correctness-design.md
-base-ref: 44456c57e2ef76990f44846eadb83bc8d5e25166
+base-ref: a453c82d15dde32064d262fc45dd8300033dd9ad
 archived-with: 2026-07-16-hardening-core-correctness
 ---
 
@@ -1269,7 +1269,7 @@ UV_CACHE_DIR=/tmp/forgeagent-uv-cache uv run ruff check src tests
 最后额外运行 `ruff format --check src tests` 作为全仓诊断。若失败，逐项与 `base-ref` diff 比对：本 change 改动文件的失败是阻塞项；仅存在于未改动文件的历史格式差异记录为 baseline debt，不扩大本 change。当前基线命令为：
 
 ```bash
-git diff --name-only --diff-filter=ACMR 44456c57e2ef76990f44846eadb83bc8d5e25166 HEAD -- '*.py'
+git diff --name-only --diff-filter=ACMR a453c82d15dde32064d262fc45dd8300033dd9ad HEAD -- '*.py'
 ```
 
 - [x] **Step 2: 运行专项测试**

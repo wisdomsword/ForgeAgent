@@ -1,7 +1,7 @@
 # M22 Triad Mode 验证报告
 
 - Change: `triad-mode`
-- 基线提交: `2433b7689f275caef4e42c991317934d615aeb36`
+- 基线提交: `a3b28674a1ccb6db7d0da70a42fc987bac240df8`
 - 验证实现提交: `111d60a`
 - 归档状态提交: `489999a`
 - 验证模式: full
@@ -95,7 +95,7 @@ UV_CACHE_DIR=/tmp/forgeagent-m22-final2-uv-cache uv build \
 # sdist and wheel built successfully
 openspec validate --all --strict
 # 17 passed, 0 failed
-git diff --check 2433b7689f275caef4e42c991317934d615aeb36..HEAD
+git diff --check a3b28674a1ccb6db7d0da70a42fc987bac240df8..HEAD
 # exit 0
 ```
 

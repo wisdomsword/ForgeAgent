@@ -1,7 +1,7 @@
 ---
 change: m23-collaboration-mode-evaluation
 design-doc: docs/superpowers/specs/2026-07-27-m23-collaboration-mode-evaluation-design.md
-base-ref: f6e0dda3c8a7f9c73400c240c0a999e20b12bbd6
+base-ref: 8e82fdd4791f849ca40e48b7b00c98c133129aa9
 archived-with: 2026-07-27-m23-collaboration-mode-evaluation
 ---
 
@@ -1013,7 +1013,7 @@ def test_m23_does_not_modify_product_runtime_or_dependencies() -> None:
     )
     for path in protected:
         before = subprocess.run(
-            ["git", "show", f"f6e0dda3c8a7f9c73400c240c0a999e20b12bbd6:{path}"],
+            ["git", "show", f"8e82fdd4791f849ca40e48b7b00c98c133129aa9:{path}"],
             check=True, capture_output=True,
         ).stdout
         assert (ROOT / path).read_bytes() == before

@@ -1,7 +1,7 @@
 # M21 Loop Engineering 验证报告
 
 - Change: `loop-engineering`
-- 实现验证提交: `602fe6a5f88f2f7aeaf504c850f93a06a67569d8`
+- 实现验证提交: `24ce554a6b39f0f06a7ed4ec95ecfc314d284998`
 - 归档提交: `bd819af`
 - 验证模式: full
 - 结论: PASS，已合并 `main` 并归档
@@ -37,7 +37,7 @@ UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run ruff format --check .
 UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run ruff check .
 All checks passed!
 
-git diff --check d24abc04fa5f92c64621b2dd5d22ee598031a860..HEAD
+git diff --check a72076c8475ea1712fdea2e0a60669cabd03b9dd..HEAD
 exit 0
 
 UV_CACHE_DIR=/tmp/forgeagent-m21-uv-cache uv run python -m tests.golden.runner \
