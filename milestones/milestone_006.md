@@ -155,7 +155,7 @@
 
 ## 遗留问题
 
-- [x] 项目尚无 git 仓库 — 影响：M6 及此前所有里程碑的代码变更均无版本历史可追溯，`git log`/`git diff` 类核对手段全程不可用 — **已解决**（2026-07-11）：新增 `.gitignore`（排除 `resource/` 只读参考项目、`.codegraph/`、编辑器/OS 文件、Python 产物），提交基线 commit `2cb8871`（57 files, 8435 insertions）。详见下方"M6 收尾后加固"一节
+- [x] 项目尚无 git 仓库 — 影响：M6 及此前所有里程碑的代码变更均无版本历史可追溯，`git log`/`git diff` 类核对手段全程不可用 — **已解决**（2026-07-11）：新增 `.gitignore`（排除 `resource/` 只读参考项目、`.codegraph/`、编辑器/OS 文件、Python 产物），提交基线 commit `dec967e`（57 files, 8435 insertions）。详见下方"M6 收尾后加固"一节
 
 ## M6 收尾后加固（追加记录，2026-07-11）
 
@@ -186,14 +186,14 @@ $ .venv/bin/python -m pytest tests/ -q
 $ .venv/bin/ruff check src/ tests/
 All checks passed!
 $ git log --oneline
-2cb8871 Initial commit: ForgeAgent M1-M7 (code-as-action agent, sandboxed)
+dec967e Initial commit: ForgeAgent M1-M7 (code-as-action agent, sandboxed)
 ```
 
 （M6 收尾时为 233 passed；本次加固新增 19 个测试，覆盖 secret 掩码/环境洗白、原生 tool_calls 历史回放、跨块状态丢弹反馈、feedback 截断等场景。）
 
 ## 续接指引
 
-M6 已完成，且收尾后的 9 项代码评审加固（见上节）已全部落地：git 基线已建立（commit `2cb8871`），重试逻辑去重、prose 软完成、原生 tool_calls 历史回放、跨块状态丢弹反馈、长输出截断、`ModelCapability` 构造去重、secret 访问器 YAGNI 裁决、`step.py` 死代码清理均已完成并有测试覆盖。252 单测全绿，ruff 清。
+M6 已完成，且收尾后的 9 项代码评审加固（见上节）已全部落地：git 基线已建立（commit `dec967e`），重试逻辑去重、prose 软完成、原生 tool_calls 历史回放、跨块状态丢弹反馈、长输出截断、`ModelCapability` 构造去重、secret 访问器 YAGNI 裁决、`step.py` 死代码清理均已完成并有测试覆盖。252 单测全绿，ruff 清。
 
 下一步：可以直接进入 M7（工具集：MCP/Survey 实现；golden 任务集扩到 300 个以内）。M7 设计阶段可参照 `docs/m6-openai-compatible-client.md` 的裁决记录格式（预写设计文档、真实调用前先核实 wire 层字段名，避免重复"先编码后发现真实字段不符"的返工）。
 

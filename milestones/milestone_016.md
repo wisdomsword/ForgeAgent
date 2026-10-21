@@ -4,8 +4,8 @@
 - 起止: 2026-07-21 ~ 2026-07-22
 - 对应 ACTION_PLAN 行: M16（见该文件 §四 里程碑表）
 - 前置里程碑: [milestone_015](milestone_015.md)
-- 最终实现 commit: `f4a3ef7`
-- 验证状态 commit: `b67bdf0`
+- 最终实现 commit: `661170c`
+- 验证状态 commit: `8773271`
 - OpenSpec 归档: `openspec/changes/archive/2026-07-22-http-task-service/`
 
 ## 目标与范围
@@ -57,7 +57,7 @@
 
 - [x] 各实现任务均经独立实现审查与修复回合，覆盖审计 retention、任务提交原子性、HTTP framing/auth、路径配置、shutdown 和结果脱敏
 - [x] whole-change 终审发现 Critical：HTTP `HeadlessConfirmer` 未把禁止 `autoApprove` 的策略传递到 `Task -> Step -> ToolContext`，空 HTTP allowlist 仍可能被 MCP `autoApprove` 绕过
-- [x] `f4a3ef7` 显式传播 `allow_auto_approve=False`，端到端回归证明 HTTP 空 allowlist 下不查询 `is_auto_approved` 且不调用 MCP 工具；最终复审无 Critical/Important
+- [x] `661170c` 显式传播 `allow_auto_approve=False`，端到端回归证明 HTTP 空 allowlist 下不查询 `is_auto_approved` 且不调用 MCP 工具；最终复审无 Critical/Important
 
 ### 验收评审
 

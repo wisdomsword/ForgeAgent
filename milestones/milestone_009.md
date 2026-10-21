@@ -82,12 +82,12 @@ Phase-0 spike（`docs/m9-streaming-multimodal-commands.md` §八，真实 API/�
 
 ### 代码评审
 
-- [x] 委派 `general-purpose` subagent 对抗性复审 M9 完整 diff（`git diff c2372da..488565a`，环境无 `code-reviewer` 类型，同 M6-M8/M10 做法）
+- [x] 委派 `general-purpose` subagent 对抗性复审 M9 完整 diff（`git diff 7ec9495..637985f`，环境无 `code-reviewer` 类型，同 M6-M8/M10 做法）
 - [x] 发现 4 个问题，全部确认为真实问题并修复：
   1. **high** — `anthropic_client.stream()`：transport 生成器在无异常的情况下静默提前结束（连接中断但 SDK 迭代器直接停止，不抛异常）时，代码从未检测 `message_stop` 事件是否真的出现过，会把已收到的半截文本包装成 `stop_reason` 为空字符串的 DONE 事件误发出去——与 threat-model T11c"中途失败收敛为单个 `ClientError`，半截文本不进入对话历史"的声明矛盾（该声明此前只被 S5 的"显式抛异常"路径验证过，未覆盖"生成器静默耗尽"这个姊妹场景）。修复：增加 `saw_message_stop` 标志位，`while True` 重试循环体内 `for` 事件循环里遇到 `message_stop` 才置真；`try/except` 之后补 `if not saw_message_stop:` 守卫，发 `ClientError(kind="unknown")` 而非虚构 DONE。回归测试：`test_silent_truncation_without_message_stop_yields_client_error_no_done`。
   2. **high** — `openai_compatible_client.stream()` 同构问题：从未检查是否收到过任何带 `finish_reason` 的 chunk，同样会在生成器静默截断时误发 `stop_reason=""` 的 DONE。修复：补等价的 `if not stop_reason:` 守卫。回归测试：`test_silent_truncation_without_finish_reason_yields_client_error_no_done`。
   3. **medium** — `cli.py` 用量状态行缺 `reasoning=N`：`TokenUsage.reasoning_tokens` 已由两个 client 按 spike 实测正确计算，但 `_accumulate_usage`/`_print_usage` 从未消费/展示它，与设计文档 §3.4"CLI 用量状态行同步显示 `reasoning=N`"的用户补充裁决不符。修复：`_accumulate_usage` 补累加、`_print_usage` 补展示字段。回归测试：更新 3 个既有用量断言 + 新增 `test_run_once_prints_nonzero_reasoning_tokens`。
-  4. **low/medium** — REPL 兼容层 `goal.startswith("mcp")` 缺词边界：任何以字面子串 "mcp" 开头的正常目标文本（例如"mcpherson's algorithm..."）会被误路由进废弃的裸词兼容分支，当作 `/mcp` 指令处理，而不会作为任务执行——此 bug 早于 M9 存在于潜在写法里，M9 新增的兼容层改动（`d0d72aa`）把它实际落了地。修复：改为显式集合成员判断（bare "mcp"）+ 前缀形式要求带尾随空格（"mcp "）两种情况的判断。回归测试：`test_repl_compat_bare_mcp_word_shows_deprecation`（裸词 "mcp" 仍走废弃兼容路径）+ `test_repl_goal_starting_with_mcp_substring_runs_as_normal_task`（"mcpherson's..." 正常跑任务，不被误路由）。
+  4. **low/medium** — REPL 兼容层 `goal.startswith("mcp")` 缺词边界：任何以字面子串 "mcp" 开头的正常目标文本（例如"mcpherson's algorithm..."）会被误路由进废弃的裸词兼容分支，当作 `/mcp` 指令处理，而不会作为任务执行——此 bug 早于 M9 存在于潜在写法里，M9 新增的兼容层改动（`433376c`）把它实际落了地。修复：改为显式集合成员判断（bare "mcp"）+ 前缀形式要求带尾随空格（"mcp "）两种情况的判断。回归测试：`test_repl_compat_bare_mcp_word_shows_deprecation`（裸词 "mcp" 仍走废弃兼容路径）+ `test_repl_goal_starting_with_mcp_substring_runs_as_normal_task`（"mcpherson's..." 正常跑任务，不被误路由）。
 - [x] 无遗留未处理发现
 
 ### 验收评审

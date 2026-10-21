@@ -8,10 +8,10 @@
 - 验证报告: [2026-07-23-memory-runtime-verify](../docs/superpowers/reports/2026-07-23-memory-runtime-verify.md)
 - 事后 hotfix 1: `memory-result-feedback`（见
   [验证报告](../docs/superpowers/reports/2026-07-23-memory-result-feedback-verify.md)），
-  归档 commit `e91165c`
+  归档 commit `4a07cac`
 - 事后 hotfix 2: `memory-candidate-idempotency`（见
   [验证报告](../docs/superpowers/reports/2026-07-23-memory-candidate-idempotency-verify.md)），
-  归档 commit `b69ed17`
+  归档 commit `793bc47`
 
 ## 目标与范围
 

@@ -4,7 +4,7 @@
 - 起止: 2026-07-13 ~ 2026-07-17
 - 对应 ACTION_PLAN 行: M13（见该文件 §四 里程碑表）
 - 前置里程碑: [milestone_009](milestone_009.md)（M9 是在 M10 完成后补做的最后一个既有里程碑；M9/M10 均已完成，M11/M12 仍是后续规划，因此本次加固按批准编号记录为 M13）
-- 已验证实现 HEAD: `6f347d3e0006de36dae9789f9cf2e4c126aff675`
+- 已验证实现 HEAD: `77663b0b974b48fa124d63788f4ce3cf2acd1165`
 
 ## 目标与范围
 
@@ -65,8 +65,8 @@
 
 ### 代码评审
 
-- [x] 独立 whole-branch reviewer `Euclid`（`019f6c12-dfea-77a3-a7bc-fbc35112f7ef`）审查 base `44456c57e2ef76990f44846eadb83bc8d5e25166` 到 verified HEAD 的 8 个生产模块及映射测试，覆盖正确性、安全、并发、资源生命周期、泄漏和测试可信度
-- [x] 唯一 Important 是并发 holder barrier 与 3 个 standalone golden 子进程可能无限等待；已由 `6f347d3` 改为 1 秒并发断言和 30 秒子进程超时
+- [x] 独立 whole-branch reviewer `Euclid`（`019f6c12-dfea-77a3-a7bc-fbc35112f7ef`）审查 base `a453c82d15dde32064d262fc45dd8300033dd9ad` 到 verified HEAD 的 8 个生产模块及映射测试，覆盖正确性、安全、并发、资源生命周期、泄漏和测试可信度
+- [x] 唯一 Important 是并发 holder barrier 与 3 个 standalone golden 子进程可能无限等待；已由 `77663b0` 改为 1 秒并发断言和 30 秒子进程超时
 - [x] 顺序启动 mutation 在 `1.29s` 内以 `holders did not begin waiting concurrently` 失败；修复后 reviewer 对当前候选重新给出 APPROVED，无 Critical/Important/Minor
 
 ### 验收评审
@@ -91,6 +91,6 @@
 
 ## 续接指引
 
-M13 的已验证实现固定为 `6f347d3e0006de36dae9789f9cf2e4c126aff675`。网络、工具确认/最小披露、两阶段完成、MCP required/generation/close/cancellation 和 20 项离线黄金核心均已实现，Ruff、专项/全量 pytest、黄金 runner、CodeGraph 调用面、技术一致性和 whole-branch 代码评审均通过。
+M13 的已验证实现固定为 `77663b0b974b48fa124d63788f4ce3cf2acd1165`。网络、工具确认/最小披露、两阶段完成、MCP required/generation/close/cancellation 和 20 项离线黄金核心均已实现，Ruff、专项/全量 pytest、黄金 runner、CodeGraph 调用面、技术一致性和 whole-branch 代码评审均通过。
 
 下一步只允许独立验收证据 reviewer 对照原始命令输出审查本文件、tasks、`.comet/subagent-progress.md` 和 Task 11 plan checklist，并把尚未完成的验收证据槽位改为自己的 APPROVED verdict/identity。若发现 evidence-only 转录错误，仅修正证据并重复验收评审；若发现源码、测试、spec 或公开文档问题，必须取消本 verified HEAD 并从 Task 11 Step 1 重跑。验收通过后提交 evidence-only 文件，确认 verified HEAD 到最终 HEAD 仅含 tasks/progress/milestone 和 plan checklist 证据；ACTION_PLAN M13 已在 verified HEAD 中，用户 M11/M12 差异继续不提交。随后运行 build guard 并进入 Comet verify。M11/M12 仍是后续规划，不属于 M13 实现。

@@ -39,7 +39,7 @@ M23/M25 历史 evidence，未新增依赖、状态 schema、公开配置面或�
 - [x] 增加不泄露执行内容的 `collaboration.check` 审计
 - [x] 建立并冻结 M26 独立四场景受控端到端证据
 - [x] 完成目标回归、沙箱可执行全套、Ruff 与 OpenSpec strict
-- [x] 完成产品实现与证据提交 `354592f`
+- [x] 完成产品实现与证据提交 `5a57636`
 - [x] 完成 Comet full verify、分支处理和 change 归档，delta spec 已同步到主规格
 
 ## 交付物清单

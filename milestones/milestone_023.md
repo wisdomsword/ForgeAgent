@@ -76,7 +76,7 @@
 
 - [x] v1 批次经 reviewer 判定无效并移出正式目录：CSV/events 检查必然触发 process-spawn denial，
   且 fixture 不变性无法事后证明；旧完成率不得引用
-- [x] v2 环境绑定 commit `14576d9a23d202daacb28dbfbeefda631078b21c`，tracked dirty 为 false
+- [x] v2 环境绑定 commit `1ca6ada0dc38fbd4c5caa6f5aaaacab8982a6e6a`，tracked dirty 为 false
 - [x] 27/27 terminal raw；每模式 9 份、每 task/mode 3 份；协议和环境 hash 各唯一；27 个
   fixture integrity check 全部通过
 - [x] Single/Duo/Triad solved 分别为 5/9、8/9、9/9；首次验收为 N/A、8/9、9/9；

@@ -72,7 +72,7 @@ resume API 或默认 Evaluator Exec 权限。
 
 - [x] Task 1 经多轮架构审查，最终 gate reviewer 通过；Task 1 suite `211 passed`。
 - [x] Task 2-4 分别修复 1、3、3 个 Important 后由 reviewer 通过。
-- [x] 完整 M22 diff reviewer 发现 1 个 Important；`111d60a` 修复后独立定向复审 APPROVED
+- [x] 完整 M22 diff reviewer 发现 1 个 Important；`dd2b33e` 修复后独立定向复审 APPROVED
 - [x] 结构化提交收尾 reviewer 发现跨 Store revision CAS 只受实例内锁保护；新增 per-ID
   `flock` 和并发/失败关闭回归后复审确认无阻塞 findings
 

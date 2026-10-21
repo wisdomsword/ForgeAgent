@@ -4,7 +4,7 @@
 - 起止: 2026-07-17 ~ 2026-07-21
 - 对应 ACTION_PLAN 行: M15（见该文件 §四 里程碑表）
 - 前置里程碑: [milestone_013](milestone_013.md)
-- 已验证实现 HEAD: `901b9a8d7573e18d9408264ad25f193506a0eb30`
+- 已验证实现 HEAD: `e26f5fe3dbc377dfe9c660bcaf28617f4003fdef`
 
 ## 目标与范围
 
@@ -40,14 +40,14 @@
 
 ### 技术方案评审
 
-- [x] Task 12 spec consistency rereviewer：`901b9a8` 与 runtime-identity/golden-validation-core specs、design、plan 一致，未发现 Critical/Important
+- [x] Task 12 spec consistency rereviewer：`e26f5fe` 与 runtime-identity/golden-validation-core specs、design、plan 一致，未发现 Critical/Important
 - [x] strict OpenSpec validation：`openspec validate compose-runtime-identity --strict` → `Change 'compose-runtime-identity' is valid`
 - 技术方案与代码评审已通过；第三道验收证据评审槽位见“验收评审”唯一 pending 项
 
 ### 代码评审
 
 - [x] whole-branch reviewer 首轮发现并修复：悬空 symlink、trust record 语义校验、Rich literal label、golden category ratio gate
-- [x] whole-branch rereviewer：`9470988..901b9a8` → Approved；无 Critical/Important/阻塞 Minor
+- [x] whole-branch rereviewer：`e27a0c1..e26f5fe` → Approved；无 Critical/Important/阻塞 Minor
 - 代码评审已通过；第三道验收证据评审槽位见“验收评审”唯一 pending 项
 
 ### 验收评审
@@ -68,4 +68,4 @@
 
 ## 续接指引
 
-当前实现固定在 `901b9a8d7573e18d9408264ad25f193506a0eb30`。第三道验收证据评审已通过；真实 wheel/sdist 构建仍需在具备 hatchling 缓存或网络的环境执行。后续提交仅允许 evidence-only 文件，随后运行 Comet build guard 并进入 Comet verify/archive 流程。
+当前实现固定在 `e26f5fe3dbc377dfe9c660bcaf28617f4003fdef`。第三道验收证据评审已通过；真实 wheel/sdist 构建仍需在具备 hatchling 缓存或网络的环境执行。后续提交仅允许 evidence-only 文件，随后运行 Comet build guard 并进入 Comet verify/archive 流程。

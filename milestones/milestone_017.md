@@ -4,8 +4,8 @@
 - 起止: 2026-07-22 ~ 2026-07-23
 - 对应 ACTION_PLAN 行: M17（见该文件 §四 里程碑表）
 - 前置里程碑: [milestone_016](milestone_016.md)
-- 最终实现 commit: `a9c14cd`
-- 验证状态 commit: `c50ae9e`
+- 最终实现 commit: `8d14386`
+- 验证状态 commit: `b67b3bd`
 - OpenSpec 归档: `openspec/changes/archive/2026-07-22-runtime-context-engineering/`
 
 ## 目标与范围

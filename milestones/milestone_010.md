@@ -76,7 +76,7 @@ Phase-0 spike（`docs/m10-usage-observability-and-tools.md` §八）关键发现
 - [x] 环境暂无 `code-reviewer` 类型 subagent；改为亲自逐一读取全部落地源码（`ssrf_guard.py`/`tools.py`/`protocol.py`/`cli.py`/两个 LLM client）+ 针对性 PoC 验证最高风险假设（重定向到 `file://` 是否绕过 SSRF Guard 的 scheme 检查）
 - [x] PoC 结论：不存在绕过——`urllib.request.HTTPRedirectHandler` 自身拒绝非 http(s) 跳转目标（`HTTPError: Redirection ... is not allowed`），与 WebFetch 前置 scheme 校验构成双重防护
 - [x] 未发现其他真实缺陷：`_validate_path` 的 realpath 前缀校验、`mask_secrets` 调用点（WebFetch 落盘前+返回前、FileRead 返回前）、`FileList` 相对路径转换、两个 LLM client 的防御性 `getattr` 链、CLI 累加器对 `usage=None` 轮次的跳过逻辑，均按设计正确落地
-- [x] 5 个并行 subagent 之间出现一次 git 竟态：Phase 1（token usage 映射）与 Phase 2（SSRF Guard）几乎同时 `git add`+`git commit`，导致 Phase 2 新建的 `ssrf_guard.py`/`test_ssrf_guard.py` 被一并卷入 Phase 1 的提交 `6ccfcb6`。两部分内容本身均正确、互不覆盖，只是提交边界与提交信息不完全对应实际 diff；未 push，功能无损，决定不做历史重写（rebase 属于破坏性操作且当时仍有其他并行提交在发生），如实记录在此
+- [x] 5 个并行 subagent 之间出现一次 git 竟态：Phase 1（token usage 映射）与 Phase 2（SSRF Guard）几乎同时 `git add`+`git commit`，导致 Phase 2 新建的 `ssrf_guard.py`/`test_ssrf_guard.py` 被一并卷入 Phase 1 的提交 `f342153`。两部分内容本身均正确、互不覆盖，只是提交边界与提交信息不完全对应实际 diff；未 push，功能无损，决定不做历史重写（rebase 属于破坏性操作且当时仍有其他并行提交在发生），如实记录在此
 - [x] 无遗留未处理发现
 
 ### 验收评审
@@ -95,7 +95,7 @@ Phase-0 spike（`docs/m10-usage-observability-and-tools.md` §八）关键发现
 
 ## 遗留问题
 
-- [ ] Phase 1/Phase 2 提交 `6ccfcb6` 的边界因并行 git 竟态与实际语义不完全对应（提交信息只描述 token usage 映射，实际 diff 还包含完整的 SSRF Guard 模块）— 影响：仅提交历史可读性,功能与测试均验证正确、无实质代码问题 — 计划：不做处理（未 push，rebase 属破坏性操作,收益不足以承担风险；未来若需要拆分可在后续不相关的整理性提交中一并处理）
+- [ ] Phase 1/Phase 2 提交 `f342153` 的边界因并行 git 竟态与实际语义不完全对应（提交信息只描述 token usage 映射，实际 diff 还包含完整的 SSRF Guard 模块）— 影响：仅提交历史可读性,功能与测试均验证正确、无实质代码问题 — 计划：不做处理（未 push，rebase 属破坏性操作,收益不足以承担风险；未来若需要拆分可在后续不相关的整理性提交中一并处理）
 - [ ] WebFetch 目前仅验证了本地 mock HTTP 服务器场景与真实公网抓取（设计阶段 spike），未做大规模真实站点冒烟 — 影响：极少数使用非标准 content-type 或异常大响应头的站点行为未覆盖 — 计划：留待真实使用中观察，不阻塞 M10 收尾
 - [ ] M9（流式/多模态/内嵌指令）仍处于顺延状态，未开始 — 影响：无（用户裁决顺延，非取消）— 计划：M10 完成后按 ACTION_PLAN 排期补做
 
