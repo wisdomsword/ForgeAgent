@@ -23,7 +23,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 参考项目自带测试（进入 `resource/agent/` 安装依赖后 `pytest tests/unit -v`），仅用于验证对参考实现的理解，不属于本项目开发环路。
 
-本仓库已建 CodeGraph 索引（`.codegraph/`），查代码优先用 `codegraph_explore`，覆盖 `resource/agent` 全部源码。
+本仓库已建 CodeGraph 索引（`.codegraph/`），查代码优先用 `codegraph_explore`。索引覆盖 `src/`、`tests/`、`scripts/`、`openspec/` 与 agent 配置目录（`.agents/`、`.claude/`、`.codex/` 等）；**不覆盖 `resource/agent` 参考项目与 `docs/`**，查这两处请用 `git grep`。
 
 里程碑收尾时按 `MILESTONE_GUIDE.md` 规范产出 `milestones/milestone_NNN.md`，并更新 `milestones/latest`。新会话应优先读取 `milestones/latest` 指向的文件的"续接指引"一节，再决定是否需要回溯更早的里程碑文件。
 
