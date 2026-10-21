@@ -19,7 +19,7 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 ## 当前状态与流程
 
-项目已有可运行的 ForgeAgent 实现、uv 构建系统与完整测试环路；M0-M10、M13、M15-M22 已完成并归档，M11/M12/M14 按用户裁决跳过。当前状态以 `ACTION_PLAN.md` 和 `milestones/latest` 为准。新的非平凡变更必须按仓库 Comet/OpenSpec 流程建立并验证，不得把历史规划文档中的待办描述当作当前状态。
+项目已有可运行的 ForgeAgent 实现、uv 构建系统与完整测试环路；已完成的里程碑、跳过的编号（M11/M12/M14 按用户裁决跳过）与最新测试数字以 `ACTION_PLAN.md` 与 `milestones/latest` 指向的文件为准。新的非平凡变更必须按仓库 Comet/OpenSpec 流程建立并验证，不得把历史规划文档中的待办描述当作当前状态。
 
 参考项目自带测试（进入 `resource/agent/` 安装依赖后 `pytest tests/unit -v`），仅用于验证对参考实现的理解，不属于本项目开发环路。
 

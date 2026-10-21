@@ -19,7 +19,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前状态与流程
 
-项目已完成 M22（Duo/Triad 协作运行时）并全部归档：`src/forgeagent/` 为已交付实现，uv + Python ≥3.11 + hatchling 构建，全量测试通过（数字以 `milestones/latest` 指向文件为准）。历史规划见 `ACTION_PLAN.md` 与 `TECH_PATH.md`（均为历史存档）。新的开发任务须先更新技术规划并经用户评审批准，再通过 Comet 创建新 change——不要跳过这一步。
+项目已有可运行的 ForgeAgent 实现、uv 构建系统与完整测试环路（`src/forgeagent/`，uv + Python ≥3.11 + hatchling）；已完成的里程碑、跳过的编号和最新测试数字以 `ACTION_PLAN.md` 与 `milestones/latest` 指向的文件为准，不得把规划文档中的待办描述当作当前状态。`ACTION_PLAN.md` 与 `TECH_PATH.md` 中未完成的条目均为历史存档。新的开发任务须先更新技术规划并经用户评审批准，再通过 Comet 创建新 change——不要跳过这一步。
 
 参考项目自带测试（进入 `resource/agent/` 安装依赖后 `pytest tests/unit -v`），仅用于验证对参考实现的理解，不属于本项目开发环路。
 
