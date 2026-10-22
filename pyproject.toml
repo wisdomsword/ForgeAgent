@@ -3,6 +3,7 @@ name = "forgeagent"
 version = "0.1.0"
 description = "Lightweight code-as-action agent: the LLM writes Python programs and completes tasks by executing them."
 readme = "README.md"
+license = "MIT"
 requires-python = ">=3.11"
 dependencies = [
     "pydantic>=2.0,<3",
