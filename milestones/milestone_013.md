@@ -22,7 +22,7 @@
 
 - `docs/superpowers/specs/2026-07-13-hardening-core-correctness-design.md`
 - `docs/superpowers/plans/2026-07-13-hardening-core-correctness.md`
-- `openspec/changes/hardening-core-correctness/` 下 proposal、design、tasks 和五份 capability delta spec
+- `openspec/changes/archive/2026-07-16-hardening-core-correctness/` 下 proposal、design、tasks 和五份 capability delta spec（该 change 在 M13 验收后归档，活跃 change 目录不再保留）
 
 关键裁决：
 
@@ -52,7 +52,7 @@
 - [x] `tests/test_ssrf_guard.py` / `tests/test_web_search.py` / `tests/test_web_file_tools.py` / `tests/test_cli.py` / `tests/test_step.py` / `tests/test_task.py` - 网络、确认、反馈和完成门控回归
 - [x] `tests/test_mcp_manager.py` / `tests/mcp_fixture_server.py` - MCP 并发、generation、取消、控制异常、PID 和 hard-stuck 回归
 - [x] `tests/golden/` / `tests/test_golden_runner.py` - 20 项 manifest、离线/real 入口、隔离、报告、证据类型和有界子进程测试
-- [x] `README.md` / `docs/` / `openspec/changes/hardening-core-correctness/` - 当前协议、安全边界、代理迁移和验证口径
+- [x] `README.md` / `docs/` / `openspec/changes/archive/2026-07-16-hardening-core-correctness/` - 当前协议、安全边界、代理迁移和验证口径
 - [x] `ACTION_PLAN.md` - M13 交付物、验证和三评审门禁；M11/M12 用户规划原样保留
 
 ## 三次评审
