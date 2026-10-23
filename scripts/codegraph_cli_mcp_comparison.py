@@ -17,6 +17,7 @@ from forgeagent.models import Message, Role
 
 DEFAULT_QUERY = "Runtime set_state"
 DEFAULT_MAX_FILES = 1
+DEFAULT_ROUNDS = 3
 SYSTEM_PROMPT = (
     "You are a coding assistant. Use the provided tool output to answer the user's question."
 )
@@ -89,7 +90,12 @@ def json_metrics(payload: Any, text: str, object_payload: Any | None = None) -> 
 
 
 def build_context_messages(
-    backend: str, path: str, query: str, max_files: int, result: str
+    backend: str,
+    path: str,
+    query: str,
+    max_files: int,
+    result: str,
+    mcp_catalog: str = "",
 ) -> list[Message]:
     if backend == "cli":
         invocation = (
@@ -102,8 +108,11 @@ def build_context_messages(
         )
     else:
         raise ValueError(f"unknown backend: {backend}")
+    system = SYSTEM_PROMPT
+    if mcp_catalog:
+        system += f"\n\nAvailable MCP tool definitions:\n{mcp_catalog}"
     return [
-        Message(role=Role.SYSTEM, content=SYSTEM_PROMPT),
+        Message(role=Role.SYSTEM, content=system),
         Message(role=Role.USER, content=f"{invocation}\n\nResult:\n{result}"),
     ]
 
@@ -146,6 +155,7 @@ def context_token_metrics(
     path: str,
     query: str,
     max_files: int,
+    mcp_catalog: str = "",
 ) -> dict[str, int]:
     cli_object = json.dumps(
         {"content": [{"type": "text", "text": cli_text}], "isError": False},
@@ -157,9 +167,45 @@ def context_token_metrics(
             build_context_messages("cli", path, query, max_files, cli_object), ContextConfig()
         ),
         "mcp_t_context_object": estimate_request_tokens(
-            build_context_messages("mcp", path, query, max_files, mcp_object), ContextConfig()
+            build_context_messages(
+                "mcp", path, query, max_files, mcp_object, mcp_catalog
+            ),
+            ContextConfig(),
         ),
     }
+
+
+def multi_round_context_metrics(
+    path: str,
+    query: str,
+    max_files: int,
+    cli_text: str,
+    mcp_text: str,
+    mcp_catalog: str = "",
+    rounds: int = DEFAULT_ROUNDS,
+) -> dict[str, Any]:
+    """Estimate cumulative input tokens when each tool result remains in history."""
+    if rounds <= 0:
+        raise ValueError("rounds must be positive")
+    output: dict[str, Any] = {"rounds": rounds}
+    for backend, result in (("cli", normalized_text(cli_text)), ("mcp", mcp_text)):
+        catalog = mcp_catalog if backend == "mcp" else ""
+        first_messages = build_context_messages(
+            backend, path, query, max_files, result, catalog
+        )
+        next_turn = first_messages[1]
+        messages = [first_messages[0]]
+        per_round: list[int] = []
+        for turn in range(rounds):
+            messages.append(next_turn)
+            per_round.append(estimate_request_tokens(messages, ContextConfig()))
+            if turn + 1 < rounds:
+                messages.append(
+                    Message(role=Role.ASSISTANT, content="Tool call completed; continue.")
+                )
+        output[f"{backend}_context_round_tokens"] = per_round
+        output[f"{backend}_context_cumulative_tokens"] = sum(per_round)
+    return output
 
 
 def _first_diff_offset(left: str, right: str) -> int | None:
@@ -240,13 +286,13 @@ async def _run_mcp(
 
 
 async def run_experiment(
-    path: str, query: str, max_files: int, repeats: int, output_dir: Path
+    path: str, query: str, max_files: int, repeats: int, rounds: int, output_dir: Path
 ) -> dict[str, Any]:
     from mcp import ClientSession, StdioServerParameters
     from mcp.client.stdio import stdio_client
 
-    if max_files <= 0 or repeats <= 0:
-        raise ValueError("max_files and repeats must be positive")
+    if max_files <= 0 or repeats <= 0 or rounds <= 0:
+        raise ValueError("max_files, repeats, and rounds must be positive")
     output_dir.mkdir(parents=True, exist_ok=True)
     parameters = StdioServerParameters(
         command="codegraph",
@@ -259,6 +305,11 @@ async def run_experiment(
     async with stdio_client(parameters) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
+            tools_result = await session.list_tools()
+            mcp_catalog_payload = tools_result.model_dump(
+                mode="json", by_alias=True, exclude_none=False
+            )
+            mcp_catalog = json.dumps(mcp_catalog_payload, ensure_ascii=False)
             for index in range(1, repeats + 1):
                 current_status = _status(path)
                 if index == 1:
@@ -272,7 +323,22 @@ async def run_experiment(
                     json.dumps(mcp_payload, ensure_ascii=False, indent=2), encoding="utf-8"
                 )
                 common = result_metrics(cli_text, mcp_text, path, query, max_files)
-                common.update(context_token_metrics(cli_text, mcp_payload, path, query, max_files))
+                common.update(
+                    context_token_metrics(
+                        cli_text, mcp_payload, path, query, max_files, mcp_catalog
+                    )
+                )
+                common.update(
+                    multi_round_context_metrics(
+                        path,
+                        query,
+                        max_files,
+                        cli_text,
+                        mcp_text,
+                        mcp_catalog,
+                        rounds,
+                    )
+                )
                 cli_records.append(
                     {
                         **extract_report_fields(cli_text),
@@ -297,6 +363,7 @@ async def run_experiment(
         "path": path,
         "max_files": max_files,
         "repeats": repeats,
+        "rounds": rounds,
         "invocation_count": {"cli": repeats, "mcp": repeats},
         "index_fingerprint_stable": stable,
         "initial_status": initial_status,
@@ -307,6 +374,11 @@ async def run_experiment(
             "mcp_server_args": parameters.args,
             "daemon_status": _daemon_status(),
             "mcp_session": "single session reused for all calls",
+        },
+        "mcp_tool_catalog": {
+            "tool_count": len(mcp_catalog_payload.get("tools", [])),
+            "json_bytes": len(mcp_catalog.encode("utf-8")),
+            "tokens": estimate_text_tokens(mcp_catalog),
         },
         "status_frames": status_frames,
         "cli": _summarize(cli_records),
@@ -333,7 +405,7 @@ def _summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _delta(cli: dict[str, Any], mcp: dict[str, Any]) -> dict[str, int]:
-    return {
+    delta: dict[str, int] = {
         "text_bytes": mcp["mcp_text_bytes"] - cli["cli_text_bytes"],
         "string_escape_bytes": mcp["string_escape_bytes"],
         "content_structure_bytes": mcp["content_structure_bytes"],
@@ -344,6 +416,22 @@ def _delta(cli: dict[str, Any], mcp: dict[str, Any]) -> dict[str, int]:
         "t_context_text_only": mcp["mcp_t_context"] - cli["cli_t_context"],
         "t_context_object": mcp["mcp_t_context_object"] - cli["cli_t_context_object"],
     }
+    for index, (cli_tokens, mcp_tokens) in enumerate(
+        zip(
+            cli["cli_context_round_tokens"],
+            mcp["mcp_context_round_tokens"],
+            strict=True,
+        ),
+        start=1,
+    ):
+        delta[f"t_context_round_{index}"] = mcp_tokens - cli_tokens
+    delta["t_context_cumulative"] = (
+        mcp["mcp_context_cumulative_tokens"] - cli["cli_context_cumulative_tokens"]
+    )
+    delta["mcp_cumulative_vs_cli_single"] = (
+        mcp["mcp_context_cumulative_tokens"] - cli["cli_t_context"]
+    )
+    return delta
 
 
 def main() -> None:
@@ -352,11 +440,12 @@ def main() -> None:
     parser.add_argument("--query", default=DEFAULT_QUERY)
     parser.add_argument("--max-files", type=int, default=DEFAULT_MAX_FILES)
     parser.add_argument("--repeats", type=int, default=10)
+    parser.add_argument("--rounds", type=int, default=DEFAULT_ROUNDS)
     parser.add_argument("--output-dir", type=Path)
     args = parser.parse_args()
     output_dir = args.output_dir or Path(tempfile.mkdtemp(prefix="codegraph-parity-"))
     report = asyncio.run(
-        run_experiment(args.path, args.query, args.max_files, args.repeats, output_dir)
+        run_experiment(args.path, args.query, args.max_files, args.repeats, args.rounds, output_dir)
     )
     print(
         json.dumps(

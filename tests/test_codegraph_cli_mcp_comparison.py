@@ -4,6 +4,7 @@ from scripts.codegraph_cli_mcp_comparison import (
     build_context_messages,
     extract_report_fields,
     json_metrics,
+    multi_round_context_metrics,
     normalized_text,
     result_metrics,
 )
@@ -67,3 +68,33 @@ def test_context_messages_have_two_fixed_messages() -> None:
     assert len(messages) == 2
     assert ContextConfig()
     assert "Command: codegraph" in messages[1].content
+
+
+def test_multi_round_context_metrics_accumulate_history() -> None:
+    metrics = multi_round_context_metrics("/repo", "Runtime set_state", 1, SAMPLE, SAMPLE, rounds=3)
+    assert metrics["rounds"] == 3
+    assert len(metrics["cli_context_round_tokens"]) == 3
+    assert len(metrics["mcp_context_round_tokens"]) == 3
+    assert metrics["cli_context_round_tokens"][0] < metrics["cli_context_round_tokens"][-1]
+    assert metrics["mcp_context_cumulative_tokens"] == sum(metrics["mcp_context_round_tokens"])
+
+
+def test_mcp_tool_catalog_is_repeated_in_each_round() -> None:
+    without_catalog = multi_round_context_metrics(
+        "/repo", "Runtime set_state", 1, SAMPLE, SAMPLE, rounds=3
+    )
+    with_catalog = multi_round_context_metrics(
+        "/repo",
+        "Runtime set_state",
+        1,
+        SAMPLE,
+        SAMPLE,
+        '{"tools":[{"name":"codegraph_explore","inputSchema":{}}]}',
+        rounds=3,
+    )
+    assert with_catalog["mcp_context_round_tokens"][0] > without_catalog[
+        "mcp_context_round_tokens"
+    ][0]
+    assert with_catalog["mcp_context_round_tokens"][2] > without_catalog[
+        "mcp_context_round_tokens"
+    ][2]
