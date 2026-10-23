@@ -24,20 +24,20 @@ tag/push、真实 provider 请求或新平台支持。
 - JSON 只保存固定 schema、版本、Python、wheel digest 与六项状态，失败关闭且原子发布。
 - Linux job 复用 M24 Docker topology，并将 RC JSON 与 JUnit 一起设为 required artifact。
 - 裁决 M28-1（2026-07-29）：本地 Docker 与首次完整 pytest 缺口不冒充通过；允许冻结 RC。随后
-  `af543ec` 仅修正依赖宿主调度的测试合同，生产 MCP 代码不变，完整 pytest 门禁已关闭；M28 已按
+  `2f7f6f6` 仅修正依赖宿主调度的测试合同，生产 MCP 代码不变，完整 pytest 门禁已关闭；M28 已按
   “定义并接入 required job” 的工程范围归档。归档后 Pipeline 55 发现 offline job 未路由到唯一
-  项目 runner，`73af78e` 修正标签；Pipeline 56 进一步暴露 root、缺少 `curl`/`jq` 和测试启动竞态，
-  `fa3ae5c` 以非 root CI 与 tests-only 同步修正关闭。Pipeline 57 两项 required job 均通过，正式
+  项目 runner，`f609c29` 修正标签；Pipeline 56 进一步暴露 root、缺少 `curl`/`jq` 和测试启动竞态，
+  `e5590d7` 以非 root CI 与 tests-only 同步修正关闭。Pipeline 57 两项 required job 均通过，正式
   发布只剩另行授权的 tag/上传动作。
 
 ## 关键提交
 
-- Task 1：`1fca7ee`（installed-wheel smoke）、`f92e330`、`07ef59d`、`5c3e96c`（隔离与报告合同加固）。
-- Task 2：`55e0ed5`（Linux gate）、`71ae94e`、`d3b7837`（CI fail-closed 与证据合同加固）。
-- Task 3：`bc82c95`（RC 文档）、`6a39117`、`e2ed024`（公开证据边界加固）。
-- Task 4：`e35332b`（分层验证、验证报告与里程碑草案）；后续 review fix 保持 M28 lifecycle gate 开放。
-- 完整 pytest：`af543ec`（tests-only MCP 调度可移植性合同修正；生产代码不变）。
-- Linux CI 收口：`73af78e`（offline runner 路由）、`fa3ae5c`（非 root/依赖与 tests-only 稳定性）。
+- Task 1：`b654306`（installed-wheel smoke）、`bc1b63c`、`bec61d6`、`cfbc9b9`（隔离与报告合同加固）。
+- Task 2：`4b1a90f`（Linux gate）、`8cdc088`、`7dc3367`（CI fail-closed 与证据合同加固）。
+- Task 3：`763f74b`（RC 文档）、`fe13e8a`、`8653576`（公开证据边界加固）。
+- Task 4：`b67114c`（分层验证、验证报告与里程碑草案）；后续 review fix 保持 M28 lifecycle gate 开放。
+- 完整 pytest：`2f7f6f6`（tests-only MCP 调度可移植性合同修正；生产代码不变）。
+- Linux CI 收口：`f609c29`（offline runner 路由）、`e5590d7`（非 root/依赖与 tests-only 稳定性）。
 
 ## 子任务清单
 
@@ -46,7 +46,7 @@ tag/push、真实 provider 请求或新平台支持。
 - [x] 冻结 RC 发布说明、平台矩阵和五类已知限制
 - [x] 运行本机可执行的分层验证并保存实际失败/未验证项
 - [x] required Linux job 配置、失败关闭与 runner 实跑完成 — Pipeline 57 / Job 263 十项零 skip及六项 RC smoke 全绿
-- [x] 完整 pytest 门禁关闭 — 保留首次 `2 failed, 2401 passed, 10 skipped` 历史；`af543ec` 修正 tests-only 合同后为 `2403 passed, 10 skipped`，全部新增回归后的最终基线为 `2409 passed, 10 skipped`
+- [x] 完整 pytest 门禁关闭 — 保留首次 `2 failed, 2401 passed, 10 skipped` 历史；`2f7f6f6` 修正 tests-only 合同后为 `2403 passed, 10 skipped`，全部新增回归后的最终基线为 `2409 passed, 10 skipped`
 
 ## 交付物清单
 

@@ -58,7 +58,7 @@
 
 ### 代码评审
 
-- [x] 已委派独立 subagent 审查相对 `57fff1b` 基线的本里程碑 diff。
+- [x] 已委派独立 subagent 审查相对 `c35d456` 基线的本里程碑 diff。
 - [x] 两轮自评检查 resolver 公式、交互 gating、probe 生命周期、协议 schema、Task 配对和敏感信息边界；独立审查确认未发现 P0/P1/P2 问题，HTTP schema 与工具参数未漂移。
 - [x] 修复评审发现的 `_cli_collaboration.py` context-policy 返回值静态注解不一致；协作/CLI/context 回归 `424 passed`。
 - [x] 未发现需要回退到 build 或继续修改的 P0-P2 代码问题；配置字节保真残余风险单独记录在“遗留问题”。

@@ -102,7 +102,7 @@ ForgeAgent 目前只在轮次内返回工具结果：`ToolOutcome` 和 `StoredBl
 
 ## Migration Plan
 
-open/design 的初始语义基准来自 `main` M47 提交 `1284d15d9f2e76e5accfc62fac3129494d3e7e32`，不得使用旧分支 HEAD `3245a448` 判定改动归属。三个 port change 均已 verify/archive 并集成；本 change 的实现基线固定为集成提交 `7ca213af0579d7ccc835ca12327b7cee886133c2`，后续 build/verify 只比较该提交之后的执行证据差异。无旧数据迁移。实现按“Task 内部证据与制品 -> Exec 接入 -> Single CLI -> HTTP -> Loop/Collaboration”逐层推进，每层先建立失败测试。回滚可移除加法式字段和新制品写入，不改变现有任务状态数据。
+open/design 的初始语义基准来自 `main` M47 提交 `3da54054d71e4afd8fc057b0b1804dfad6f73ff5`，不得使用旧分支 HEAD `3245a448` 判定改动归属。三个 port change 均已 verify/archive 并集成；本 change 的实现基线固定为集成提交 `d64f2dbf6d62c39dc362d1bf0ee5a467162b7f1d`，后续 build/verify 只比较该提交之后的执行证据差异。无旧数据迁移。实现按“Task 内部证据与制品 -> Exec 接入 -> Single CLI -> HTTP -> Loop/Collaboration”逐层推进，每层先建立失败测试。回滚可移除加法式字段和新制品写入，不改变现有任务状态数据。
 
 ## Resolved Questions
 

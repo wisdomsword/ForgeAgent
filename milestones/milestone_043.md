@@ -37,7 +37,7 @@ baseline、threshold、evidence、migration 与 rollback trigger。M43 不实现
 
 - [x] `scripts/m43_executor_rewrite_baseline.py`：标准库离线测量与纯 verdict。
 - [x] `tests/test_m43_executor_rewrite_baseline.py`：schema、判定、脱敏、原子写和真实故障证据。
-- [x] `docs/evaluation/m43/executor-rewrite-baseline.json`：绑定 `f123a5d9` 的冻结原始证据。
+- [x] `docs/evaluation/m43/executor-rewrite-baseline.json`：绑定 `178b068a` 的冻结原始证据。
 - [x] `docs/evaluation/m43/rewrite-dependency-baseline.md`：六项治理表、复现和未来门禁。
 - [x] `docs/superpowers/reports/2026-07-31-executor-rewrite-baseline-verify.md`：全量验证报告。
 - [x] `openspec/changes/archive/2026-07-31-measure-executor-rewrite-baseline/`：归档 change 与完整 Comet 状态。

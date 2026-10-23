@@ -114,8 +114,8 @@ ACTION_PLAN 中该里程碑的门禁全部通过后，一次性撰写 `milestone
 
 现存偏离及来源：
 
-- `milestone_035.md` ~ `milestone_038.md`：由 `c52fcde`（docs(lifecycle): reconcile M29-M38 evidence）对账重建，章节为 `## 两轮自评` / `## 验收证据` / `## 发布边界` 或 `## 分发边界`，文件末尾保留 `## M45 对账注记` 说明来源。
-- `milestone_033.md`、`milestone_034.md`：由 `ad42176`（fix: restore completed planning baseline）恢复，同样是重建产物，但未附对账注记。
+- `milestone_035.md` ~ `milestone_038.md`：由 `f8e8fcb`（docs(lifecycle): reconcile M29-M38 evidence）对账重建，章节为 `## 两轮自评` / `## 验收证据` / `## 发布边界` 或 `## 分发边界`，文件末尾保留 `## M45 对账注记` 说明来源。
+- `milestone_033.md`、`milestone_034.md`：由 `8372de2`（fix: restore completed planning baseline）恢复，同样是重建产物，但未附对账注记。
 - `milestone_039.md`：头部字段包进 `## 状态`，用 `- 日期:` 而非 `- 起止:`。同期撰写，保留原样。
 - `milestone_041.md`：用 `## 已知约束` 取代 `## 遗留问题`，该节自述"M41 无未完成任务"、把内容归为持续维护门禁。同期撰写，保留原样。
 
