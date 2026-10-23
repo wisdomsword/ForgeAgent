@@ -23,6 +23,19 @@ artifacts/
 work/
 .forgeagent/execution-artifacts/
 
+# Local agent tooling and vendored skill bundles. These are third-party runtime
+# bundles (@rpamis/comet, obra/superpowers, OpenSpec) copied into per-platform
+# config directories by local tooling; they carry no in-tree LICENSE and are not
+# part of ForgeAgent. Reinstall them locally from upstream instead of checking them in.
+.agent/
+.agents/
+.claude/
+.codex/
+.workbuddy/
+.superpowers/
+.cache/
+skills-lock.json
+
 # Python
 __pycache__/
 *.pyc
@@ -31,3 +44,8 @@ __pycache__/
 .coverage
 .venv/
 *.egg-info/
+# >>> Comet managed project state >>>
+!/.comet/
+/.comet/*
+!/.comet/config.yaml
+# <<< Comet managed project state <<<
