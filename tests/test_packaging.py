@@ -68,6 +68,7 @@ def test_wheel_and_sdist_release_contents(tmp_path):
     }
     allowed_roots = {
         ".gitignore",
+        "LICENSE",
         "src",
         "pyproject.toml",
         "README.md",
@@ -77,6 +78,7 @@ def test_wheel_and_sdist_release_contents(tmp_path):
     assert {name.split("/", 1)[0] for name in relative_names} == allowed_roots
     assert {
         ".gitignore",
+        "LICENSE",
         "pyproject.toml",
         "README.md",
         "uv.lock",
