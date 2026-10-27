@@ -36,6 +36,12 @@ work/
 .cache/
 skills-lock.json
 
+# Local evaluation transcripts and the local harness page (not published;
+# m23/runs/ also holds committed runs, so only these untracked runs are named)
+docs/evaluation/m23/runs/2026-07-27-haiku-4-5-invalid-37d969e/
+docs/evaluation/m23/runs/2026-07-27-haiku-4-5-invalid-600e283/
+/何为Harness.html
+
 # Python
 __pycache__/
 *.pyc

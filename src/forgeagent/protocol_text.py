@@ -23,6 +23,7 @@ _FRONT_MATTER = re.compile(
     re.DOTALL | re.VERBOSE,
 )
 
+
 def _marker_comment(marker: str, group: str) -> str:
     """Fragment matching one marker comment: ``<!-- MARKER: {"json"} -->``.
 

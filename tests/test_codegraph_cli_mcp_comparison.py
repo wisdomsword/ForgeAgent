@@ -92,9 +92,9 @@ def test_mcp_tool_catalog_is_repeated_in_each_round() -> None:
         '{"tools":[{"name":"codegraph_explore","inputSchema":{}}]}',
         rounds=3,
     )
-    assert with_catalog["mcp_context_round_tokens"][0] > without_catalog[
-        "mcp_context_round_tokens"
-    ][0]
-    assert with_catalog["mcp_context_round_tokens"][2] > without_catalog[
-        "mcp_context_round_tokens"
-    ][2]
+    assert (
+        with_catalog["mcp_context_round_tokens"][0] > without_catalog["mcp_context_round_tokens"][0]
+    )
+    assert (
+        with_catalog["mcp_context_round_tokens"][2] > without_catalog["mcp_context_round_tokens"][2]
+    )

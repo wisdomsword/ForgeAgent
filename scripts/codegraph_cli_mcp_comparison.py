@@ -167,9 +167,7 @@ def context_token_metrics(
             build_context_messages("cli", path, query, max_files, cli_object), ContextConfig()
         ),
         "mcp_t_context_object": estimate_request_tokens(
-            build_context_messages(
-                "mcp", path, query, max_files, mcp_object, mcp_catalog
-            ),
+            build_context_messages("mcp", path, query, max_files, mcp_object, mcp_catalog),
             ContextConfig(),
         ),
     }
@@ -190,9 +188,7 @@ def multi_round_context_metrics(
     output: dict[str, Any] = {"rounds": rounds}
     for backend, result in (("cli", normalized_text(cli_text)), ("mcp", mcp_text)):
         catalog = mcp_catalog if backend == "mcp" else ""
-        first_messages = build_context_messages(
-            backend, path, query, max_files, result, catalog
-        )
+        first_messages = build_context_messages(backend, path, query, max_files, result, catalog)
         next_turn = first_messages[1]
         messages = [first_messages[0]]
         per_round: list[int] = []
