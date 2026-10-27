@@ -55,7 +55,7 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 - `git push --force` 或 `--force-with-lease`
 
 **适用边界**
-- 所有文件系统操作默认限定在项目根目录 `/Users/admin/Code/llm-agent/ForgeAgent/` 内
+- 所有文件系统操作默认限定在项目根目录 `/Users/dragon/Code/ForgeAgent/` 内
 - 本策略约束**开发期 AI 行为**，不影响 ForgeAgent 产品运行时的 sandbox 策略（后者见 `docs/threat-model.md`）
 
 ## 参考项目 agent 的大图（读多个文件才能拼出的部分）

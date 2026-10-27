@@ -25,7 +25,7 @@ Runtime set_state
 固定项目路径为：
 
 ```text
-/Users/admin/Code/llm-agent/ForgeAgent
+/Users/dragon/Code/ForgeAgent
 ```
 
 两条路径均使用 `max-files=1`，并读取同一份已经建立的 CodeGraph 索引；共享 daemon 是否可用单独记录，fallback 时仍要求索引指纹一致。CLI 必须使用 `--no-color`，避免 ANSI 转义序列影响比较。
@@ -34,7 +34,7 @@ CLI 命令：
 
 ```bash
 codegraph --no-color explore \
-  --path /Users/admin/Code/llm-agent/ForgeAgent \
+  --path /Users/dragon/Code/ForgeAgent \
   --max-files 1 'Runtime set_state'
 ```
 
@@ -42,7 +42,7 @@ MCP 参数：
 
 ```text
 codegraph_explore({
-  projectPath: "/Users/admin/Code/llm-agent/ForgeAgent",
+  projectPath: "/Users/dragon/Code/ForgeAgent",
   maxFiles: 1,
   query: "Runtime set_state"
 })

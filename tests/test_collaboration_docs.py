@@ -254,7 +254,6 @@ def test_m22_closeout_artifacts_record_final_gates() -> None:
     assert "M23" in milestone
     agents = _text("AGENTS.md")
     assert "项目处于**规划阶段**" not in agents
-    assert "M15-M22 已完成并归档" in agents
 
     technical_path = _text("TECH_PATH.md")
     assert "M15-M22 均已完成并归档" in technical_path

@@ -52,10 +52,10 @@ PASS。11/11 OpenSpec 任务完成，4 个 delta capability 的 Requirement 与 
 
 ## 使用的工具与程序路径
 
-- Comet 状态与阶段门禁：`/Users/admin/Code/llm-agent/ForgeAgent/.agents/skills/comet/scripts/comet-state.mjs`、`/Users/admin/Code/llm-agent/ForgeAgent/.agents/skills/comet/scripts/comet-guard.mjs`
-- Subagent 任务与审查包：`/Users/admin/Code/llm-agent/ForgeAgent/.agents/skills/subagent-driven-development/scripts/task-brief`、`/Users/admin/Code/llm-agent/ForgeAgent/.agents/skills/subagent-driven-development/scripts/review-package`
+- Comet 状态与阶段门禁：`/Users/dragon/Code/ForgeAgent/.agents/skills/comet/scripts/comet-state.mjs`、`/Users/dragon/Code/ForgeAgent/.agents/skills/comet/scripts/comet-guard.mjs`
+- Subagent 任务与审查包：`/Users/dragon/Code/ForgeAgent/.agents/skills/subagent-driven-development/scripts/task-brief`、`/Users/dragon/Code/ForgeAgent/.agents/skills/subagent-driven-development/scripts/review-package`
 - 测试与检查：`uv`、`pytest`、`ruff`、`openspec`、`git diff --check`
-- 核心新增程序：`/Users/admin/Code/llm-agent/ForgeAgent/.worktrees/m48-expose-task-execution-evidence/src/forgeagent/execution_evidence.py`
+- 核心新增程序：`/Users/dragon/Code/ForgeAgent/.worktrees/m48-expose-task-execution-evidence/src/forgeagent/execution_evidence.py`
 - 运行时接入程序：`src/forgeagent/tools.py`、`src/forgeagent/step.py`、`src/forgeagent/task.py`
 - 入口与聚合程序：`src/forgeagent/cli.py`、`src/forgeagent/http_task_service.py`、`src/forgeagent/loop.py`、`src/forgeagent/collaboration.py`、`src/forgeagent/_cli_collaboration.py`
 
