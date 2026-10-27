@@ -211,9 +211,9 @@ Expected: 全部 PASS；记录精确计数。
 
 - [x] **Step 4: 独立验证每个真实产物目录**
 
-Run: `/Users/dragon/Code/ForgeAgent/.venv/bin/python -m pytest -q`
+Run: `~/ForgeAgent/.venv/bin/python -m pytest -q`
 
-Run: `/Users/dragon/Code/ForgeAgent/.venv/bin/python calc.py '[1,2,3,4]' 2`
+Run: `~/ForgeAgent/.venv/bin/python calc.py '[1,2,3,4]' 2`
 
 Expected: pytest PASS；CLI 精确输出 `[1.5,2.5,3.5]`。
 

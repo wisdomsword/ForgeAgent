@@ -11,7 +11,7 @@ MCP 的 payload JSON 比 CLI stdout 多 `327 bytes`，但这不等于模型多�
 | 项目 | 设置 |
 |---|---|
 | 查询 | `Runtime set_state` |
-| 项目路径 | `/Users/dragon/Code/ForgeAgent` |
+| 项目路径 | `~/ForgeAgent` |
 | CodeGraph | `1.6.0` |
 | CLI 参数 | `explore --no-color --max-files 1` |
 | MCP 参数 | `serve --mcp --path <repo> --no-watch` |
@@ -111,7 +111,7 @@ token 数使用仓库已有的 `estimate_text_tokens` / `estimate_request_tokens
 
 ```bash
 .venv/bin/python scripts/codegraph_cli_mcp_comparison.py \
-  --path /Users/dragon/Code/ForgeAgent \
+  --path ~/ForgeAgent \
   --repeats 10
 ```
 

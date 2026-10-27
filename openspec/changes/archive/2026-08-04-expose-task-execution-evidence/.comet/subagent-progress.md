@@ -2,7 +2,7 @@
 
 Change: `expose-task-execution-evidence`
 Base: `dfad978d82434b493b17332721484f4e54afedb8`
-Worktree: `/Users/dragon/Code/ForgeAgent/.worktrees/m48-expose-task-execution-evidence`
+Worktree: `~/ForgeAgent/.worktrees/m48-expose-task-execution-evidence`
 
 ## Dispatch
 
