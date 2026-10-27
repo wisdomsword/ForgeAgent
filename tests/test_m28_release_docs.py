@@ -41,8 +41,10 @@ def _assert_no_m28_linux_success_claim(text: str) -> None:
             positive_context,
         )
         claims_success = re.search(r"\b(?:passed|verified)\b|已通过", positive_context)
-        has_pipeline_evidence = re.search(r"M28 Pipeline \d+ / Job \d+", line)
-        assert not (identifies_gate and claims_success and not has_pipeline_evidence), line
+        # CI run identifiers were removed before publication, so the recorded run label
+        # serves as the evidence marker that a success claim must cite a real run.
+        has_run_evidence = re.search(r"M28 required Linux Docker CI 运行", line)
+        assert not (identifies_gate and claims_success and not has_run_evidence), line
 
 
 def test_release_candidate_freezes_status_install_and_required_boundaries() -> None:
@@ -100,12 +102,12 @@ def test_release_candidate_records_linux_gate_without_promoting_historical_evide
         "本地 real-wheel packaging 与 clean-wheel/CLI/HTTP/Single/Duo/Triad harness",
     )
     m28_row = _markdown_table_row(text, "M28 installed-wheel required Linux Docker gate")
-    m24_row = _markdown_table_row(text, "M24 Pipeline 50 / Job 249")
+    m24_row = _markdown_table_row(text, "M24 历史 container 运行")
 
     assert local_row[1] == "verified"
     assert m28_row[1] == "verified"
-    assert "M28 Pipeline 57 / Job 263" in " | ".join(m28_row)
-    assert "Job 249" not in " | ".join(m28_row)
+    assert "M28 required Linux Docker CI 运行" in " | ".join(m28_row)
+    assert "M24 历史 container job" not in " | ".join(m28_row)
     assert m24_row[1] == "historical container-only evidence"
     _assert_no_m28_linux_success_claim(text)
 
@@ -165,7 +167,7 @@ def test_readme_keeps_release_candidate_status_until_human_gate_passes() -> None
     assert "正式发布暂缓" in current
     assert "人类实践" in current
     assert "易用性" in current
-    assert "M28 Pipeline 57 / Job 263" in current
+    assert "M28 required Linux Docker CI 运行" in current
     assert "pip install forgeagent==0.1.0" not in current
     assert "对应源码 tag 为" not in current
 
@@ -178,8 +180,8 @@ def test_platform_matrix_separates_m28_gate_from_m24_historical_evidence() -> No
 
     assert m28_row[2] == "verified"
     assert "artifacts/ci/rc-smoke.json" in " | ".join(m28_row)
-    assert "Pipeline 57 / Job 263" in " | ".join(m28_row)
-    assert "M24 Pipeline 50 / Job 249 remains historical container-only evidence" in (m28_section)
+    assert "required Linux Docker CI 运行" in " | ".join(m28_row)
+    assert "M24 历史 container 运行 remains historical container-only evidence" in (m28_section)
     normalized_section = " ".join(m28_section.split())
     assert "must not be represented as an M28 installed-wheel smoke result" in (normalized_section)
     _assert_no_m28_linux_success_claim(text)

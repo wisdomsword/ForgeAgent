@@ -11,7 +11,7 @@ M25 的冻结评估显示，当前“编程任务自动 Triad”策略没有稳�
 - 宿主在路由时提供非空冻结检查定义时，可把未显式选择模式的任务路由到 Triad；只有候选文件就绪要求不构成完成证据，不触发自动 Triad。
 - 修正 README 的 Memory 行为说明：项目 `.forgeagent/MEMORY.md` 由 Memory runtime 在准入后原子更新，并可由用户直接编辑；`--no-identity` 仍按身份合同禁用所有自定义身份文件和 Memory，`--no-memory` 仍是只关闭 Memory 的独立开关。
 - 基于已冻结的 M25 raw 记录生成新的派生分析，不改写协议、raw、environment、`summary.json` 或原中立报告；新增按 model/mode 和 task family 的误完成率、运行时终止原因分类，并同时呈现质量、延迟和调用成本，形成 M27 路由决策依据。
-- 更新 README、ACTION_PLAN、当前 pytest/OpenSpec/Golden 基线和平台矩阵；保留 Pipeline 50 / Job 249 的 Linux Docker verified 证据，并删除“仍 configured”的过期矛盾描述。
+- 更新 README、ACTION_PLAN、当前 pytest/OpenSpec/Golden 基线和平台矩阵；保留 M24 历史 container 运行的 Linux Docker verified 证据，并删除“仍 configured”的过期矛盾描述。
 
 ## Capabilities
 

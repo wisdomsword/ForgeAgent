@@ -29,7 +29,7 @@ M25 的冻结评估显示，当前“编程任务自动 Triad”策略没有稳�
 - 宿主在路由时提供非空冻结检查定义时，可把未显式选择模式的任务路由到 Triad；只有候选文件就绪要求不构成完成证据，不触发自动 Triad。
 - 修正 README 的 Memory 行为说明：项目 `.forgeagent/MEMORY.md` 由 Memory runtime 在准入后原子更新，并可由用户直接编辑；`--no-identity` 仍按身份合同禁用所有自定义身份文件和 Memory，`--no-memory` 仍是只关闭 Memory 的独立开关。
 - 基于已冻结的 M25 raw 记录生成新的派生分析，不改写协议、raw、environment、`summary.json` 或原中立报告；新增按 model/mode 和 task family 的误完成率、运行时终止原因分类，并同时呈现质量、延迟和调用成本，形成 M27 路由决策依据。
-- 更新 README、ACTION_PLAN、当前 pytest/OpenSpec/Golden 基线和平台矩阵；保留 Pipeline 50 / Job 249 的 Linux Docker verified 证据，并删除“仍 configured”的过期矛盾描述。
+- 更新 README、ACTION_PLAN、当前 pytest/OpenSpec/Golden 基线和平台矩阵；保留 M24 历史 container 运行的 Linux Docker verified 证据，并删除“仍 configured”的过期矛盾描述。
 
 ## Capabilities
 
@@ -139,7 +139,7 @@ M27 派生目录输出 JSON 投影与 Markdown 报告。它按 model/mode 和 ta
 ### 4. 把公开文档收窄到可证明结论
 
 README 描述 M18 已有的 Memory runtime，而不是改代码。当前测试数字只在最终验证后更新。
-Linux 平台行继续把 Pipeline 50 / Job 249 的 Linux Docker runner topology 记为 `verified`，但
+Linux 平台行继续把 M24 历史 container 运行的 Linux Docker runner topology 记为 `verified`，但
 不在缺少对应架构记录时宣称同时覆盖 amd64 与 arm64，并删除文末过期的 `configured` 句子。
 
 ```
@@ -168,7 +168,7 @@ Full source: openspec/changes/calibrate-collaboration-routing/design.md
 ## 3. 文档与证据
 
 - [ ] 3.1 修正 README Memory 行为，不改变 M18 runtime 语义
-- [ ] 3.2 将 Linux verified 文字收窄到 Pipeline 50 / Job 249 证据，并删除过期 configured 矛盾
+- [ ] 3.2 将 Linux verified 文字收窄到 M24 历史 container 运行证据，并删除过期 configured 矛盾
 - [ ] 3.3 用 M27 策略、裁决和最终当前基线更新 README、ACTION_PLAN、威胁模型和平台文档
 
 ## 4. 验证与收尾

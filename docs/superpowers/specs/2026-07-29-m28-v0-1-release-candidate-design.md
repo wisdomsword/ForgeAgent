@@ -133,7 +133,7 @@ RC 容器安装 wheel 依赖需要普通包索引连通性；安装失败即 gat
 - 正式发布前阻塞条件；
 - 平台、真实模型、sandbox、HTTP、协作五类已知限制。
 
-README 只增加显著链接和当前 RC 状态，不复制长限制。`docs/platform-support.md` 只在真实命令完成后加入证据；如果 required CI 尚未运行，写 configured/待 CI 复验，不能复用 M24 Job 249 冒充 M28 wheel smoke 通过。
+README 只增加显著链接和当前 RC 状态，不复制长限制。`docs/platform-support.md` 只在真实命令完成后加入证据；如果 required CI 尚未运行，写 configured/待 CI 复验，不能复用 M24 历史 container 运行冒充 M28 wheel smoke 通过。
 
 ## 7. 测试策略
 

@@ -17,7 +17,7 @@ task-family/mode 输出 solved、误完成双分母、精确 runtime_reason、�
 类别满足，因此不恢复自动 Triad。输出写入独立 M27 派生目录并记录冻结输入摘要。
 
 Memory 只修正文档：`.forgeagent/MEMORY.md` 可由 M18 runtime 在准入后原子更新，也可由用户编辑；
-`--no-identity` 与 `--no-memory` 语义不变。Linux 保留 Pipeline 50 / Job 249 已证明的 verified，
+`--no-identity` 与 `--no-memory` 语义不变。Linux 保留 M24 历史 container 运行已证明的 verified，
 但把 tuple 收窄到证据实际记录的 Linux Docker runner topology，并删除同文档的 configured 旧句。
 
 ## 关键取舍与风险

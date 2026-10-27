@@ -82,7 +82,7 @@ M27 派生目录输出 JSON 投影与 Markdown 报告。它按 model/mode 和 ta
 ### 4. 把公开文档收窄到可证明结论
 
 README 描述 M18 已有的 Memory runtime，而不是改代码。当前测试数字只在最终验证后更新。
-Linux 平台行继续把 Pipeline 50 / Job 249 的 Linux Docker runner topology 记为 `verified`，但
+Linux 平台行继续把 M24 历史 container 运行的 Linux Docker runner topology 记为 `verified`，但
 不在缺少对应架构记录时宣称同时覆盖 amd64 与 arm64，并删除文末过期的 `configured` 句子。
 
 ## Risks / Trade-offs

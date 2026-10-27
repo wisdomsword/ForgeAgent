@@ -101,7 +101,7 @@ M27 不改变 Memory 代码。README 应说明项目 `.forgeagent/MEMORY.md` 在
 也可由 runtime 在准入后原子持久化；`--no-memory` 只关闭 Memory，`--no-identity` 按身份合同同时
 关闭 SOUL、USER、AGENTS 与 MEMORY。
 
-Linux 表格不得写成未经证据同时覆盖的 `amd64/arm64`。Pipeline 50 / Job 249 继续证明已记录的
+Linux 表格不得写成未经证据同时覆盖的 `amd64/arm64`。M24 历史 container 运行继续证明已记录的
 Linux Docker runner topology 为 verified；macOS arm64 + Linux arm64 daemon 仍单列为
 supplemental；文末不再称 Linux “仍 configured”。当前基线只在最终命令跑完后写入 README 与
 platform-support，并通过合同测试保证一致。

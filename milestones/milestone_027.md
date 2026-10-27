@@ -31,7 +31,7 @@ Triad；只允许可信宿主在本次任务已绑定非空冻结检查时自动
   family/mode 的质量和成本指标，并把输出写入独立派生目录。
 - 裁决 M27-1（2026-07-29）：只有 Triad solved rate 严格高于 Single 的类别才进入恢复评估。
   baseline 持平，bugfix/feature/refactor 更低，因此不恢复任何自动 Triad 类别。
-- Linux verified 只覆盖 Pipeline 50 / Job 249 已记录 runner topology，不推断架构。
+- Linux verified 只覆盖 M24 历史 container 运行已记录 runner topology，不推断架构。
 
 ## 子任务清单
 

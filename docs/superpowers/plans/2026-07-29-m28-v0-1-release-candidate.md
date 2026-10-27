@@ -11,7 +11,7 @@ archived-with: 2026-07-29-m28-v0-1-release-candidate
 
 **Goal:** 从真实 `forgeagent-0.1.0` wheel 建立一条离线、确定、可在 Linux Docker CI 复现的 CLI/HTTP/Single/Duo/Triad RC 门禁，并冻结发布说明与已知限制。
 
-**Architecture:** 单一 `scripts/m28_release_candidate_smoke.py` 采用父/子模式：父模式校验 wheel、创建 Python 3.11 venv、安装并以 `-I` 启动子模式；子模式证明安装来源并通过真实 console script、loopback HTTP 和 `MockClient` 驱动的真实协作运行时完成六项检查。版本化 JSON 是本地测试与 GitLab Linux job 共用的证据边界；发布口径集中在一份 RC 文档。
+**Architecture:** 单一 `scripts/m28_release_candidate_smoke.py` 采用父/子模式：父模式校验 wheel、创建 Python 3.11 venv、安装并以 `-I` 启动子模式；子模式证明安装来源并通过真实 console script、loopback HTTP 和 `MockClient` 驱动的真实协作运行时完成六项检查。版本化 JSON 是本地测试与 GitLab Linux job共用的证据边界；发布口径集中在一份 RC 文档。
 
 **Tech Stack:** Python 3.11+、标准库 `argparse/hashlib/importlib.metadata/json/subprocess/tempfile/urllib/venv/zipfile`、现有 ForgeAgent runtime、pytest、uv、GitLab CI、Docker 29.2.1、OpenSpec/Comet、Ruff。
 
@@ -24,8 +24,8 @@ archived-with: 2026-07-29-m28-v0-1-release-candidate
 - 报告 schema 固定为 `forgeagent.release-candidate-smoke/v1`，必需检查名固定为 `clean-wheel`、`cli`、`http`、`single`、`duo`、`triad`。
 - 报告状态只允许 `passed`、`failed`、`not-run`；只有六项全部 `passed` 时顶层 `passed` 才为 true，skip/not-run 不得算成功。
 - 报告不得包含环境变量值、credential、目标正文、模型回复、绝对临时路径、文件内容或原始 exception/stdout/stderr。
-- Linux Docker job 保留现有 10 项 container integration 的 tests=10、failures=errors=skipped=0 精确门禁，并额外发布 RC JSON。
-- M24 Pipeline 50 / Job 249 只能作为历史 container 证据，不能冒充 M28 installed-wheel smoke 通过。
+- Linux Docker job保留现有 10 项 container integration 的 tests=10、failures=errors=skipped=0 精确门禁，并额外发布 RC JSON。
+- M24 历史 container 运行只能作为历史 container 证据，不能冒充 M28 installed-wheel smoke 通过。
 - 保留并不提交用户已有未跟踪文件；不修改 M23/M25 冻结输入。
 
 archived-with: 2026-07-29-m28-v0-1-release-candidate
@@ -169,13 +169,13 @@ subprocess.run(
 assert json.loads(report.read_text())["passed"] is True
 ```
 
-新建 `tests/test_m28_release_ci.py`，用 PyYAML 读取 `.gitlab-ci.yml`，要求 `linux-docker-container` script 同时包含 `uv build --wheel`、M28 harness、`python:3.11-slim`、JSON 六项校验；artifact paths 同时包含 `container-junit.xml` 和 `rc-smoke.json`；旧 `tests == 10`/`skipped == 0` 原样保留，且 job 无 `allow_failure: true`。
+新建 `tests/test_m28_release_ci.py`，用 PyYAML 读取 `.gitlab-ci.yml`，要求 `linux-docker-container` script 同时包含 `uv build --wheel`、M28 harness、`python:3.11-slim`、JSON 六项校验；artifact paths 同时包含 `container-junit.xml` 和 `rc-smoke.json`；旧 `tests == 10`/`skipped == 0` 原样保留，且 job无 `allow_failure: true`。
 
 - [x] **Step 2: 运行合同确认 RED**
 
 Run: `UV_CACHE_DIR=/tmp/forgeagent-m28-uv-cache uv run pytest -q tests/test_m28_release_ci.py tests/test_packaging.py -k 'release_ci or wheel_and_sdist'`
 
-Expected: FAIL，因为 GitLab job 尚未调用 RC harness，packaging 仍使用旧手写 probe。
+Expected: FAIL，因为 GitLab job尚未调用 RC harness，packaging 仍使用旧手写 probe。
 
 - [x] **Step 3: 复用 harness 完成 packaging GREEN**
 
@@ -224,7 +224,7 @@ git commit -m "ci: gate Linux releases on installed-wheel smoke"
 
 新增测试要求 RC 文档存在并包含唯一一级标题、`0.1.0`、wheel 安装命令、CLI/HTTP/Single/Duo/Triad、正式发布阻塞条件，以及五个固定已知限制标题：平台证据、真实模型、sandbox、HTTP、协作 v1。要求出现 `restricted 不是 OS 级密封沙箱`、loopback/default bind 边界、headless Triad 计划策略、真实 provider opt-in。要求不出现 `M28 Linux RC smoke 已通过`，除非同文档有真实 pipeline/job id 或本机 Linux Docker 命令证据。
 
-README 必须在“当前验证”附近链接 `docs/releases/0.1.0-rc.md` 并写“Release Candidate，不是正式发布”。平台文档必须把 M24 Job 249 标为 historical container-only evidence，并把 M28 installed-wheel gate 标为 configured 或附新证据，二者不得混写。
+README 必须在“当前验证”附近链接 `docs/releases/0.1.0-rc.md` 并写“Release Candidate，不是正式发布”。平台文档必须把 M24 历史 container 运行标为 historical container-only evidence，并把 M28 installed-wheel gate 标为 configured 或附新证据，二者不得混写。
 
 - [x] **Step 2: 运行文档合同确认 RED**
 
@@ -234,7 +234,7 @@ Expected: FAIL，因为 RC 发布说明与 README/platform 更新不存在。
 
 - [x] **Step 3: 写最小发布说明与公开链接**
 
-创建 `docs/releases/0.1.0-rc.md`，章节固定为：状态、安装、已交付能力、验证证据、正式发布阻塞条件、已知限制。验证表把已实际完成的本机 clean-wheel/专项写为 verified；M28 required Linux job 在未运行前写 configured/pending，不得复用 Job 249。已知限制完整解释五类边界，不复制整份 README。
+创建 `docs/releases/0.1.0-rc.md`，章节固定为：状态、安装、已交付能力、验证证据、正式发布阻塞条件、已知限制。验证表把已实际完成的本机 clean-wheel/专项写为 verified；M28 required Linux job在未运行前写 configured/pending，不得复用 M24 历史 container job。已知限制完整解释五类边界，不复制整份 README。
 
 README 只增加 1 个短 RC 段落和链接；`docs/platform-support.md` 增加 M28 gate 的 configured 状态、所需 `rc-smoke.json` 证据和下一触发条件，保留所有 M24 历史记录。
 

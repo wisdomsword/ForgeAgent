@@ -13,7 +13,7 @@
 ## 3. 文档与证据
 
 - [x] 3.1 修正 README Memory 行为，不改变 M18 runtime 语义
-- [x] 3.2 将 Linux verified 文字收窄到 Pipeline 50 / Job 249 证据，并删除过期 configured 矛盾
+- [x] 3.2 将 Linux verified 文字收窄到 M24 历史 container 运行证据，并删除过期 configured 矛盾
 - [x] 3.3 用 M27 策略、裁决和最终当前基线更新 README、ACTION_PLAN、威胁模型和平台文档
 
 ## 4. 验证与收尾

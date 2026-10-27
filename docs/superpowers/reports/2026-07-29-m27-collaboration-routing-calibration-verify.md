@@ -101,7 +101,7 @@ packaging 测试单独复验为 `2 passed, 1 failed`：wheel/sdist 内容断言�
   不构成证据，均由 resolver 与入口测试覆盖。
 - `collaboration-routing-evaluation`：冻结输入不可变、误完成双分母、终止原因原样、质量/延迟/
   调用成本与恢复裁决，均由脚本、机器投影、报告和合成篡改测试覆盖。
-- `continuous-verification`：当前基线来自本轮命令；Linux verified 只覆盖 Pipeline 50 / Job 249
+- `continuous-verification`：当前基线来自本轮命令；Linux verified 只覆盖 M24 历史 container 运行
   runner topology；历史数字保持历史标签。
 
 ## 两轮最终自审

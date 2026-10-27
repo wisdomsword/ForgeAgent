@@ -26,7 +26,7 @@ archived-with: 2026-07-29-calibrate-collaboration-routing
 - 终止原因按原始 `runtime_reason` 精确分类，不得合并。
 - M25 早于 M26 证据绑定，报告不得表述为当前 evidence-bound Triad 的质量证明。
 - 不改变 M18 Memory runtime、`--no-identity` 或 `--no-memory` 行为。
-- Linux verified 仅覆盖 Pipeline 50 / Job 249 已记录的 runner topology，不宣称未经记录的架构。
+- Linux verified 仅覆盖 M24 历史 container 运行已记录的 runner topology，不宣称未经记录的架构。
 - 保留并不提交用户已有未跟踪文件。
 
 archived-with: 2026-07-29-calibrate-collaboration-routing
@@ -289,7 +289,7 @@ README 改为新路由与 Memory 真相；HTTP 文档删除 headless override co
 和 Planner 确认策略；threat-model 说明自动 Triad 只来自可信宿主绑定检查，布尔事实不是用户输入。
 ACTION_PLAN 新增/完成 M27 行并链接派生报告，明确没有类别恢复自动 Triad。
 
-platform-support 第一行写为 `Linux Docker runner topology (Pipeline 50 / Job 249)` 或同等收窄文字，
+platform-support 第一行写为 `Linux Docker runner topology (M24 历史 container 运行)` 或同等收窄文字，
 保留 verified 与 10/10 JUnit，删除最后 configured 句。此步骤先使用当时最近一次完整验证数字；Task 4
 最终全量结果若变化，再同步精确数字。
 
