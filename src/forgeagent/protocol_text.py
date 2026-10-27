@@ -6,15 +6,42 @@ import json
 import re
 from collections.abc import Iterator
 
-# Front matter: leading YAML block delimited by --- lines.
-_FRONT_MATTER = re.compile(r"^\s*---\s*\n(.*?)\n---\s*", re.DOTALL)
+# Front matter: a leading YAML document fenced by --- lines, emitted as the very
+# first thing in a final response.
+#   delimiters allow horizontal whitespace only, because they are line-oriented
+#   the closing delimiter must begin a line, so a horizontal rule in the body
+#     cannot terminate the front matter early
+#   the YAML body is lazy, so the first closing delimiter wins
+#   the trailing newline is optional and consumed, keeping the returned body free
+#     of a leading blank line
+_FRONT_MATTER = re.compile(
+    r"""
+    ^[ \t]*---[ \t]*\r?\n
+    (?P<yaml>.*?)
+    [ \t]*\r?\n[ \t]*---[ \t]*\r?\n?
+    """,
+    re.DOTALL | re.VERBOSE,
+)
 
-# Code block: CodeBlockStart JSON, then a variable-length backtick fence (>=3),
-# then CodeBlockEnd JSON. The matching fence preserves embedded shorter fences.
+def _marker_comment(marker: str, group: str) -> str:
+    """Fragment matching one marker comment: ``<!-- MARKER: {"json"} -->``.
+
+    The payload is lazy so whitespace between the marker name and the braces never
+    leaks into the JSON. ``group`` names that payload for the caller.
+    """
+    return rf"<!--\s*{marker}[ \t]*:[ \t]*(?P<{group}>\{{.*?\}})[ \t]*-->"
+
+
+# A code block pairs a CodeBlockStart marker with a CodeBlockEnd marker around a
+# backtick-fenced source, optionally naming a language on the opening fence line.
+#   the fence run is captured and back-referenced, so a shorter fence nested in the
+#     body cannot terminate the block
+#   the closing fence may be indented, as Markdown allows
 _CODE_BLOCK = re.compile(
-    r"<!--\s*CodeBlockStart:\s*(\{.*?\})\s*-->\s*"
-    r"(?P<ticks>`{3,})(\w+)?\s*\n(.*?)\n(?P=ticks)\s*"
-    r"<!--\s*CodeBlockEnd:\s*(\{.*?\})\s*-->",
+    _marker_comment("CodeBlockStart", "start_meta")
+    + r"\s*(?P<fence>`{3,})[ \t]*(?P<language>\w+)?[ \t]*\r?\n"
+    + r"(?P<body>.*?)\r?\n[ \t]*(?P=fence)\s*"
+    + _marker_comment("CodeBlockEnd", "end_meta"),
     re.DOTALL,
 )
 
@@ -45,8 +72,7 @@ def split_front_matter(text: str) -> tuple[str | None, str]:
 def iter_code_block_parts(text: str) -> Iterator[tuple[str, str | None, str, str]]:
     """Yield CodeBlock metadata JSON, optional language, body, and end metadata JSON."""
     for match in _CODE_BLOCK.finditer(text):
-        start_json, _ticks, language, code, end_json = match.groups()
-        yield start_json, language, code, end_json
+        yield match["start_meta"], match["language"], match["body"], match["end_meta"]
 
 
 def iter_tool_call_payloads(text: str) -> Iterator[str]:
