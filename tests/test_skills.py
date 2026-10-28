@@ -477,6 +477,208 @@ def test_registry_enforces_raw_skill_file_size_boundary(tmp_path, raw_size, acce
     assert diagnostics == expected
 
 
+def _standard_skill_document(
+    *, name: str = "find-skills", description: str = "Helps users discover agent skills.", body: str
+) -> str:
+    return f"---\nname: {name}\ndescription: {description}\n---\n\n{body}\n"
+
+
+def test_registry_loads_standard_sdk_skill_in_compat_mode(tmp_path):
+    body = "## Usage\n\n1. Search for a skill.\n\n2. Install it.\n"
+    document = _standard_skill_document(
+        description="Help discover agent skills on demand.", body=body
+    )
+    home = tmp_path / "home"
+    _write_raw_skill(home, "find-skills", document)
+    diagnostics: list[str] = []
+
+    registry = SkillRegistry.load(
+        home=str(home),
+        allowed_root=str(tmp_path / "root"),
+        allow_project=False,
+        diagnostic=diagnostics.append,
+    )
+
+    skill = registry._definitions["find-skills"]
+    assert skill.trigger == "Help discover agent skills on demand."
+    assert skill.steps == body.strip()
+    assert "no explicit failure branches" in skill.failure_branches
+    assert "completes when its steps have been followed" in skill.completion_criteria
+    assert skill.format_version == 1
+    assert skill.source == "user"
+    assert registry.read("find-skills", "steps") == body.strip()
+    assert "find-skills — Help discover agent skills on demand." in registry.catalog_prompt()
+    assert diagnostics == ["skill loaded in standard Skills SDK compatibility mode: find-skills"]
+
+
+def test_registry_standard_skill_body_truncated_to_memory_bound(tmp_path):
+    oversized_body = "## Usage\n\n" + ("x" * (32 * 1024)) + "\n"
+    document = _standard_skill_document(description="Truncated skill.", body=oversized_body)
+    home = tmp_path / "home"
+    _write_raw_skill(home, "find-skills", document)
+
+    registry = SkillRegistry.load(
+        home=str(home),
+        allowed_root=str(tmp_path / "root"),
+        allow_project=False,
+    )
+
+    steps = registry._definitions["find-skills"].steps
+    assert len(steps.encode("utf-8")) <= 32 * 1024
+    assert steps.endswith("x")
+
+
+def test_registry_standard_skill_trigger_derived_bounded_and_single_line(tmp_path):
+    long_description = " ".join(f"word{i}" for i in range(100))
+    assert len(long_description) > 240
+    document = _standard_skill_document(
+        description=long_description, body="## Usage\n\n1. Do it.\n"
+    )
+    home = tmp_path / "home"
+    _write_raw_skill(home, "find-skills", document)
+
+    registry = SkillRegistry.load(
+        home=str(home),
+        allowed_root=str(tmp_path / "root"),
+        allow_project=False,
+    )
+
+    trigger = registry._definitions["find-skills"].trigger
+    assert len(trigger) <= 240
+    assert "\n" not in trigger and "\r" not in trigger
+
+
+@pytest.mark.parametrize(
+    ("document", "name", "reason"),
+    [
+        (
+            _standard_skill_document(description="No body here.", body="   \n"),
+            "find-skills",
+            "invalid format",
+        ),
+        (
+            _standard_skill_document(description="   \n", body="## Usage\n\n1. Do it.\n"),
+            "find-skills",
+            "invalid format",
+        ),
+        ("---\nname: find-skills\n---\n\n## Usage\n", "find-skills", "invalid format"),
+        (
+            _standard_skill_document(description="Mismatch.", body="## Usage\n"),
+            "wrong-name",
+            "invalid name",
+        ),
+        (
+            _standard_skill_document(
+                description="Too large.", body="## Usage\n\n" + ("x" * (300 * 1024)) + "\n"
+            ),
+            "find-skills",
+            "invalid format",
+        ),
+    ],
+)
+def test_registry_rejects_invalid_standard_skills(tmp_path, document, name, reason):
+    home = tmp_path / "home"
+    _write_raw_skill(home, name, document)
+    diagnostics: list[str] = []
+
+    registry = SkillRegistry.load(
+        home=str(home),
+        allowed_root=str(tmp_path / "root"),
+        allow_project=False,
+        diagnostic=diagnostics.append,
+    )
+
+    assert registry.read(name) is None
+    assert diagnostics == [f"skill ignored: {reason} ({name})"]
+
+
+def test_registry_trigger_and_description_hybrid_rejected(tmp_path):
+    document = _FULL_REVIEW_SKILL.replace(
+        "trigger: Use when reviewing Python.\n",
+        "trigger: Use when reviewing Python.\ndescription: Hybrid skill.\n",
+    )
+    home = tmp_path / "home"
+    _write_raw_skill(home, "review-python", document)
+    diagnostics: list[str] = []
+
+    registry = SkillRegistry.load(
+        home=str(home),
+        allowed_root=str(tmp_path / "root"),
+        allow_project=False,
+        diagnostic=diagnostics.append,
+    )
+
+    assert registry.read("review-python") is None
+    assert diagnostics == ["skill ignored: invalid format (review-python)"]
+
+
+def test_registry_standard_skill_raw_digest_binds_full_on_disk_content(tmp_path):
+    home, root = tmp_path / "home", tmp_path / "root"
+    _write_skill(home, "review-python", trigger="user trigger")
+    trust_record_path = tmp_path / "skills-trust.json"
+    # Place a unique marker beyond the 32KB truncation point so a change there alters the
+    # raw on-disk content but not the truncated in-memory body.
+    prefix = "## Usage\n\n"
+    pad = (32 * 1024) - len(prefix) + 50
+    document = _standard_skill_document(
+        description="Binds full content.", body=prefix + ("x" * pad) + "MARKER_TAIL"
+    )
+    project_skill = root / ".forgeagent" / "skills" / "find-skills"
+    project_skill.mkdir(parents=True)
+    project_skill.joinpath("SKILL.md").write_text(document, encoding="utf-8")
+
+    SkillRegistry.load(
+        home=str(home),
+        allowed_root=str(root),
+        confirmer=lambda _request: True,
+        trust_record_path=str(trust_record_path),
+    )
+    # Flip the marker beyond the truncation point: the effective body is unchanged,
+    # but the raw digest must change so the trust record is re-confirmed.
+    mutated = document.replace("MARKER_TAIL", "MARKER_TAIL_y")
+    project_skill.joinpath("SKILL.md").write_text(mutated, encoding="utf-8")
+    prompts = []
+    SkillRegistry.load(
+        home=str(home),
+        allowed_root=str(root),
+        confirmer=lambda request: prompts.append(request) or True,
+        trust_record_path=str(trust_record_path),
+    )
+
+    assert len(prompts) == 1
+
+
+def test_registry_standard_skill_digest_stable_when_unchanged(tmp_path):
+    home, root = tmp_path / "home", tmp_path / "root"
+    _write_skill(home, "review-python", trigger="user trigger")
+    document = _standard_skill_document(
+        description="Stable digest.", body="## Usage\n\n1. Do it.\n"
+    )
+    project_skill = root / ".forgeagent" / "skills" / "find-skills"
+    project_skill.mkdir(parents=True)
+    project_skill.joinpath("SKILL.md").write_text(document, encoding="utf-8")
+    approvals = []
+    trust_record_path = tmp_path / "skills-trust.json"
+
+    SkillRegistry.load(
+        home=str(home),
+        allowed_root=str(root),
+        confirmer=lambda request: approvals.append(request) or True,
+        trust_record_path=str(trust_record_path),
+    )
+    assert len(approvals) == 1
+
+    # A second load with unchanged content must not re-prompt for trust.
+    registry = SkillRegistry.load(
+        home=str(home),
+        allowed_root=str(root),
+        confirmer=lambda _request: pytest.fail("unchanged compat skill must not re-prompt"),
+        trust_record_path=str(trust_record_path),
+    )
+    assert registry.read("find-skills", "steps") == "## Usage\n\n1. Do it."
+    assert "find-skills — Stable digest." in registry.catalog_prompt()
+
+
 def test_catalog_uses_sorted_prefix_when_count_or_bytes_exceed_limit(tmp_path):
     home = tmp_path / "home"
     for index in range(65):

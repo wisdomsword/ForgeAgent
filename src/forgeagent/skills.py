@@ -38,6 +38,21 @@ _HEADING_RE = re.compile(r"^## ([^\r\n]+)\s*$")
 _SECTION_HEADINGS = ("Steps", "Failure Branches", "Completion Criteria")
 _EXIT_CLASS_NAMES = ("success", "failure", "blocked", "needs_input", "timeout_or_budget")
 _MAX_EXIT_TEXT_BYTES = 512
+# Standard Skills SDK skills (front matter ``name`` + ``description`` + free-form body) are
+# accepted through a compatibility path. They may be larger on disk than a native skill, but
+# the loaded definition's body is truncated to ``_MAX_SKILL_BYTES`` so the in-memory skill
+# stays bounded. The trigger is derived from the description; the failure-branch and
+# completion-criteria sections are synthesized, since a standard skill declares neither.
+_MAX_COMPAT_SKILL_BYTES = 256 * 1024
+_MAX_TRIGGER_CHARS = 240
+_STANDARD_FAILURE_BRANCHES = (
+    "The skill is a standard Skills SDK skill loaded in compatibility mode; it declares "
+    "no explicit failure branches. Observe tool errors and the user's stated outcome."
+)
+_STANDARD_COMPLETION_CRITERIA = (
+    "The skill completes when its steps have been followed and the user confirms the "
+    "requested outcome is achieved."
+)
 _ABSOLUTE_EXIT_CLAIM_RE = re.compile(
     r"^(?:100\s*%|always|never|all|everything|全部|始终|永远|完美)"
     r"(?:\s+(?:complete|completed|succeeds?|done|完成|成功|通过))?$",
@@ -192,10 +207,14 @@ def _discover(
             continue
         try:
             raw_document = Path(skill_real).read_bytes()
-            if len(raw_document) > _MAX_SKILL_BYTES:
-                raise ValueError("invalid format")
             document = raw_document.decode("utf-8")
-            definition = _parse_document(document, source=source, expected_name=directory_name)
+            definition = _parse_document(
+                document,
+                source=source,
+                expected_name=directory_name,
+                raw_bytes=len(raw_document),
+                diagnostic=diagnostic,
+            )
         except (OSError, UnicodeDecodeError, yaml.YAMLError):
             _emit_ignored(diagnostic, "invalid format", directory_name)
             continue
@@ -282,6 +301,8 @@ def _parse_document(
     *,
     source: Literal["user", "project"],
     expected_name: str,
+    raw_bytes: int | None = None,
+    diagnostic: Callable[[str], None] | None = None,
 ) -> SkillDefinition:
     match = _FRONT_MATTER_RE.fullmatch(document)
     if match is None:
@@ -314,6 +335,27 @@ def _parse_document(
         raise ValueError("invalid format version")
     if format_version not in {1, 2}:
         raise ValueError("invalid format version")
+
+    # A skill with no ``trigger`` but with a ``description`` is a standard Skills SDK
+    # skill (``name`` + ``description`` + free-form body). It is accepted through the
+    # compatibility path, which derives the trigger and synthesizes the sections that
+    # the ForgeAgent-native format requires.
+    is_standard = format_version == 1 and "trigger" not in front_matter
+    if is_standard:
+        return _parse_standard_document(
+            match,
+            front_matter,
+            source=source,
+            expected_name=expected_name,
+            raw_bytes=raw_bytes,
+            diagnostic=diagnostic,
+        )
+
+    # A native skill is bounded on disk. (A standard Skills SDK skill reaches the
+    # compatibility path above instead, where the bound is ``_MAX_COMPAT_SKILL_BYTES``.)
+    if raw_bytes is not None and raw_bytes > _MAX_SKILL_BYTES:
+        raise ValueError("invalid format")
+
     expected_keys = (
         {"name", "trigger"}
         if format_version == 1
@@ -357,6 +399,69 @@ def _parse_document(
             }
         ),
     )
+
+
+def _parse_standard_document(
+    match: re.Match[str],
+    front_matter: dict,
+    *,
+    source: Literal["user", "project"],
+    expected_name: str,
+    raw_bytes: int | None,
+    diagnostic: Callable[[str], None] | None,
+) -> SkillDefinition:
+    """Accept a standard Skills SDK skill (``name`` + ``description`` + free-form body).
+
+    The trigger is derived from the description, the body becomes ``Steps``, and the
+    failure-branch and completion-criteria sections are synthesized. All security bounds
+    still apply: name format, symlink containment (enforced by the caller), secret
+    masking, and a truncated, bounded in-memory body.
+    """
+    name = front_matter.get("name")
+    description = front_matter.get("description")
+    if not isinstance(name, str) or not _SKILL_NAME_RE.fullmatch(name) or name != expected_name:
+        raise ValueError("invalid name")
+    if not isinstance(description, str) or not description.strip():
+        raise ValueError("invalid format")
+    if raw_bytes is not None and raw_bytes > _MAX_COMPAT_SKILL_BYTES:
+        raise ValueError("invalid format")
+
+    body = match.group(2)
+    steps = _bounded_body(body)
+    if not steps:
+        raise ValueError("invalid format")
+    trigger = _derive_trigger(description)
+    secret_values = sensitive_env_values()
+    definition = SkillDefinition(
+        name=mask_secrets(name, secret_values),
+        trigger=mask_secrets(trigger, secret_values),
+        steps=mask_secrets(steps, secret_values),
+        failure_branches=_STANDARD_FAILURE_BRANCHES,
+        completion_criteria=_STANDARD_COMPLETION_CRITERIA,
+        source=source,
+        format_version=1,
+    )
+    if diagnostic is not None:
+        diagnostic(f"skill loaded in standard Skills SDK compatibility mode: {name}")
+    return definition
+
+
+def _derive_trigger(description: str) -> str:
+    """Collapse a description into a single bounded line usable as a trigger."""
+    collapsed = " ".join(description.split())
+    if len(collapsed) <= _MAX_TRIGGER_CHARS:
+        return collapsed
+    truncated = collapsed[:_MAX_TRIGGER_CHARS]
+    boundary = truncated.rfind(" ")
+    return truncated[:boundary] if boundary > 0 else truncated
+
+
+def _bounded_body(body: str) -> str:
+    """Trim a standard skill body to the in-memory byte bound."""
+    stripped = body.strip()
+    if len(stripped.encode("utf-8")) <= _MAX_SKILL_BYTES:
+        return stripped
+    return stripped.encode("utf-8")[:_MAX_SKILL_BYTES].decode("utf-8", errors="ignore").rstrip()
 
 
 def _parse_exit_conditions(value: object) -> Mapping[str, SkillExitCondition]:
