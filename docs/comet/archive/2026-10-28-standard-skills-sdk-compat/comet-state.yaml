@@ -1,0 +1,276 @@
+schema: comet.native.v4
+name: standard-skills-sdk-compat
+language: zh-CN
+phase: archive
+status: done
+state_version: 10
+brief: brief.md
+document_constraints_version: 3
+shape_confirmation_hash: b1bfb20166caab221d3ff1d07800cde438c1cb8b9a4e69b73e8f4f773eec7236
+spec_changes:
+  - capability: standard-skills-sdk-compat
+    operation: create
+    source: specs/standard-skills-sdk-compat/spec.md
+workspace:
+  isolation: current
+  change_branch: main
+  target_branch: main
+  finish: null
+loop:
+  stage: done
+  goal_cycle: 2
+  iteration: 1
+  attempt: 1
+  retry_epoch: 0
+  failed_iteration_count: 0
+  no_progress_count: 0
+  execution_failure_count: 0
+  previous_unresolved_ids: []
+  next_action: null
+acceptance:
+  - id: A1
+    source: brief.md
+    text: A1：标准 Skills SDK 技能（`name + description + 自由正文`）经 `SkillRegistry`
+      加载；trigger 由 description 派生（单行、≤240 字符、无换行），正文成为 Steps，Failure
+      Branches/Completion Criteria 为合成文本。
+    result: passed
+    reason:
+      text: 标准技能经兼容路径加载：trigger 由 description 派生（≤240 字符、单行、无换行），正文成为 Steps，Failure
+        Branches/Completion Criteria
+        为合成文本；test_registry_loads_standard_sdk_skill_in_compat_mode +
+        test_registry_standard_skill_trigger_derived_bounded_and_single_line 验证
+      truncated: false
+  - id: A2
+    source: brief.md
+    text: A2：native 严格格式技能仍按原路径加载；native 非法情形（未知 key、多行 trigger、trigger+description
+      混合）仍拒绝。
+    result: passed
+    reason:
+      text: native 严格路径未改动；未知 front matter key、多行 trigger、trigger+description
+        混合均仍拒绝；test_registry_trigger_and_description_hybrid_rejected +
+        test_registry_ignores_invalid_document_with_bounded_diagnostic 验证
+      truncated: false
+  - id: A3
+    source: brief.md
+    text: A3：native 技能磁盘大小 >32KB 仍拒绝；兼容技能正文截断到 ≤32KB（内存有界）。
+    result: passed
+    reason:
+      text: native 磁盘 >32KB
+        仍拒绝（test_registry_enforces_raw_skill_file_size_boundary）；兼容技能正文截断到 ≤32KB
+        内存有界（test_registry_standard_skill_body_truncated_to_memory_bound）
+      truncated: false
+  - id: A4
+    source: brief.md
+    text: A4：兼容技能磁盘 >256KB、空正文、缺 description、空白 description、名称不匹配均拒绝。
+    result: passed
+    reason:
+      text: 兼容技能磁盘 >256KB、空正文、缺 description、空白
+        description、名称不匹配均拒绝（test_registry_rejects_invalid_standard_skills，5
+        参数化）
+      truncated: false
+  - id: A5
+    source: brief.md
+    text: A5：兼容技能 raw digest 绑定完整磁盘内容：32KB 截断点之后的变更（不改变截断后正文）仍触发信任重新确认。
+    result: passed
+    reason:
+      text: raw digest 绑定完整磁盘内容：32KB
+        截断点之后的变更（不改变截断后正文）仍触发信任重新确认（test_registry_standard_skill_raw_digest_binds_full_on_disk_content）
+      truncated: false
+  - id: A6
+    source: brief.md
+    text: A6：兼容技能经完整 `SkillRegistry.load` 管线加载（catalog、信任确认、read 各节、digest 确定性），与
+      user 侧 native 技能共存。
+    result: passed
+    reason:
+      text: 完整 SkillRegistry.load 管线（catalog、信任确认、read 各节、digest 确定性）+ 与 user 侧 native
+        技能共存；test_registry_loads_standard_sdk_skill_in_compat_mode +
+        test_registry_standard_skill_raw_digest_binds_full_on_disk_content +
+        test_registry_standard_skill_digest_stable_when_unchanged 验证
+      truncated: false
+builder_handoff:
+  candidate_id: 903d0a97-7f32-4788-98cc-94b09641933c
+  identity_provider: skill-coordinated
+  builder_execution_ref: skill-coordinated:builder:5ed68012-55f2-47e7-b1f1-ab7b4b3375ad
+  iteration: 1
+  summary:
+    text: ForgeAgent M52：为 src/forgeagent/skills.py 增加标准 Skills SDK 兼容路径。接受
+      name+description+自由正文的标准技能（skill-creator/find-skills 实证），派生
+      trigger、正文→Steps、合成 Failure Branches/Completion Criteria、正文截断 32KB 内存有界（磁盘
+      256KB 上限）；native 严格格式与全部安全属性不变；改动集中一个模块；新增 11 项 compat 持久化回归测试（pytest
+      tests/test_skills.py 52 passed，ruff check/format 清，skills.py 无 mypy 错误）。
+    truncated: false
+  addressed_acceptance_ids:
+    - A1
+    - A2
+    - A3
+    - A4
+    - A5
+    - A6
+  acceptance_review:
+    - id: A1
+      status: implemented-with-evidence
+      evidence:
+        - tests/test_skills.py::test_registry_loads_standard_sdk_skill_in_compat_mode
+          — 标准技能经 SkillRegistry 加载；trigger 由 description 派生（=描述原文）、正文成为
+          Steps、Failure Branches/Completion Criteria
+          为合成文本、format_version=1、read('find-skills','steps') 可用、catalog
+          含技能、diagnostic 记录兼容模式
+        - tests/test_skills.py::test_registry_standard_skill_trigger_derived_bounded_and_single_line
+          — 长描述派生 trigger ≤240 字符且无换行
+        - src/forgeagent/skills.py:343-352（is_standard
+          识别）、404-446（_parse_standard_document）、449-456（_derive_trigger）
+      note: 标准技能经兼容路径加载：trigger 由 description 派生（单行、≤240 字符），正文→Steps，失败分支/完成标准为合成文本。
+    - id: A2
+      status: implemented-with-evidence
+      evidence:
+        - tests/test_skills.py::test_registry_trigger_and_description_hybrid_rejected
+          — trigger+description 混合 → invalid format
+        - tests/test_skills.py::test_registry_ignores_invalid_document_with_bounded_diagnostic
+          — 未知 front matter key → invalid format；多行 trigger → invalid
+          trigger（native 非法情形）
+        - src/forgeagent/skills.py:354-401（native 严格路径未改动）
+      note: native 严格格式路径原样保留；未知 key、多行 trigger、trigger+description 混合均仍拒绝。
+    - id: A3
+      status: implemented-with-evidence
+      evidence:
+        - tests/test_skills.py::test_registry_enforces_raw_skill_file_size_boundary
+          — native 32KB 接受、32KB+1 拒绝
+        - tests/test_skills.py::test_registry_standard_skill_body_truncated_to_memory_bound
+          — 超大体截断后 ≤32KB
+        - src/forgeagent/skills.py:356（native >32KB 仍拒）、459-464（_bounded_body
+          截断到 32768 UTF-8 字节）
+      note: native 磁盘 >32KB 仍拒绝；兼容技能正文截断到 ≤32KB（内存有界）。
+    - id: A4
+      status: implemented-with-evidence
+      evidence:
+        - tests/test_skills.py::test_registry_rejects_invalid_standard_skills —
+          5 参数化：空白正文、空白 description、缺 description、名称不匹配（invalid name）、>256KB 均拒绝
+        - src/forgeagent/skills.py:420-427（name/description/256KB 校验）
+      note: 兼容技能磁盘 >256KB、空正文、缺 description、空白 description、名称不匹配均拒绝。
+    - id: A5
+      status: implemented-with-evidence
+      evidence:
+        - tests/test_skills.py::test_registry_standard_skill_raw_digest_binds_full_on_disk_content
+          — 在 32KB 截断点之后放置唯一 MARKER_TAIL；仅修改该标记（不改变截断后正文）→ raw digest
+          改变、信任记录触发重新确认（1 次提示）
+        - src/forgeagent/skills.py:404-446 + 发现层 raw_bytes 绑定完整磁盘内容
+      note: 兼容技能 raw digest 绑定完整磁盘内容：32KB 截断点之后的变更（不改变截断后正文）仍触发信任重新确认。
+    - id: A6
+      status: implemented-with-evidence
+      evidence:
+        - tests/test_skills.py::test_registry_loads_standard_sdk_skill_in_compat_mode
+          — 完整 SkillRegistry.load（catalog、read、diagnostic）
+        - tests/test_skills.py::test_registry_standard_skill_raw_digest_binds_full_on_disk_content
+          — 信任确认（confirmer/trust_record_path）+ project 侧兼容技能与 user 侧 native 技能共存
+        - tests/test_skills.py::test_registry_standard_skill_digest_stable_when_unchanged
+          — 二次加载（内容不变）不重新提示、catalog/read 可用
+        - tests/test_skills.py::test_project_skills_override_only_after_approval_and_reuse_double_digest
+          — 共享 double-digest（raw+effective）确定性机制
+      note: 兼容技能经完整 SkillRegistry.load 管线加载（catalog、信任确认、read 各节、digest 确定性），与 user 侧
+        native 技能共存。
+  checks:
+    - name:
+        text: ruff check src/forgeagent/skills.py tests/test_skills.py
+        truncated: false
+      result: passed
+      note:
+        text: All checks passed
+        truncated: false
+    - name:
+        text: ruff format --check src/forgeagent/skills.py tests/test_skills.py
+        truncated: false
+      result: passed
+      note:
+        text: 2 files already formatted
+        truncated: false
+    - name:
+        text: pytest tests/test_skills.py
+        truncated: false
+      result: passed
+      note:
+        text: 52 passed in 0.60s
+        truncated: false
+    - name:
+        text: mypy src/forgeagent/skills.py (types-PyYAML 存根)
+        truncated: false
+      result: passed
+      note:
+        text: skills.py 无错误；101 个错误均为其它文件既有（loop/collaboration/http_*）
+        truncated: false
+    - name:
+        text: pytest (full suite)
+        truncated: false
+      result: failed
+      note:
+        text: 3071 passed, 10 skipped, 2 failed — 2 个失败均为既有 m23/m25（history-rewrite
+          哈希失效），已在干净 HEAD 实证复现，非 M52 引入；见 known_limits 与 brief 验证预期
+        truncated: false
+  checks_truncated: false
+  known_limits:
+    - text: 全量套件存在 2
+        个既有失败（tests/test_m23_mode_evaluation.py、tests/test_m25_mode_evaluation.py）：引用里程碑历史重写前已失效的提交哈希（c20c0948/8e82fdd4/9e1e5c58），git
+        ls-tree 退出 128；已在干净 HEAD 实证复现，与 M52 无关。已在 brief.md『验证预期』披露，Verifier 不应计入
+        M52 验收。
+      truncated: false
+  known_limits_truncated: false
+  review: null
+  submitted_at: 2026-10-28T11:15:59.568Z
+blockers: []
+verification:
+  candidate_id: 903d0a97-7f32-4788-98cc-94b09641933c
+  identity_provider: skill-coordinated
+  verifier_execution_ref: skill-coordinated:verifier:4eda9ff9-ca5c-48a8-bc2b-c52862b470ed
+  iteration: 1
+  attempt: 1
+  assurance: skill-coordinated
+  verdict: pass
+  checks: []
+  summary:
+    text: 独立核查候选 a92165b：兼容路径实现与 brief/spec 逐条一致（识别规则 format_version==1 且无 trigger
+      但有 description、trigger 派生算法、正文→Steps、合成节、native >32KB 重加强制、compat 256KB
+      上限、raw digest 绑完整磁盘内容、symlink/掩码/信任确认由既有层保留）；`pytest tests/test_skills.py`
+      52 passed；A1-A6 各有具体测试对应。M52 全部验收通过。
+    truncated: false
+  risks:
+    - text: 全量套件存在 2
+        个既有失败（tests/test_m23_mode_evaluation.py、tests/test_m25_mode_evaluation.py）：引用里程碑历史重写前已失效的提交哈希（c20c0948/8e82fdd4/9e1e5c58），git
+        ls-tree 退出 128；已在干净 HEAD 实证复现，与 M52 无关；brief.md『验证预期』已披露，不计入 M52 验收。
+      truncated: false
+  risks_truncated: false
+  completed_at: 2026-10-28T11:18:43.160Z
+history:
+  - goal_cycle: 1
+    iteration: 0
+    attempt: 0
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: Native Shape artifacts changed
+      truncated: false
+    completed_at: 2026-10-28T09:42:09.462Z
+  - goal_cycle: 2
+    iteration: 1
+    attempt: 1
+    outcome: pass
+    unresolved_ids: []
+    summary:
+      text: 独立核查候选 a92165b：兼容路径实现与 brief/spec 逐条一致（识别规则 format_version==1 且无 trigger
+        但有 description、trigger 派生算法、正文→Steps、合成节、native >32KB 重加强制、compat 256KB
+        上限、raw digest 绑完整磁盘内容、symlink/掩码/信任确认由既有层保留）；`pytest
+        tests/test_skills.py` 52 passed；A1-A6 各有具体测试对应。M52 全部验收通过。
+      truncated: false
+    completed_at: 2026-10-28T11:18:43.160Z
+history_overflow:
+  dropped_entries: 0
+  first_dropped_at: null
+  last_dropped_at: null
+  outcome_counts:
+    pass: 0
+    fail: 0
+    blocked: 0
+    execution-error: 0
+    recovery: 0
+verification_result: pass
+verification_report: verification.md
+archived: true
+created_at: 2026-10-28T07:52:07.958Z
