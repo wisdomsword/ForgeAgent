@@ -60,6 +60,27 @@ process network paths; executor code in restricted/container has no network brok
 
 ## External action receipt boundary
 
+Receipt storage at `<project>/.forgeagent/receipts` is host-reserved state.
+File tools reject lexical, case-spelled and resolved aliases of this subtree.
+Restricted workers reject its accesses and ancestor mutations even after a full-disk
+grant; descriptor-relative opens are checked against a resolved directory when the
+platform exposes it, and fail closed when provenance is unavailable. Descriptor-targeted
+mutations with unknown provenance are denied. Container execution mounts the project's
+`.forgeagent` metadata directory read-only, preventing both receipt writes and movement
+of its parent binding. Trusted same-process execution retains its explicit no-isolation
+contract. Python introspection/native bypasses and a hostile same-user host remain
+outside the restricted guarantee.
+
+The private `.catalog` records registered action IDs and `.initialized` distinguishes
+an established store from legacy initialization. Missing registered records or a missing
+catalog in an initialized store stop execution. Valid legacy records are registered
+without changing their bytes or replaying actions. A crash between a new prepared
+record and its catalog update can recover only an unregistered `prepared`, revision-0,
+open receipt; other unregistered states fail closed. Capacity is checked before creating
+a record. Preserve the catalog, marker, and all receipts together in backups; do not
+delete them to clear a pending action. Total loss of the directory and all initialization
+evidence cannot be distinguished from first use without an independent backup.
+
 Approved non-read-only MCP calls now persist a local, allowed-root receipt through
 `prepared` -> `dispatched` -> `confirmed` or `unknown`. `unknown` is not treated as a
 normal retryable failure: Loop resume and the next iteration stop with
@@ -88,6 +109,25 @@ not a reconstructed task or approval, establishes its exact task-scoped recovery
 `retry_approved` are CAS state transitions only; none replays MCP, resumes Loop or
 creates a replacement action. Custom evidence is stored in the receipt but public and
 audit projections reduce it to `provided` rather than exposing its text.
+
+## Bounded file and execution results
+
+FileRead accepts only an opened regular file and reads at most 1 MiB plus one
+overflow byte. Oversized files and FIFOs return the fixed FileRead failure;
+larger project files can be processed with bounded output through Exec. Skill reads
+stop at 256 KiB plus one byte before decoding; native Skills retain their 32 KiB
+document limit. Image directory loading stops at the first image beyond twenty.
+
+Each worker stream retains an 8 KiB prefix plus an explicit truncation marker.
+The parent continuously drains worker pipes while retaining at most a 1 MiB result
+frame and 8 KiB diagnostic stderr. An oversized result, including state, is rejected
+without replacing the previous state. Recovery captures use bounded, non-blocking,
+no-follow reads and reject non-regular files. These limits bound result retention;
+they do not bound arbitrary allocations or disk writes by generated code. Those still
+depend on the selected execution tier and its resource limits.
+
+Restricted execution starts in the task project directory. A full-disk grant expands
+filesystem authority without changing the working directory used by relative paths.
 
 ## Network breaking change
 

@@ -1,7 +1,7 @@
 # configuration Specification
 
 ## Purpose
-定义模型、provider 与 MCP 配置在合并前的严格结构校验，以及生成参数的有限数值约束。
+定义模型、provider 与 MCP 配置在合并前的严格结构校验，以及生成参数的有限数值约束。配置错误必须在运行任务前暴露，避免未知字段、非法数值或错误层级进入客户端与工具执行。
 ## Requirements
 ### Requirement: 模型与 provider 配置采用显式结构
 ForgeAgent MUST 在合并内建和用户 YAML 前，逐份验证 models.yaml 与 config.yaml 的根节点是 mapping。models.yaml 仅允许 `default_model` 与 `models`；共享 config.yaml 仅允许既有的 `groups`、`context`、`restricted` 与 `search_engine`。ModelEntry、GroupConfig 与 Registry MUST 拒绝未知字段。

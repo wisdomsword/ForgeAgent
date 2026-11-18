@@ -6,6 +6,8 @@ processor (M3), not the parser — the parser only validates the Edit argument s
 That runtime assertion is deferred to M3; here we assert the schema parses.
 """
 
+import json
+
 import pytest
 from pydantic import ValidationError
 
@@ -192,6 +194,18 @@ def test_unknown_tool_name_reported_not_silent():
     result = parse(text)
     assert result.tool_calls == []
     assert [error.message for error in result.errors] == ["invalid_format: tool_call.name"]
+
+
+@pytest.mark.parametrize("name", [[], {}, False, None])
+def test_non_string_tool_name_reports_parse_error_and_preserves_later_calls(name):
+    invalid = json.dumps({"name": name})
+    valid = json.dumps({"name": "Exec", "arguments": {"code": "1"}})
+
+    result = parse(f"<!-- ToolCall: {invalid} -->\n<!-- ToolCall: {valid} -->")
+
+    assert [error.error_type for error in result.errors] == [ParseErrorType.INVALID_FORMAT]
+    assert [error.message for error in result.errors] == ["invalid_format: tool_call.name"]
+    assert [call.name for call in result.tool_calls] == ["Exec"]
 
 
 def test_front_matter_absent_parses_body():

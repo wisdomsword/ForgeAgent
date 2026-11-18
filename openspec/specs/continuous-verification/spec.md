@@ -3,7 +3,9 @@
 ## Purpose
 Define mandatory offline and Linux Docker verification gates, release-artifact boundaries,
 and evidence-based platform status rules for ForgeAgent changes.
+
 ## Requirements
+
 ### Requirement: Mandatory offline verification pipeline
 The repository SHALL define a GitLab CI job that runs Ruff lint and format checks, the complete offline pytest suite, the twenty-case Golden runner, OpenSpec strict validation, wheel and sdist builds, and the release-content boundary contract without model credentials.
 
@@ -79,3 +81,17 @@ README and the platform support document MUST state the latest completed full py
 - **WHEN** a milestone-specific older count is retained for audit history
 - **THEN** it is labeled as historical and is not represented as the current repository baseline
 
+### Requirement: GitHub verification preserves release gates
+The repository MUST provide GitHub Actions for offline verification and required Linux Docker verification using a documented fixed OpenSpec version shared with GitLab. Docker verification MUST reject skips and retain machine-readable evidence. Default tests MUST run from a current checkout without unavailable historical Git objects. Runtime state and local credential files MUST be ignored by Git. Public onboarding MUST identify installation, credential configuration, first use, safety boundaries and private security reporting.
+
+#### Scenario: Fresh GitHub checkout runs verification
+- **WHEN** a branch or pull request is verified from its current source
+- **THEN** lint, format, pytest, Golden, strict specs, builds and clean-wheel smoke run without model credentials
+
+#### Scenario: Linux Docker integration is skipped
+- **WHEN** a selected container integration test is skipped or the Docker daemon is unavailable
+- **THEN** the Docker job fails rather than recording success
+
+#### Scenario: Local runtime and credential files exist
+- **WHEN** a user creates local env files, checkpoints, memory, collaborations or receipts
+- **THEN** Git ignores those files while retaining intentionally shared project instructions and Skills

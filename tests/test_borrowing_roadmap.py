@@ -154,7 +154,10 @@ def test_m33_and_receipt_purpose_are_traceable() -> None:
     assert "M49" in _read(PLAN)
     assert "M50" in _read(PLAN)
     assert "M51" in _read(PLAN)
-    assert _read(LATEST).strip() == "milestone_051.md"
+    latest_name = _read(LATEST).strip()
+    assert re.fullmatch(r"milestone_\d{3}\.md", latest_name)
+    assert f"M{int(latest_name[10:13])}" in _read(PLAN)
+    assert (ROOT / "milestones" / latest_name).is_file()
     assert "Purpose: TBD" not in _read(RECEIPT_SPEC)
     assert "durable, bounded" in _read(RECEIPT_SPEC)
     assert "Purpose: TBD" not in _read(BORROWING_SPEC)

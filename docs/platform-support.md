@@ -12,9 +12,15 @@ is evaluated independently.
 | Linux Docker runner topology (M24 历史 container 运行) | P0 | verified | Linux Docker runner with Docker daemon, shared build volume, non-root job execution, and the checked-in JUnit contract | GitLab M24 历史 container 运行: 10 passed, 0 skipped, 0 failures, 0 errors; JUnit artifact generated | The record proves this runner topology only; it does not establish unrecorded Linux architectures, Podman, Windows, or every Linux executor | Any runner topology change, or a DinD/container contract failure |
 | Linux + rootless Podman | P1 | scheduled | Product decision to support Podman; compatible CLI/mount/network/pids/user/kill semantics | No execution evidence | Current backend commands and hardening flags target Docker | Podman becomes a release target or a compatibility spike is scheduled |
 | Windows native | P2 | deferred | Product decision to support Windows; path, locking, resource-limit, and container-tier design | No execution evidence | Drive-letter colons and Unix-specific isolation assumptions require design work | Windows becomes a release target |
-| macOS arm64 + Docker Desktop Linux daemon | non-release | supplemental | Docker Desktop 29.2.1 and local `python:3.11-slim` | Dated local JUnit 10/10 below | Linux VM daemon evidence does not prove native Linux runners, Podman, or Windows | Regression in local evidence or a change to the non-release smoke environment |
+| macOS arm64 + Docker Desktop Linux daemon | non-release | supplemental | Docker Desktop 29.8.0 and local `python:3.11-slim` | 2026-11-18: ten zero-skip container tests and all six installed-wheel checks passed; current report linked below | Linux VM daemon evidence does not prove native Linux runners, Podman, or Windows | Regression in local evidence or a change to the non-release smoke environment |
 
-The required offline job is defined in [`.gitlab-ci.yml`](../.gitlab-ci.yml). It runs Ruff
+The current GitHub Actions workflow is [verify.yml](../.github/workflows/verify.yml).
+Its Ubuntu 24.04 host uses the built-in Docker daemon and same-host bind mounts, runs as
+an unprivileged user, enforces exactly ten integration tests with zero skips/failures/errors,
+and executes all six installed-wheel smoke checks. This topology is `configured` until
+an actual candidate run supplies artifacts; historical GitLab results do not verify it.
+
+The required offline job also remains defined in [`.gitlab-ci.yml`](../.gitlab-ci.yml). It runs Ruff
 check/format, the complete offline pytest suite, Golden 20/20, OpenSpec strict validation,
 and wheel/sdist builds. The container job publishes a JUnit artifact and fails if the ten
 marked tests are skipped, fail, or error.
@@ -37,20 +43,16 @@ M24 历史 container 运行 remains historical container-only evidence. It verif
 container integration tests for that runner topology and must not be represented as an M28
 installed-wheel smoke result.
 
-Current offline repository baseline: `3055 passed, 11 skipped`; OpenSpec strict `42/42`;
-Golden `20/20`. M28 local RC evidence on 2026-07-29 is: focused release contracts `47 passed`,
-Ruff check/format and wheel/sdist build passed. The unique built wheel ran
-the six clean-wheel/CLI/HTTP/Single/Duo/Triad checks successfully with Python 3.11.15. The first full
-pytest attempt was `2 failed, 2401 passed, 10 skipped`; both scheduler-dependent MCP wall-clock
-assertions reproduced in isolation. Commit `83ba892` changed only the tests to assert deterministic
-forwarded budgets, left production MCP code unchanged, and that fresh full run passed with
-`2403 passed, 10 skipped`. The final baseline is `2409 passed, 10 skipped` after adding the hostile-proxy,
-Golden cold-start, and private pip-cache regressions.
+Current-checkout verification is recorded in the
+[release-readiness validation report](superpowers/reports/2026-11-18-fix-github-release-readiness-verify.md).
+Do not substitute historical passing counts for the current candidate. GitHub and GitLab
+pin uv 0.11.1 and OpenSpec 1.13.1. Dependency installation and image pulls require package-index
+access; the tests and model mocks themselves run without provider credentials or real model calls.
 
-The local Docker client is 29.2.1, but `docker info` could not connect to
-`/Users/admin/.docker/run/docker.sock`. Therefore no supplemental local container integration or
-Linux-container RC smoke was run for M28. This local limitation does not replace or weaken the
-required GitLab Linux result above.
+The M28 local real-wheel gate and its Docker-daemon limitation are historical records in
+[the frozen RC evidence](releases/0.1.0-rc.md). Current local Docker integration and
+installed-wheel checks passed on 2026-11-18 as supplemental evidence below. Native
+Linux GitHub runner execution and real-model checks remain unverified.
 
 ## Linux Docker Runner Evidence
 
@@ -71,6 +73,19 @@ the job passed all ten marked integration tests with zero skips, failures, or er
 the root bootstrap failure that motivated the non-root `su-exec` fix.
 
 ## Supplemental Local Evidence
+
+On 2026-11-18, macOS 26.4 arm64 with Docker Desktop client/server 29.8.0 ran the
+ten integration tests with `tests=10`, `failures=0`, `errors=0`, `skipped=0`
+(`10 passed, 4 deselected in 14.82s`). This includes the receipt-write and
+metadata-parent-move protections added by the release-readiness maintenance change.
+The same wheel passed all six clean-install smoke checks inside a non-root
+`python:3.11-slim` container running Python 3.11.18. The daemon was Linux aarch64,
+kernel `7.0.12-linuxkit`, and the image digest was
+`sha256:07d4824036af339fa1b6ef769cc99d9c10a141769538b52b3b597c84f7a7b535`.
+The test subprocess explicitly retained the active Docker endpoint while pytest
+isolated HOME. Commands, JUnit/JSON locations, wheel digest and scope are recorded
+in the [current verification report](superpowers/reports/2026-11-18-fix-github-release-readiness-verify.md#supplemental-docker-integration-2026-11-18).
+This local run does not mark the configured GitHub runner topology as verified.
 
 On 2026-07-27, macOS 26.5.1 arm64 with Docker Desktop client/server 29.2.1 ran:
 

@@ -4,6 +4,7 @@
 Define deterministic ownership, reuse, and bounded cleanup for model clients across Task, CLI, batch, HTTP, collaboration, and REPL boundaries without changing public results.
 
 ## Requirements
+
 ### Requirement: Model clients expose deterministic ownership closure
 
 `ModelClient` MUST expose an idempotent `close()` lifecycle operation. A caller that creates a client MUST close it on normal completion, early return, process-control exit, and exception. `Task.close()` MUST release Task-owned backend resources but MUST NOT close a client supplied by its caller.
@@ -47,3 +48,17 @@ HTTP task services, evaluation commands, smoke commands, collaboration adapters,
 #### Scenario: HTTP task finishes or is cancelled
 - **WHEN** an HTTP task reaches success, failure, cancellation, or shutdown
 - **THEN** task, client, and manager resources close in the existing safe order without changing the response projection
+
+### Requirement: Provider attempts have one retry owner
+Provider SDK retries MUST be disabled when ForgeAgent owns retries, so reported attempts correspond to actual transport requests.
+
+#### Scenario: Provider repeatedly rate limits
+- **WHEN** all configured attempts receive retryable rate-limit responses
+- **THEN** the number of HTTP requests equals the reported attempt count
+
+### Requirement: Discovery is bounded and cache failures degrade safely
+Model discovery MUST use an explicit finite short timeout, close its SDK resources, validate cached provider/model mappings, and save cache data atomically. Invalid or unreadable caches MUST behave as a cache miss without crashing or returning non-string model IDs.
+
+#### Scenario: Cache contains valid JSON of the wrong shape
+- **WHEN** the cache root, provider entry, or model ID value has an invalid type
+- **THEN** resolution safely discovers or falls back to the requested logical model ID

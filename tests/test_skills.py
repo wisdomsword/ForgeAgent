@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import FrozenInstanceError
+from pathlib import Path
 
 import pytest
 
@@ -526,6 +527,40 @@ def test_registry_standard_skill_body_truncated_to_memory_bound(tmp_path):
     steps = registry._definitions["find-skills"].steps
     assert len(steps.encode("utf-8")) <= 32 * 1024
     assert steps.endswith("x")
+
+
+def test_registry_bounds_oversized_skill_disk_read_before_parsing(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    _write_raw_skill(home, "find-skills", _standard_skill_document(body="x" * (300 * 1024)))
+    _write_skill(home, "review-python", trigger="Review Python.")
+    oversized = home / ".forgeagent" / "skills" / "find-skills" / "SKILL.md"
+    oversized = oversized.resolve()
+    original_open = Path.open
+    requested_sizes = []
+
+    def record_read_bound(path, *args, **kwargs):
+        handle = original_open(path, *args, **kwargs)
+        if path == oversized:
+            original_read = handle.read
+
+            def read(size=-1):
+                requested_sizes.append(size)
+                return original_read(size)
+
+            monkeypatch.setattr(handle, "read", read)
+        return handle
+
+    monkeypatch.setattr(Path, "open", record_read_bound)
+
+    registry = SkillRegistry.load(
+        home=str(home),
+        allowed_root=str(tmp_path / "root"),
+        allow_project=False,
+    )
+
+    assert registry.read("find-skills") is None
+    assert registry.read("review-python") is not None
+    assert requested_sizes == [256 * 1024 + 1]
 
 
 def test_registry_standard_skill_trigger_derived_bounded_and_single_line(tmp_path):

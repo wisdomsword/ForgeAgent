@@ -49,7 +49,7 @@
 
 ## 遗留问题
 
-- [ ] 全量套件存在 2 个既有失败（`tests/test_m23_mode_evaluation.py`、`tests/test_m25_mode_evaluation.py`）：引用里程碑历史重写前已失效的提交哈希（c20c0948/8e82fdd4/9e1e5c58），`git ls-tree` 退出 128，已在干净 HEAD 实证复现、与 M52 无关 — 计划：属既有事实，修复 M23/M25 测试引用需另立维护 change，不在本里程碑范围。
+- [x] M52 当时的全量套件存在 2 个既有失败（`tests/test_m23_mode_evaluation.py`、`tests/test_m25_mode_evaluation.py`）：引用里程碑历史重写前已失效的提交哈希（c20c0948/8e82fdd4/9e1e5c58），`git ls-tree` 退出 128，已在干净 HEAD 实证复现、与 M52 无关 — 后续维护（2026-11-18）：`fix-github-release-readiness` 已改用固定摘要与可移植证据校验，M23/M25 定向测试通过；原 M52 验收数字保留为历史记录。最新全量检查见[维护验证报告](../docs/superpowers/reports/2026-11-18-fix-github-release-readiness-verify.md)。
 
 ## 续接指引
 

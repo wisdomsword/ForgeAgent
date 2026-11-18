@@ -691,7 +691,7 @@ def test_default_runner_completes_all_twenty_cases():
 
 
 def test_g14_allows_cold_worker_start_after_timeout(tmp_path, monkeypatch):
-    original_run = cases.subprocess.run
+    original_popen = cases.subprocess.Popen
     worker_count = 0
 
     def delayed_second_worker(command, *args, **kwargs):
@@ -706,9 +706,9 @@ def test_g14_allows_cold_worker_start_after_timeout(tmp_path, monkeypatch):
                     "import runpy,time; time.sleep(0.3); "
                     "runpy.run_module('forgeagent._sandbox_worker', run_name='__main__')",
                 ]
-        return original_run(command, *args, **kwargs)
+        return original_popen(command, *args, **kwargs)
 
-    monkeypatch.setattr(cases.subprocess, "run", delayed_second_worker)
+    monkeypatch.setattr(cases.subprocess, "Popen", delayed_second_worker)
 
     evidence = cases.run_g14_offline(tmp_path)
 

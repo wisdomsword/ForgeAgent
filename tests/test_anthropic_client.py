@@ -1,12 +1,14 @@
 """Unit tests for AnthropicClient + capability-gating (M2-6).
 
-All tests use an injected transport (no real key, no network). Capability-gating and
+All tests use local transports (no real key, no network). Capability-gating and
 response parsing are pure, so they are asserted directly on build_request / _parse_response.
 """
 
 import sys
 from types import SimpleNamespace
 
+import anthropic
+import httpx
 import pytest
 
 from forgeagent.anthropic_client import (
@@ -44,6 +46,48 @@ def _fake_reply(text="ok", stop_reason="end_turn", inp=3, out=5, cache_creation=
 
 def _user(text="hi") -> list[Message]:
     return [Message(role=Role.USER, content=text)]
+
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_sdk_rate_limit_requests_match_reported_attempts(monkeypatch, tmp_path, stream):
+    sdk_class = anthropic.Anthropic
+    generation_requests = []
+    discovery_requests = []
+
+    def send(request):
+        if request.url.path == "/v1/models":
+            discovery_requests.append(request)
+            return httpx.Response(200, json={"data": [], "has_more": False})
+        generation_requests.append(request)
+        return httpx.Response(429, headers={"retry-after-ms": "1"}, json={"error": "slow down"})
+
+    def create_sdk(**kwargs):
+        return sdk_class(http_client=httpx.Client(transport=httpx.MockTransport(send)), **kwargs)
+
+    monkeypatch.setattr(anthropic, "Anthropic", create_sdk)
+    monkeypatch.setattr(
+        "forgeagent.model_discovery.DEFAULT_CACHE_PATH", tmp_path / "model_overrides.json"
+    )
+    client = AnthropicClient(
+        capability=get_capability("claude-haiku-4-5"),
+        api_key="test-key",
+        base_url="https://provider.example",
+        sleep=lambda _: None,
+    )
+    params = GenerationParams(timeout_seconds=0.5)
+    try:
+        if stream:
+            (result,) = client.stream(_user(), params)
+        else:
+            result = client.complete(_user(), params)
+    finally:
+        client.close()
+
+    assert isinstance(result, ClientError)
+    assert result.kind == "rate_limit"
+    assert len(generation_requests) == result.attempts == 3
+    assert len(discovery_requests) == 1
+    assert discovery_requests[0].extensions["timeout"]["read"] == 0.5
 
 
 # --- capability-gating -------------------------------------------------------

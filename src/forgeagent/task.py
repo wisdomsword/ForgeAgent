@@ -286,6 +286,7 @@ class Task:
             full_disk_limits = restricted_limits or RestrictedLimits()
             self._full_disk_backend_factory = lambda: RestrictedBackend(
                 allowed_root=self._host_filesystem_root,
+                working_directory=self._allowed_root,
                 timeout_seconds=full_disk_limits.timeout_seconds,
                 cpu_seconds=full_disk_limits.cpu_seconds,
                 memory_mb=full_disk_limits.memory_mb,

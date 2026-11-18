@@ -533,20 +533,22 @@ def _parse_task_body(body: dict[str, object]) -> tuple[str, dict[str, object]]:
         if isinstance(goal, str) and goal.strip():
             return goal, {}
         raise HttpError(400, "invalid_request")
+    mode = body.get("mode")
+    if not isinstance(mode, str):
+        raise HttpError(400, "invalid_request")
     if keys == _TASK_MODE_KEYS:
         goal = body["goal"]
-        mode = body["mode"]
         if isinstance(goal, str) and goal.strip() and mode in {"task", "duo", "triad"}:
             return goal, {"mode": mode}
         raise HttpError(400, "invalid_request")
     if keys == _RESUME_LOOP_KEYS:
         loop_id = body["resume_loop_id"]
-        if body["mode"] == "loop" and isinstance(loop_id, str) and _LOOP_ID.fullmatch(loop_id):
+        if mode == "loop" and isinstance(loop_id, str) and _LOOP_ID.fullmatch(loop_id):
             return "", {"mode": "loop", "resume_loop_id": loop_id}
         raise HttpError(400, "invalid_request")
     if keys in {_NEW_LOOP_KEYS, _NEW_COLLABORATIVE_LOOP_KEYS}:
         goal = body["goal"]
-        if not isinstance(goal, str) or not goal.strip() or body["mode"] != "loop":
+        if not isinstance(goal, str) or not goal.strip() or mode != "loop":
             raise HttpError(400, "invalid_request")
         if not all(
             _positive_integer(body[name])
@@ -554,7 +556,11 @@ def _parse_task_body(body: dict[str, object]) -> tuple[str, dict[str, object]]:
         ) or not _positive_number(body["wall_clock_seconds"]):
             raise HttpError(400, "invalid_request")
         collaboration_mode = body.get("collaboration_mode", "single")
-        if collaboration_mode not in {"single", "duo", "triad"}:
+        if not isinstance(collaboration_mode, str) or collaboration_mode not in {
+            "single",
+            "duo",
+            "triad",
+        }:
             raise HttpError(400, "invalid_request")
         return goal, {name: body[name] for name in body if name != "goal"}
     raise HttpError(400, "invalid_request")
@@ -599,13 +605,14 @@ def _parse_receipt_resolution(body: dict[str, object]) -> tuple[int, str, str]:
     if (
         type(expected_revision) is not int
         or expected_revision < 0
+        or not isinstance(decision, str)
         or decision not in {"confirmed", "abandoned", "retry_approved"}
         or not isinstance(evidence, str)
         or len(evidence) > 1000
         or (decision == "confirmed" and not evidence.strip())
     ):
         raise HttpError(400, "invalid_request")
-    return expected_revision, cast(str, decision), evidence
+    return expected_revision, decision, evidence
 
 
 def _positive_integer(value: object) -> bool:

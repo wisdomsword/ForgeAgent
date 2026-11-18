@@ -66,6 +66,8 @@ def _install_audit_hook(
     writes_only_in_root: bool = False,
     readable_directory_roots: tuple[str, ...] = (),
     allowed_files: tuple[str, ...] = (),
+    project_root: str | None = None,
+    deny_descriptor_relative_open: bool = False,
 ) -> None:
     """Install a PEP 578 hook: file opens limited to allowed roots; network denied."""
     real_root = os.path.realpath(allowed_root)
@@ -79,6 +81,32 @@ def _install_audit_hook(
         *(os.path.realpath(root) for root in readable_directory_roots),
     ]
     allowed_file_paths = {os.path.realpath(path) for path in allowed_files}
+    receipt_directory = os.path.join(project_root or real_root, ".forgeagent", "receipts")
+
+    def reserved(path: str | bytes | None, dir_fd: int = -1, *, mutation: bool = False) -> bool:
+        decoded = os.fsdecode(path) if path is not None else os.curdir
+        if not os.path.isabs(decoded):
+            base = os.getcwd() if dir_fd in {-1, None} else os.path.realpath(f"/dev/fd/{dir_fd}")
+            decoded = os.path.join(base, decoded)
+        # Keep the lexical check: replacing a reserved directory with a symlink
+        # must not make its original name writable. Case-fold protects macOS aliases.
+        for candidate in (os.path.abspath(decoded), os.path.realpath(decoded)):
+            parts = tuple(part.casefold() for part in candidate.split(os.sep))
+            if any(
+                parts[index : index + 2] == (".forgeagent", "receipts")
+                for index in range(len(parts) - 1)
+            ):
+                return True
+            if mutation:
+                try:
+                    if (
+                        os.path.commonpath((candidate.casefold(), receipt_directory.casefold()))
+                        == candidate.casefold()
+                    ):
+                        return True
+                except ValueError:
+                    pass
+        return False
 
     def hook(event: str, args: tuple) -> None:
         if event == "open":
@@ -86,6 +114,8 @@ def _install_audit_hook(
             if not isinstance(path, (str, bytes)):
                 return
             p = os.fsdecode(path) if isinstance(path, bytes) else path
+            if reserved(p, mutation=_open_requests_write(args)):
+                raise PermissionError("restricted: host receipt storage is reserved")
             try:
                 rp = os.path.realpath(p)
             except ValueError:
@@ -116,6 +146,8 @@ def _install_audit_hook(
                 raise PermissionError("restricted: file access outside allowed root denied")
         elif event in {"os.listdir", "os.scandir"}:
             path = args[0]
+            if not isinstance(path, int) and reserved(path):
+                raise PermissionError("restricted: host receipt storage is reserved")
             if not isinstance(path, int) and not any(
                 _audit_path_within_root(path, -1, root) for root in readable_directories
             ):
@@ -124,11 +156,31 @@ def _install_audit_hook(
             for path_index, dir_fd_index in path_specs:
                 path = args[path_index]
                 if isinstance(path, int):
+                    if deny_descriptor_relative_open:
+                        raise PermissionError("restricted: descriptor mutation is unavailable")
                     continue
                 dir_fd = args[dir_fd_index] if dir_fd_index is not None else -1
+                if reserved(path, dir_fd, mutation=True):
+                    raise PermissionError("restricted: host receipt storage is reserved")
                 if not _audit_path_within_root(path, dir_fd, real_root):
                     raise PermissionError("restricted: file mutation outside allowed root denied")
 
+    if deny_descriptor_relative_open:
+        original_open = os.open
+
+        def guarded_open(path, flags, mode=0o777, *, dir_fd=None):
+            # CPython's open audit event omits dir_fd. Do not interpret a
+            # descriptor-relative path as cwd-relative and accidentally permit it.
+            if dir_fd is not None and not os.path.isabs(path):
+                descriptor_path = f"/dev/fd/{dir_fd}"
+                base = os.path.realpath(descriptor_path)
+                if not os.path.isabs(base) or base == descriptor_path:
+                    raise PermissionError("restricted: descriptor-relative open is unavailable")
+                path = os.path.join(base, os.fsdecode(path))
+            return original_open(path, flags, mode, dir_fd=dir_fd)
+
+        os.open = guarded_open
+        sys.modules[os.name].open = guarded_open
     sys.addaudithook(hook)
 
 
@@ -147,8 +199,11 @@ def _audit_path_within_root(path: str | bytes | None, dir_fd: int, real_root: st
         if dir_fd in {-1, None}:
             base = os.getcwd()
         else:
-            base = os.path.realpath(f"/dev/fd/{dir_fd}")
-            if not os.path.isabs(base):
+            descriptor_path = f"/dev/fd/{dir_fd}"
+            base = os.path.realpath(descriptor_path)
+            # Darwin leaves directory descriptor proxies unresolved. Treat an
+            # unknown directory as denied, including with full-disk authority.
+            if not os.path.isabs(base) or base == descriptor_path:
                 return False
         decoded = os.path.join(base, decoded)
     try:
@@ -207,16 +262,16 @@ class _BoundedCapture(io.TextIOBase):
         self._buffer = io.StringIO()
         self._remaining_file_bytes = limit
         self._file = open(path, "w", encoding="utf-8") if path else None
+        self._truncated = False
 
     def write(self, text: str) -> int:
-        self._buffer.write(text)
-        encoded = text.encode("utf-8")
-        portion = (
-            text
-            if len(encoded) <= self._remaining_file_bytes
-            else encoded[: self._remaining_file_bytes].decode("utf-8", errors="ignore")
-        )
+        if self._truncated:
+            return len(text)
+        encoded = text[: self._remaining_file_bytes + 1].encode("utf-8")
+        portion = encoded[: self._remaining_file_bytes].decode("utf-8", errors="ignore")
+        self._truncated |= len(portion) < len(text)
         if portion:
+            self._buffer.write(portion)
             if self._file is not None:
                 self._file.write(portion)
                 self._file.flush()
@@ -228,7 +283,7 @@ class _BoundedCapture(io.TextIOBase):
             self._file.flush()
 
     def getvalue(self) -> str:
-        return self._buffer.getvalue()
+        return self._buffer.getvalue() + ("\n... output truncated ...\n" if self._truncated else "")
 
     def close(self) -> None:
         if self._file is not None:
@@ -252,6 +307,8 @@ def main() -> None:
             allowed_root,
             writes_only_in_root=True,
             allowed_files=tuple(capture_paths.values()),
+            project_root=payload.get("project_root", allowed_root),
+            deny_descriptor_relative_open=True,
         )
 
     capture_paths = payload.get("capture_paths", {})

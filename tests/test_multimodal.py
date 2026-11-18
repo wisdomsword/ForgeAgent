@@ -299,11 +299,23 @@ def test_load_images_bounds_read_when_file_grows_after_stat(tmp_path, monkeypatc
     assert requested_sizes == [MAX_IMAGE_BYTES + 1]
 
 
-def test_load_images_per_request_count_cap(tmp_path):
-    for i in range(21):
+def test_load_images_per_request_count_cap(tmp_path, monkeypatch):
+    for i in range(25):
         (tmp_path / f"img{i:02d}.png").write_bytes(_PNG_BYTES)
-    with pytest.raises(ValueError):
+    (tmp_path / "img15.txt").write_text("not an image")
+    original_open = Path.open
+    opened = []
+
+    def record_open(path, *args, **kwargs):
+        opened.append(path.name)
+        return original_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", record_open)
+
+    with pytest.raises(ValueError, match="21 images exceeds the 20-image per-request limit"):
         load_images(str(tmp_path))
+
+    assert opened == sorted([f"img{i:02d}.png" for i in range(21)] + ["img15.txt"])
 
 
 def test_load_images_directory_rejects_recognized_oversized_file(tmp_path):

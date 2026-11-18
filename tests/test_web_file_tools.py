@@ -13,6 +13,8 @@ import hashlib
 import http.client
 import logging
 import os
+import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -575,6 +577,92 @@ def test_file_read_within_root_masks_secrets_and_reports_continuation(tmp_path, 
     )
 
 
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="requires POSIX named pipes")
+def test_file_read_rejects_fifo_without_waiting_for_a_writer(tmp_path):
+    os.mkfifo(tmp_path / "result.pipe")
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from test_web_file_tools import FileReadArgs, FileReadTool, _file_ctx\n"
+            "import sys\n"
+            "outcome = FileReadTool().run(FileReadArgs(path='result.pipe'), "
+            "_file_ctx(allowed_root=sys.argv[1]))\n"
+            "assert not outcome.success\n"
+            "print(outcome.detail)\n",
+            str(tmp_path),
+        ],
+        cwd=Path(__file__).resolve().parent,
+        timeout=5,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    assert result.stdout.strip() == "FileRead failed"
+
+
+@pytest.mark.parametrize("file_grows_after_stat", [False, True])
+def test_file_read_enforces_byte_limit(tmp_path, monkeypatch, file_grows_after_stat):
+    path = tmp_path / "large.txt"
+    path.write_bytes(b"x" * 1_048_576)
+    ctx = _file_ctx(allowed_root=str(tmp_path))
+    read = FileReadTool()
+    args = FileReadArgs(path=path.name)
+
+    assert read.run(args, ctx).detail == "x" * 1_048_576
+    with path.open("ab") as stream:
+        stream.write(b"x")
+    if file_grows_after_stat:
+        original_fstat = os.fstat
+
+        def before_growth(descriptor):
+            return SimpleNamespace(st_mode=original_fstat(descriptor).st_mode, st_size=1_048_576)
+
+        monkeypatch.setattr(os, "fstat", before_growth)
+    outcome = read.run(args, ctx)
+
+    assert outcome.success is False
+    assert outcome.detail == "FileRead failed"
+
+
+@pytest.mark.parametrize("receipt_project", ["project", "other-project"])
+@pytest.mark.parametrize("use_symlink", [False, True])
+def test_file_tools_reject_receipt_subtree_after_authority_expands(
+    tmp_path, receipt_project, use_symlink
+):
+    project = tmp_path / "project"
+    project.mkdir()
+    receipt_directory = tmp_path / receipt_project / ".forgeagent" / "receipts"
+    receipt_directory.mkdir(parents=True)
+    receipt = receipt_directory / "record.json"
+    receipt.write_text("host state")
+    target = receipt_directory
+    if use_symlink:
+        target = tmp_path / "receipt-alias"
+        target.symlink_to(receipt_directory, target_is_directory=True)
+    ctx = _file_ctx(tier="restricted", confirmer=lambda args: True, allowed_root=str(tmp_path))
+    ctx.project_root = str(project)
+
+    assert not FileReadTool().run(FileReadArgs(path=str(target / receipt.name)), ctx).success
+    assert (
+        not FileWriteTool()
+        .run(FileWriteArgs(path=str(target / receipt.name), content="overwritten"), ctx)
+        .success
+    )
+    assert not FileListTool().run(FileListArgs(path=str(target)), ctx).success
+    assert receipt.read_text() == "host state"
+
+
+def test_file_write_does_not_create_receipt_ancestor_as_file(tmp_path):
+    ctx = _file_ctx(allowed_root=str(tmp_path))
+
+    outcome = FileWriteTool().run(FileWriteArgs(path=".forgeagent", content="task text"), ctx)
+
+    assert not outcome.success
+    assert not (tmp_path / ".forgeagent").exists()
+
+
 @pytest.mark.parametrize("tier", ["restricted", "container"])
 def test_file_read_audit_logs_only_masked_canonical_project_relative_path(
     tier, tmp_path, monkeypatch, caplog
@@ -670,7 +758,7 @@ def test_file_tools_contain_invalid_path_value_error(tool, args, detail, tmp_pat
 @pytest.mark.parametrize(
     ("tool", "args", "detail", "operation"),
     [
-        (FileReadTool(), FileReadArgs(path="inside.txt"), "FileRead failed", "read_text"),
+        (FileReadTool(), FileReadArgs(path="inside.txt"), "FileRead failed", "open"),
         (
             FileWriteTool(),
             FileWriteArgs(path="inside.txt", content="x"),
@@ -688,6 +776,8 @@ def test_file_tool_os_errors_do_not_disclose_paths(
 
     if operation == "write_text":
         monkeypatch.setattr("forgeagent.tools._write_file_safely", fail)
+    elif operation == "open":
+        monkeypatch.setattr(os, "open", fail)
     else:
         monkeypatch.setattr(Path, operation, fail)
     outcome = tool.run(args, _file_ctx(allowed_root=str(tmp_path)))

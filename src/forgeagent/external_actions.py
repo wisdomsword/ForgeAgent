@@ -24,6 +24,8 @@ from .secret_policy import mask_audit_data, mask_secrets, sensitive_env_values
 from .text_safety import safe_text
 
 RECEIPT_SCHEMA = "forgeagent.external-action-receipt.v1"
+RECEIPT_DIRECTORY_PARTS = (".forgeagent", "receipts")
+_MAX_CATALOG_BYTES = 1024 * 1024
 MAX_RECEIPT_BYTES = 256 * 1024
 MAX_TASK_ID_CHARS = 128
 MAX_LABEL_CHARS = 200
@@ -284,6 +286,11 @@ class ExternalActionReceiptStore:
         self._directory_fd = self._open_directory()
         self._closed = False
         self._finalizer = weakref.finalize(self, os.close, self._directory_fd)
+        try:
+            self._initialize_catalog()
+        except BaseException:
+            self.close()
+            raise
 
     def _safe_directory(self, path: Path, *, create: bool) -> Path:
         try:
@@ -304,7 +311,7 @@ class ExternalActionReceiptStore:
 
     def _prepare_directory(self) -> Path:
         current = self._root
-        for part in (".forgeagent", "receipts"):
+        for part in RECEIPT_DIRECTORY_PARTS:
             current = self._safe_directory(current / part, create=True)
         return current
 
@@ -339,6 +346,128 @@ class ExternalActionReceiptStore:
             or (path_details.st_dev, path_details.st_ino) != (fd_details.st_dev, fd_details.st_ino)
         ):
             raise ReceiptError("receipt directory is unsafe")
+
+    def _receipt_ids_on_disk(self) -> list[str]:
+        names = os.listdir(self._directory_fd)
+        identifiers = []
+        for name in names:
+            if not name.endswith(".json"):
+                continue
+            if _ACTION_ID_RE.fullmatch(name[:-5]) is None:
+                raise ReceiptError("receipt file is invalid")
+            identifiers.append(name[:-5])
+        return sorted(identifiers)
+
+    def _read_catalog(self) -> list[str]:
+        try:
+            descriptor = os.open(
+                ".catalog",
+                os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+                dir_fd=self._directory_fd,
+            )
+            with os.fdopen(descriptor, "rb") as handle:
+                details = os.fstat(handle.fileno())
+                if not stat.S_ISREG(details.st_mode) or details.st_size > _MAX_CATALOG_BYTES:
+                    raise ReceiptError("receipt catalog is unsafe")
+                raw = handle.read(_MAX_CATALOG_BYTES + 1)
+            if len(raw) > _MAX_CATALOG_BYTES:
+                raise ReceiptError("receipt catalog is too large")
+            identifiers = json.loads(raw)
+            if (
+                not isinstance(identifiers, list)
+                or any(
+                    not isinstance(item, str) or _ACTION_ID_RE.fullmatch(item) is None
+                    for item in identifiers
+                )
+                or identifiers != sorted(set(identifiers))
+            ):
+                raise ReceiptError("receipt catalog is invalid")
+            on_disk = self._receipt_ids_on_disk()
+            if set(identifiers).difference(on_disk):
+                raise ReceiptError("registered receipt is missing")
+            # A crash between prepared-record persistence and catalog replacement
+            # has not dispatched anything. Preserve and register only that exact
+            # creation state; other unregistered states remain a store error.
+            unregistered = set(on_disk).difference(identifiers)
+            for identifier in unregistered:
+                record = self._load_unlocked(identifier)
+                if (
+                    record.phase != "prepared"
+                    or record.revision != 0
+                    or record.resolution != "open"
+                ):
+                    raise ReceiptError("unexpected unregistered receipt")
+            if unregistered:
+                self._write_catalog(on_disk)
+                identifiers = on_disk
+            return identifiers
+        except (OSError, ValueError, UnicodeError) as error:
+            raise ReceiptError("receipt catalog is unavailable") from error
+
+    def _write_catalog(self, identifiers: list[str]) -> None:
+        payload = json.dumps(identifiers, separators=(",", ":")).encode("utf-8")
+        if len(payload) > _MAX_CATALOG_BYTES:
+            raise ReceiptError("receipt catalog is too large")
+        name = f".catalog.{uuid4().hex}"
+        try:
+            descriptor = os.open(
+                name,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                0o600,
+                dir_fd=self._directory_fd,
+            )
+            with os.fdopen(descriptor, "wb") as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(
+                name, ".catalog", src_dir_fd=self._directory_fd, dst_dir_fd=self._directory_fd
+            )
+            os.fsync(self._directory_fd)
+        except OSError as error:
+            raise ReceiptError("receipt catalog write failed") from error
+        finally:
+            try:
+                os.unlink(name, dir_fd=self._directory_fd)
+            except FileNotFoundError:
+                pass
+
+    def _initialize_catalog(self) -> None:
+        with self._receipt_lock("catalog"):
+            try:
+                try:
+                    marker = os.stat(
+                        ".initialized", dir_fd=self._directory_fd, follow_symlinks=False
+                    )
+                except FileNotFoundError:
+                    marker = None
+                if marker is not None and not stat.S_ISREG(marker.st_mode):
+                    raise ReceiptError("receipt initialization marker is unsafe")
+                try:
+                    os.stat(".catalog", dir_fd=self._directory_fd, follow_symlinks=False)
+                except FileNotFoundError:
+                    if marker is not None:
+                        raise ReceiptError("initialized receipt catalog is missing") from None
+                    identifiers = self._receipt_ids_on_disk()
+                    for identifier in identifiers:
+                        self._load_unlocked(identifier)
+                    self._write_catalog(identifiers)
+                self._read_catalog()
+                if marker is None:
+                    descriptor = os.open(
+                        ".initialized",
+                        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                        0o600,
+                        dir_fd=self._directory_fd,
+                    )
+                    try:
+                        os.write(descriptor, b"1")
+                        os.fsync(descriptor)
+                    finally:
+                        os.close(descriptor)
+                    os.fsync(self._directory_fd)
+            except OSError as error:
+                raise ReceiptError("receipt initialization failed") from error
 
     def close(self) -> None:
         with self._lock:
@@ -392,7 +521,9 @@ class ExternalActionReceiptStore:
         try:
             self._ensure_binding()
             descriptor = os.open(
-                name, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0), dir_fd=self._directory_fd
+                name,
+                os.O_RDONLY | os.O_NONBLOCK | getattr(os, "O_NOFOLLOW", 0),
+                dir_fd=self._directory_fd,
             )
             details = os.fstat(descriptor)
             if not stat.S_ISREG(details.st_mode) or details.st_size > MAX_RECEIPT_BYTES:
@@ -517,7 +648,14 @@ class ExternalActionReceiptStore:
             )
         except (ValidationError, ValueError) as error:
             raise ReceiptError("invalid receipt") from error
-        with self._lock, self._receipt_lock(receipt.action_id):
+        with self._lock, self._receipt_lock("catalog"), self._receipt_lock(receipt.action_id):
+            identifiers = self._read_catalog()
+            next_identifiers = sorted([*identifiers, receipt.action_id])
+            if (
+                len(json.dumps(next_identifiers, separators=(",", ":")).encode())
+                > _MAX_CATALOG_BYTES
+            ):
+                raise ReceiptError("receipt catalog is too large")
             try:
                 os.stat(
                     self._name(receipt.action_id), dir_fd=self._directory_fd, follow_symlinks=False
@@ -529,6 +667,7 @@ class ExternalActionReceiptStore:
             else:
                 raise ReceiptError("receipt already exists")
             self._write(receipt)
+            self._write_catalog(next_identifiers)
         self._audit(receipt, "created")
         return receipt
 
@@ -621,19 +760,14 @@ class ExternalActionReceiptStore:
     def list_pending(
         self, loop_id: str | None = None, task_id: str | None = None
     ) -> tuple[ExternalActionReceipt, ...]:
-        with self._lock:
+        with self._lock, self._receipt_lock("catalog"):
             self._ensure_binding()
             try:
-                names = sorted(os.listdir(self._directory_fd))
+                identifiers = self._read_catalog()
             except OSError as error:
                 raise ReceiptError("receipt listing failed") from error
             records: list[ExternalActionReceipt] = []
-            for name in names:
-                if not name.endswith(".json"):
-                    continue
-                action_id = name[:-5]
-                if _ACTION_ID_RE.fullmatch(action_id) is None:
-                    raise ReceiptError("receipt file is invalid")
+            for action_id in identifiers:
                 receipt = self._load_unlocked(action_id)
                 if (
                     receipt.resolution == "open"

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import inspect
-import re
 from pathlib import Path
 
 import yaml
@@ -50,7 +49,7 @@ def test_required_ci_jobs_cover_all_gates() -> None:
     offline_script = _script(offline)
     for expected in (
         "uv==0.11.1",
-        "@fission-ai/openspec@1.4.1",
+        "@fission-ai/openspec@1.13.1",
         "--break-system-packages",
     ):
         assert expected in offline_script
@@ -144,20 +143,9 @@ def test_platform_matrix_and_public_docs_are_linked() -> None:
     assert "Linux Docker runner topology (M24 历史 container 运行)" in matrix
     assert "Linux amd64/arm64" not in current_section
     assert "Linux GitLab CI 已 verified" not in current_section
-    readme_baseline = re.search(
-        r"pytest: `(?P<pytest>\d+ passed, \d+ skipped)`；"
-        r"OpenSpec strict: `(?P<openspec>\d+/\d+)`\.",
-        current_section,
-    )
-    assert readme_baseline is not None
-    golden = re.search(r"Golden: `(?P<golden>\d+/\d+)`", current_section)
-    assert golden is not None
-
-    platform_baseline = re.search(
-        r"Current offline repository baseline: `(?P<pytest>\d+ passed, \d+ skipped)`; "
-        r"OpenSpec strict `(?P<openspec>\d+/\d+)`;\nGolden `(?P<golden>\d+/\d+)`",
-        matrix,
-    )
-    assert platform_baseline is not None
-    readme_values = readme_baseline.groupdict() | {"golden": golden.group("golden")}
-    assert readme_values == platform_baseline.groupdict()
+    report = "2026-11-18-fix-github-release-readiness-verify.md"
+    assert f"docs/superpowers/reports/{report}" in current_section
+    assert f"superpowers/reports/{report}" in matrix
+    assert "1.13.1" in current_section and "1.13.1" in matrix
+    assert "3055 passed" not in current_section
+    assert "Current offline repository baseline: `3055" not in matrix

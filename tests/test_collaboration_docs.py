@@ -202,11 +202,13 @@ def test_readme_current_verification_section_is_unique_and_structured() -> None:
     headings = re.findall(r"^##[ \t]*当前验证[ \t]*$", readme, flags=re.MULTILINE)
     assert len(headings) == 1
 
+    section = readme.split("## 当前验证\n", 1)[1].split("\n## ", 1)[0]
+    reports = re.findall(r"\[本次验证报告\]\(([^)]+)\)", section)
+    assert len(reports) == 1
     current_verification = re.findall(
-        r"^## 当前验证\n\n"
         r"pytest: `(?P<passed>\d+) passed, (?P<skipped>\d+) skipped`；"
         r"OpenSpec strict: `(?P<spec_passed>\d+)/(?P<spec_total>\d+)`\.$",
-        readme,
+        _text(reports[0]),
         flags=re.MULTILINE,
     )
     assert len(current_verification) == 1

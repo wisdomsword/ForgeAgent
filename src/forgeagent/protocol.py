@@ -389,7 +389,7 @@ def _build_tool_call(
     happens exactly once, regardless of where the call came from. `tool_schemas` is the
     registered tool set (name -> arg schema); a name outside it is a structured error.
     """
-    if name not in tool_schemas:
+    if not isinstance(name, str) or name not in tool_schemas:
         _record_parse_error(
             result,
             ParseErrorType.INVALID_FORMAT,

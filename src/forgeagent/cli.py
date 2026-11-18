@@ -197,27 +197,29 @@ def render_outcome(
         # result is unverified — flag that distinction instead of a plain "completed".
         console.print("[bold green]answered[/bold green] [dim](unverified)[/dim]")
     else:
-        console.print(f"[bold yellow]stopped[/bold yellow]: {status.reason}")
+        console.print(Text.assemble(("stopped", "bold yellow"), f": {status.reason}"))
         if status.detail:
-            console.print(status.detail)
+            console.print(Text(status.detail))
     for i, rnd in enumerate(outcome.rounds, 1):
         for out in rnd.outcomes:
-            marker = "[green]ok[/green]" if out.success else "[red]FAILED[/red]"
-            console.print(f"  round {i} [{out.tool}] {marker}")
+            marker = ("ok", "green") if out.success else ("FAILED", "red")
+            console.print(Text.assemble(f"  round {i} [{out.tool}] ", marker))
             if out.exec_result and out.exec_result.stdout.strip():
-                console.print(f"    {out.exec_result.stdout.strip()}")
+                console.print(Text(f"    {out.exec_result.stdout.strip()}"))
             if not out.success and out.detail:
-                console.print(f"    {out.detail.splitlines()[-1]}")
+                console.print(Text(f"    {out.detail.splitlines()[-1]}"))
         if not plain_body_already_rendered and not rnd.outcomes and rnd.body:
             # The model answered in plain text without calling Exec — still show it,
             # since it's the only place the actual answer lives.
-            console.print(rnd.body)
+            console.print(Text(rnd.body))
     render_execution_evidence(outcome.execution_evidence, console, project_root=Path.cwd())
     for result in outcome.memory_results:
         colour = "green" if result.status in {"accepted", "replaced"} else "yellow"
         detail = f" ({result.reason})" if result.reason else ""
         console.print(
-            f"[{colour}]memory {result.status}[/{colour}]: {result.scope}/{result.key}{detail}"
+            Text.assemble(
+                (f"memory {result.status}", colour), f": {result.scope}/{result.key}{detail}"
+            )
         )
 
 
@@ -289,10 +291,10 @@ def make_console_asker(console: Console, read_line: Callable[[str], str] = input
     the task with NEEDS_INFO cleanly (per docs/m7-tools-mcp-survey.md §3.5)."""
 
     def _ask(args: SurveyArgs) -> str | None:
-        console.print(f"[bold cyan]?[/bold cyan] {args.question}")
+        console.print(Text.assemble(("?", "bold cyan"), f" {args.question}"))
         if args.options:
             for i, opt in enumerate(args.options, 1):
-                console.print(f"  {i}. {opt}")
+                console.print(Text(f"  {i}. {opt}"))
         try:
             answer = read_line("answer> ").strip()
         except EOFError:
@@ -937,7 +939,7 @@ def _handle_mcp_command(goal: str, mcp: MCPManager | None, console: Console) -> 
     action = parts[1] if len(parts) > 1 else "status"
     if action == "status":
         for name, status in mcp.server_status().items():
-            console.print(f"  {name}: {status}")
+            console.print(Text(f"  {name}: {status}"))
     elif action in {"enable", "disable"} and len(parts) > 2:
         server = parts[2]
         labeler = getattr(mcp, "public_server_name", None)
@@ -951,9 +953,9 @@ def _handle_mcp_command(goal: str, mcp: MCPManager | None, console: Console) -> 
             return
         if ok:
             status = mcp.server_status().get(safe_server, "unavailable")
-            console.print(f"[green]{action}d[/green] {safe_server}: {status}")
+            console.print(Text.assemble((f"{action}d", "green"), f" {safe_server}: {status}"))
         else:
-            console.print(f"[red]unknown server[/red] {safe_server!r}")
+            console.print(Text.assemble(("unknown server", "red"), f" {safe_server!r}"))
     else:
         console.print(
             "[dim]usage: mcp status | mcp tools | mcp enable <server> | mcp disable <server>[/dim]"
@@ -969,7 +971,7 @@ def _print_mcp_tools(mcp: MCPManager, console: Console) -> None:
     console.print("[bold]tools[/bold]:")
     for tool in tools:
         desc = tool.description.strip().replace("\n", " ")
-        console.print(f"  {tool.server}:{tool.name}" + (f" — {desc}" if desc else ""))
+        console.print(Text(f"  {tool.server}:{tool.name}" + (f" — {desc}" if desc else "")))
 
 
 def _handle_mcp_slash(goal: str, mcp: MCPManager | None, console: Console) -> None:
@@ -1025,12 +1027,16 @@ def _handle_model_command(
                 context_config or ContextConfig(),
             )
         except RegistryError as exc:
-            console.print(f"[red]unknown model[/red]: {exc}")
+            console.print(Text.assemble(("unknown model", "red"), f": {exc}"))
             return model
         except ValueError as exc:
-            console.print(f"[red]model switch failed[/red]: invalid context configuration: {exc}")
+            console.print(
+                Text.assemble(
+                    ("model switch failed", "red"), f": invalid context configuration: {exc}"
+                )
+            )
             return model
-    console.print(f"[green]switched[/green] to {requested}")
+    console.print(Text.assemble(("switched", "green"), f" to {requested}"))
     return requested
 
 
@@ -1055,9 +1061,9 @@ def _handle_search_command(goal: str, console: Console) -> None:
         console.print("[dim]no results[/dim]")
         return
     for i, result in enumerate(results, 1):
-        console.print(f"  {i}. [cyan]{result.title}[/cyan]  {result.url}")
+        console.print(Text.assemble(f"  {i}. ", (result.title, "cyan"), f"  {result.url}"))
         if result.snippet:
-            console.print(f"     {result.snippet}")
+            console.print(Text(f"     {result.snippet}"))
 
 
 def _handle_image_command(goal: str, console: Console) -> tuple[list[ImageItem] | None, str | None]:
@@ -1076,9 +1082,9 @@ def _handle_image_command(goal: str, console: Console) -> tuple[list[ImageItem] 
     try:
         images = load_images(path)
     except ValueError as exc:
-        console.print(f"[red]could not load image(s)[/red]: {exc}")
+        console.print(Text.assemble(("could not load image(s)", "red"), f": {exc}"))
         return None, None
-    console.print(f"[green]loaded[/green] {len(images)} image(s) from {path}")
+    console.print(Text.assemble(("loaded", "green"), f" {len(images)} image(s) from {path}"))
     return images, inline_goal
 
 
@@ -1103,7 +1109,7 @@ _SLASH_COMMAND_USAGE: dict[str, str] = {
 
 def _handle_memory_command(manager: MemoryManager, console: Console) -> None:
     rendered = manager.render()
-    console.print(rendered if rendered else "[dim]no memory[/dim]", markup=False)
+    console.print(Text(rendered) if rendered else Text("no memory", style="dim"))
 
 
 def _handle_remember_command(goal: str, manager: MemoryManager, console: Console) -> None:
@@ -1125,7 +1131,7 @@ def _handle_remember_command(goal: str, manager: MemoryManager, console: Console
     outcome = manager.apply(candidate, source="user_command")
     colour = "green" if outcome.status in {"accepted", "replaced"} else "yellow"
     detail = f": {outcome.reason}" if outcome.reason else ""
-    console.print(f"[{colour}]memory {outcome.status}[/{colour}]{detail}")
+    console.print(Text.assemble((f"memory {outcome.status}", colour), detail))
 
 
 def _print_command_menu(console: Console) -> None:
@@ -1149,7 +1155,7 @@ def _handle_help_command(goal: str, console: Console) -> None:
     if usage:
         console.print(usage, markup=False)
     else:
-        console.print(f"[red]unknown command[/red] {name!r}")
+        console.print(Text.assemble(("unknown command", "red"), f" {name!r}"))
 
 
 def _make_interactive_reader() -> Callable[[str], str]:
@@ -1286,7 +1292,7 @@ def run_smoke(
     for model in models:
         client = client_factory(model)
         try:
-            console.print(f"[bold]smoke[/bold] model={model} tier={tier}")
+            console.print(Text.assemble(("smoke", "bold"), f" model={model} tier={tier}"))
             for goal in SMOKE_GOALS:
                 task = Task(client, tier=tier, restricted_limits=restricted_limits)
                 try:
@@ -1295,10 +1301,9 @@ def run_smoke(
                     task.close()
                 ok = outcome.status.solved
                 all_ok = all_ok and ok
-                marker = (
-                    "[green]PASS[/green]" if ok else f"[red]FAIL[/red] ({outcome.status.reason})"
-                )
-                console.print(f"  {marker}  {goal}")
+                marker = ("PASS", "green") if ok else ("FAIL", "red")
+                reason = "" if ok else f" ({outcome.status.reason})"
+                console.print(Text.assemble("  ", marker, reason, f"  {goal}"))
         finally:
             client.close()
     console.print("[green]smoke: all passed[/green]" if all_ok else "[red]smoke: failures[/red]")
@@ -1357,8 +1362,12 @@ def print_models(console: Console, registry: Registry | None = None) -> None:
     for info in list_models(registry):
         aliases = ", ".join(info.aliases) if info.aliases else "—"
         console.print(
-            f"  [cyan]{info.model_id}[/cyan] — {aliases}  "
-            f"[dim]({info.client_kind}, ctx {info.context_window})[/dim]"
+            Text.assemble(
+                "  ",
+                (info.model_id, "cyan"),
+                f" — {aliases}  ",
+                (f"({info.client_kind}, ctx {info.context_window})", "dim"),
+            )
         )
 
 
@@ -1478,8 +1487,12 @@ def main(
                 if args.receipts_command == "list":
                     for receipt in store.list_pending(loop_id=args.loop_id, task_id=args.task_id):
                         console.print(
-                            json.dumps(
-                                receipt.model_dump(mode="json"), ensure_ascii=True, sort_keys=True
+                            Text(
+                                json.dumps(
+                                    receipt.model_dump(mode="json"),
+                                    ensure_ascii=True,
+                                    sort_keys=True,
+                                )
                             )
                         )
                     return 0
@@ -1546,7 +1559,7 @@ def main(
                 try:
                     images = load_images(args.image)
                 except ValueError as exc:
-                    console.print(f"[red]could not load image(s)[/red]: {exc}")
+                    console.print(Text.assemble(("could not load image(s)", "red"), f": {exc}"))
                     return 2
             mcp = build_mcp_manager()
             try:
@@ -1748,22 +1761,22 @@ def main(
         )
         return 0
     except RegistryError as exc:
-        error_console.print(f"[red]config error[/red]: {exc}")
+        error_console.print(Text.assemble(("config error", "red"), f": {exc}"))
         return 2
     except ContainerRuntimeError as exc:
-        error_console.print(f"[red]container error[/red]: {exc}")
+        error_console.print(Text.assemble(("container error", "red"), f": {exc}"))
         return 2
     except CollaborationRoleConfigurationError:
         error_console.print("[red]collaboration role configuration failed[/red]")
         return 2
     except MCPStartupError as exc:
-        error_console.print(f"[red]MCP startup error[/red]: {exc}")
+        error_console.print(Text.assemble(("MCP startup error", "red"), f": {exc}"))
         return 2
     except (LoopCheckpointError, ValueError):
         error_console.print("[red]Loop request rejected[/red]")
         return 2
     except IdentityConfigError as exc:
-        error_console.print(f"[red]identity config error[/red]: {exc}")
+        error_console.print(Text.assemble(("identity config error", "red"), f": {exc}"))
         return 2
     except HttpStartupError:
         error_console.print("[red]HTTP startup error[/red]: service did not start")

@@ -839,6 +839,31 @@ def test_invalid_request_matrix(running_server, headers, body, expected_status, 
     assert payload["error"]["kind"] == kind
 
 
+@pytest.mark.parametrize("invalid_value", [[], {}, False, None])
+@pytest.mark.parametrize("field", ["mode", "collaboration_mode", "decision"])
+def test_non_string_http_enum_returns_bad_request(action_control_server, field, invalid_value):
+    server, _approvals, _receipts, _service, sink = action_control_server
+    route = "/tasks"
+    body = {"goal": "go", field: invalid_value}
+    if field == "collaboration_mode":
+        body.update(
+            mode="loop",
+            token_budget=100,
+            max_rounds=10,
+            wall_clock_seconds=60,
+            max_consecutive_failures=3,
+        )
+    elif field == "decision":
+        route = f"/tasks/{'0' * 32}/receipts/{'0' * 32}/resolve"
+        body = {"expected_revision": 1, field: invalid_value}
+
+    status, payload, _raw = _request_via_handler(server, "POST", route, body=body)
+
+    assert status == 400
+    assert payload["error"]["kind"] == "invalid_request"
+    assert all(event.event_type != "http.submit" for event in sink.events)
+
+
 @pytest.mark.parametrize(
     ("body", "expected_goal", "expected_options"),
     [

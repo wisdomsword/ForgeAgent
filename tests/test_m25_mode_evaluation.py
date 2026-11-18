@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import copy
 import dataclasses
+import hashlib
 import importlib.util
 import json
 import re
-import subprocess
 import sys
 from collections import Counter
 from pathlib import Path
@@ -22,7 +22,6 @@ M25_PROTOCOL_PATH = ROOT / "docs" / "evaluation" / "m25" / "protocol.json"
 M25_PLAN_PATH = (
     ROOT / "docs" / "superpowers" / "plans" / "2026-07-27-m25-programming-mode-evaluation.md"
 )
-BASE_REF = "c20c09485878f6e5891fbb3de83f72fc7c600fd0"
 M25_SCHEMA = "forgeagent.m25.mode-evaluation/v1"
 
 
@@ -33,10 +32,6 @@ def load_harness():
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
-
-
-def _git(*arguments: str) -> bytes:
-    return subprocess.run(("git", *arguments), cwd=ROOT, check=True, capture_output=True).stdout
 
 
 def m25_protocol_dict() -> dict[str, object]:
@@ -68,12 +63,24 @@ def m25_protocol_dict() -> dict[str, object]:
     return value
 
 
-def test_tracked_m23_protocol_and_evidence_are_byte_identical_to_base_ref() -> None:
-    expected = _git("ls-tree", "-r", "--name-only", BASE_REF, "docs/evaluation/m23")
-    current = _git("ls-tree", "-r", "--name-only", "HEAD", "docs/evaluation/m23")
+def test_tracked_m23_protocol_and_evidence_match_portable_frozen_manifest() -> None:
+    frozen = (ROOT / "tests/data/m23-frozen-evidence.json").read_bytes()
+    assert hashlib.sha256(frozen).hexdigest() == (
+        "78e24f2af30a749b104a8f4dc91997fba94de0f8570ede272a896737a9cfe88b"
+    )
+    expected = json.loads(frozen)["evidence_sha256"]
+    # These two deliberately ignored local runs are outside the published audit.
+    local_runs = {
+        "2026-07-27-haiku-4-5-invalid-37d969e",
+        "2026-07-27-haiku-4-5-invalid-600e283",
+    }
+    current = {
+        path.relative_to(ROOT).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in (ROOT / "docs/evaluation/m23").rglob("*")
+        if path.is_file() and not local_runs.intersection(path.parts)
+    }
+    assert len(expected) == 62
     assert current == expected
-    for relative_path in expected.decode().splitlines():
-        assert (ROOT / relative_path).read_bytes() == _git("show", f"{BASE_REF}:{relative_path}")
 
 
 def test_m25_plan_registers_dynamic_preflight_module_before_execution() -> None:

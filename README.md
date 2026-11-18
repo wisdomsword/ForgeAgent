@@ -4,33 +4,49 @@
 
 文档总入口见 [`docs/README.md`](docs/README.md)；行动计划见 [`ACTION_PLAN.md`](ACTION_PLAN.md)，最高宪法见 [`spec.md`](spec.md)。
 
+## 开始使用
+
+需要 Git、[uv](https://docs.astral.sh/uv/getting-started/installation/) 和 Python ≥3.11；
+`uv sync` 可按需获取兼容 Python 和依赖。先从你有权访问的仓库地址克隆（当前 origin 仍为 GitLab；
+请替换下方占位地址，不假定 GitHub remote 已存在）：
+
+```bash
+git clone <你的仓库地址> ForgeAgent
+cd ForgeAgent
+uv sync --locked
+
+# 默认模型 claude-sonnet-5；请使用自己的 key，真实请求会产生费用。
+export ANTHROPIC_API_KEY="你的-key"
+uv run forgeagent run "计算 1 到 10 的平方和并报告结果"
+```
+
+密钥也可通过终端临时设置；不要提交 `.env`、凭据、任务记录或 Memory。其他 provider 的
+key/base URL 配置见下方“多模型支持”和“配置”说明。首次任务应在可丢弃工作目录内运行。
+默认 restricted 不是 OS 级密封沙箱；执行生成代码、授予目录权限或启用 trusted/MCP 前，
+请阅读 [威胁模型](docs/threat-model.md) 和 [安全报告方式](SECURITY.md)。
+
 ## 当前验证
 
-pytest: `3055 passed, 11 skipped`；OpenSpec strict: `42/42`.
+当前 checkout 的实际测试、Golden、OpenSpec strict、构建和 clean-wheel 结果统一记录于
+[本次验证报告](docs/superpowers/reports/2026-11-18-fix-github-release-readiness-verify.md)。
+门禁完成前不声明本次 checkout 已全部通过。开发与 CI 使用 `@fission-ai/openspec@1.13.1`：
 
-完整 pytest 全绿。M28 RC 专项：`47 passed`；Golden: `20/20`；Ruff 与
-wheel/sdist build 通过。Python 3.11.15 clean-wheel harness 的 `clean-wheel`、`cli`、
-`http`、`single`、`duo`、`triad` 六项均通过。
+```bash
+npm install --global @fission-ai/openspec@1.13.1
+openspec validate --all --strict
+```
 
-ForgeAgent `0.1.0` 当前是已验证的 Release Candidate，正式发布暂缓：尚未上传 PyPI，也未创建
-`v0.1.0` tag。发布前将先完成人类实践和易用性优化，再重新执行发布门禁。候选安装与冻结证据见
-[`docs/releases/0.1.0-rc.md`](docs/releases/0.1.0-rc.md)，正式发布的待完成门禁见
-[`docs/releases/0.1.0.md`](docs/releases/0.1.0.md)。
+ForgeAgent `0.1.0` 仍是 Release Candidate，正式发布暂缓；尚未上传 PyPI，也未创建
+`v0.1.0` tag。先完成人类实践和易用性优化，再对待发布 revision 重新执行发布门禁。
+历史候选记录见 [0.1.0 RC](docs/releases/0.1.0-rc.md)，发布条件见
+[正式发布门禁](docs/releases/0.1.0.md)。
 
-2026-07-29 的 M28 首次完整 pytest 为 `2 failed, 2401 passed, 10 skipped`。两个失败都是既有
-MCP 关闭墙钟合同在当前宿主调度下超时；隔离复跑仍为 `2 failed`。提交 `83ba892` 仅将测试改为
-确定性的预算转发合同，未修改生产 MCP 代码。随后 M28 新增 hostile-proxy 与 Golden 冷启动两项
-回归及四项 pip cache 安全合同；最终完整 pytest 为 `2409 passed, 10 skipped`。
-Docker client 29.2.1 可用，但 daemon socket 不可连接；本机
-十项 container integration 与 Linux container RC smoke 未执行。M28 required Linux Docker CI 运行
-已在 Linux Docker runner 上通过十项零 skip 容器测试及六项 installed-wheel RC smoke；
-M24 历史 container 运行的十项通过记录只作为历史 container 证据。
-
-M24 已完成并归档，change 见
-[`2026-07-27-m24-continuous-verification-platform-matrix`](openspec/changes/archive/2026-07-27-m24-continuous-verification-platform-matrix/)；持续验证入口见 [`.gitlab-ci.yml`](.gitlab-ci.yml)，平台证据和排期见
-[`docs/platform-support.md`](docs/platform-support.md)。Linux Docker 是必需 CI 门禁；本机
-macOS Docker Desktop 结果只作为 supplemental 证据；M28 required Linux Docker CI 运行只验证记录的
-Linux Docker runner topology，不推断未记录的 Linux 架构、Podman 或 Windows 支持。
+M28 required Linux Docker CI 运行是历史的十项零 skip 容器测试与六项 installed-wheel
+冒烟证据，只证明当时的 candidate 和 runner topology。本次 GitHub Actions 配置尚不构成
+已执行证据；本机 Docker 不可用时，容器测试必须记为未验证。
+持续验证入口为 [GitHub Actions](.github/workflows/verify.yml) 与
+[GitLab CI](.gitlab-ci.yml)；两者运行离线门禁和必需 Linux Docker 门禁，
+不包含发布 job。平台状态和历史证据见 [平台支持](docs/platform-support.md)。
 
 ## M27 协作路由校准（已完成并归档）
 
@@ -521,7 +537,7 @@ uv run forgeagent --tier container --container-image my-image:latest run "..."
 - **Survey**（M7）：任务中途向你提问获取信息（`question` + 可选 `options`）。REPL 与 `run --interactive` 下在终端提问并等你输入；无交互通道（headless）时任务以 `need_info` 干净终止，把问题回传给调用方，而不是卡住或瞎猜。
 - **Skill**（M19）：从当前不可变 Skill 快照只读一个已验证的 Skill 全文，或重读 `steps`、`failure_branches`、`completion_criteria` 段。它没有文件路径或写入参数，不需要确认，也不改变其他工具的确认或审计规则。
 - **WebFetch**（M10）：GET 单个 http(s) URL，经 SSRF 防护后抓取。正文存到 `allowed_root` 下的文件（模型可在后续轮用 Exec/FileRead 处理全文），`detail` 只回传预览（≤1MB 截断），未经审查的网页正文不会整段进模型上下文。`restricted`/`container` 档下这是**唯一**出网路径（Exec 在这两档不能开 socket），因此确认门在这两档是真实的安全边界，不是提示性的 UX。
-- **FileRead / FileWrite / FileList**（M10）：读/写/列出 `allowed_root` 下的文件，路径校验拒绝逃出项目根目录；FileWrite 还通过 directory fd 逐级 `O_NOFOLLOW` 打开父目录和最终目标，拒绝校验后发生的 symlink 替换。FileRead 默认不设确认门（只在非 trusted 档记日志，不拦截）；**FileWrite 的确认门只是 UX 提示，不是安全边界**——Exec 工具跑的代码在 `restricted`/`container` 档下本来就能在 `allowed_root` 内任意写文件，不经过这个确认门。FileList 只返回相对路径，不暴露宿主真实目录结构。
+- **FileRead / FileWrite / FileList**（M10）：读/写/列出 `allowed_root` 下的文件，路径校验拒绝逃出项目根目录；FileWrite 还通过 directory fd 逐级 `O_NOFOLLOW` 打开父目录和最终目标，拒绝校验后发生的 symlink 替换。FileRead 只接受普通文件、限读 1 MiB，超限或特殊文件返回失败；默认不设确认门（只在非 trusted 档记日志，不拦截）；**FileWrite 的确认门只是 UX 提示，不是安全边界**——Exec 工具跑的代码在 `restricted`/`container` 档下可在 `allowed_root` 内写入普通项目文件（宿主保留回执除外），不经过这个确认门。FileList 只返回相对路径，不暴露宿主真实目录结构。回执保护、输出/状态限额与恢复边界见 [`docs/threat-model.md`](docs/threat-model.md#bounded-file-and-execution-results)。
 - **MCP**（M7）：调用外部 [MCP](https://modelcontextprotocol.io) server 暴露的工具，见下节。
 
 出网与文件访问的边界详见 [`docs/threat-model.md`](docs/threat-model.md)；SSRF 防护实现见 [`docs/m10-usage-observability-and-tools.md`](docs/m10-usage-observability-and-tools.md)（逐候选地址校验 + NAT64 解包 + 直连已校验 sockaddr 堵 DNS-rebinding TOCTOU + 重定向逐跳复检）。

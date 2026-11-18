@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import cast
 
 from rich.console import Console
+from rich.text import Text
 
 from .audit import AuditSink
 from .client import ModelClient
@@ -52,10 +53,10 @@ def render_collaboration_report(
     project_root: str | Path | None = None,
     render_execution_evidence: ExecutionEvidenceRenderer,
 ) -> None:
-    console.print(f"collaboration id: {report.collaboration_id}")
+    console.print(Text(f"collaboration id: {report.collaboration_id}"))
     console.print(f"mode: {report.mode}")
     console.print(f"status: {report.status}")
-    console.print(f"stop reason: {report.stop_reason or 'active'}")
+    console.print(Text(f"stop reason: {report.stop_reason or 'active'}"))
     console.print(f"phase: {report.phase}")
     console.print(
         "counters: "

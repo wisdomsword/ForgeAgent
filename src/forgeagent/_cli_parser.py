@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 import yaml
 from rich.console import Console
+from rich.text import Text
 
 from .client import ModelClient
 from .collaboration import normalize_required_candidate_files
@@ -285,11 +286,11 @@ def render_evaluation(
     from .evaluation import METRIC_NAMES
 
     console.print(f"evaluation status: {result.status}")
-    console.print(f"artifacts: {', '.join(artifacts)}")
+    console.print(Text(f"artifacts: {', '.join(artifacts)}"))
     for item in result.observed_evidence:
-        console.print(f"observed: {item}")
+        console.print(Text(f"observed: {item}"))
     for item in result.unmet_expectations:
-        console.print(f"unmet: {item}")
+        console.print(Text(f"unmet: {item}"))
     for name in METRIC_NAMES:
         console.print(f"{name}: {metric_text(getattr(record.metrics, name))}")
     if trend is not None:

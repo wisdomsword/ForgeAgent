@@ -1,13 +1,13 @@
 # ForgeAgent 文档入口
 
-本页是当前文档的导航入口，不复制第二份路线图。当前状态以最高宪法、行动计划和最新里程碑为准；历史文件保留原路径，用于追溯当时的设计、验证和治理证据。本次入口整理记录见 [M46](../milestones/milestone_046.md)；最新里程碑见 [M51](../milestones/milestone_051.md)，对应 [安全与契约加固归档](../openspec/changes/archive/2026-08-12-split-runtime-boundaries/)；M50 外部工具文本恢复、M49 REPL 会话/反馈限额、M48 任务执行证据与 M47 生命周期加固记录继续作为历史证据保留。
+本页是当前文档的导航入口，不复制第二份路线图。当前状态以最高宪法、行动计划和最新里程碑为准；历史文件保留原路径，用于追溯当时的设计、验证和治理证据。本次入口整理记录见 [M46](../milestones/milestone_046.md)；最新里程碑见 [M52](../milestones/milestone_052.md)，交付标准 Skills SDK 兼容路径；M51 [安全与契约加固归档](../openspec/changes/archive/2026-08-12-split-runtime-boundaries/)；M50 外部工具文本恢复、M49 REPL 会话/反馈限额、M48 任务执行证据与 M47 生命周期加固记录继续作为历史证据保留。
 
 ## 当前权威入口
 
 - [最高宪法：`spec.md`](../spec.md) — 项目使命、范围和不可违反的工程约束。
 - [`ACTION_PLAN.md`](../ACTION_PLAN.md) — 当前里程碑计划、验证门禁和已裁决路线。
 - [`MILESTONE_GUIDE.md`](../MILESTONE_GUIDE.md) — 里程碑收尾记录格式与续接规则。
-- [`milestones/latest`](../milestones/latest) — 指向最新已完成里程碑文件；当前指针为 `milestone_051.md`。
+- [`milestones/latest`](../milestones/latest) — 指向最新已完成里程碑文件；当前指针为 `milestone_052.md`。
 - [Agent 治理门禁](agent-governance-gates.md) — Prompt/Skill、Memory、Rewrite/Dependency 和分发边界的 canonical 入口。
 
 ## 开发流程
@@ -19,7 +19,7 @@
 
 ## 里程碑与证据
 
-- [最新里程碑](../milestones/milestone_051.md)：当前 latest 指针指向的 M51 安全与契约加固、存储进程准入和运行时边界拆分；11 个 change 已完成并归档。M50 外部工具文本恢复见 [milestone_050](../milestones/milestone_050.md)，M49 REPL 完整历史与复杂执行路由见 [milestone_049](../milestones/milestone_049.md)。
+- [最新里程碑](../milestones/milestone_052.md)：当前 latest 指针指向的 M52 标准 Skills SDK 兼容路径；native 严格格式、安全与信任摘要合同继续保留。M51 安全与契约加固见 [milestone_051](../milestones/milestone_051.md)。M50 外部工具文本恢复见 [milestone_050](../milestones/milestone_050.md)，M49 REPL 完整历史与复杂执行路由见 [milestone_049](../milestones/milestone_049.md)。
 - [`milestones/`](../milestones/)：按 M 编号保存交付范围、验证输出、三次评审和续接指引。
 - [`docs/superpowers/reports/`](superpowers/reports/)：Comet/Superpowers 验证报告；报告是当时执行的证据，不替代当前状态。
 - [M47 环境依赖复验](superpowers/reports/2026-08-03-m47-environment-revalidation.md)：归档后补证，包含 Docker 隔离、跨 Python digest 和全量回归结果。

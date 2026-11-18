@@ -2,7 +2,9 @@
 
 ## Purpose
 Provide a verifiable, masked, on-demand local Skill registry with trusted project overrides, legacy compatibility, and governed exit-contract enforcement.
+
 ## Requirements
+
 ### Requirement: Skill 文档具有可验证的固定结构
 系统必须（SHALL）只接受位于独立目录 `SKILL.md` 中、包含非空 `name`、`trigger`、`steps`、`failure_branches` 与 `completion_criteria` 五段内容的 Skill。`name` 必须（MUST）是与目录名一致的 kebab-case 标识符；无效、超限或不可读文档不得进入模型可见目录。文档若声明 `format_version: 2`，还必须包含 `success`、`failure`、`blocked`、`needs_input`、`timeout_or_budget` 五类退出条件；每类都必须有有界 `condition` 与 `verifier`，否则按 fail-closed 规则隔离。未声明版本的既有文档按 legacy version 1 兼容读取，不得被误标为满足 version 2 治理契约。
 
@@ -68,3 +70,10 @@ Provide a verifiable, masked, on-demand local Skill registry with trusted projec
 #### Scenario: HTTP 无确认时降级
 - **WHEN** HTTP 服务启动于含未批准项目 Skill 的目录
 - **THEN** 服务继续启动但不暴露该项目 Skill
+
+### Requirement: Skill disk reads are bounded before parsing
+Skill loading MUST read no more than its disk limit plus one byte and MUST reject oversized content before decoding or parsing it, while preserving native and standard compatibility semantics.
+
+#### Scenario: Oversized Skill is present
+- **WHEN** a Skill file exceeds the maximum supported disk size
+- **THEN** it is excluded using a bounded read and other valid Skills remain available

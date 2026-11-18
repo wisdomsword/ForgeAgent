@@ -206,7 +206,15 @@ def _discover(
             _emit_ignored(diagnostic, "invalid format", directory_name)
             continue
         try:
-            raw_document = Path(skill_real).read_bytes()
+            raw_document = bytearray()
+            with Path(skill_real).open("rb", buffering=0) as skill_stream:
+                while len(raw_document) <= _MAX_COMPAT_SKILL_BYTES:
+                    chunk = skill_stream.read(_MAX_COMPAT_SKILL_BYTES + 1 - len(raw_document))
+                    if not chunk:
+                        break
+                    raw_document.extend(chunk)
+            if len(raw_document) > _MAX_COMPAT_SKILL_BYTES:
+                raise ValueError("invalid format")
             document = raw_document.decode("utf-8")
             definition = _parse_document(
                 document,
@@ -227,7 +235,7 @@ def _discover(
         if definition.name not in definitions:
             definitions[definition.name] = definition
             if raw_documents is not None:
-                raw_documents[definition.name] = raw_document
+                raw_documents[definition.name] = bytes(raw_document)
     return definitions
 
 

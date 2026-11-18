@@ -1,11 +1,16 @@
 """Unit tests for model-id discovery/override resolution (post-M5 real-model fix).
 
-All tests inject a transport and a tmp_path cache file — no real key, no network.
+All tests use local transports and temporary cache files — no real key, no network.
 Covers: exact match, dated-snapshot fallback, unresolvable id, discovery failure,
 and disk-cache reuse / manual override semantics.
 """
 
 import json
+from pathlib import Path
+
+import anthropic
+import httpx
+import pytest
 
 from forgeagent.model_discovery import (
     _pick_dated_snapshot,
@@ -35,6 +40,94 @@ def test_discover_provider_models_returns_list():
 def test_discover_provider_models_none_on_failure():
     result = discover_provider_models("https://proxy.example", "k", transport=_transport(None))
     assert result is None
+
+
+def test_discovery_uses_short_timeout_and_closes_client_on_failure(monkeypatch, tmp_path):
+    sdk_class = anthropic.Anthropic
+    requests = []
+
+    def send(request):
+        requests.append(request)
+        raise httpx.ReadTimeout("test timeout", request=request)
+
+    with httpx.Client(transport=httpx.MockTransport(send)) as http_client:
+        monkeypatch.setattr(
+            anthropic, "Anthropic", lambda **kwargs: sdk_class(http_client=http_client, **kwargs)
+        )
+        result = resolve_effective_model_id(
+            "claude-sonnet-5",
+            base_url="https://proxy.example",
+            api_key="test-key",
+            cache_path=tmp_path / "model_overrides.json",
+        )
+        assert result == "claude-sonnet-5"
+        assert len(requests) == 1
+        assert all(0 < limit <= 10 for limit in requests[0].extensions["timeout"].values())
+        assert http_client.is_closed
+
+
+@pytest.mark.parametrize("cache", [None, [], {"https://proxy.example": None}])
+def test_invalid_cache_root_or_provider_is_a_miss(tmp_path, cache):
+    cache_path = tmp_path / "model_overrides.json"
+    cache_path.write_text(json.dumps(cache))
+
+    assert (
+        resolve_effective_model_id(
+            "claude-haiku-4-5",
+            base_url="https://proxy.example",
+            api_key="test-key",
+            cache_path=cache_path,
+            transport=_transport(["claude-haiku-4-5-20251001"]),
+        )
+        == "claude-haiku-4-5-20251001"
+    )
+
+
+@pytest.mark.parametrize("invalid_model_id", [None, 42, "", "  "])
+def test_invalid_cached_model_id_falls_back_to_logical_id(tmp_path, invalid_model_id):
+    cache_path = tmp_path / "model_overrides.json"
+    cache = {"https://proxy.example": {"claude-sonnet-5": invalid_model_id}}
+    cache_path.write_text(json.dumps(cache))
+
+    assert (
+        resolve_effective_model_id(
+            "claude-sonnet-5",
+            base_url="https://proxy.example",
+            api_key="test-key",
+            cache_path=cache_path,
+            transport=_transport(None),
+        )
+        == "claude-sonnet-5"
+    )
+
+
+def test_failed_cache_replacement_preserves_existing_data(monkeypatch, tmp_path):
+    cache_path = tmp_path / "model_overrides.json"
+    old_cache = '{"https://proxy.example": {"claude-sonnet-5": "manual-id"}}'
+    cache_path.write_text(old_cache)
+
+    def fail_to_replace(self, target):
+        assert target == cache_path
+        assert self.parent == cache_path.parent
+        assert json.loads(self.read_text())["https://proxy.example"]["claude-haiku-4-5"] == (
+            "claude-haiku-4-5-20251001"
+        )
+        raise OSError("cache replace failed")
+
+    monkeypatch.setattr(Path, "replace", fail_to_replace)
+
+    assert (
+        resolve_effective_model_id(
+            "claude-haiku-4-5",
+            base_url="https://proxy.example",
+            api_key="test-key",
+            cache_path=cache_path,
+            transport=_transport(["claude-haiku-4-5-20251001"]),
+        )
+        == "claude-haiku-4-5-20251001"
+    )
+    assert cache_path.read_text() == old_cache
+    assert list(tmp_path.iterdir()) == [cache_path]
 
 
 def test_pick_dated_snapshot_finds_match():

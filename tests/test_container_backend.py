@@ -138,14 +138,30 @@ def test_same_path_mount_read_write(tmp_path):
     (tmp_path / "in.txt").write_text("host-data")
     backend = ContainerBackend(allowed_root=str(tmp_path), timeout_seconds=60.0)
     try:
+        receipts = tmp_path / ".forgeagent" / "receipts"
+        receipts.mkdir()
+        receipt = receipts / "unknown.json"
+        receipt.write_text("preserve-unknown")
         code = (
             f"print(open({str(tmp_path / 'in.txt')!r}).read())\n"
             f"open({str(tmp_path / 'out.txt')!r}, 'w').write('from-container')"
+            "\nfrom pathlib import Path\n"
+            f"targets = [Path({str(receipt)!r}), Path({str(receipts.parent)!r})]\n"
+            "for target in targets:\n"
+            "    try:\n"
+            "        if target.is_file(): target.write_text('changed')\n"
+            "        else: target.rename(target.with_name('moved-metadata'))\n"
+            "    except OSError:\n"
+            "        print('receipt protected')\n"
+            "    else:\n"
+            "        raise AssertionError('receipt authority was writable')\n"
         )
         result = backend.execute(code, Runtime())
         assert result.success is True
         assert "host-data" in result.stdout
         assert (tmp_path / "out.txt").read_text() == "from-container"
+        assert result.stdout.count("receipt protected") == 2
+        assert receipt.read_text() == "preserve-unknown"
     finally:
         backend.close()
 

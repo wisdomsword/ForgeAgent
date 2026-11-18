@@ -67,6 +67,7 @@ from forgeagent.protocol import (
     FileWriteArgs,
     MCPArgs,
     RequestFilesystemAccessArgs,
+    SurveyArgs,
     ToolCall,
     WebFetchArgs,
 )
@@ -95,6 +96,20 @@ def _factory(script):
 def _console() -> Console:
     # record=True lets us assert on rendered text without a real terminal.
     return Console(record=True, width=100, force_terminal=False)
+
+
+@pytest.mark.parametrize("field", ["question", "options"])
+def test_console_asker_renders_survey_text_literally(field):
+    literal = "[bold]choose[/bold] [/unmatched]"
+    args = SurveyArgs(
+        question=literal if field == "question" else "Choose an option",
+        options=[literal] if field == "options" else None,
+    )
+    console = _console()
+    asker = cli_module.make_console_asker(console, read_line=lambda _prompt: "chosen")
+
+    assert asker(args) == "chosen"
+    assert literal in console.export_text()
 
 
 class _RecordingAuditSink:
@@ -1701,6 +1716,34 @@ def test_render_outcome_shows_explicit_empty_execution_evidence_for_prose():
     assert "execution evidence: no tools or programs executed" in rendered
 
 
+@pytest.mark.parametrize("source", ["body", "stdout", "tool_detail", "status_detail"])
+def test_render_outcome_prints_external_text_literally(source):
+    text = "[bold]keep this[/bold] [/unmatched]"
+    round_result = RoundResult(text="", body=text if source == "body" else "")
+    if source in {"stdout", "tool_detail"}:
+        round_result.outcomes.append(
+            ToolOutcome(
+                tool="Exec",
+                success=source == "stdout",
+                detail=text if source == "tool_detail" else "",
+                exec_result=ExecResult(success=True, stdout=text) if source == "stdout" else None,
+            )
+        )
+    outcome = TaskOutcome(
+        status=TaskStatus(
+            completed=False,
+            reason=Termination.MAX_ROUNDS,
+            detail=text if source == "status_detail" else None,
+        ),
+        rounds=[round_result],
+    )
+    console = _console()
+
+    render_outcome(outcome, console)
+
+    assert text in console.export_text()
+
+
 def test_render_execution_evidence_masks_secret_and_control_characters(monkeypatch):
     secret = "terminal-secret-value"
     monkeypatch.setenv("FORGEAGENT_TEST_SECRET", secret)
@@ -2857,6 +2900,20 @@ def test_handle_mcp_slash_tools_lists_tools_without_status():
     assert "fs:read" in rendered
     assert "read a file" in rendered
     assert "fs: available" not in rendered
+
+
+def test_handle_mcp_slash_renders_provider_tool_description_literally():
+    from forgeagent.mcp_manager import MCPToolInfo
+
+    literal = "[bold]read file[/bold] [/unmatched]"
+    manager = SimpleNamespace(
+        list_tools=lambda: [MCPToolInfo(server="fs", name="read", description=literal)]
+    )
+    console = _console()
+
+    cli_module._handle_mcp_slash("/mcp tools", manager, console)
+
+    assert f"fs:read — {literal}" in console.export_text()
 
 
 def test_build_mcp_manager_closes_and_raises_for_required_failures(monkeypatch):
@@ -4666,13 +4723,14 @@ def test_evaluate_closes_client_when_evaluator_import_fails(monkeypatch, tmp_pat
 def test_evaluate_constructs_only_declared_isolated_request(monkeypatch, tmp_path, capsys):
     (tmp_path / "result.txt").write_text("ok", encoding="utf-8")
     captured_request: EvaluationRequest | None = None
+    literal = "result matched [/unmatched]"
 
     def fake_run_evaluator(client, request):
         nonlocal captured_request
         captured_request = request
         return EvaluatorResult(
             status="passed",
-            observed_evidence=("result matched",),
+            observed_evidence=(literal,),
             unmet_expectations=(),
         )
 
@@ -4708,6 +4766,7 @@ def test_evaluate_constructs_only_declared_isolated_request(monkeypatch, tmp_pat
     assert captured_request.artifacts[0].path == "result.txt"
     assert str(tmp_path) not in rendered
     assert "passed" in rendered
+    assert literal in rendered
 
 
 def test_evaluate_failed_result_returns_one(monkeypatch, tmp_path):
@@ -5246,9 +5305,27 @@ def test_handle_model_command_unknown_id_keeps_current_model():
     from forgeagent.cli import _handle_model_command
 
     console = _console()
-    result = _handle_model_command("/model no-such-model", "claude-sonnet-5", console)
+    literal = "no-such-model[/unmatched]"
+    result = _handle_model_command(f"/model {literal}", "claude-sonnet-5", console)
     assert result == "claude-sonnet-5"
     assert "unknown model" in console.export_text()
+
+
+@pytest.mark.parametrize("field", ["title", "url", "snippet"])
+def test_handle_search_command_renders_provider_result_literally(monkeypatch, field):
+    from forgeagent.web_search import SearchResult
+
+    literal = "[bold]match[/bold] [/unmatched]"
+    fields = {"title": "Title", "url": "https://example.test", "snippet": "Snippet"}
+    fields[field] = literal
+    monkeypatch.setattr(
+        cli_module, "search_with_status", lambda _query: ([SearchResult(**fields)], None)
+    )
+    console = _console()
+
+    cli_module._handle_search_command("/search match", console)
+
+    assert literal in console.export_text()
 
 
 def test_handle_search_command_prints_results(monkeypatch):
@@ -5333,10 +5410,13 @@ def test_handle_image_command_bad_path_returns_none():
     from forgeagent.cli import _handle_image_command
 
     console = _console()
-    images, inline_goal = _handle_image_command("/image /no/such/path", console)
+    literal = "/no/such/path/[/unmatched]"
+    images, inline_goal = _handle_image_command(f"/image {literal}", console)
     assert images is None
     assert inline_goal is None
-    assert "could not load image" in console.export_text()
+    rendered = console.export_text()
+    assert "could not load image" in rendered
+    assert literal in rendered
 
 
 def test_handle_image_command_missing_arg_shows_usage():
@@ -5509,7 +5589,8 @@ def test_repl_bare_slash_prints_menu():
 def test_repl_unknown_slash_command_shows_menu():
     from forgeagent.cli import repl
 
-    inputs = iter(["/nope", "quit"])
+    literal = "/nope[/unmatched]"
+    inputs = iter([literal, "quit"])
     console = _console()
     repl(
         tier="trusted",
@@ -5520,6 +5601,7 @@ def test_repl_unknown_slash_command_shows_menu():
     )
     text = console.export_text()
     assert "unknown command" in text
+    assert literal in text
     assert "/model" in text
 
 

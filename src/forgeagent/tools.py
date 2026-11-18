@@ -25,6 +25,7 @@ import unicodedata
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
+from itertools import pairwise
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 from uuid import uuid4
@@ -42,6 +43,7 @@ from .execution_evidence import (
 )
 from .executor import ExecResult, ExecutorBackend
 from .external_actions import (
+    RECEIPT_DIRECTORY_PARTS,
     ExternalActionReceiptStore,
     ReceiptError,
     canonical_request_digest,
@@ -80,6 +82,7 @@ _EXT_BY_CONTENT_TYPE = {"text/html": ".html", "application/json": ".json", "text
 
 _logger = logging.getLogger(__name__)
 
+_MAX_FILE_READ_BYTES = 1_048_576
 _FILE_READ_CONTINUATION = "Read another path with FileRead, or process this file with Exec."
 _FILE_LIST_CONTINUATION = "Narrow the directory path and call FileList again."
 _EXEC_CONTINUATION = "Narrow the output or split the work into smaller executions and retry."
@@ -933,10 +936,20 @@ def _validate_path(path: str, allowed_root: str) -> Path:
     return Path(resolved)
 
 
-def _validate_context_path(path: str, ctx: ToolContext) -> Path:
-    if os.path.isabs(path) or ctx.project_root is None:
-        return _validate_path(path, ctx.allowed_root)
-    return _validate_path(path, ctx.project_root)
+def _validate_context_path(path: str, ctx: ToolContext, *, write: bool = False) -> Path:
+    base = ctx.allowed_root if os.path.isabs(path) else ctx.project_root or ctx.allowed_root
+    resolved = _validate_path(path, base)
+    project_root = Path(os.path.realpath(ctx.project_root or ctx.allowed_root))
+    # Case-insensitive filesystems can preserve the caller's spelling in realpath.
+    reserved = Path(str(project_root.joinpath(*RECEIPT_DIRECTORY_PARTS)).casefold())
+    candidate = Path(os.path.abspath(project_root / path))
+    for checked in (candidate, resolved):
+        normalized = Path(str(checked).casefold())
+        if RECEIPT_DIRECTORY_PARTS in pairwise(normalized.parts) or (
+            write and reserved.is_relative_to(normalized)
+        ):
+            raise OSError("receipt storage is reserved")
+    return resolved
 
 
 def _display_path(path: Path, ctx: ToolContext) -> str:
@@ -1011,6 +1024,26 @@ def _write_file_safely(
     return relative.as_posix()
 
 
+def _read_file_bounded(path: Path) -> str:
+    flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(path, flags)
+    try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_size > _MAX_FILE_READ_BYTES:
+            raise OSError("file is non-regular or oversized")
+        data = bytearray()
+        while len(data) <= _MAX_FILE_READ_BYTES:
+            chunk = os.read(descriptor, _MAX_FILE_READ_BYTES + 1 - len(data))
+            if not chunk:
+                break
+            data.extend(chunk)
+        if len(data) > _MAX_FILE_READ_BYTES:
+            raise OSError("file is oversized")
+    finally:
+        os.close(descriptor)
+    return data.decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
+
+
 class FileReadTool(Tool):
     """Read a file under `ctx.allowed_root`, masking secrets before returning it.
 
@@ -1031,7 +1064,7 @@ class FileReadTool(Tool):
                     "FileRead: %s",
                     mask_secrets(_display_path(resolved, ctx), sensitive_env_values()),
                 )
-            content = resolved.read_text(encoding="utf-8", errors="replace")
+            content = _read_file_bounded(resolved)
         except (PermissionError, OSError, ValueError):
             return ToolOutcome(
                 tool="FileRead",
@@ -1056,7 +1089,7 @@ class FileWriteTool(Tool):
     SECURITY NOTE: this confirmer gate is UX-only, not a security boundary — model
     code run via ExecTool can already write anywhere under allowed_root without ever
     hitting this confirmer (Exec's writes are gated only by the executor backend's own
-    audit hook, which already permits writes anywhere inside allowed_root). Contrast
+    audit hook, which permits ordinary project writes outside host-reserved state). Contrast
     WebFetchTool, whose confirmer gate is a real boundary (see its docstring).
     """
 
@@ -1104,7 +1137,7 @@ class FileWriteTool(Tool):
                 os.O_RDONLY | directory_flag | no_follow | getattr(os, "O_CLOEXEC", 0),
             )
             root_stat = os.fstat(root_fd)
-            resolved = _validate_context_path(args.path, ctx)
+            resolved = _validate_context_path(args.path, ctx, write=True)
             _write_file_safely(resolved, root, root_fd, root_stat, args.content)
             display_path = _display_path(resolved, ctx)
         except PermissionError:

@@ -21,7 +21,19 @@ artifacts/
 
 # Local task captures may contain prompts, paths, and provider diagnostics.
 work/
+# Credentials and host-owned state; project AGENTS.md and skills stay shareable.
+.env*
 .forgeagent/execution-artifacts/
+.forgeagent/loops/
+.forgeagent/collaborations/
+.forgeagent/receipts/
+.forgeagent/MEMORY.md
+.forgeagent/MEMORY.md.*
+.forgeagent/Memory/
+.forgeagent/memory/
+.forgeagent/backups/
+.forgeagent/memory-backups/
+.forgeagent/.MEMORY.*.tmp
 
 # Local agent tooling and vendored skill bundles. These are third-party runtime
 # bundles (@rpamis/comet, obra/superpowers, OpenSpec) copied into per-platform

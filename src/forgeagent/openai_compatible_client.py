@@ -143,7 +143,9 @@ class OpenAICompatibleClient(ModelClient):
             if client is None:
                 import openai
 
-                client = openai.OpenAI(api_key=self._api_key, base_url=self._base_url)
+                client = openai.OpenAI(
+                    api_key=self._api_key, base_url=self._base_url, max_retries=0
+                )
                 self._sdk_client = client
             return client
 

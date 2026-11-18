@@ -714,8 +714,10 @@ def repl(
                             )
                         except (RegistryError, ValueError) as exc:
                             console.print(
-                                "[red]model switch failed[/red]: invalid context configuration: "
-                                f"{exc}"
+                                Text.assemble(
+                                    ("model switch failed", "red"),
+                                    f": invalid context configuration: {exc}",
+                                )
                             )
                             continue
                     model = candidate_model
@@ -799,7 +801,7 @@ def repl(
                     ValueError,
                     yaml.YAMLError,
                 ) as exc:
-                    console.print(f"[red]reload failed[/red]: {exc}")
+                    console.print(Text.assemble(("reload failed", "red"), f": {exc}"))
                     continue
                 current_registry = candidate_registry
                 current_context = candidate_context
@@ -852,7 +854,7 @@ def repl(
                 run_collaboration(collaboration_goal, decision)
                 continue
             if goal.startswith("/"):
-                console.print(f"[red]unknown command[/red] {goal!r}")
+                console.print(Text.assemble(("unknown command", "red"), f" {goal!r}"))
                 bindings.print_command_menu(console)
                 continue
             decision = resolve_collaboration_mode(goal, None)

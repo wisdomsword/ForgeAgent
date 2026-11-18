@@ -29,21 +29,92 @@ import json
 import os
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
+import threading
 import traceback
 import uuid
 from abc import ABC, abstractmethod
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from .runtime import Runtime
 from .secret_policy import mask_secrets, scrub_environment, sensitive_env_values
 
 _MAX_WORKER_CAPTURE_CHARACTERS = 8 * 1024
+_MAX_WORKER_FRAME_BYTES = 1024 * 1024
+
+
+def _run_worker_process(
+    command: list[str],
+    payload: str,
+    *,
+    timeout: float,
+    cwd: str | None = None,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess:
+    """Drain worker pipes while retaining only a bounded result frame and stderr."""
+    process = subprocess.Popen(
+        command,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        cwd=cwd,
+        env=env,
+    )
+    buffers = [bytearray(), bytearray()]
+
+    def drain(stream, buffer: bytearray, limit: int) -> None:
+        try:
+            while chunk := os.read(stream.fileno(), 8192):
+                buffer.extend(chunk[: max(0, limit - len(buffer))])
+        except (OSError, ValueError):
+            pass
+
+    def send() -> None:
+        try:
+            process.stdin.write(payload.encode("utf-8"))
+            process.stdin.close()
+        except (BrokenPipeError, OSError, ValueError):
+            pass
+
+    readers = [
+        threading.Thread(
+            target=drain,
+            args=(process.stdout, buffers[0], _MAX_WORKER_FRAME_BYTES + 1),
+            daemon=True,
+        ),
+        threading.Thread(
+            target=drain,
+            args=(process.stderr, buffers[1], _MAX_WORKER_CAPTURE_CHARACTERS),
+            daemon=True,
+        ),
+    ]
+    writer = threading.Thread(target=send, daemon=True)
+    for thread in [*readers, writer]:
+        thread.start()
+    try:
+        process.wait(timeout=timeout)
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait()
+        for thread in [*readers, writer]:
+            thread.join(timeout=1)
+        if not writer.is_alive():
+            process.stdin.close()
+        for stream in (process.stdout, process.stderr):
+            stream.close()
+    return subprocess.CompletedProcess(
+        command,
+        process.returncode,
+        bytes(buffers[0]).decode("utf-8", errors="replace"),
+        bytes(buffers[1]).decode("utf-8", errors="replace"),
+    )
 
 
 def _create_worker_capture_paths(allowed_root: str) -> dict[str, str]:
@@ -66,15 +137,19 @@ def _create_worker_capture_paths(allowed_root: str) -> dict[str, str]:
 def _read_worker_capture_paths(paths: dict[str, str]) -> tuple[str, str]:
     def read(path: str) -> str:
         try:
-            return (
-                Path(path)
-                .read_bytes()[:_MAX_WORKER_CAPTURE_CHARACTERS]
-                .decode("utf-8", errors="replace")
-            )
+            return _read_capture(path)
         except OSError:
             return ""
 
     return read(paths.get("stdout", "")), read(paths.get("stderr", ""))
+
+
+def _read_capture(path: str) -> str:
+    descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
+    with os.fdopen(descriptor, "rb") as handle:
+        if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+            raise OSError("capture target is not regular")
+        return handle.read(_MAX_WORKER_CAPTURE_CHARACTERS).decode("utf-8", errors="replace")
 
 
 def _remove_worker_capture_paths(paths: dict[str, str]) -> None:
@@ -207,6 +282,13 @@ def _parse_worker_frame(
     (sys.__stdout__) and os._exit(0) before the worker writes its own frame. Anything
     that is not a dict-shaped frame must come back as a structured failure, never as an
     exception out of execute()."""
+    if len(stdout.encode("utf-8")) > _MAX_WORKER_FRAME_BYTES:
+        return ExecResult(
+            success=False,
+            stdout=captured_stdout,
+            stderr=captured_stderr,
+            error=f"{worker_label} result exceeds size limit",
+        )
     if returncode != 0 or not stdout:
         # Worker died before writing a result frame (e.g. rlimit kill, crash). The
         # bounded side channel retains ordinary output written before that termination.
@@ -225,7 +307,7 @@ def _parse_worker_frame(
         )
     try:
         frame = json.loads(stdout)
-    except json.JSONDecodeError:
+    except (ValueError, RecursionError):
         return ExecResult(
             success=False,
             stdout=captured_stdout,
@@ -245,17 +327,15 @@ def _parse_worker_frame(
 def _result_from_frame(frame: dict, state_store: dict, runtime: Runtime) -> ExecResult:
     """Persist the frame's returned state into the backend store + runtime, and build
     the ExecResult. Shared post-processing for both out-of-process backends."""
+    try:
+        result = ExecResult.model_validate(frame)
+    except ValidationError:
+        return ExecResult(success=False, error="worker produced a malformed result frame")
     state_store.clear()
     state_store.update(frame.get("state", {}))
     for key, value in state_store.items():
         runtime.set_state(key, value)
-    return ExecResult(
-        success=bool(frame.get("success", False)),
-        stdout=str(frame.get("stdout", "")),
-        stderr=str(frame.get("stderr", "")),
-        error=frame.get("error"),
-        dropped_state_keys=list(frame.get("dropped_state_keys", [])),
-    )
+    return result
 
 
 class RestrictedBackend(ExecutorBackend):
@@ -276,9 +356,11 @@ class RestrictedBackend(ExecutorBackend):
         cpu_seconds: int = 10,
         memory_mb: int = 512,
         secret_values: set[str] | None = None,
+        working_directory: str | None = None,
     ):
         # Default allowed root is the current working directory (the project/task dir).
         self._allowed_root = str(Path(allowed_root or Path.cwd()).resolve())
+        self._working_directory = str(Path(working_directory or self._allowed_root).resolve())
         self._timeout = timeout_seconds
         self._cpu_seconds = cpu_seconds
         self._memory_mb = memory_mb
@@ -300,6 +382,7 @@ class RestrictedBackend(ExecutorBackend):
                 "code": code,
                 "state": merged,
                 "allowed_root": self._allowed_root,
+                "project_root": self._working_directory,
                 "cpu_seconds": self._cpu_seconds,
                 "memory_mb": self._memory_mb,
                 "capture_paths": capture_paths,
@@ -309,11 +392,10 @@ class RestrictedBackend(ExecutorBackend):
         captured_stderr = ""
         try:
             try:
-                proc = subprocess.run(
+                proc = _run_worker_process(
                     [sys.executable, "-I", "-m", "forgeagent._sandbox_worker"],
-                    input=payload,
-                    capture_output=True,
-                    text=True,
+                    payload,
+                    cwd=self._working_directory,
                     timeout=self._timeout,
                     # Prevention (T1): the child never sees the agent's own credentials, so
                     # model code cannot read them via os.environ. Non-secret vars (PATH, ...)
@@ -398,6 +480,10 @@ class ContainerBackend(ExecutorBackend):
         self._state: dict = {}
         self._secret_values = sensitive_env_values() if secret_values is None else secret_values
         _verify_container_runtime(self._cli, self._image)
+        metadata = Path(self._allowed_root) / ".forgeagent"
+        metadata.mkdir(exist_ok=True)
+        if stat.S_ISLNK(metadata.lstat().st_mode) or not metadata.is_dir():
+            raise ContainerRuntimeError("project metadata directory is unsafe")
         # Minimal package skeleton mounted read-only into the container so
         # `python -m forgeagent._sandbox_worker` resolves there (worker + runtime are
         # stdlib-only, so the bare official image suffices — no custom image build).
@@ -415,6 +501,7 @@ class ContainerBackend(ExecutorBackend):
 
     def _run_command(self, container_name: str) -> list[str]:
         uid = os_uid_gid()
+        metadata = Path(self._allowed_root) / ".forgeagent"
         cmd = [
             self._cli,
             "run",
@@ -444,6 +531,8 @@ class ContainerBackend(ExecutorBackend):
             "-v",
             f"{self._allowed_root}:{self._allowed_root}",
             "-v",
+            f"{metadata}:{metadata}:ro",
+            "-v",
             f"{self._skeleton_dir}:/opt/fa:ro",
             "-e",
             "PYTHONPATH=/opt/fa",
@@ -467,11 +556,9 @@ class ContainerBackend(ExecutorBackend):
         )
         container_name = f"forgeagent-{uuid.uuid4().hex[:12]}"
         try:
-            proc = subprocess.run(
+            proc = _run_worker_process(
                 self._run_command(container_name),
-                input=payload,
-                capture_output=True,
-                text=True,
+                payload,
                 timeout=self._timeout,
             )
         except subprocess.TimeoutExpired:

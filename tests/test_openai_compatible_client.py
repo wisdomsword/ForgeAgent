@@ -1,11 +1,15 @@
 """Unit tests for OpenAICompatibleClient + capability-gating (M6).
 
-All tests use an injected transport (no real key, no network) — mirrors
+All tests use local transports (no real key, no network) — mirrors
 test_anthropic_client.py's pattern. Capability-gating and response parsing are pure,
 so they are asserted directly on build_request / _parse_response.
 """
 
 from types import SimpleNamespace
+
+import httpx
+import openai
+import pytest
 
 from forgeagent.model_registry import get_capability
 from forgeagent.models import ClientError, GenerationParams, Message, Role
@@ -44,6 +48,38 @@ def _fake_reply(
 
 def _user(text="hi") -> list[Message]:
     return [Message(role=Role.USER, content=text)]
+
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_sdk_rate_limit_requests_match_reported_attempts(monkeypatch, stream):
+    sdk_class = openai.OpenAI
+    requests = []
+
+    def send(request):
+        requests.append(request)
+        return httpx.Response(429, headers={"retry-after-ms": "1"}, json={"error": "slow down"})
+
+    def create_sdk(**kwargs):
+        return sdk_class(http_client=httpx.Client(transport=httpx.MockTransport(send)), **kwargs)
+
+    monkeypatch.setattr(openai, "OpenAI", create_sdk)
+    client = OpenAICompatibleClient(
+        capability=get_capability("gpt-5.5"),
+        api_key="test-key",
+        base_url="https://provider.example/v1",
+        sleep=lambda _: None,
+    )
+    try:
+        if stream:
+            (result,) = client.stream(_user())
+        else:
+            result = client.complete(_user())
+    finally:
+        client.close()
+
+    assert isinstance(result, ClientError)
+    assert result.kind == "rate_limit"
+    assert len(requests) == result.attempts == 3
 
 
 # --- capability-gating -------------------------------------------------------

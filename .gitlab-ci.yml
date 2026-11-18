@@ -23,7 +23,7 @@ offline-verification:
   before_script:
     - apt-get update && apt-get install -y --no-install-recommends python3 python3-pip python3-venv git ca-certificates curl jq gosu
     - python3 -m pip install --break-system-packages --no-cache-dir uv==0.11.1
-    - npm install --global @fission-ai/openspec@1.4.1
+    - npm install --global @fission-ai/openspec@1.13.1
     - chown -R node:node "$CI_PROJECT_DIR"
     - gosu node uv sync --locked
   script:

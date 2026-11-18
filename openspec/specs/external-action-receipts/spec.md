@@ -4,7 +4,9 @@
 Protect approved non-read-only MCP actions with durable, bounded, secret-masked receipts and
 explicit reconciliation. This capability records dispatch certainty, blocks Loop resume while an
 open receipt is unresolved, and never silently replays an external action.
+
 ## Requirements
+
 ### Requirement: External action receipts are durable and strictly bounded
 ForgeAgent SHALL persist one versioned receipt for every approved, non-read-only external action before dispatch. The receipt MUST use the phases `prepared`, `dispatched`, `confirmed`, and `unknown`, MUST preserve a stable action identifier and request digest, and MUST store only bounded, secret-masked target metadata and evidence references. Receipt writes and phase transitions MUST be atomic and fail closed when the authoritative receipt cannot be persisted.
 
@@ -75,3 +77,18 @@ ForgeAgent SHALL permit its authenticated loopback HTTP control plane to read bo
 #### Scenario: Process restarts after an unknown action
 - **WHEN** a durable `unknown` receipt remains after restart while process-local action approvals have disappeared
 - **THEN** the HTTP control plane can reconcile the receipt explicitly, but it cannot reconstruct or silently replay the expired approval
+
+### Requirement: Receipt authority is protected from task tools
+ForgeAgent MUST prevent model-driven file and execution tools from modifying, removing, moving, or replacing receipt storage or its ancestor bindings in restricted and container tiers. Registered receipt loss MUST fail closed across restart. Existing valid receipts MUST be preserved without dispatch during initialization.
+
+#### Scenario: Model attempts to delete an unknown receipt
+- **WHEN** task code or a file tool targets a receipt or renames an ancestor
+- **THEN** the operation is denied and the unknown action remains pending
+
+#### Scenario: Registered receipt disappears
+- **WHEN** a registered receipt is absent during listing, startup, or new action preparation
+- **THEN** the store reports an error and no related external action is dispatched
+
+#### Scenario: Existing receipts are adopted
+- **WHEN** the protected store opens valid legacy records without a directory index
+- **THEN** it preserves their bytes and phases and records their identities without replay

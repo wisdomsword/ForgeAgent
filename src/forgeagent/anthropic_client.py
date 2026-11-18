@@ -163,7 +163,9 @@ class AnthropicClient(ModelClient):
             if client is None:
                 import anthropic
 
-                client = anthropic.Anthropic(api_key=self._api_key, base_url=self._base_url)
+                client = anthropic.Anthropic(
+                    api_key=self._api_key, base_url=self._base_url, max_retries=0
+                )
                 self._sdk_client = client
             return client
 
@@ -358,7 +360,10 @@ class AnthropicClient(ModelClient):
             nonlocal resolved_model_id
             if resolved_model_id is None:
                 resolved_model_id = resolve_effective_model_id(
-                    request["model"], base_url=self._base_url, api_key=self._api_key
+                    request["model"],
+                    base_url=self._base_url,
+                    api_key=self._api_key,
+                    timeout_seconds=timeout_seconds,
                 )
             client = self._sdk_client_for_request()
             try:
@@ -385,7 +390,10 @@ class AnthropicClient(ModelClient):
             nonlocal resolved_model_id
             if resolved_model_id is None:
                 resolved_model_id = resolve_effective_model_id(
-                    request["model"], base_url=self._base_url, api_key=self._api_key
+                    request["model"],
+                    base_url=self._base_url,
+                    api_key=self._api_key,
+                    timeout_seconds=timeout_seconds,
                 )
             client = self._sdk_client_for_request()
             try:

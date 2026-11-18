@@ -80,21 +80,23 @@ def load_images(path: str) -> list[ImageItem]:
         raise ValueError(f"{path}: no such file or directory")
 
     if p.is_file():
-        images = [_load_one(p)]
-    else:
-        items: list[ImageItem] = []
-        for entry in sorted(p.iterdir(), key=lambda e: e.name):
-            if not entry.is_file():
-                continue
-            try:
-                items.append(_load_one(entry))
-            except _UnrecognizedImageError:
-                continue
-        images = items
+        return [_load_one(p)]
 
-    if len(images) > MAX_IMAGES_PER_REQUEST:
-        raise ValueError(
-            f"{path}: {len(images)} images exceeds the {MAX_IMAGES_PER_REQUEST}-image "
-            "per-request limit; narrow the selection"
-        )
+    images: list[ImageItem] = []
+    for entry in sorted(p.iterdir(), key=lambda e: e.name):
+        if not entry.is_file():
+            continue
+        if len(images) == MAX_IMAGES_PER_REQUEST:
+            with entry.open("rb") as image_file:
+                media_type = detect_media_type(image_file.read(_HEADER_BYTES))
+            if media_type is not None:
+                raise ValueError(
+                    f"{path}: {len(images) + 1} images exceeds the {MAX_IMAGES_PER_REQUEST}-image "
+                    "per-request limit; narrow the selection"
+                )
+            continue
+        try:
+            images.append(_load_one(entry))
+        except _UnrecognizedImageError:
+            continue
     return images
