@@ -226,7 +226,7 @@ ForgeAgent MUST make at most one full-disk filesystem authority decision within 
 - **THEN** the confirmation renders a single-line escaped and secret-masked target and still reads exactly one approval answer
 
 ### Requirement: restricted 运行时前缀只读
-ForgeAgent MUST 允许 restricted worker 读取 import 所需的已安装 Python 运行时前缀；但除非对应路径同时位于 `allowed_root` 内，任务代码 MUST NOT 在 `sys.base_prefix`、`sys.prefix` 或其 `site-packages` 后代中创建、修改、截断、重命名或删除文件。
+ForgeAgent MUST 允许 restricted worker 读取 import 所需的已安装 Python 运行时前缀，并允许对这些受信任解释器前缀进行只读目录枚举以发现包与子模块；但除非对应路径同时位于 `allowed_root` 内，任务代码 MUST NOT 在 `sys.base_prefix`、`sys.prefix` 或其 `site-packages` 后代中创建、修改、截断、重命名或删除文件。其他宿主目录及其 symlink 别名 MUST NOT 因解释器导入权限而获得目录枚举权限。
 
 #### Scenario: restricted 任务不能写入 site-packages
 - **WHEN** restricted 任务代码在 `allowed_root` 外、当前解释器的 `site-packages` 目录下以写模式打开普通文件
@@ -239,6 +239,18 @@ ForgeAgent MUST 允许 restricted worker 读取 import 所需的已安装 Python
 #### Scenario: restricted 任务不能覆盖 worker 包文件
 - **WHEN** restricted 任务代码尝试写入 `allowed_root` 外、`sys.prefix` 下已安装 `forgeagent` 包内的文件
 - **THEN** ForgeAgent 以标准 restricted 文件访问拒绝阻止写入，并保持已安装 worker 包不变
+
+#### Scenario: 冷启动导入标准库包并执行测试
+- **WHEN** 新 worker 首次导入 unittest 或嵌套标准库包并执行项目内测试
+- **THEN** 子模块发现及测试执行成功，不需要预导入或全盘授权
+
+#### Scenario: 非解释器宿主目录枚举仍被拒绝
+- **WHEN** 任务通过直接路径或 symlink 枚举项目及解释器前缀之外的宿主目录
+- **THEN** 操作被 restricted 文件访问边界拒绝
+
+#### Scenario: 导入权限不允许解释器前缀写入
+- **WHEN** 导入标准库后任务试图在项目外解释器前缀内写文件或创建目录
+- **THEN** 在变更发生前拒绝操作
 
 ### Requirement: Headless authorization uses exact typed operation keys
 

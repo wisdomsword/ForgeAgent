@@ -31,6 +31,99 @@ def test_normal_code_runs_in_subprocess(tmp_path):
     assert result.stdout.strip() == "hello from subprocess"
 
 
+@pytest.mark.parametrize(
+    "code",
+    [
+        "import unittest; print(unittest.TestCase.__name__)",
+        "import xml.etree.ElementTree as ET; print(ET.fromstring('<root/>').tag)",
+        "from email.message import EmailMessage; print(EmailMessage.__name__)",
+    ],
+)
+def test_cold_worker_imports_standard_library_packages(tmp_path, code):
+    result = _backend(tmp_path).execute(code, Runtime())
+    assert result.success, result.error
+    assert result.stdout.strip()
+
+
+def test_cold_worker_runs_project_unittest_suite(tmp_path):
+    (tmp_path / "calculator.py").write_text("def add(a, b):\n    return a + b\n")
+    (tmp_path / "test_calculator.py").write_text(
+        "import unittest\nfrom calculator import add\n"
+        "class AdditionTests(unittest.TestCase):\n"
+        "    def test_add(self):\n        self.assertEqual(add(20, 22), 42)\n"
+    )
+    result = _backend(tmp_path).execute(
+        "import os, sys, unittest\n"
+        "sys.path.insert(0, os.getcwd())\n"
+        "suite = unittest.defaultTestLoader.loadTestsFromName('test_calculator')\n"
+        "assert suite.countTestCases() == 1\n"
+        "assert unittest.TextTestRunner().run(suite).wasSuccessful()\n"
+        "print('UNITTEST_OK')",
+        Runtime(),
+    )
+    assert result.success, result.error
+    assert result.stdout.strip() == "UNITTEST_OK"
+    assert "Ran 1 test" in result.stderr
+
+
+@pytest.mark.parametrize("operation", ["listdir", "scandir"])
+def test_interpreter_library_directories_can_be_enumerated(tmp_path, operation):
+    library = os.path.join(sysconfig.get_path("stdlib"), "unittest")
+    code = f"import os\nentries = os.{operation}({library!r})\n"
+    code += (
+        "print('result.py' in entries)"
+        if operation == "listdir"
+        else "with entries:\n    print(any(entry.name == 'result.py' for entry in entries))"
+    )
+    result = _backend(tmp_path).execute(code, Runtime())
+    assert result.success, result.error
+    assert result.stdout.strip() == "True"
+
+
+@pytest.mark.parametrize("operation", ["listdir", "scandir"])
+@pytest.mark.parametrize("use_symlink", [False, True])
+def test_interpreter_imports_do_not_allow_host_directory_enumeration(
+    tmp_path, operation, use_symlink
+):
+    project = tmp_path / "project"
+    project.mkdir()
+    outside = tmp_path / "private-host-directory"
+    outside.mkdir()
+    target = outside
+    if use_symlink:
+        target = project / "alias"
+        target.symlink_to(outside, target_is_directory=True)
+    result = _backend(project).execute(
+        f"import unittest, os\nos.{operation}({str(target)!r})", Runtime()
+    )
+    assert not result.success
+    assert result.error == "restricted: file access outside allowed root denied"
+
+
+@pytest.mark.parametrize("operation", ["write", "mkdir"])
+def test_interpreter_imports_do_not_allow_interpreter_mutations(tmp_path, operation):
+    target = os.path.join(sys.prefix, f".forgeagent-import-probe-{tmp_path.name}")
+    mutation = (
+        f"open({target!r}, 'w').write('blocked')"
+        if operation == "write"
+        else f"os.mkdir({target!r})"
+    )
+    try:
+        result = _backend(tmp_path).execute(f"import unittest, os\n{mutation}", Runtime())
+        assert not result.success
+        assert result.error == (
+            "restricted: file access outside allowed root denied"
+            if operation == "write"
+            else "restricted: file mutation outside allowed root denied"
+        )
+        assert not os.path.exists(target)
+    finally:
+        if os.path.isdir(target):
+            os.rmdir(target)
+        elif os.path.exists(target):
+            os.unlink(target)
+
+
 def test_worker_bootstrap_ignores_shadow_forgeagent_package(tmp_path, monkeypatch):
     shadow_package = tmp_path / "forgeagent"
     shadow_package.mkdir()

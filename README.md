@@ -28,7 +28,8 @@ key/base URL 配置见下方“多模型支持”和“配置”说明。首次�
 ## 当前验证
 
 当前 checkout 的实际测试、Golden、OpenSpec strict、构建和 clean-wheel 结果统一记录于
-[本次验证报告](docs/superpowers/reports/2026-11-18-fix-github-release-readiness-verify.md)。
+[本次验证报告](docs/superpowers/reports/2026-11-18-fix-restricted-stdlib-imports-verify.md)。
+上一轮发布前评审修复见[历史验证记录](docs/superpowers/reports/2026-11-18-fix-github-release-readiness-verify.md)。
 门禁完成前不声明本次 checkout 已全部通过。开发与 CI 使用 `@fission-ai/openspec@1.13.1`：
 
 ```bash

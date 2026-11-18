@@ -306,6 +306,7 @@ def main() -> None:
         _install_audit_hook(
             allowed_root,
             writes_only_in_root=True,
+            readable_directory_roots=(sys.base_prefix, sys.prefix),
             allowed_files=tuple(capture_paths.values()),
             project_root=payload.get("project_root", allowed_root),
             deny_descriptor_relative_open=True,

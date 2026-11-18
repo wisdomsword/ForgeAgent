@@ -216,3 +216,15 @@ the only skip is the optional cross-interpreter digest check because `python3.11
 is not on PATH. Its log is `precommit-final-pytest.log`. This run followed the spec
 sync and archive, and verifies the checkout to be committed. Earlier isolated Python
 3.11 and installed-wheel checks retain the scopes described above.
+
+## Subsequent credentialed acceptance
+
+After the local fix commit `a2bc878`, the user authorized requests to a specific
+MAAS gateway. The separate [live-model acceptance report](2026-11-18-live-model-acceptance.md)
+records 15/15 real Golden cases and 3/3 stream checks, two generated images with
+size mismatches, and failed Duo/Triad acceptance. The latter exposed a reproducible
+restricted-worker standard-library submodule import defect. The offline gates
+above remain historical measured results; they do not establish complete live-model
+acceptance. That acceptance did not include a product-code fix. The subsequent
+[restricted import fix and successful Duo/Triad rerun](2026-11-18-fix-restricted-stdlib-imports-verify.md)
+records the resolution separately; the historical gates above are preserved.
