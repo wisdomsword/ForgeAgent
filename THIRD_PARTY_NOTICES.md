@@ -25,3 +25,24 @@ the value must not leak into a snapshot.
 kept locally for comparison only; nothing in `src/` depends on it.
 
 `.worktrees/` and `.codegraph/` are also gitignored.
+
+## Python dependencies and redistribution
+
+The ForgeAgent source archive and wheel include ForgeAgent's MIT license and this notice.
+Python dependencies are installed separately. Their upstream license and copyright terms
+continue to apply. See the [dependency license inventory](docs/security/dependency-inventory-2026-11-18.json)
+for the versions and license files examined on 2026-11-18. Check the exact artifacts
+again when preparing a distribution with bundled dependencies.
+
+- Keep each dependency's copyright, license and disclaimer. Where an Apache-2.0
+  distribution supplies a NOTICE, retain the applicable notices.
+- certifi and tqdm contain MPL-2.0 covered files. For bundled distributions, retain
+  the notices and follow MPL source availability requirements for the covered files.
+  tqdm also contains MIT licensed contributions.
+- For Windows bundles, pywin32 includes separate component terms. The audited wheel
+  contains LGPL 2.1 license text for adodbapi, along with BSD-style, MIT and Scintilla
+  terms for other components. Retain all component notices and review corresponding
+  source and recipient rights for the exact Windows artifact before distributing it.
+
+Apply the same artifact-level review to an offline archive or container that embeds
+dependencies. A package's top-level metadata may omit licenses for included components.

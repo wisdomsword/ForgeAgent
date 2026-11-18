@@ -1,0 +1,2621 @@
+{
+  "schema": "forgeagent.dependency-audit.v1",
+  "audited_at": "2026-11-18",
+  "commit": "0c46ea4736b21e260653052fa7a538f2c1a55ef5",
+  "lock_sha256": "b1e1ebd2f12e355110707953c3e9b87d31ae7ec37b1cabe6cc72d51490b4ce76",
+  "tools": {
+    "pip-audit": "2.10.1",
+    "uv_used": "0.12.13",
+    "python_used": "3.14.7",
+    "vulnerability_services": [
+      "pypi",
+      "osv",
+      "npm audit"
+    ]
+  },
+  "summary": {
+    "locked_external_packages": 52,
+    "runtime_packages_all_targets": 47,
+    "development_only_packages": 5,
+    "affected_locked_packages": 5,
+    "locked_package_advisories": 24,
+    "ci_uv_advisories": 3,
+    "npm_root_advisories": 1,
+    "all_advisory_severity": {
+      "MODERATE": 14,
+      "HIGH": 9,
+      "CRITICAL": 4,
+      "LOW": 1
+    }
+  },
+  "packages": [
+    {
+      "name": "annotated-types",
+      "version": "0.7.0",
+      "scope": "runtime-transitive",
+      "license": "MIT",
+      "metadata_license": null,
+      "metadata_license_expression": null,
+      "source": "https://pypi.org/pypi/annotated-types/0.7.0/json",
+      "advisories": [],
+      "license_evidence": [
+        {
+          "path": "annotated_types-0.7.0.dist-info/licenses/LICENSE",
+          "sha256": "fe1049884b1a0d9342901e88e07f32925d24b3121d9972b6a6805fb9824b095d",
+          "bytes": 1083
+        }
+      ]
+    },
+    {
+      "name": "anthropic",
+      "version": "0.116.0",
+      "scope": "runtime-direct",
+      "license": "MIT",
+      "metadata_license": "MIT",
+      "metadata_license_expression": null,
+      "source": "https://pypi.org/pypi/anthropic/0.116.0/json",
+      "advisories": [],
+      "license_evidence": [
+        {
+          "path": "anthropic-0.116.0.dist-info/licenses/LICENSE",
+          "sha256": "8bf96984ff8bcfae7e48cae76a529e8a25317ba9e02abf7fd3cc64fdf95657a6",
+          "bytes": 1056
+        }
+      ]
+    },
+    {
+      "name": "anyio",
+      "version": "4.14.1",
+      "scope": "runtime-transitive",
+      "license": "MIT",
+      "metadata_license": null,
+      "metadata_license_expression": "MIT",
+      "source": "https://pypi.org/pypi/anyio/4.14.1/json",
+      "advisories": [
+        "GHSA-3w57-8xmc-8v26",
+        "GHSA-5p39-cfhj-2xmp",
+        "GHSA-82r6-8w77-94w6"
+      ],
+      "license_evidence": [
+        {
+          "path": "anyio-4.14.1.dist-info/licenses/LICENSE",
+          "sha256": "5361ac9dc58f2ef5fd2e9b09c68297c17f04950909bbc8023bdb82eacf22c2b0",
+          "bytes": 1081
+        }
+      ]
+    },
+    {
+      "name": "attrs",
+      "version": "26.1.0",
+      "scope": "runtime-transitive",
+      "license": "MIT",
+      "metadata_license": null,
+      "metadata_license_expression": "MIT",
+      "source": "https://pypi.org/pypi/attrs/26.1.0/json",
+      "advisories": [],
+      "license_evidence": [
+        {
+          "path": "attrs-26.1.0.dist-info/licenses/LICENSE",
+          "sha256": "882115c95dfc2af1eeb6714f8ec6d5cbcabf667caff8729f42420da63f714e9f",
+          "bytes": 1109
+        }
+      ]
+    },
+    {
+      "name": "certifi",
+      "version": "2026.6.17",
+      "scope": "runtime-transitive",
+      "license": "MPL-2.0",
+      "metadata_license": "MPL-2.0",
+      "metadata_license_expression": null,
+      "source": "https://pypi.org/pypi/certifi/2026.6.17/json",
+      "advisories": [
+        "GHSA-6q48-6c7w-9gw2"
+      ],
+      "license_evidence": [
+        {
+          "path": "certifi-2026.6.17.dist-info/licenses/LICENSE",
+          "sha256": "e93716da6b9c0d5a4a1df60fe695b370f0695603d21f6f83f053e42cfc10caf7",
+          "bytes": 989
+        }
+      ]
+    },
+    {
+      "name": "cffi",
+      "version": "2.1.0",
+      "scope": "runtime-transitive",
+      "license": "MIT-0",
+      "metadata_license": null,
+      "metadata_license_expression": "MIT-0",
+      "source": "https://pypi.org/pypi/cffi/2.1.0/json",
+      "advisories": [],
+      "license_evidence": [
+        {
+          "path": "cffi-2.1.0.dist-info/licenses/LICENSE",
+          "sha256": "5ba24ddc57067f9249add644c3afc41a5d6dc37e23433ef759d95df370b0af63",
+          "bytes": 1123
+        }
+      ]
+    },
+    {
+      "name": "click",
+      "version": "8.4.2",
+      "scope": "runtime-transitive",
+      "license": "BSD-3-Clause",
+      "metadata_license": null,
+      "metadata_license_expression": "BSD-3-Clause",
+      "source": "https://pypi.org/pypi/click/8.4.2/json",
+      "advisories": [],
+      "license_evidence": [
+        {
+          "path": "click-8.4.2.dist-info/licenses/LICENSE.txt",
+          "sha256": "9a8ad106a394e853bfe21f42f4e72d592819a22805d991b5f3275029292b658d",
+          "bytes": 1475
+        }
+      ]
+    },
+    {
+      "name": "colorama",
+      "version": "0.4.6",
+      "scope": "runtime-transitive",
+      "license": "BSD-3-Clause",
+      "metadata_license": "",
+      "metadata_license_expression": null,
+      "source": "https://pypi.org/pypi/colorama/0.4.6/json",
+      "advisories": [],
+      "license_evidence": [
+        {
+          "path": "colorama-0.4.6.dist-info/licenses/LICENSE.txt",
+          "sha256": "cac35c02686e5d04a5a7140bfb3b36e73aed496656e891102e428886d7930318",
+          "bytes": 1491
+        }
+      ]
+    },
+    {
+      "name": "cryptography",
+      "version": "49.0.0",
+      "scope": "runtime-transitive",
+      "license": "Apache-2.0 OR BSD-3-Clause",
+      "metadata_license": null,
+      "metadata_license_expression": "Apache-2.0 OR BSD-3-Clause",
+      "source": "https://pypi.org/pypi/cryptography/49.0.0/json",
+      "advisories": [
+        "GHSA-g6cj-pr64-35w5"
+      ],
+      "license_evidence": [
+        {
+          "path": "cryptography-49.0.0.dist-info/licenses/LICENSE",
+          "sha256": "3e0c7c091a948b82533ba98fd7cbb40432d6f1a9acbf85f5922d2f99a93ae6bb",
+          "bytes": 197
+        },
+        {
+          "path": "cryptography-49.0.0.dist-info/licenses/LICENSE.APACHE",
+          "sha256": "aac73b3148f6d1d7111dbca32099f68d26c644c6813ae1e4f05f6579aa2663fe",
+          "bytes": 11360
+        },
+        {
+          "path": "cryptography-49.0.0.dist-info/licenses/LICENSE.BSD",
+          "sha256": "602c4c7482de6479dd2e9793cda275e5e63d773dacd1eca689232ab7008fb4fb",
+          "bytes": 1532
+        }
+      ]
+    },
+    {
+      "name": "distro",
+      "version": "1.9.0",
+      "scope": "runtime-transitive",
+      "license": "Apache-2.0",
+      "metadata_license": "Apache License, Version 2.0",
+      "metadata_license_expression": null,
+      "source": "https://pypi.org/pypi/distro/1.9.0/json",
+      "advisories": [],
+      "license_evidence": [
+        {
+          "path": "distro-1.9.0.dist-info/LICENSE",
+          "sha256": "cb5e8e7e5f4a3988e1063c142c60dc2df75605f4c46515e776e3aca6df976e14",
+          "bytes": 11325
+        }
+      ]
+    },
+    {
+      "name": "docstring-parser",
+      "version": "0.18.0",
+      "scope": "runtime-transitive",
+      "license": "MIT",
+      "metadata_license": "MIT",
+      "metadata_license_expression": null,
+      "source": "https://pypi.org/pypi/docstring-parser/0.18.0/json",
+      "advisories": [],
+      "license_evidence": [
+        {
+          "path": "docstring_parser-0.18.0.dist-info/licenses/LICENSE.md",
+          "sha256": "dfe514a337ae8417abd31a8af707bbd6172b03e5430bb083e145899ea97a3eea",
+          "bytes": 1084
+        }
+      ]
+    },
+    {
+      "name": "h11",
+      "version": "0.16.0",
+      "scope": "runtime-transitive",
+      "license": "MIT",
+      "metadata_license": "MIT",
+      "metadata_license_expression": null,
+      "source": "https://pypi.org/pypi/h11/0.16.0/json",
+      "advisories": [],
+      "license_evidence": [
+        {
+          "path": "h11-0.16.0.dist-info/licenses/LICENSE.txt",
+          "sha256": "37db5bb85926db28a427a25867f10b1232003aea1be69ccb851138adb8e6f361",
+          "bytes": 1124
+        }
+      ]
+    },
+    {
+      "name": "httpcore",
+      "version": "1.0.9",
+      "scope": "runtime-transitive",
+      "license": "BSD-3-Clause",
+      "metadata_license": null,
+      "metadata_license_expression": "BSD-3-Clause",
+      "source": "https://pypi.org/pypi/httpcore/1.0.9/json",
+      "advisories": [],
+      "license_evidence": [
+        {
+          "path": "httpcore-1.0.9.dist-info/licenses/LICENSE.md",
+          "sha256": "fdcb59154c74cbaba16a11242f7740bea9f23d6feb5547917d8c5f94a80392a5",
+          "bytes": 1518
+        }
+      ]
+    },
+    {
+      "name": "httpx",
+      "version": "0.28.1",
+      "scope": "runtime-transitive",
+      "license": "BSD-3-Clause",
+      "metadata_license": "BSD-3-Clause",
+      "metadata_license_expression": null,
+      "source": "https://pypi.org/pypi/httpx/0.28.1/json",
+      "advisories": [],
+      "license_evidence": [
+        {
+          "path": "httpx-0.28.1.dist-info/licenses/LICENSE.md",
+          "sha256": "4ec59d544f12b5f539a3a716fd321ac58ccd8030b465221f2c880200cdf28d8d",
+          "bytes": 1508
+        }
+      ]
+    },
+    {
+      "name": "httpx-sse",
+      "version": "0.4.3",
+      "scope": "runtime-transitive",
+      "license": "MIT",
+      "metadata_license": "MIT",
+      "metadata_license_expression": null,
+      "source": "https://pypi.org/pypi/httpx-sse/0.4.3/json",
+      "advisories": [],
+      "license_evidence": [
+        {
+          "path": "httpx_sse-0.4.3.dist-info/licenses/LICENSE",
+          "sha256": "beec67e4ee83a7af26f242bed9987aa863d6d2dfb776106aa2360c4187f31901",
+          "bytes": 1072
+        }
+      ]
+    },
+    {
+      "name": "idna",
+      "version": "3.18",
+      "scope": "runtime-transitive",
+      "license": "BSD-3-Clause",
+      "metadata_license": null,
+      "metadata_license_expression": "BSD-3-Clause",
+      "source": "https://pypi.org/pypi/idna/3.18/json",
+      "advisories": [],
+      "license_evidence": [
+        {
+          "path": "idna-3.18.dist-info/licenses/LICENSE.md",
+          "sha256": "1a9a4f0e3d479a27240ddd59a9137a66ab4a0f9dfdc8ca6188cc0bfd85187f04",
+          "bytes": 1541
+        }
+      ]
+    },
+    {
+      "name": "iniconfig",
+      "version": "2.3.0",
+      "scope": "development-only",
+      "license": "MIT",
+      "metadata_license": null,
+      "metadata_license_expression": "MIT",
+      "source": "https://pypi.org/pypi/iniconfig/2.3.0/json",
+      "advisories": [],
+      "license_evidence": [
+        {
+          "path": "iniconfig-2.3.0.dist-info/licenses/LICENSE",
+          "sha256": "3409fa91f7ace557894632676656e32264fe5ef7581535725dc9a23774551bd4",
+          "bytes": 1098
+        }
+      ]
+    },
+    {
+      "name": "jinja2",
+      "version": "3.1.6",
+      "scope": "runtime-direct",
+      "license": "BSD-3-Clause",
+      "metadata_license": null,
+      "metadata_license_expression": null,
+      "source": "https://pypi.org/pypi/jinja2/3.1.6/json",
+      "advisories": [],
+      "license_evidence": [
+        {
+          "path": "jinja2-3.1.6.dist-info/licenses/LICENSE.txt",
+          "sha256": "3b49dcee4105eb37bac10faf1be260408fe85d252b8e9df2e0979fc1e094437b",
+          "bytes": 1475
+        }
+      ]
+    },
+    {
+      "name": "jiter",
+      "version": "0.16.0",
+      "scope": "runtime-transitive",
+      "license": "MIT",
+      "metadata_license": null,
+      "metadata_license_expression": "MIT",
+      "source": "https://pypi.org/pypi/jiter/0.16.0/json",
+      "advisories": [],
+      "license_evidence": [
+        {
+          "path": "jiter-0.16.0.dist-info/licenses/LICENSE",
+          "sha256": "7c7134b9f7b978c03fca875517cf398db91f19bbb8109b6685e742aa3f57468e",
+          "bytes": 1091
+        }
+      ]
+    },
+    {
+      "name": "jsonschema",
+      "version": "4.26.0",
+      "scope": "runtime-transitive",
+      "license": "MIT",
+      "metadata_license": null,
+      "metadata_license_expression": "MIT",
+      "source": "https://pypi.org/pypi/jsonschema/4.26.0/json",
+      "advisories": [],
+      "license_evidence": [
+        {
+          "path": "jsonschema-4.26.0.dist-info/licenses/COPYING",
+          "sha256": "4f92a015a13c4d1a040bef018aa13430b4f1bc73b41b16bb846c346766de7439",
+          "bytes": 1057
+        }
+      ]
+    },
+    {
+      "name": "jsonschema-specifications",
+      "version": "2025.9.1",
+      "scope": "runtime-transitive",
+      "license": "MIT",
+      "metadata_license": null,
+      "metadata_license_expression": "MIT",
+      "source": "https://pypi.org/pypi/jsonschema-specifications/2025.9.1/json",
+      "advisories": [],
+      "license_evidence": [
+        {
+          "path": "jsonschema_specifications-2025.9.1.dist-info/licenses/COPYING",
+          "sha256": "42dcd63495f87b4eb7c7757afa379bb55a53f94afd7a5f657d9adf57236e515c",
+          "bytes": 1057
+        }
+      ]
+    },
+    {
+      "name": "markdown-it-py",
+      "version": "4.2.0",
+      "scope": "runtime-transitive",
+      "license": "MIT",
+      "metadata_license": null,
+      "metadata_license_expression": null,
+      "source": "https://pypi.org/pypi/markdown-it-py/4.2.0/json",
+      "advisories": [],
+      "license_evidence": [
+        {
+          "path": "markdown_it_py-4.2.0.dist-info/licenses/LICENSE",
+          "sha256": "4a2260d6e2cd0f5a151a1e86dbfe7d3ed552b1e2beabf9941c1ba5c49cbce484",
+          "bytes": 1078
+        },
+        {
+          "path": "markdown_it_py-4.2.0.dist-info/licenses/LICENSE.markdown-it",
+          "sha256": "792c48c5a849a15fdf9e37e8bcf9e6d1dd13b32b46c642a748a0a46a9919d473",
+          "bytes": 1073
+        }
+      ]
+    },
+    {
+      "name": "markupsafe",
+      "version": "3.0.3",
+      "scope": "runtime-transitive",
+      "license": "BSD-3-Clause",
+      "metadata_license": null,
+      "metadata_license_expression": "BSD-3-Clause",
+      "source": "https://pypi.org/pypi/markupsafe/3.0.3/json",
+      "advisories": [],
+      "license_evidence": [
+        {
+          "path": "markupsafe-3.0.3.dist-info/licenses/LICENSE.txt",
+          "sha256": "489a8e1108509ed98a37bb983e11e0f7e1d31f0bd8f99a79c8448e7ff37d07ea",
+          "bytes": 1475
+        }
+      ]
+    },
+    {
+      "name": "mcp",
+      "version": "1.28.1",
+      "scope": "runtime-direct",
+      "license": "MIT",
+      "metadata_license": "MIT",
+      "metadata_license_expression": null,
+      "source": "https://pypi.org/pypi/mcp/1.28.1/json",
+      "advisories": [
+        "GHSA-5h93-6whr-6q8j",
+        "GHSA-84m7-p3x7-pcfv",
+        "GHSA-rwrf-2pqf-9j8j",
+        "GHSA-w4fh-qvv9-3v23"
+      ],
+      "license_evidence": [
+        {
+          "path": "mcp-1.28.1.dist-info/licenses/LICENSE",
+          "sha256": "5e13dbbc1d120fc2a03cecde7c91424ae2d7de11b63d58ded2f4431e261ee50d",
+          "bytes": 1071
+        }
+      ]
+    },
+    {
+      "name": "mdurl",
+      "version": "0.1.2",
+      "scope": "runtime-transitive",
+      "license": "MIT",
+      "metadata_license": "",
+      "metadata_license_expression": null,
+      "source": "https://pypi.org/pypi/mdurl/0.1.2/json",
+      "advisories": [],
+      "license_evidence": [
+        {
+          "path": "mdurl-0.1.2.dist-info/LICENSE",
+          "sha256": "7c605df6e28667a9603118e98274f64a49ce3eed0d26fccce9534a345e0ef955",
+          "bytes": 2338
+        }
+      ]
+    },
+    {
+      "name": "openai",
+      "version": "2.44.0",
+      "scope": "runtime-direct",
+      "license": "Apache-2.0",
+      "metadata_license": "Apache-2.0",
+      "metadata_license_expression": null,
+      "source": "https://pypi.org/pypi/openai/2.44.0/json",
+      "advisories": [],
+      "license_evidence": [
+        {
+          "path": "openai-2.44.0.dist-info/licenses/LICENSE",
+          "sha256": "636eb7d79da9bb6d515a4b3fd417aa26679eb3cf16396ddab4bc55fa74e616e4",
+          "bytes": 11336
+        }
+      ]
+    },
+    {
+      "name": "packaging",
+      "version": "26.2",
+      "scope": "development-only",
+      "license": "Apache-2.0 OR BSD-2-Clause",
+      "metadata_license": null,
+      "metadata_license_expression": "Apache-2.0 OR BSD-2-Clause",
+      "source": "https://pypi.org/pypi/packaging/26.2/json",
+      "advisories": [],
+      "license_evidence": [
+        {
+          "path": "packaging-26.2.dist-info/licenses/LICENSE",
+          "sha256": "cad1ef5bd340d73e074ba614d26f7deaca5c7940c3d8c34852e65c4909686c48",
+          "bytes": 197
+        },
+        {
+          "path": "packaging-26.2.dist-info/licenses/LICENSE.APACHE",
+          "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
+          "bytes": 10174
+        },
+        {
+          "path": "packaging-26.2.dist-info/licenses/LICENSE.BSD",
+          "sha256": "b70e7e9b742f1cc6f948b34c16aa39ffece94196364bc88ff0d2180f0028fac5",
+          "bytes": 1344
+        },
+        {
+          "path": "packaging/licenses/__init__.py",
+          "sha256": "fc9c745d1883ff9f296a5b169f22eb2ee879f59a4608f20f5cb29d668f4e26f4",
+          "bytes": 7293
+        },
+        {
+          "path": "packaging/licenses/_spdx.py",
+          "sha256": "596ec35e2ca0ebcba9fd8343ff0a51625af548786257815f24b41f7e08613314",
+          "bytes": 51122
+        }
+      ]
+    },
+    {
+      "name": "pluggy",
+      "version": "1.6.0",
+      "scope": "development-only",
+      "license": "MIT",
+      "metadata_license": "MIT",
+      "metadata_license_expression": null,
+      "source": "https://pypi.org/pypi/pluggy/1.6.0/json",
+      "advisories": [],
+      "license_evidence": [
+        {
+          "path": "pluggy-1.6.0.dist-info/licenses/LICENSE",
+          "sha256": "d6b65e6c213a5d0b577911d34d6e5949b9f59d76c238c5071a2f3fc16cfb2606",
+          "bytes": 1110
+        }
+      ]
+    },
+    {
+      "name": "prompt-toolkit",
+      "version": "3.0.52",
+      "scope": "runtime-direct",
+      "license": "BSD-3-Clause",
+      "metadata_license": null,
+      "metadata_license_expression": null,
+      "source": "https://pypi.org/pypi/prompt-toolkit/3.0.52/json",
+      "advisories": [],
+      "license_evidence": [
+        {
+          "path": "prompt_toolkit-3.0.52.dist-info/licenses/AUTHORS.rst",
+          "sha256": "d3dc62c6bc8436658495ab89aea37511e7fa9391d282657239c9cfb80dbd42e5",
+          "bytes": 148
+        },
+        {
+          "path": "prompt_toolkit-3.0.52.dist-info/licenses/LICENSE",
+          "sha256": "303574d9bdd85c757d6025017942bf17baeedf2778f62bd7f425d07d880f4c4a",
+          "bytes": 1493
+        }
+      ]
+    },
+    {
+      "name": "pycparser",
+      "version": "3.0",
+      "scope": "runtime-transitive",
+      "license": "BSD-3-Clause",
+      "metadata_license": null,
+      "metadata_license_expression": "BSD-3-Clause",
+      "source": "https://pypi.org/pypi/pycparser/3.0/json",
+      "advisories": [],
+      "license_evidence": [
+        {
+          "path": "pycparser-3.0.dist-info/licenses/LICENSE",
+          "sha256": "0c846399369ea76ddd7b5c44fe6d16497415fcf015f5cbb508c24bf98b81c5b1",
+          "bytes": 1543
+        }
+      ]
+    },
+    {
+      "name": "pydantic",
+      "version": "2.13.4",
+      "scope": "runtime-direct",
+      "license": "MIT",
+      "metadata_license": null,
+      "metadata_license_expression": "MIT",
+      "source": "https://pypi.org/pypi/pydantic/2.13.4/json",
+      "advisories": [],
+      "license_evidence": [
+        {
+          "path": "pydantic-2.13.4.dist-info/licenses/LICENSE",
+          "sha256": "a9e186f3ca16b5eef84318e7a701721351a00cb7b8ae3a4394b67b49e3529ef3",
+          "bytes": 1129
+        }
+      ]
+    },
+    {
+      "name": "pydantic-core",
+      "version": "2.46.4",
+      "scope": "runtime-transitive",
+      "license": "MIT",
+      "metadata_license": null,
+      "metadata_license_expression": "MIT",
+      "source": "https://pypi.org/pypi/pydantic-core/2.46.4/json",
+      "advisories": [],
+      "license_evidence": [
+        {
+          "path": "pydantic_core-2.46.4.dist-info/licenses/LICENSE",
+          "sha256": "2afdd30d54b4d62b6f488a6bcc1546e84ec5061f13f4209c03d012348783795a",
+          "bytes": 1080
+        }
+      ]
+    },
+    {
+      "name": "pydantic-settings",
+      "version": "2.14.2",
+      "scope": "runtime-transitive",
+      "license": "MIT",
+      "metadata_license": null,
+      "metadata_license_expression": "MIT",
+      "source": "https://pypi.org/pypi/pydantic-settings/2.14.2/json",
+      "advisories": [],
+      "license_evidence": [
+        {
+          "path": "pydantic_settings-2.14.2.dist-info/licenses/LICENSE",
+          "sha256": "eb355a753e020346d33d83bf9769135b89fc610568ac531a01c295bcee7fd998",
+          "bytes": 1103
+        }
+      ]
+    },
+    {
+      "name": "pygments",
+      "version": "2.20.0",
+      "scope": "runtime-transitive",
+      "license": "BSD-2-Clause",
+      "metadata_license": null,
+      "metadata_license_expression": "BSD-2-Clause",
+      "source": "https://pypi.org/pypi/pygments/2.20.0/json",
+      "advisories": [],
+      "license_evidence": [
+        {
+          "path": "pygments-2.20.0.dist-info/licenses/AUTHORS",
+          "sha256": "0db603a5f4499f690c4425477ff664c166da325d3acc3b5a8d4de3db072443d0",
+          "bytes": 10873
+        },
+        {
+          "path": "pygments-2.20.0.dist-info/licenses/LICENSE",
+          "sha256": "a9d66f1d526df02e29dce73436d34e56e8632f46c275bbdffc70569e882f9f17",
+          "bytes": 1331
+        }
+      ]
+    },
+    {
+      "name": "pyjwt",
+      "version": "2.13.0",
+      "scope": "runtime-transitive",
+      "license": "MIT",
+      "metadata_license": null,
+      "metadata_license_expression": "MIT",
+      "source": "https://pypi.org/pypi/pyjwt/2.13.0/json",
+      "advisories": [
+        "GHSA-2gx3-rcp4-g85q",
+        "GHSA-42vr-xj54-vc7v",
+        "GHSA-8wjv-2p76-3863",
+        "GHSA-9j54-fg26-wv3r",
+        "GHSA-9v7f-9g4p-ffgj",
+        "GHSA-ffc3-869f-jxw9",
+        "GHSA-gvp8-978c-rx2q",
+        "GHSA-hxm8-2xgr-2p9m",
+        "GHSA-jwrc-g2q2-pq5p",
+        "GHSA-p4g4-x82p-q773",
+        "GHSA-pxh4-856f-4h89",
+        "GHSA-r6x4-923q-g947",
+        "GHSA-w2cx-738m-mc7w",
+        "GHSA-w6j9-cwv2-h6wq",
+        "GHSA-x33g-cr3x-6449"
+      ],
+      "license_evidence": [
+        {
+          "path": "pyjwt-2.13.0.dist-info/licenses/AUTHORS.rst",
+          "sha256": "925ce43461029eedbf558ec0b7cf7fc4b045def5120ebb97937c70814071cf07",
+          "bytes": 322
+        },
+        {
+          "path": "pyjwt-2.13.0.dist-info/licenses/LICENSE",
+          "sha256": "797a7a20231d4c433e9f1911db1731d06b5828b98f499819a034f7c0f56f5ce5",
+          "bytes": 1085
+        }
+      ]
+    },
+    {
+      "name": "pytest",
+      "version": "9.1.1",
+      "scope": "development-only",
+      "license": "MIT",
+      "metadata_license": null,
+      "metadata_license_expression": "MIT",
+      "source": "https://pypi.org/pypi/pytest/9.1.1/json",
+      "advisories": [],
+      "license_evidence": [
+        {
+          "path": "pytest-9.1.1.dist-info/licenses/LICENSE",
+          "sha256": "ca836a5f9ecca3b2f350230faa20a48fb8b145653b5568d784862df864706b9b",
+          "bytes": 1091
+        }
+      ]
+    },
+    {
+      "name": "python-dotenv",
+      "version": "1.2.2",
+      "scope": "runtime-transitive",
+      "license": "BSD-3-Clause",
+      "metadata_license": "BSD-3-Clause",
+      "metadata_license_expression": null,
+      "source": "https://pypi.org/pypi/python-dotenv/1.2.2/json",
+      "advisories": [],
+      "license_evidence": [
+        {
+          "path": "python_dotenv-1.2.2.dist-info/licenses/LICENSE",
+          "sha256": "80619b7049f08c81683ad0e01f08f257a840652dd71ee83146d36658c7d2c2b9",
+          "bytes": 1556
+        }
+      ]
+    },
+    {
+      "name": "python-multipart",
+      "version": "0.0.32",
+      "scope": "runtime-transitive",
+      "license": "Apache-2.0",
+      "metadata_license": null,
+      "metadata_license_expression": "Apache-2.0",
+      "source": "https://pypi.org/pypi/python-multipart/0.0.32/json",
+      "advisories": [],
+      "license_evidence": [
+        {
+          "path": "python_multipart-0.0.32.dist-info/licenses/LICENSE.txt",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+          "bytes": 11358
+        }
+      ]
+    },
+    {
+      "name": "pywin32",
+      "version": "312",
+      "scope": "runtime-transitive",
+      "license": "LicenseRef-pywin32-mixed",
+      "metadata_license": "PSF",
+      "metadata_license_expression": null,
+      "source": "https://pypi.org/pypi/pywin32/312/json",
+      "advisories": [],
+      "license_evidence": [
+        {
+          "path": "adodbapi/license.txt",
+          "sha256": "5ea2f23c7f00c3006bacf267183e816d8d4b6dc95ea57a4ddb0ff81de6d8719e",
+          "bytes": 26925
+        },
+        {
+          "path": "pythonwin/License.txt",
+          "sha256": "a74d826efb242db087b850348e20abbfd591b51e2081f2048735290913872924",
+          "bytes": 1541
+        },
+        {
+          "path": "pythonwin/Scintilla-License.txt",
+          "sha256": "57ec79bbeab4fd1cf7460a7ad450d2ab01471810459aeae9e75e4c66b472095f",
+          "bytes": 873
+        },
+        {
+          "path": "pythonwin/pywin/idle/LICENSE.txt",
+          "sha256": "a0fa1e7b8a4230055685e796548ac084a6c0eea395294574093bba72efd9191b",
+          "bytes": 12540
+        },
+        {
+          "path": "pywin32-312.dist-info/licenses/adodbapi/license.txt",
+          "sha256": "5ea2f23c7f00c3006bacf267183e816d8d4b6dc95ea57a4ddb0ff81de6d8719e",
+          "bytes": 26925
+        },
+        {
+          "path": "pywin32-312.dist-info/licenses/com/License.txt",
+          "sha256": "fad39c18fc3825fa278db1c86fd52cf88d7c525b3c2fbf7817fa383cbae4d423",
+          "bytes": 1570
+        },
+        {
+          "path": "pywin32-312.dist-info/licenses/com/win32comext/mapi/src/MAPIStubLibrary/LICENSE",
+          "sha256": "1c4cf44d2fb8bf2d10214d6da80cc9e05502824cc4460f35be4c7bcb4cde53da",
+          "bytes": 1087
+        },
+        {
+          "path": "pywin32-312.dist-info/licenses/isapi/README.txt",
+          "sha256": "41383bcc95edb8138d37077ae54bfdcbd2a3b77bf745a8529a9c161146e22303",
+          "bytes": 330
+        },
+        {
+          "path": "pywin32-312.dist-info/licenses/pythonwin/License.txt",
+          "sha256": "a74d826efb242db087b850348e20abbfd591b51e2081f2048735290913872924",
+          "bytes": 1541
+        },
+        {
+          "path": "pywin32-312.dist-info/licenses/pythonwin/Scintilla/License.txt",
+          "sha256": "57ec79bbeab4fd1cf7460a7ad450d2ab01471810459aeae9e75e4c66b472095f",
+          "bytes": 873
+        },
+        {
+          "path": "pywin32-312.dist-info/licenses/pythonwin/pywin/idle/LICENSE.txt",
+          "sha256": "a0fa1e7b8a4230055685e796548ac084a6c0eea395294574093bba72efd9191b",
+          "bytes": 12540
+        },
+        {
+          "path": "pywin32-312.dist-info/licenses/win32/License.txt",
+          "sha256": "a74d826efb242db087b850348e20abbfd591b51e2081f2048735290913872924",
+          "bytes": 1541
+        },
+        {
+          "path": "win32/License.txt",
+          "sha256": "a74d826efb242db087b850348e20abbfd591b51e2081f2048735290913872924",
+          "bytes": 1541
+        },
+        {
+          "path": "win32com/License.txt",
+          "sha256": "fad39c18fc3825fa278db1c86fd52cf88d7c525b3c2fbf7817fa383cbae4d423",
+          "bytes": 1570
+        },
+        {
+          "path": "win32comext/License.txt",
+          "sha256": "fad39c18fc3825fa278db1c86fd52cf88d7c525b3c2fbf7817fa383cbae4d423",
+          "bytes": 1570
+        },
+        {
+          "path": "win32comext/mapi/MAPIStubLibrary-License.txt",
+          "sha256": "1c4cf44d2fb8bf2d10214d6da80cc9e05502824cc4460f35be4c7bcb4cde53da",
+          "bytes": 1087
+        },
+        {
+          "path": "win32comext/mapi/NOTICE.md",
+          "sha256": "dedf997c8f5568a0e0aff57d009f501226ea30c401323d67912b6a8f8735a825",
+          "bytes": 476
+        }
+      ]
+    },
+    {
+      "name": "pyyaml",
+      "version": "6.0.3",
+      "scope": "runtime-direct",
+      "license": "MIT",
+      "metadata_license": "MIT",
+      "metadata_license_expression": null,
+      "source": "https://pypi.org/pypi/pyyaml/6.0.3/json",
+      "advisories": [],
+      "license_evidence": [
+        {
+          "path": "pyyaml-6.0.3.dist-info/licenses/LICENSE",
+          "sha256": "8d3928f9dc4490fd635707cb88eb26bd764102a7282954307d3e5167a577e8a4",
+          "bytes": 1101
+        }
+      ]
+    },
+    {
+      "name": "referencing",
+      "version": "0.37.0",
+      "scope": "runtime-transitive",
+      "license": "MIT",
+      "metadata_license": null,
+      "metadata_license_expression": "MIT",
+      "source": "https://pypi.org/pypi/referencing/0.37.0/json",
+      "advisories": [],
+      "license_evidence": [
+        {
+          "path": "referencing-0.37.0.dist-info/licenses/COPYING",
+          "sha256": "42dcd63495f87b4eb7c7757afa379bb55a53f94afd7a5f657d9adf57236e515c",
+          "bytes": 1057
+        }
+      ]
+    },
+    {
+      "name": "rich",
+      "version": "15.0.0",
+      "scope": "runtime-direct",
+      "license": "MIT",
+      "metadata_license": "MIT",
+      "metadata_license_expression": null,
+      "source": "https://pypi.org/pypi/rich/15.0.0/json",
+      "advisories": [],
+      "license_evidence": [
+        {
+          "path": "rich-15.0.0.dist-info/licenses/LICENSE",
+          "sha256": "deed7c17a4318158190a3ea239cc879a5a50271cebb98ae7025f48fbe58dca15",
+          "bytes": 1056
+        }
+      ]
+    },
+    {
+      "name": "rpds-py",
+      "version": "2026.6.3",
+      "scope": "runtime-transitive",
+      "license": "MIT",
+      "metadata_license": null,
+      "metadata_license_expression": "MIT",
+      "source": "https://pypi.org/pypi/rpds-py/2026.6.3/json",
+      "advisories": [],
+      "license_evidence": [
+        {
+          "path": "rpds_py-2026.6.3.dist-info/licenses/LICENSE",
+          "sha256": "314e4e91be3baa93c0fb4bccc9e4e97cd643eb839b065af921782c2175fe9909",
+          "bytes": 1057
+        }
+      ]
+    },
+    {
+      "name": "ruff",
+      "version": "0.15.20",
+      "scope": "development-only",
+      "license": "MIT",
+      "metadata_license": null,
+      "metadata_license_expression": "MIT",
+      "source": "https://pypi.org/pypi/ruff/0.15.20/json",
+      "advisories": [],
+      "license_evidence": [
+        {
+          "path": "ruff-0.15.20.dist-info/licenses/LICENSE",
+          "sha256": "2597d854122b77ddc71971564ca2350a37608575ce324adc5650a2b2051c8f18",
+          "bytes": 20731
+        }
+      ]
+    },
+    {
+      "name": "sniffio",
+      "version": "1.3.1",
+      "scope": "runtime-transitive",
+      "license": "MIT OR Apache-2.0",
+      "metadata_license": "MIT OR Apache-2.0",
+      "metadata_license_expression": null,
+      "source": "https://pypi.org/pypi/sniffio/1.3.1/json",
+      "advisories": [],
+      "license_evidence": [
+        {
+          "path": "sniffio-1.3.1.dist-info/LICENSE",
+          "sha256": "652c878488d1456361e08c3f8607fd7ba59892a14103d15cce4ff93c85b5cc8b",
+          "bytes": 185
+        },
+        {
+          "path": "sniffio-1.3.1.dist-info/LICENSE.APACHE2",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+          "bytes": 11358
+        },
+        {
+          "path": "sniffio-1.3.1.dist-info/LICENSE.MIT",
+          "sha256": "3e6dae555eb92787fc82d1d48355677f454c7f65aeb38d3f9e72bf9a3daf034b",
+          "bytes": 1046
+        }
+      ]
+    },
+    {
+      "name": "sse-starlette",
+      "version": "3.4.5",
+      "scope": "runtime-transitive",
+      "license": "BSD-3-Clause",
+      "metadata_license": null,
+      "metadata_license_expression": "BSD-3-Clause",
+      "source": "https://pypi.org/pypi/sse-starlette/3.4.5/json",
+      "advisories": [],
+      "license_evidence": [
+        {
+          "path": "sse_starlette-3.4.5.dist-info/licenses/AUTHORS",
+          "sha256": "c2ff63d2ecf128bbda8ab1b2016830a5da124202fbb97168685bb9946aed3f1a",
+          "bytes": 395
+        },
+        {
+          "path": "sse_starlette-3.4.5.dist-info/licenses/LICENSE",
+          "sha256": "80af6bfccbebd2c14d4aab96695cab9950e177190cc80f5ef819e99996883e8e",
+          "bytes": 1511
+        }
+      ]
+    },
+    {
+      "name": "starlette",
+      "version": "1.3.1",
+      "scope": "runtime-transitive",
+      "license": "BSD-3-Clause",
+      "metadata_license": null,
+      "metadata_license_expression": "BSD-3-Clause",
+      "source": "https://pypi.org/pypi/starlette/1.3.1/json",
+      "advisories": [],
+      "license_evidence": [
+        {
+          "path": "starlette-1.3.1.dist-info/licenses/LICENSE.md",
+          "sha256": "dcb95677a02240243187e964f941847d19b17821cf99e5afae684fab328c19bf",
+          "bytes": 1518
+        }
+      ]
+    },
+    {
+      "name": "tqdm",
+      "version": "4.68.4",
+      "scope": "runtime-transitive",
+      "license": "MPL-2.0 AND MIT",
+      "metadata_license": "MPL-2.0 AND MIT",
+      "metadata_license_expression": null,
+      "source": "https://pypi.org/pypi/tqdm/4.68.4/json",
+      "advisories": [],
+      "license_evidence": [
+        {
+          "path": "tqdm-4.68.4.dist-info/licenses/LICENCE",
+          "sha256": "fcff87c3a47ce8028a8512aa182d4fcf0ad1c90544ee75cf9b343684cac194de",
+          "bytes": 1985
+        }
+      ]
+    },
+    {
+      "name": "typing-extensions",
+      "version": "4.16.0",
+      "scope": "runtime-transitive",
+      "license": "PSF-2.0",
+      "metadata_license": null,
+      "metadata_license_expression": "PSF-2.0",
+      "source": "https://pypi.org/pypi/typing-extensions/4.16.0/json",
+      "advisories": [],
+      "license_evidence": [
+        {
+          "path": "typing_extensions-4.16.0.dist-info/licenses/LICENSE",
+          "sha256": "3b2f81fe21d181c499c59a256c8e1968455d6689d269aa85373bfb6af41da3bf",
+          "bytes": 13936
+        }
+      ]
+    },
+    {
+      "name": "typing-inspection",
+      "version": "0.4.2",
+      "scope": "runtime-transitive",
+      "license": "MIT",
+      "metadata_license": null,
+      "metadata_license_expression": "MIT",
+      "source": "https://pypi.org/pypi/typing-inspection/0.4.2/json",
+      "advisories": [],
+      "license_evidence": [
+        {
+          "path": "typing_inspection-0.4.2.dist-info/licenses/LICENSE",
+          "sha256": "804b59b25f2c31bd278f9202a19ae49a3945aa2664387e2d0a128c7cacc61ec3",
+          "bytes": 1090
+        }
+      ]
+    },
+    {
+      "name": "uvicorn",
+      "version": "0.51.0",
+      "scope": "runtime-transitive",
+      "license": "BSD-3-Clause",
+      "metadata_license": null,
+      "metadata_license_expression": "BSD-3-Clause",
+      "source": "https://pypi.org/pypi/uvicorn/0.51.0/json",
+      "advisories": [],
+      "license_evidence": [
+        {
+          "path": "uvicorn-0.51.0.dist-info/licenses/LICENSE.md",
+          "sha256": "efe1acf3e62fb99c288b0ec73e5a773b7268ef4320fe757ea994214e4b63c371",
+          "bytes": 1526
+        }
+      ]
+    },
+    {
+      "name": "wcwidth",
+      "version": "0.8.2",
+      "scope": "runtime-transitive",
+      "license": "MIT",
+      "metadata_license": null,
+      "metadata_license_expression": "MIT",
+      "source": "https://pypi.org/pypi/wcwidth/0.8.2/json",
+      "advisories": [],
+      "license_evidence": [
+        {
+          "path": "wcwidth-0.8.2.dist-info/licenses/LICENSE",
+          "sha256": "70b98a95a2144eb70af8017fa8c6d95ce247e40867436e8bc649e137fe13d21a",
+          "bytes": 1322
+        }
+      ]
+    }
+  ],
+  "advisories": [
+    {
+      "id": "GHSA-2gx3-rcp4-g85q",
+      "aliases": [
+        "CVE-2026-101917",
+        "PYSEC-2026-4140"
+      ],
+      "summary": "PyJWT: PyJWKClient still amplifies unauthenticated JWKS fetches on unknown kid values (incomplete fix of CVE-2026-48524)",
+      "severity": "MODERATE",
+      "withdrawn": null,
+      "affected": [
+        {
+          "package": {
+            "name": "pyjwt",
+            "ecosystem": "PyPI",
+            "purl": "pkg:pypi/pyjwt"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "2.14.0"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "url": "https://osv.dev/vulnerability/GHSA-2gx3-rcp4-g85q"
+    },
+    {
+      "id": "GHSA-3w57-8xmc-8v26",
+      "aliases": [
+        "CVE-2026-63349",
+        "PYSEC-2026-4023"
+      ],
+      "summary": "AnyIO run_process/open_process ignores extra_groups and can retain parent supplementary groups",
+      "severity": "HIGH",
+      "withdrawn": null,
+      "affected": [
+        {
+          "package": {
+            "name": "anyio",
+            "ecosystem": "PyPI",
+            "purl": "pkg:pypi/anyio"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "4.14.0"
+                },
+                {
+                  "fixed": "4.14.2"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "url": "https://osv.dev/vulnerability/GHSA-3w57-8xmc-8v26"
+    },
+    {
+      "id": "GHSA-42vr-xj54-vc7v",
+      "aliases": [
+        "CVE-2026-101918",
+        "PYSEC-2026-4141"
+      ],
+      "summary": "PyJWT: Unauthenticated RecursionError DoS in pre-verification payload parse (PyJWKClient.get_signing_key_from_jwt / verify_signature=False)",
+      "severity": "MODERATE",
+      "withdrawn": null,
+      "affected": [
+        {
+          "package": {
+            "name": "pyjwt",
+            "ecosystem": "PyPI",
+            "purl": "pkg:pypi/pyjwt"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "2.0.0a1"
+                },
+                {
+                  "fixed": "2.15.0"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "url": "https://osv.dev/vulnerability/GHSA-42vr-xj54-vc7v"
+    },
+    {
+      "id": "GHSA-4gg8-gxpx-9rph",
+      "aliases": [
+        "CVE-2026-114109"
+      ],
+      "summary": "uv is vulnerable to arbitrary file write through entry point names",
+      "severity": "MODERATE",
+      "withdrawn": null,
+      "affected": [
+        {
+          "package": {
+            "name": "uv",
+            "ecosystem": "PyPI",
+            "purl": "pkg:pypi/uv"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "0.11.15"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "package": {
+            "name": "uv",
+            "ecosystem": "crates.io",
+            "purl": "pkg:cargo/uv"
+          },
+          "ranges": [
+            {
+              "type": "SEMVER",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "0.11.15"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "url": "https://osv.dev/vulnerability/GHSA-4gg8-gxpx-9rph"
+    },
+    {
+      "id": "GHSA-5h93-6whr-6q8j",
+      "aliases": [
+        "CVE-2026-116685"
+      ],
+      "summary": "Model Context Protocol Python SDK: HTTP client transports followed cross-origin redirects carrying custom headers and bodies",
+      "severity": "MODERATE",
+      "withdrawn": null,
+      "affected": [
+        {
+          "package": {
+            "name": "mcp",
+            "ecosystem": "PyPI",
+            "purl": "pkg:pypi/mcp"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "2.0.0"
+                },
+                {
+                  "fixed": "2.2.0"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "package": {
+            "name": "mcp",
+            "ecosystem": "PyPI",
+            "purl": "pkg:pypi/mcp"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "1.8.0"
+                },
+                {
+                  "fixed": "1.30.0"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "url": "https://osv.dev/vulnerability/GHSA-5h93-6whr-6q8j"
+    },
+    {
+      "id": "GHSA-5p39-cfhj-2xmp",
+      "aliases": [
+        "CVE-2026-64847",
+        "PYSEC-2026-4024"
+      ],
+      "summary": "AnyIO process-pool workers can block indefinitely on undrained stderr",
+      "severity": "MODERATE",
+      "withdrawn": null,
+      "affected": [
+        {
+          "package": {
+            "name": "anyio",
+            "ecosystem": "PyPI",
+            "purl": "pkg:pypi/anyio"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "4.14.2"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "url": "https://osv.dev/vulnerability/GHSA-5p39-cfhj-2xmp"
+    },
+    {
+      "id": "GHSA-6q48-6c7w-9gw2",
+      "aliases": [
+        "PYSEC-2026-4320"
+      ],
+      "summary": "certifi bundles emSign root CAs with compromised intermediate CA keys",
+      "severity": "CRITICAL",
+      "withdrawn": null,
+      "affected": [
+        {
+          "package": {
+            "name": "certifi",
+            "ecosystem": "PyPI",
+            "purl": "pkg:pypi/certifi"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "2019.03.09"
+                },
+                {
+                  "fixed": "2026.10.18"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "url": "https://osv.dev/vulnerability/GHSA-6q48-6c7w-9gw2"
+    },
+    {
+      "id": "GHSA-82r6-8w77-94w6",
+      "aliases": [
+        "CVE-2026-63374",
+        "PYSEC-2026-4025"
+      ],
+      "summary": "AnyIO: TLSStream IDNA 2003 host name encoding enables potential TLS certificate spoofing",
+      "severity": "CRITICAL",
+      "withdrawn": null,
+      "affected": [
+        {
+          "package": {
+            "name": "anyio",
+            "ecosystem": "PyPI",
+            "purl": "pkg:pypi/anyio"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "4.14.2"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "url": "https://osv.dev/vulnerability/GHSA-82r6-8w77-94w6"
+    },
+    {
+      "id": "GHSA-84m7-p3x7-pcfv",
+      "aliases": [
+        "CVE-2026-59951"
+      ],
+      "summary": "MCP Python SDK: Unbounded Session Accumulation in StreamableHTTP Transport Enables Resource Exhaustion",
+      "severity": "MODERATE",
+      "withdrawn": null,
+      "affected": [
+        {
+          "package": {
+            "name": "mcp",
+            "ecosystem": "PyPI",
+            "purl": "pkg:pypi/mcp"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "1.8.0"
+                },
+                {
+                  "fixed": "1.30.0"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "package": {
+            "name": "mcp",
+            "ecosystem": "PyPI",
+            "purl": "pkg:pypi/mcp"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "2.0.0"
+                },
+                {
+                  "fixed": "2.2.0"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "url": "https://osv.dev/vulnerability/GHSA-84m7-p3x7-pcfv"
+    },
+    {
+      "id": "GHSA-8wjv-2p76-3863",
+      "aliases": [
+        "CVE-2026-102265",
+        "PYSEC-2026-4142"
+      ],
+      "summary": "PyJWT: Uncaught RecursionError in jwt.decode() on deeply nested token header",
+      "severity": "MODERATE",
+      "withdrawn": null,
+      "affected": [
+        {
+          "package": {
+            "name": "pyjwt",
+            "ecosystem": "PyPI",
+            "purl": "pkg:pypi/pyjwt"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "2.13.0"
+                },
+                {
+                  "fixed": "2.14.0"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "url": "https://osv.dev/vulnerability/GHSA-8wjv-2p76-3863"
+    },
+    {
+      "id": "GHSA-9j54-fg26-wv3r",
+      "aliases": [
+        "CVE-2026-102266",
+        "PYSEC-2026-4143"
+      ],
+      "summary": "PyJWT: PyJWK accepts empty HMAC keys, bypassing PyJWT's empty-key validation",
+      "severity": "HIGH",
+      "withdrawn": null,
+      "affected": [
+        {
+          "package": {
+            "name": "pyjwt",
+            "ecosystem": "PyPI",
+            "purl": "pkg:pypi/pyjwt"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "2.13.0"
+                },
+                {
+                  "fixed": "2.14.0"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "url": "https://osv.dev/vulnerability/GHSA-9j54-fg26-wv3r"
+    },
+    {
+      "id": "GHSA-9v7f-9g4p-ffgj",
+      "aliases": [
+        "CVE-2026-102267",
+        "PYSEC-2026-4144"
+      ],
+      "summary": "PyJWT: PyJWKClient follows redirects when fetching JWKS",
+      "severity": "HIGH",
+      "withdrawn": null,
+      "affected": [
+        {
+          "package": {
+            "name": "pyjwt",
+            "ecosystem": "PyPI",
+            "purl": "pkg:pypi/pyjwt"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "2.14.0"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "url": "https://osv.dev/vulnerability/GHSA-9v7f-9g4p-ffgj"
+    },
+    {
+      "id": "GHSA-fc5q-39xc-vjpf",
+      "aliases": [
+        "CVE-2026-112366"
+      ],
+      "summary": "picomatch vulnerable to ReDoS through single-branch repeated extglobs",
+      "severity": "HIGH",
+      "withdrawn": null,
+      "affected": [
+        {
+          "package": {
+            "name": "picomatch",
+            "ecosystem": "npm",
+            "purl": "pkg:npm/picomatch"
+          },
+          "ranges": [
+            {
+              "type": "SEMVER",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "last_affected": "4.0.7"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "url": "https://osv.dev/vulnerability/GHSA-fc5q-39xc-vjpf"
+    },
+    {
+      "id": "GHSA-ffc3-869f-jxw9",
+      "aliases": [
+        "CVE-2026-102268",
+        "PYSEC-2026-4145"
+      ],
+      "summary": "PyJWT: Asymmetric-PEM detection bypass: whitespace/line-ending-mutated public keys skip the HS/asymmetric confusion guard",
+      "severity": "CRITICAL",
+      "withdrawn": null,
+      "affected": [
+        {
+          "package": {
+            "name": "pyjwt",
+            "ecosystem": "PyPI",
+            "purl": "pkg:pypi/pyjwt"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "2.14.0"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "url": "https://osv.dev/vulnerability/GHSA-ffc3-869f-jxw9"
+    },
+    {
+      "id": "GHSA-g6cj-pr64-35w5",
+      "aliases": [
+        "CVE-2026-69247",
+        "PYSEC-2026-3552"
+      ],
+      "summary": "cryptography: PKCS#7 EnvelopedData decryption exposes a Bleichenbacher oracle through distinguishable errors and timing",
+      "severity": "HIGH",
+      "withdrawn": null,
+      "affected": [
+        {
+          "package": {
+            "name": "cryptography",
+            "ecosystem": "PyPI",
+            "purl": "pkg:pypi/cryptography"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "44.0.0"
+                },
+                {
+                  "fixed": "50.0.0"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "url": "https://osv.dev/vulnerability/GHSA-g6cj-pr64-35w5"
+    },
+    {
+      "id": "GHSA-gvp8-978c-rx2q",
+      "aliases": [
+        "CVE-2026-103001",
+        "PYSEC-2026-4146"
+      ],
+      "summary": "PyJWT.decode() reintroduces options-dict mutation, enabling silent claim-verification bypass on dict reuse",
+      "severity": "MODERATE",
+      "withdrawn": null,
+      "affected": [
+        {
+          "package": {
+            "name": "pyjwt",
+            "ecosystem": "PyPI",
+            "purl": "pkg:pypi/pyjwt"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "2.11.0"
+                },
+                {
+                  "last_affected": "2.13.0"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "url": "https://osv.dev/vulnerability/GHSA-gvp8-978c-rx2q"
+    },
+    {
+      "id": "GHSA-hq85-5cpj-mr62",
+      "aliases": [
+        "PYSEC-2026-4321"
+      ],
+      "summary": "uv's bundled CA store trusts an emSign root whose intermediate CA keys are compromised",
+      "severity": "CRITICAL",
+      "withdrawn": null,
+      "affected": [
+        {
+          "package": {
+            "name": "uv",
+            "ecosystem": "PyPI",
+            "purl": "pkg:pypi/uv"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "0.13.4"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "url": "https://osv.dev/vulnerability/GHSA-hq85-5cpj-mr62"
+    },
+    {
+      "id": "GHSA-hxm8-2xgr-2p9m",
+      "aliases": [
+        "CVE-2026-102269",
+        "PYSEC-2026-4147"
+      ],
+      "summary": "PyJWT: Non-canonical signature segments enable raw-token revocation bypass",
+      "severity": "MODERATE",
+      "withdrawn": null,
+      "affected": [
+        {
+          "package": {
+            "name": "pyjwt",
+            "ecosystem": "PyPI",
+            "purl": "pkg:pypi/pyjwt"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "2.14.0"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "url": "https://osv.dev/vulnerability/GHSA-hxm8-2xgr-2p9m"
+    },
+    {
+      "id": "GHSA-jwrc-g2q2-pq5p",
+      "aliases": [
+        "CVE-2026-102270",
+        "PYSEC-2026-4148"
+      ],
+      "summary": "PyJWT: ReDoS vulnerability when calling the `is_pem_format` function.",
+      "severity": "MODERATE",
+      "withdrawn": null,
+      "affected": [
+        {
+          "package": {
+            "name": "pyjwt",
+            "ecosystem": "PyPI",
+            "purl": "pkg:pypi/pyjwt"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "2.14.0"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "url": "https://osv.dev/vulnerability/GHSA-jwrc-g2q2-pq5p"
+    },
+    {
+      "id": "GHSA-p4g4-x82p-q773",
+      "aliases": [
+        "CVE-2026-102271",
+        "PYSEC-2026-4149"
+      ],
+      "summary": "PyJWT: Public keys in DER form are accepted as HMAC secrets, bypassing the CVE-2022-29217 guard",
+      "severity": "HIGH",
+      "withdrawn": null,
+      "affected": [
+        {
+          "package": {
+            "name": "pyjwt",
+            "ecosystem": "PyPI",
+            "purl": "pkg:pypi/pyjwt"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "2.4.0"
+                },
+                {
+                  "fixed": "2.14.0"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "url": "https://osv.dev/vulnerability/GHSA-p4g4-x82p-q773"
+    },
+    {
+      "id": "GHSA-pjjw-68hj-v9mw",
+      "aliases": [
+        "CVE-2026-114110"
+      ],
+      "summary": "uv vulnerable to arbitrary file deletion through RECORD entries",
+      "severity": "LOW",
+      "withdrawn": null,
+      "affected": [
+        {
+          "package": {
+            "name": "uv",
+            "ecosystem": "PyPI",
+            "purl": "pkg:pypi/uv"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "0.11.6"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "url": "https://osv.dev/vulnerability/GHSA-pjjw-68hj-v9mw"
+    },
+    {
+      "id": "GHSA-pxh4-856f-4h89",
+      "aliases": [],
+      "summary": "PyJWT: HS256/384/512 verify accepts empty HMAC key via oct JWK (PyJWK/PyJWKClient) enabling token forgery",
+      "severity": "HIGH",
+      "withdrawn": null,
+      "affected": [
+        {
+          "package": {
+            "name": "pyjwt",
+            "ecosystem": "PyPI",
+            "purl": "pkg:pypi/pyjwt"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "0"
+                },
+                {
+                  "fixed": "2.14.0"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "url": "https://osv.dev/vulnerability/GHSA-pxh4-856f-4h89"
+    },
+    {
+      "id": "GHSA-r6x4-923q-g947",
+      "aliases": [
+        "CVE-2026-102272",
+        "PYSEC-2026-4150"
+      ],
+      "summary": "PyJWT BOM Bypass",
+      "severity": "HIGH",
+      "withdrawn": null,
+      "affected": [
+        {
+          "package": {
+            "name": "pyjwt",
+            "ecosystem": "PyPI",
+            "purl": "pkg:pypi/pyjwt"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "2.13.0"
+                },
+                {
+                  "fixed": "2.14.0"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "url": "https://osv.dev/vulnerability/GHSA-r6x4-923q-g947"
+    },
+    {
+      "id": "GHSA-rwrf-2pqf-9j8j",
+      "aliases": [
+        "CVE-2026-116686"
+      ],
+      "summary": "Model Context Protocol Python SDK: Client fetched server-chosen $ref URLs while validating tool results against output schemas",
+      "severity": "MODERATE",
+      "withdrawn": null,
+      "affected": [
+        {
+          "package": {
+            "name": "mcp",
+            "ecosystem": "PyPI",
+            "purl": "pkg:pypi/mcp"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "2.0.0"
+                },
+                {
+                  "fixed": "2.2.0"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "package": {
+            "name": "mcp",
+            "ecosystem": "PyPI",
+            "purl": "pkg:pypi/mcp"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "1.10.0"
+                },
+                {
+                  "fixed": "1.30.0"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "url": "https://osv.dev/vulnerability/GHSA-rwrf-2pqf-9j8j"
+    },
+    {
+      "id": "GHSA-w2cx-738m-mc7w",
+      "aliases": [
+        "CVE-2026-102273",
+        "PYSEC-2026-4151"
+      ],
+      "summary": "PyJWT accepts public JWK containers as HMAC secrets",
+      "severity": "HIGH",
+      "withdrawn": null,
+      "affected": [
+        {
+          "package": {
+            "name": "pyjwt",
+            "ecosystem": "PyPI",
+            "purl": "pkg:pypi/pyjwt"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "2.13.0"
+                },
+                {
+                  "fixed": "2.14.0"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "url": "https://osv.dev/vulnerability/GHSA-w2cx-738m-mc7w"
+    },
+    {
+      "id": "GHSA-w4fh-qvv9-3v23",
+      "aliases": [
+        "CVE-2026-116684"
+      ],
+      "summary": "Model Context Protocol Python SDK: Server bearer-token authentication accepts tokens issued for a different resource server",
+      "severity": "MODERATE",
+      "withdrawn": null,
+      "affected": [
+        {
+          "package": {
+            "name": "mcp",
+            "ecosystem": "PyPI",
+            "purl": "pkg:pypi/mcp"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "2.0.0"
+                },
+                {
+                  "fixed": "2.2.0"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "package": {
+            "name": "mcp",
+            "ecosystem": "PyPI",
+            "purl": "pkg:pypi/mcp"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "1.10.0"
+                },
+                {
+                  "fixed": "1.30.0"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "url": "https://osv.dev/vulnerability/GHSA-w4fh-qvv9-3v23"
+    },
+    {
+      "id": "GHSA-w6j9-cwv2-h6wq",
+      "aliases": [
+        "CVE-2026-102274",
+        "PYSEC-2026-4152"
+      ],
+      "summary": "PyJWT: Malformed RSA JWK aborts parsing of an entire JWK Set",
+      "severity": "MODERATE",
+      "withdrawn": null,
+      "affected": [
+        {
+          "package": {
+            "name": "pyjwt",
+            "ecosystem": "PyPI",
+            "purl": "pkg:pypi/pyjwt"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "2.9.0"
+                },
+                {
+                  "fixed": "2.14.0"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "url": "https://osv.dev/vulnerability/GHSA-w6j9-cwv2-h6wq"
+    },
+    {
+      "id": "GHSA-x33g-cr3x-6449",
+      "aliases": [
+        "CVE-2026-102275",
+        "PYSEC-2026-4183"
+      ],
+      "summary": "PyJWT accepts inconsistent OKP x/d JWKs, causing public/private key identity confusion",
+      "severity": "MODERATE",
+      "withdrawn": null,
+      "affected": [
+        {
+          "package": {
+            "name": "pyjwt",
+            "ecosystem": "PyPI",
+            "purl": "pkg:pypi/pyjwt"
+          },
+          "ranges": [
+            {
+              "type": "ECOSYSTEM",
+              "events": [
+                {
+                  "introduced": "2.1.0"
+                },
+                {
+                  "fixed": "2.15.0"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "url": "https://osv.dev/vulnerability/GHSA-x33g-cr3x-6449"
+    }
+  ],
+  "build_and_uv_metadata": [
+    {
+      "name": "hatchling",
+      "version": "1.33.0",
+      "license_expression": "MIT",
+      "license": null,
+      "classifiers": []
+    },
+    {
+      "name": "packaging",
+      "version": "26.3",
+      "license_expression": "Apache-2.0 OR BSD-2-Clause",
+      "license": null,
+      "classifiers": []
+    },
+    {
+      "name": "pathspec",
+      "version": "1.1.1",
+      "license_expression": null,
+      "license": null,
+      "classifiers": [
+        "License :: OSI Approved :: Mozilla Public License 2.0 (MPL 2.0)"
+      ]
+    },
+    {
+      "name": "pluggy",
+      "version": "1.7.0",
+      "license_expression": null,
+      "license": "MIT",
+      "classifiers": [
+        "License :: OSI Approved :: MIT License"
+      ]
+    },
+    {
+      "name": "tomlkit",
+      "version": "0.15.2",
+      "license_expression": "MIT",
+      "license": null,
+      "classifiers": []
+    },
+    {
+      "name": "trove-classifiers",
+      "version": "2026.9.21.13",
+      "license_expression": null,
+      "license": null,
+      "classifiers": [
+        "License :: OSI Approved :: Apache Software License"
+      ]
+    },
+    {
+      "name": "uv",
+      "version": "0.11.1",
+      "license_expression": "MIT OR Apache-2.0",
+      "license": null,
+      "classifiers": []
+    }
+  ],
+  "npm_packages": [
+    {
+      "path": "node_modules/@fission-ai/openspec",
+      "version": "1.13.1",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/@inquirer/ansi",
+      "version": "2.1.0",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/@inquirer/checkbox",
+      "version": "5.3.0",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/@inquirer/checkbox/node_modules/@inquirer/core",
+      "version": "12.1.0",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/@inquirer/checkbox/node_modules/mute-stream",
+      "version": "4.0.0",
+      "license": "ISC"
+    },
+    {
+      "path": "node_modules/@inquirer/confirm",
+      "version": "6.4.0",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/@inquirer/confirm/node_modules/@inquirer/core",
+      "version": "12.1.0",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/@inquirer/confirm/node_modules/mute-stream",
+      "version": "4.0.0",
+      "license": "ISC"
+    },
+    {
+      "path": "node_modules/@inquirer/core",
+      "version": "11.2.1",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/@inquirer/editor",
+      "version": "5.4.0",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/@inquirer/editor/node_modules/@inquirer/core",
+      "version": "12.1.0",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/@inquirer/editor/node_modules/mute-stream",
+      "version": "4.0.0",
+      "license": "ISC"
+    },
+    {
+      "path": "node_modules/@inquirer/expand",
+      "version": "5.2.0",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/@inquirer/expand/node_modules/@inquirer/core",
+      "version": "12.1.0",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/@inquirer/expand/node_modules/mute-stream",
+      "version": "4.0.0",
+      "license": "ISC"
+    },
+    {
+      "path": "node_modules/@inquirer/external-editor",
+      "version": "3.1.0",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/@inquirer/figures",
+      "version": "2.1.0",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/@inquirer/input",
+      "version": "5.2.0",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/@inquirer/input/node_modules/@inquirer/core",
+      "version": "12.1.0",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/@inquirer/input/node_modules/mute-stream",
+      "version": "4.0.0",
+      "license": "ISC"
+    },
+    {
+      "path": "node_modules/@inquirer/number",
+      "version": "4.3.0",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/@inquirer/number/node_modules/@inquirer/core",
+      "version": "12.1.0",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/@inquirer/number/node_modules/mute-stream",
+      "version": "4.0.0",
+      "license": "ISC"
+    },
+    {
+      "path": "node_modules/@inquirer/password",
+      "version": "5.3.0",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/@inquirer/password/node_modules/@inquirer/core",
+      "version": "12.1.0",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/@inquirer/password/node_modules/mute-stream",
+      "version": "4.0.0",
+      "license": "ISC"
+    },
+    {
+      "path": "node_modules/@inquirer/prompts",
+      "version": "8.8.0",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/@inquirer/rawlist",
+      "version": "5.4.0",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/@inquirer/rawlist/node_modules/@inquirer/core",
+      "version": "12.1.0",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/@inquirer/rawlist/node_modules/mute-stream",
+      "version": "4.0.0",
+      "license": "ISC"
+    },
+    {
+      "path": "node_modules/@inquirer/search",
+      "version": "4.4.0",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/@inquirer/search/node_modules/@inquirer/core",
+      "version": "12.1.0",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/@inquirer/search/node_modules/mute-stream",
+      "version": "4.0.0",
+      "license": "ISC"
+    },
+    {
+      "path": "node_modules/@inquirer/select",
+      "version": "5.3.0",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/@inquirer/select/node_modules/@inquirer/core",
+      "version": "12.1.0",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/@inquirer/select/node_modules/mute-stream",
+      "version": "4.0.0",
+      "license": "ISC"
+    },
+    {
+      "path": "node_modules/@inquirer/type",
+      "version": "4.3.0",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/@nodelib/fs.scandir",
+      "version": "2.1.5",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/@nodelib/fs.stat",
+      "version": "2.0.5",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/@nodelib/fs.walk",
+      "version": "1.2.8",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/ansi-regex",
+      "version": "6.6.0",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/braces",
+      "version": "3.0.3",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/chalk",
+      "version": "5.6.2",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/chardet",
+      "version": "2.2.0",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/cli-cursor",
+      "version": "5.0.0",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/cli-spinners",
+      "version": "3.4.0",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/cli-width",
+      "version": "4.1.0",
+      "license": "ISC"
+    },
+    {
+      "path": "node_modules/commander",
+      "version": "14.0.3",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/cross-spawn",
+      "version": "7.0.6",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/diff",
+      "version": "9.0.0",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "path": "node_modules/fast-glob",
+      "version": "3.3.3",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/fast-string-truncated-width",
+      "version": "3.0.3",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/fast-string-width",
+      "version": "3.0.2",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/fast-wrap-ansi",
+      "version": "0.2.2",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/fastq",
+      "version": "1.20.3",
+      "license": "ISC"
+    },
+    {
+      "path": "node_modules/fill-range",
+      "version": "7.1.1",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/get-east-asian-width",
+      "version": "1.7.0",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/glob-parent",
+      "version": "5.1.2",
+      "license": "ISC"
+    },
+    {
+      "path": "node_modules/iconv-lite",
+      "version": "0.7.3",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/is-extglob",
+      "version": "2.1.1",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/is-glob",
+      "version": "4.0.3",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/is-interactive",
+      "version": "2.0.0",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/is-number",
+      "version": "7.0.0",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/is-unicode-supported",
+      "version": "2.1.0",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/isexe",
+      "version": "2.0.0",
+      "license": "ISC"
+    },
+    {
+      "path": "node_modules/log-symbols",
+      "version": "7.0.1",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/merge2",
+      "version": "1.4.1",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/micromatch",
+      "version": "4.0.8",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/mimic-function",
+      "version": "5.0.1",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/mute-stream",
+      "version": "3.0.0",
+      "license": "ISC"
+    },
+    {
+      "path": "node_modules/onetime",
+      "version": "7.0.0",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/ora",
+      "version": "9.4.1",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/path-key",
+      "version": "3.1.1",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/picomatch",
+      "version": "2.3.2",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/queue-microtask",
+      "version": "1.2.3",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/restore-cursor",
+      "version": "5.1.0",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/reusify",
+      "version": "1.1.0",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/run-parallel",
+      "version": "1.2.0",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/safer-buffer",
+      "version": "2.1.2",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/shebang-command",
+      "version": "2.0.0",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/shebang-regex",
+      "version": "3.0.0",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/signal-exit",
+      "version": "4.1.0",
+      "license": "ISC"
+    },
+    {
+      "path": "node_modules/stdin-discarder",
+      "version": "0.3.2",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/string-width",
+      "version": "8.3.0",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/strip-ansi",
+      "version": "7.2.0",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/to-regex-range",
+      "version": "5.0.1",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/which",
+      "version": "2.0.2",
+      "license": "ISC"
+    },
+    {
+      "path": "node_modules/yaml",
+      "version": "2.9.1",
+      "license": "ISC"
+    },
+    {
+      "path": "node_modules/yoctocolors",
+      "version": "2.2.0",
+      "license": "MIT"
+    },
+    {
+      "path": "node_modules/zod",
+      "version": "4.6.7",
+      "license": "MIT"
+    }
+  ],
+  "notes": [
+    "Python license inspection: 50 installed distributions, plus 2 hash-verified Windows wheels.",
+    "pywin32 metadata license PSF is incomplete: bundled adodbapi contains LGPL-2.1 license text; other bundled components have BSD-style, MIT, and Scintilla terms. LGPL only-versus-or-later applicability was not established.",
+    "Npm licenses are package-lock metadata only; embedded native component licenses were not exhaustively audited.",
+    "The current build-tool resolution is a dated sample, not a project build lock.",
+    "Advisory counts merge IDs and aliases but do not assert independent exploit chains."
+  ]
+}

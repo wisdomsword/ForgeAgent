@@ -32,8 +32,8 @@ key/base URL 配置见下方“多模型支持”和“配置”说明。首次�
 开发与 CI 使用 `@fission-ai/openspec@1.13.1`：
 
 ```bash
-npm install --global @fission-ai/openspec@1.13.1
-openspec validate --all --strict
+npm ci --prefix tools/openspec --ignore-scripts --no-audit --no-fund
+tools/openspec/node_modules/.bin/openspec validate --all --strict
 ```
 
 ForgeAgent `0.1.0` 仍是 Release Candidate，正式发布暂缓；尚未上传 PyPI，也未创建
@@ -42,7 +42,7 @@ ForgeAgent `0.1.0` 仍是 Release Candidate，正式发布暂缓；尚未上传 
 [正式发布门禁](docs/releases/0.1.0.md)。
 
 持续验证入口为 [GitHub Actions](.github/workflows/verify.yml) 与
-[GitLab CI](.gitlab-ci.yml)，运行离线门禁、十项零跳过 Linux Docker 集成与六项安装后冒烟。
+[GitLab CI](.gitlab-ci.yml)，运行离线门禁、依赖漏洞扫描、十项零跳过 Linux Docker 集成与六项安装后冒烟。
 [GitHub CI 运行记录](https://github.com/wisdomsword/ForgeAgent/actions/runs/44272935741)
 验证提交 `bde9d22`；平台范围见[平台支持](docs/platform-support.md)。
 

@@ -67,3 +67,5 @@ __pycache__/
 /.comet/*
 !/.comet/config.yaml
 # <<< Comet managed project state <<<
+
+/tools/openspec/node_modules/

@@ -6,7 +6,7 @@ GitHub 仓库包含 ForgeAgent 源码、提示词、内置模型声明、测试�
 | 内容 | 是否必需 | 来源与用途 |
 |---|---|---|
 | Python ≥3.11 | 是 | 运行时；CI 验证 Python 3.11.15 |
-| uv | 推荐 | 安装锁定依赖与构建；CI 使用 0.11.1 |
+| uv | 推荐 | 安装锁定依赖与构建；CI 使用 0.13.4 |
 | Python 依赖 | 是 | `pyproject.toml` 声明八个直接依赖，`uv.lock` 固定完整依赖图 |
 | 模型服务、账号与 Key | 真实任务需要 | 使用者自备；仅提交环境变量名称与无密钥配置示例 |
 | Docker | container 档位需要 | 使用者安装并启动；worker 默认镜像 `python:3.11-slim` |
@@ -29,7 +29,21 @@ uv run forgeagent --help
 uv run forgeagent models
 ```
 
-只安装运行时依赖可用 `uv sync --locked --no-dev`。构建 wheel/sdist 用 `uv build`。
+只安装运行时依赖可用 `uv sync --locked --no-dev`。构建 wheel/sdist 用 `uv build`，
+uv 从 `pyproject.toml` 读取构建后端及传递依赖的版本约束。
+
+用 pip 安装本地 wheel 时，可以从同一提交的锁文件导出经过依赖扫描的运行时解析结果。
+请在新环境中运行：
+
+```bash
+mkdir -p artifacts
+uv export --locked --no-dev --no-emit-project --no-hashes --no-annotate \
+  -o artifacts/runtime-constraints.txt
+python -m pip install -c artifacts/runtime-constraints.txt dist/forgeagent-0.1.0-py3-none-any.whl
+```
+
+该约束文件用于固定版本。通过源代码安装时，优先用 `uv sync --locked` 保留锁文件的哈希校验。
+
 依赖需要从包索引下载，当前不提供离线依赖包或完整系统镜像。首次使用真实任务前，
 按 [模型客户端契约](model-client-contract.md) 设置凭据与路由；自定义网关可参考
 [`examples/gateway/`](../examples/gateway/)。示例只包含环境变量名称，没有可用凭据。
@@ -39,9 +53,12 @@ uv run forgeagent models
 规格维护工具安装命令：
 
 ```bash
-npm install --global @fission-ai/openspec@1.13.1
-openspec validate --all --strict
+npm ci --prefix tools/openspec --ignore-scripts --no-audit --no-fund
+tools/openspec/node_modules/.bin/openspec validate --all --strict
 ```
+
+`tools/openspec/package-lock.json` 锁定完整工具树。已知 picomatch 通告的处理和
+复查期限见[整改记录](security/dependency-remediation-2026-11-18.md)。
 
 需要 Docker 集成时，先启动 Docker，再执行：
 

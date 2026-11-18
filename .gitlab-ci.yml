@@ -15,6 +15,22 @@ cache:
   paths:
     - .cache/uv
 
+dependency-security:
+  stage: verify
+  image: node:22.22.0-bookworm-slim
+  tags:
+    - docker-privileged
+  timeout: 10m
+  before_script:
+    - apt-get update && apt-get install -y --no-install-recommends python3 python3-pip ca-certificates
+    - python3 -m pip install --break-system-packages --no-cache-dir -r tools/ci-requirements.txt
+  script:
+    - python3 scripts/audit_dependencies.py
+  artifacts:
+    when: always
+    paths:
+      - artifacts/ci/dependency-audit/
+
 offline-verification:
   stage: verify
   image: node:22.22.0-bookworm-slim
@@ -22,8 +38,8 @@ offline-verification:
     - docker-privileged
   before_script:
     - apt-get update && apt-get install -y --no-install-recommends python3 python3-pip python3-venv git ca-certificates curl jq gosu
-    - python3 -m pip install --break-system-packages --no-cache-dir uv==0.11.1
-    - npm install --global @fission-ai/openspec@1.13.1
+    - python3 -m pip install --break-system-packages --no-cache-dir -r tools/ci-requirements.txt
+    - npm ci --prefix tools/openspec --ignore-scripts --no-audit --no-fund
     - chown -R node:node "$CI_PROJECT_DIR"
     - gosu node uv sync --locked
   script:
@@ -32,7 +48,7 @@ offline-verification:
     - gosu node uv run ruff format --check .
     - gosu node uv run pytest -q
     - gosu node uv run python -m tests.golden.runner --output-dir artifacts/ci/golden
-    - gosu node openspec validate --all --strict
+    - gosu node tools/openspec/node_modules/.bin/openspec validate --all --strict
     - gosu node uv build --out-dir dist
   artifacts:
     when: always
@@ -54,7 +70,7 @@ linux-docker-container:
     - docker-privileged
   before_script:
     - apk add --no-cache python3 py3-pip git su-exec
-    - python3 -m pip install --break-system-packages --no-cache-dir uv==0.11.1
+    - python3 -m pip install --break-system-packages --no-cache-dir -r tools/ci-requirements.txt
     - uv sync --locked
     - mkdir -p artifacts/ci "$TMPDIR"
     - adduser -D -u 1000 forgeagent

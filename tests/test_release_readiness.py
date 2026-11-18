@@ -15,7 +15,16 @@ REPORT = "docs/superpowers/reports/2026-11-18-fix-github-release-readiness-verif
 def test_github_ci_requires_offline_and_docker_gates_without_publishing() -> None:
     ci = yaml.safe_load((ROOT / ".github/workflows/verify.yml").read_text())
     assert ci["permissions"] == {"contents": "read"}
-    assert set(ci["jobs"]) == {"offline-verification", "linux-docker-container"}
+    assert set(ci["jobs"]) == {
+        "dependency-security",
+        "offline-verification",
+        "linux-docker-container",
+    }
+    security = ci["jobs"]["dependency-security"]
+    assert security.get("continue-on-error") is not True
+    assert any(
+        "python scripts/audit_dependencies.py" in s.get("run", "") for s in security["steps"]
+    )
     offline = ci["jobs"]["offline-verification"]
     docker = ci["jobs"]["linux-docker-container"]
     for job in (offline, docker):
@@ -26,8 +35,8 @@ def test_github_ci_requires_offline_and_docker_gates_without_publishing() -> Non
         assert artifacts and all(step["if"] == "always()" for step in artifacts)
     offline_script = "\n".join(step.get("run", "") for step in offline["steps"])
     for command in (
-        "uv==0.11.1",
-        "@fission-ai/openspec@1.13.1",
+        "-r tools/ci-requirements.txt",
+        "npm ci --prefix tools/openspec --ignore-scripts",
         "uv sync --locked",
         "uv run ruff check .",
         "uv run ruff format --check .",

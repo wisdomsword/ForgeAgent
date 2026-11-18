@@ -11,7 +11,8 @@ uv run ruff check .
 uv run ruff format --check .
 uv run pytest -q
 uv run python -m tests.golden.runner
-openspec validate --all --strict
+npm ci --prefix tools/openspec --ignore-scripts --no-audit --no-fund
+tools/openspec/node_modules/.bin/openspec validate --all --strict
 uv build
 ```
 
@@ -26,3 +27,6 @@ Docker 集成需要运行中的 Docker 和本地 `python:3.11-slim` 镜像；没
 不要把 Key、个人配置、真实用户输入或原始响应提交到仓库。验收输出默认进入忽略的
 `artifacts/`，公开报告需要人工检查后另行整理。依赖变更应同时提交 `pyproject.toml`
 和 `uv.lock`；不要提交虚拟环境、下载的 SDK 源码或 Docker 镜像。
+
+依赖版本、构建约束或 OpenSpec 锁文件变更后，运行 `uv run --locked python scripts/audit_dependencies.py`。
+该检查联网查询 PyPI、OSV 和 npm，报告写入 `artifacts/ci/dependency-audit/`。

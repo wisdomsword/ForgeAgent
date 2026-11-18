@@ -315,6 +315,6 @@ def test_m22_adds_no_runtime_dependency() -> None:
         "rich>=13.0,<16",
         "pyyaml>=6.0,<7",
         "openai>=2.24,<3",
-        "mcp>=1.28.1,<2",
+        "mcp>=1.30.0,<2",
         "prompt-toolkit>=3.0,<4",
     }

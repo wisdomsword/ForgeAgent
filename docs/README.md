@@ -33,6 +33,8 @@
 
 ## 评审与治理
 
+- [依赖漏洞与许可证审计](security/dependency-audit-2026-11-18.md)：2026-11-18 锁定依赖、CI 工具链与分发义务检查；记录整改前基线及修复候选。
+- [依赖整改记录](security/dependency-remediation-2026-11-18.md)：升级、持续扫描与 OpenSpec 剩余通告。
 - [治理综合清单](reviews/2026-07-30-agent开发指南评审-综合借鉴清单与任务开发流程.md)：Prompt/Skill、Memory 和 Rewrite 的立项模板及条件触发规则。
 - [治理借鉴清单](reviews/2026-07-30-agent开发指南评审-借鉴清单.md)：当前借鉴结论和基线标识。
 - [M45 对账报告](reviews/2026-08-01-m45-m29-m38-artifact-reconciliation.md)：历史工件恢复、拒绝项和当前祖先链证据。

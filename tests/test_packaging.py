@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 import tarfile
+import zipfile
 from pathlib import Path
 
 
@@ -58,6 +59,13 @@ def test_wheel_and_sdist_release_contents(tmp_path):
     assert len(wheels) == 1
     assert len(sdists) == 1
 
+    with zipfile.ZipFile(wheels[0]) as wheel:
+        for notice in ("LICENSE", "THIRD_PARTY_NOTICES.md"):
+            assert (
+                wheel.read(f"forgeagent-0.1.0.dist-info/licenses/{notice}")
+                == (repo_root / notice).read_bytes()
+            )
+
     with tarfile.open(sdists[0]) as tar:
         names = tar.getnames()
     archive_roots = {name.split("/", 1)[0] for name in names}
@@ -69,6 +77,7 @@ def test_wheel_and_sdist_release_contents(tmp_path):
     allowed_roots = {
         ".gitignore",
         "LICENSE",
+        "THIRD_PARTY_NOTICES.md",
         "src",
         "pyproject.toml",
         "README.md",
@@ -79,6 +88,7 @@ def test_wheel_and_sdist_release_contents(tmp_path):
     assert {
         ".gitignore",
         "LICENSE",
+        "THIRD_PARTY_NOTICES.md",
         "pyproject.toml",
         "README.md",
         "uv.lock",

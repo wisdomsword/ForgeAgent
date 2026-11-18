@@ -37,6 +37,11 @@ def _allows_failure(value: object) -> bool:
 
 def test_required_ci_jobs_cover_all_gates() -> None:
     ci = _ci()
+    security = ci["dependency-security"]
+    assert security["stage"] == "verify"
+    assert security.get("allow_failure") is not True
+    assert "python3 scripts/audit_dependencies.py" in _script(security)
+    assert security["artifacts"]["when"] == "always"
     offline = ci["offline-verification"]
     docker = ci["linux-docker-container"]
     assert offline["stage"] == docker["stage"] == "verify"
@@ -48,8 +53,8 @@ def test_required_ci_jobs_cover_all_gates() -> None:
     assert {"artifacts/ci/golden/", "dist/"} <= set(offline["artifacts"]["paths"])
     offline_script = _script(offline)
     for expected in (
-        "uv==0.11.1",
-        "@fission-ai/openspec@1.13.1",
+        "-r tools/ci-requirements.txt",
+        "npm ci --prefix tools/openspec --ignore-scripts",
         "--break-system-packages",
     ):
         assert expected in offline_script
@@ -73,7 +78,7 @@ def test_docker_job_requires_preflight_and_zero_skip_junit() -> None:
     assert docker["variables"]["DOCKER_TLS_CERTDIR"] == ""
     assert docker["variables"]["TMPDIR"] == "$CI_PROJECT_DIR/.tmp"
     assert "docker-privileged" in docker["tags"]
-    assert "uv==0.11.1" in _script(docker)
+    assert "-r tools/ci-requirements.txt" in _script(docker)
     assert "--break-system-packages" in _script(docker)
     assert docker["artifacts"]["reports"]["junit"] == ("artifacts/ci/container-junit.xml")
     assert "artifacts/ci/container-junit.xml" in docker["artifacts"]["paths"]

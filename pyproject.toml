@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Lightweight code-as-action agent: the LLM writes Python programs and completes tasks by executing them."
 readme = "README.md"
 license = "MIT"
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
 requires-python = ">=3.11"
 dependencies = [
     "pydantic>=2.0,<3",
@@ -12,7 +13,7 @@ dependencies = [
     "rich>=13.0,<16",
     "pyyaml>=6.0,<7",
     "openai>=2.24,<3",
-    "mcp>=1.28.1,<2",
+    "mcp>=1.30.0,<2",
     "prompt-toolkit>=3.0,<4",
 ]
 
@@ -26,8 +27,17 @@ dev = [
 ]
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling==1.33.0"]
 build-backend = "hatchling.build"
+
+[tool.uv]
+build-constraint-dependencies = [
+    "packaging==26.3",
+    "pathspec==1.1.1",
+    "pluggy==1.7.0",
+    "tomlkit==0.15.2",
+    "trove-classifiers==2026.9.21.13",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/forgeagent"]
