@@ -1005,11 +1005,11 @@ def test_main_returns_two_for_incomplete_aggregate(tmp_path: Path, monkeypatch) 
 
 
 def test_m23_public_docs_link_valid_v2_and_disclose_invalid_batch() -> None:
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    history = (ROOT / "docs/history/readme-milestones.md").read_text(encoding="utf-8")
     action_plan = (ROOT / "ACTION_PLAN.md").read_text(encoding="utf-8")
     milestone = (ROOT / "milestones" / "milestone_023.md").read_text(encoding="utf-8")
 
-    for text in (readme, action_plan, milestone):
+    for text in (history, action_plan, milestone):
         normalized = " ".join(text.split())
         assert "docs/evaluation/m23/protocol.json" in text
         assert "2026-07-27-haiku-4-5-invalid-8dbebff/INVALID.md" in text

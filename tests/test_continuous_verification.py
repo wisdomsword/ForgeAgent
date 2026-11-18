@@ -139,7 +139,8 @@ def test_platform_matrix_and_public_docs_are_linked() -> None:
         assert "docs/platform-support.md" in text
     assert readme.count("## 当前验证") == 1
     current_section = readme.split("## 当前验证", 1)[1].split("\n## ", 1)[0]
-    assert "M28 required Linux Docker CI 运行" in current_section
+    assert "十项零跳过 Linux Docker 集成" in current_section
+    assert "github.com/wisdomsword/ForgeAgent/actions/runs/" in current_section
     assert "Linux Docker runner topology (M24 历史 container 运行)" in matrix
     assert "Linux amd64/arm64" not in current_section
     assert "Linux GitLab CI 已 verified" not in current_section

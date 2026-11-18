@@ -42,6 +42,8 @@
 
 ## 历史资料
 
+- [README 迁出的开发历史](history/readme-milestones.md)：里程碑进度、历史评估数字和验收入口；不作为当前使用说明。
+
 - [`openspec/changes/archive/`](../openspec/changes/archive/)：已完成并归档的变更；归档状态是生命周期证据，不是当前待办。
 - [`docs/reviews/`](reviews/)：历史评审和借鉴记录；若与当前入口冲突，以 `spec.md`、`ACTION_PLAN.md` 和 `milestones/latest` 为准。
 - [`docs/evaluation/`](evaluation/)：历史评估原始数据和报告；不得把单次结果外推为产品承诺。

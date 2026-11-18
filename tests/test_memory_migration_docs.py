@@ -24,10 +24,10 @@ def test_memory_migration_runbook_covers_bounded_operations():
 
 
 def test_memory_migration_is_linked_from_project_entry_points():
+    assert (ROOT / "docs/memory-migration.md").is_file()
     for relative in ("README.md", "docs/threat-model.md"):
         text = (ROOT / relative).read_text(encoding="utf-8")
         assert "docs/memory-migration.md" in text, relative
-        assert "M42" in text, relative
 
 
 def test_memory_migration_runbook_links_the_existing_governance_gate():

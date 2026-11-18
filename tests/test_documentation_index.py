@@ -44,6 +44,21 @@ def test_documentation_index_local_links_resolve() -> None:
         assert resolved.exists(), f"broken local link in documentation index: {target}"
 
 
+def test_readme_keeps_milestones_in_linked_history() -> None:
+    readme = _read(ROOT / "README.md")
+    history = ROOT / "docs" / "history" / "readme-milestones.md"
+    assert not re.search(r"\bM\d+\b", readme)
+    assert "docs/history/readme-milestones.md" in readme
+    assert "history/readme-milestones.md" in _read(INDEX)
+    text = _read(history)
+    for marker in ("历史", "M21", "M22", "M23", "M25", "M27"):
+        assert marker in text
+    for target in LINK.findall(text):
+        if "://" in target or target.startswith(("#", "mailto:")):
+            continue
+        assert (history.parent / target.split("#", 1)[0]).resolve().exists(), target
+
+
 def test_documentation_index_tracks_latest_complete_milestone() -> None:
     latest_name = _read(ROOT / "milestones" / "latest").strip()
     assert re.fullmatch(r"milestone_\d{3}\.md", latest_name)

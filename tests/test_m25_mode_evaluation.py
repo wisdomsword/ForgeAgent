@@ -1385,7 +1385,7 @@ def test_m25_public_docs_and_milestone_publish_verified_evidence() -> None:
     run_root = evidence_root / "runs" / "2026-07-27-haiku-4-5-gpt-5-4-mini"
     milestone = ROOT / "milestones" / "milestone_025.md"
     public_paths = (
-        ROOT / "README.md",
+        ROOT / "docs/history/readme-milestones.md",
         ROOT / "ACTION_PLAN.md",
         evidence_root / "README.md",
         milestone,

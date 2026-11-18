@@ -8,6 +8,7 @@ is evaluated independently.
 
 | Platform tuple | Priority | Status | Prerequisites | Current evidence | Limitations | Next Comet trigger |
 | --- | --- | --- | --- | --- | --- | --- |
+| GitHub Actions Ubuntu 24.04 x86_64 + Docker Engine 28.0.4 | P0 | verified | GitHub-hosted runner, built-in daemon, same-host bind mounts and non-root execution | [Run 44272935741](https://github.com/wisdomsword/ForgeAgent/actions/runs/44272935741), commit bde9d22: both jobs passed; 10 zero-skip container tests and six installed-wheel checks; [evidence](superpowers/reports/2026-11-18-github-ci-verify.md) | This exact runner tuple and candidate only; later commits require their own run | Candidate, runner, image or workflow changes |
 | M28 installed-wheel gate on required Linux Docker job | P0 | verified | Existing privileged Docker runner topology, Python 3.11 image, package-index access, non-root execution, exact candidate wheel, and both evidence artifacts | M28 required Linux Docker CI 运行: 10 container tests and all six installed-wheel checks passed; JUnit and `artifacts/ci/rc-smoke.json` published | The record proves only this runner topology and candidate; every later candidate commit must pass its own required pipeline | Candidate, runner topology, image, or gate contract changes |
 | Linux Docker runner topology (M24 历史 container 运行) | P0 | verified | Linux Docker runner with Docker daemon, shared build volume, non-root job execution, and the checked-in JUnit contract | GitLab M24 历史 container 运行: 10 passed, 0 skipped, 0 failures, 0 errors; JUnit artifact generated | The record proves this runner topology only; it does not establish unrecorded Linux architectures, Podman, Windows, or every Linux executor | Any runner topology change, or a DinD/container contract failure |
 | Linux + rootless Podman | P1 | scheduled | Product decision to support Podman; compatible CLI/mount/network/pids/user/kill semantics | No execution evidence | Current backend commands and hardening flags target Docker | Podman becomes a release target or a compatibility spike is scheduled |
@@ -17,8 +18,10 @@ is evaluated independently.
 The current GitHub Actions workflow is [verify.yml](../.github/workflows/verify.yml).
 Its Ubuntu 24.04 host uses the built-in Docker daemon and same-host bind mounts, runs as
 an unprivileged user, enforces exactly ten integration tests with zero skips/failures/errors,
-and executes all six installed-wheel smoke checks. This topology is `configured` until
-an actual candidate run supplies artifacts; historical GitLab results do not verify it.
+and executes all six installed-wheel smoke checks. This topology is now `verified`
+for commit `bde9d22` by [its actual GitHub run](https://github.com/wisdomsword/ForgeAgent/actions/runs/44272935741)
+and downloaded JUnit/smoke artifacts. Historical GitLab results remain separate evidence;
+later candidates must pass their own workflow run.
 
 The required offline job also remains defined in [`.gitlab-ci.yml`](../.gitlab-ci.yml). It runs Ruff
 check/format, the complete offline pytest suite, Golden 20/20, OpenSpec strict validation,

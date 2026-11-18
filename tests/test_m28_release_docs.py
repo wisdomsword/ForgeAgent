@@ -167,7 +167,7 @@ def test_readme_keeps_release_candidate_status_until_human_gate_passes() -> None
     assert "正式发布暂缓" in current
     assert "人类实践" in current
     assert "易用性" in current
-    assert "M28 required Linux Docker CI 运行" in current
+    assert "十项零跳过 Linux Docker 集成" in current
     assert "pip install forgeagent==0.1.0" not in current
     assert "对应源码 tag 为" not in current
 

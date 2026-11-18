@@ -99,8 +99,8 @@ def test_readme_limits_session_memory_and_gates_project_persistence() -> None:
         assert fragment in text
 
 
-def test_readme_documents_m22_candidate_readiness_without_weakening_confirmation() -> None:
-    readme = _text("README.md")
+def test_history_documents_candidate_readiness_without_weakening_confirmation() -> None:
+    history = _text("docs/history/readme-milestones.md")
 
     for fragment in (
         "`calc.py` 和 `test_calc.py`",
@@ -110,7 +110,7 @@ def test_readme_documents_m22_candidate_readiness_without_weakening_confirmation
         "Planner 和 restricted `FileWrite`",
         "普通 CLI、Loop 和 HTTP",
     ):
-        assert fragment in readme
+        assert fragment in history
 
     action_plan = _text("ACTION_PLAN.md")
     assert "M22 Candidate 文件就绪门" in action_plan
@@ -219,11 +219,11 @@ def test_readme_current_verification_section_is_unique_and_structured() -> None:
 
 
 def test_m22_closeout_artifacts_record_final_gates() -> None:
-    readme = _text("README.md")
-    assert "M22 Duo/Triad 协作运行时已完成并归档" in readme
-    assert "最终全量验证与归档仍在进行" not in readme
-    assert "milestone_022.md" in readme
-    assert "两次真实模型 Triad" in readme
+    history = _text("docs/history/readme-milestones.md")
+    assert "M22 Duo/Triad 协作运行时已完成并归档" in history
+    assert "最终全量验证与归档仍在进行" not in history
+    assert "milestone_022.md" in history
+    assert "两次真实模型 Triad" in history
 
     action_plan = _text("ACTION_PLAN.md")
     m22_row = next(line for line in action_plan.splitlines() if line.startswith("| **M22**"))
