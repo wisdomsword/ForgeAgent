@@ -10,6 +10,12 @@
 - [`milestones/latest`](../milestones/latest) — 指向最新已完成里程碑文件；当前指针为 `milestone_052.md`。
 - [Agent 治理门禁](agent-governance-gates.md) — Prompt/Skill、Memory、Rewrite/Dependency 和分发边界的 canonical 入口。
 
+## 安装与验收
+
+- [依赖与环境](dependencies.md)：运行时、Docker 与可选开发工具的安装边界。
+- [贡献指南](../CONTRIBUTING.md)：从公开仓库建立环境并运行检查。
+- [真实模型验收](live-model-acceptance.md)：无密钥网关示例、默认预览与显式付费入口。
+
 ## 开发流程
 
 - [行动计划](../ACTION_PLAN.md)：查看当前阶段、前置条件和验证要求。

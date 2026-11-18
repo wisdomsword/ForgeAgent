@@ -1,0 +1,24 @@
+# Conservative acceptance budgets; these are not vendor capability claims.
+# Merge into ~/.forgeagent/models.yaml; keep image generation out of text routing.
+models:
+  glm-5.3-flash:
+    client_kind: openai_compatible
+    context_window: 65536
+    max_output_tokens: 4096
+    supports_thinking: false
+    thinking_always_on: false
+    supports_effort: false
+  deepseek-v4.1-flash-1017:
+    client_kind: openai_compatible
+    context_window: 65536
+    max_output_tokens: 4096
+    supports_thinking: false
+    thinking_always_on: false
+    supports_effort: false
+  glm-5.3-flashx:
+    client_kind: openai_compatible
+    context_window: 65536
+    max_output_tokens: 4096
+    supports_thinking: false
+    thinking_always_on: false
+    supports_effort: false

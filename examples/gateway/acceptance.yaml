@@ -1,0 +1,14 @@
+# Environment variable names only. MAAS_BASE_URL is an HTTPS site root (no /v1).
+api_key_env: MAAS_SD_API_KEY
+base_url_env: MAAS_BASE_URL
+text_models: [glm-5.3-flash, deepseek-v4.1-flash-1017, glm-5.3-flashx]
+image_models: [gpt-image-2.5-flare-c, gpt-image-2.5-sunburst-c]
+generator_model: deepseek-v4.1-flash-1017
+planner_model: glm-5.3-flash
+evaluator_model: glm-5.3-flashx
+context_window: 65536
+max_output_tokens: 4096
+max_requests: 100
+timeout_seconds: 120
+image_path: /v1/images/generations
+image_size: 1024x1024

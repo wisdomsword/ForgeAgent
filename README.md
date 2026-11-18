@@ -185,8 +185,12 @@ cron、launchd 和 systemd 的 user-installed 调用示例见
 ## 安装
 
 ```bash
-uv sync            # 安装依赖（自动拉取合规 Python ≥3.11）
+uv sync --locked   # 按锁文件安装依赖（Python ≥3.11）
 ```
+
+完整环境与可选工具见[依赖说明](docs/dependencies.md)，开发检查见
+[贡献指南](CONTRIBUTING.md)。自定义网关配置与显式付费检查见
+[真实模型验收](docs/live-model-acceptance.md)。
 
 ## 快速开始
 

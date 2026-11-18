@@ -1,0 +1,7 @@
+# Merge this group into your private ~/.forgeagent/config.yaml.
+# MAAS_OPENAI_BASE_URL includes /v1, unlike acceptance.yaml's site-root variable.
+groups:
+  acceptance_gateway:
+    api_key_env: MAAS_SD_API_KEY
+    base_url_env: MAAS_OPENAI_BASE_URL
+    models: [glm-5.3-flash, deepseek-v4.1-flash-1017, glm-5.3-flashx]
